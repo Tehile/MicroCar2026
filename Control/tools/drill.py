@@ -336,7 +336,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -359,7 +359,7 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
@@ -1003,16 +1003,19 @@ def _mouse_sections(base: str, args, sim) -> None:
     rrc, crc, _ = api(base, "/api/v1/timesync/maze_run", "POST",
                       {"target": "RACE"}, timeout=25)
     time.sleep(1.2)
-    # 状态面：spurt 块（前墙双档 + 冲刺）是否读得出
+    # 状态面：spurt 块（冲刺）与 state 里的前墙双档是否读得出
     st, cst, _ = api(base, "/api/v1/mouse/maze/state")
     std = st.get("data") or {}
     sp = std.get("spurt") or {}
+    ss = std.get("state") or {}
     race_ok = crc in (200, 400, 409, 503)   # 400=该档没这命令；409=BUSY；503=没连
     sp_ok = (cst == 200 and isinstance(sp, dict))
-    # 恒等式（有帧才谈得上）：在 spurt 里找 frontNear/frontFar/wallFront
+    # 恒等式（有帧才谈得上）：前墙双档在 **state** 里（`mc.maze.state()` 的
+    # `frontNear`/`frontFar`/`wallFront`），**不在 spurt 里** —— 早先读错了地方，
+    # 于是"恒等式判得了没有"永远是 None（看着像"老固件读不到"，其实是本判据读错了键）。
     ident = None
-    if sp:
-        fn = sp.get("frontNear"); ff = sp.get("frontFar"); wf = sp.get("wallFront")
+    if ss:
+        fn = ss.get("frontNear"); ff = ss.get("frontFar"); wf = ss.get("wallFront")
         if None not in (fn, ff, wf):
             ident = ((fn | ff) == wf) and ((fn & ff) == 0)
     i31_ok = meta_ok and race_ok and sp_ok and (ident is not False)
@@ -1021,11 +1024,45 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"front {len(front)} 项（{list(front.values())[:2]}）；"
            f"`MAZE RUN RACE` HTTP {crc}（{_msg(rrc)[:60]!r}）；"
            f"maze/state.spurt 是 dict={isinstance(sp, dict)}"
-           + (f"；前墙恒等式 {(sp.get('frontNear'), sp.get('frontFar'), sp.get('wallFront'))} ⇒ {ident}"
+           + (f"；前墙恒等式 {(ss.get('frontNear'), ss.get('frontFar'), ss.get('wallFront'))} ⇒ {ident}"
               if ident is not None else "；⚠️ 本次帧里没有前墙三项 ⇒ 恒等式判不了（老固件如实标'读不到'，不当失败）")
            if i31_ok else
            f"**比赛页数据面没守住**：meas/meta HTTP {cmt}（modes={modes} front={front}）"
            f"；RACE HTTP {crc}（{_msg(rrc)[:80]!r}）；state.spurt={sp!r}；恒等式={ident}")
+
+    # ---- I32：「无记忆走迷宫」的前墙双档 + 起点角显示（**数据面**，纯读，不发车）
+    #   ① `maze/state.state` 必须带 `frontNear`/`frontFar`（2.3.0 起）—— 界面靠它区分
+    #      "近端墙（前方最近一个有墙，贴脸，必须处理）"与"远端墙（当前方向下一个判断有墙，提前量）"；
+    #   ② 恒等式 `frontNear | frontFar == wallFront` 且两档互斥（固件组帧的自洽性）；
+    #   ③ 起点约定：固件 `dir` 0..3 = UP/RIGHT/DOWN/LEFT，**发车要求 (0,0) 且朝上(dir=0)**；
+    #      这一条在**纯数据面**只能验"能读到 dir 且码表把 0 叫 UP"，摆车是现场动作。
+    #   ④ 码表 `meas/meta.maze.fronts` 必须零设备访问可用（未连接也能画名字）。
+    head("14f. 判据 I32：无记忆走迷宫的前墙双档（近/远）与起点朝向码表")
+    mz_meta = mtd.get("maze") or {}
+    fronts_tab = mz_meta.get("fronts") or {}
+    dirs_tab = mz_meta.get("dirs") or {}
+    i32_meta_ok = (bool(fronts_tab) and any("近端" in str(v) for v in fronts_tab.values())
+                   and any("远端" in str(v) for v in fronts_tab.values())
+                   and str(dirs_tab.get("0", "")).upper() == "UP")
+    # 数据面：state 里前墙三项与 dir 的可读性（有帧时）
+    i32_state_ok = True
+    note32 = "无帧 ⇒ 只看码表"
+    if ss:
+        has_front_keys = ("frontNear" in ss and "frontFar" in ss)
+        dirv = ss.get("dir")
+        dir_up = (dirv == 0)
+        note32 = (f"state: frontNear={ss.get('frontNear')} frontFar={ss.get('frontFar')} "
+                  f"wallFront={ss.get('wallFront')} dir={dirv}({ss.get('dirName')}) "
+                  f"pos=({ss.get('posX')},{ss.get('posY')}) 恒等式={ident}")
+        # 键必须在（2.3.0 起）；恒等式不得为 False
+        i32_state_ok = has_front_keys and (ident is not False)
+    i32_ok = i32_meta_ok and i32_state_ok
+    record("I32", "PASS" if i32_ok else "FAIL",
+           f"前墙码表 {len(fronts_tab)} 项（{list(fronts_tab.values())}）、"
+           f"dirs[0]={dirs_tab.get('0')!r}；{note32}"
+           if i32_ok else
+           f"**前墙双档 / 起点朝向码表没守住**：maze.fronts={fronts_tab} dirs[0]={dirs_tab.get('0')!r}；{note32}")
+
 
     # ---- 断开，别把模拟器链路留着
     api(base, "/api/v1/mouse/disconnect", "POST", {})
@@ -1914,7 +1951,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

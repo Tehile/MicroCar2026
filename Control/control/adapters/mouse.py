@@ -1575,6 +1575,12 @@ class MouseAdapter:
                 "flags": {str(k): v for k, v in FLAG_NAMES.items()},
                 "junctions": list(JUNCTION_KINDS),
             }
+            # 前墙两档码表（2.3.0）：挂在 maze 下，让「无记忆走迷宫」页在**未连接**时
+            # 也能把两档的名字画出来（与 spurt.front 是同一张表，只是那一页也用它）。
+            # `FRONT_NAMES` 是 2.3.0 才有的符号 ⇒ getattr 兜底（老上游上少这张表不是故障）。
+            from host.protocol import codec as _cd0
+            maze["fronts"] = {str(k): v for k, v in
+                              (getattr(_cd0, "FRONT_NAMES", {}) or {}).items()}
         except Exception as e:                                # noqa: BLE001
             maze = {"error": f"{type(e).__name__}: {e}"}
         try:

@@ -153,6 +153,7 @@ li{margin:.28em 0}
 <li><a href="#1113-88">11.13 「实验 8」右栏的决策差分：8 类判据与它们的上游依据</a></li>
 <li><a href="#1114">11.14 「回放和实时的决策树不一样」：两条来路必须同一个纪元</a></li>
 <li><a href="#1115-230-240">11.15 上游 2.3.0 / 2.4.0 的跟进记录（"取消独立参数标定"与比赛发车）</a></li>
+<li><a href="#1116">11.16 前墙双档显示 + 起点角显示（改版十三）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -407,6 +408,26 @@ li{margin:.28em 0}
 同一条纪律也落到了 <code>drill.py</code>：I22/I27 原写死 <code>== 39</code>（升到 2.3.0 就假红），
 改为与上游 <code>UNIFIED_CHANNELS</code> <strong>逐项相等</strong>。
 细节见 §11.15。</p>
+<p><strong>改版记录 2026-10-07（十三）</strong>：上游 2.4.x/2.3.0 之后的一次<strong>界面语义修正</strong>，
+<strong>只改「无记忆走迷宫」这一页的显示</strong>，布局规则、模块划分与其余子系统<strong>全不变</strong>
+（仍是"入口页只做导航 + 整屏模块界面"，仍是三张卡）。</p>
+<p><strong>① 中栏与左栏要区分"远端墙 / 近端墙"。</strong> 上游 2.3.0 把前墙拆成<strong>互斥</strong>两档
+（恒等式 <code>frontNear | frontFar == wallFront</code>）：
+· <strong>近端墙</strong> = 前方<strong>最近一个</strong>有墙（贴脸，&lt; 80 mm）⇒ "必须处理"（停车 / 转向）；
+· <strong>远端墙</strong> = <strong>当前方向的下一个判断</strong>有墙（80~245 mm，约一格以内）⇒ "提前量"（提前减速）。
+以前界面只有一个 <code>wallFront</code> 布尔 ⇒ 这两种<strong>现场动作完全不同</strong>的情况长得一模一样。
+⇒ 左栏「开口」旁<strong>单列一行</strong>"前墙近/远"，中栏墙图在<strong>车当前格的前边</strong>上按档位换笔
+（近端=加粗暖红实线；远端=短划琥珀），并另出图例；两档与 <code>wallFront</code> 的<strong>恒等式当场验</strong>。</p>
+<p><strong>② 起点必须"左下角、车头朝上"，图上要画得出来。</strong> 上游不变量：发车前电脑鼠
+<strong>必须物理摆在左下角格、车头朝上（<code>dir=0</code> UP）</strong> —— 复位只复位固件、不复位物理位置，
+摆错就按错图走。而本层中栏原先按"<strong>y 向下</strong>"渲染 ⇒ 固件原点 (0,0)（<strong>左下</strong>）
+被画到了<strong>左上</strong>，与"起点在左下"的约定<strong>相反</strong>。⇒ 渲染时把屏幕 y <strong>翻转</strong>
+（<code>PY(y)=(n-1-y)</code>，位掩码的"上/下"同步对调），并在左下角画一个"起点"虚线圈；
+左栏「位置」「朝向」两行顺带标出"在不在起点角""是不是朝上"。详见 §11.16。</p>
+<p><strong>③ 顺带修掉 I31 里一处"读错键"</strong>：恒等式原从 <code>/maze/state</code> 的 <strong><code>spurt</code></strong> 块里取
+<code>frontNear/frontFar</code> —— 而前墙双档在 <strong><code>state</code></strong> 块里（<code>spurt</code> 只有冲刺量）⇒
+这条判据<strong>永远是 <code>None</code></strong>（看着像"老固件读不到"，其实是自己读错了地方＝<strong>假跳过</strong>）。
+同时新增 <strong>I32</strong> 专门守"前墙双档码表 + 起点朝向码表 + 恒等式"。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -4561,6 +4582,109 @@ Flash page 115）—— 那是<strong>生产标定</strong>，上游<strong>一�
 ⇒ 本层取这些纯函数改成"多模块兜底"（<code>lesson.py</code> 取不到就 <code>calc.py</code>），
 <code>lesson_suggest</code> 不再要求 <code>mc.lesson</code> 存在。
 <strong>逻辑一字未改</strong> ⇒ 算参与写回这一路的产品行为不变，判据只需保证"取得着"。</p>
+<hr />
+<h3 id="1116">11.16 前墙双档显示 + 起点角显示（改版十三）</h3>
+<p>上游 2.3.0 把前墙拆成互斥两档之后，本层的「无记忆走迷宫」页有一处<strong>显示语义缺失</strong>
+和一处<strong>坐标系画反</strong>。两件都在这一轮修掉。</p>
+<h4 id="_40">一、语义：远端墙 / 近端墙到底是什么</h4>
+<p>上游 <code>link.c</code> 组帧时按同一组阈值把 <code>wallSns.front</code> 派生为互斥两档
+（<code>docs/前墙双档与比赛状态接口设计方案.md</code> §2.1）：</p>
+<pre><code>frontNear = front &amp;&amp; min(f1,f2) &lt;  IRTHRFNEAR(默认 80mm)   # 贴脸: 必须处理
+frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 一格以内看到墙
+恒等式: frontNear | frontFar == wallFront, 且两者互斥
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>档</th>
+<th>用户的话</th>
+<th>物理含义</th>
+<th>现场动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>近端墙</strong> <code>frontNear</code></td>
+<td>"前方<strong>最近一个</strong>有墙"</td>
+<td>墙已进车头 80 mm 内</td>
+<td>停车 / 定位 / 转向（<strong>必须处理</strong>）</td>
+</tr>
+<tr>
+<td><strong>远端墙</strong> <code>frontFar</code></td>
+<td>"<strong>当前方向的下一个判断</strong>有墙"</td>
+<td>约一格以内（80~245 mm）看到墙</td>
+<td>提前减速（<strong>提前量</strong>）</td>
+</tr>
+</tbody>
+</table>
+<p>⇒ 两档对应的<strong>下一步动作不同</strong>，界面必须分开画。本层三处落点：</p>
+<ol>
+<li><strong>左栏「开口」旁单列一行</strong> <code>前墙近/远</code>：写"近端 / 远端 / 无"，并<strong>当场验恒等式</strong>
+   （对不上写"不成立"；两档同时置位写"矛盾"）——固件自相矛盾时界面唯一能做的是喊一声。</li>
+<li><strong>中栏墙图</strong>：在<strong>车当前格的前边</strong>上按档换笔 —— 近端=加粗暖红实线、远端=短划琥珀，
+   并另出图例（<strong>只在真的画了那条线时才出图例</strong>，老上游读不到就不出）。
+   ⚠️ 这两档是<strong>传感器读数</strong>、不是地图属性 ⇒ <strong>只画当前格那一道边</strong>，
+   <strong>不写进 <code>known</code>/<code>wall</code> 位掩码</strong>（写进去就变成"地图里的一堵墙"，而那堵墙可能还没进格）。</li>
+<li><strong>中栏小字</strong>再报一次"这一帧读到的是哪一档"（读不到就如实写"本机无此量"）。</li>
+</ol>
+<p>⚠️ <strong>三态</strong>：老上游（≤2.2.1）帧里<strong>没有</strong> <code>frontNear</code>/<code>frontFar</code> 两个通道 ⇒
+前端取到的是 <code>undefined</code>（<strong>不是 0</strong>）。⇒ 一律写 <code>—（本机无此量）</code>，
+<strong>不许</strong>画成"无墙"（"确认没有"与"读不到"是两件事）。</p>
+<h4 id="y-y">二、坐标系：固件 y 向上、画布 y 向下 ⇒ 必须翻一次</h4>
+<p><strong>固件的格坐标 y 向上增大</strong>：<code>STRATEGY/maze.c</code> 的 <code>MAZE_CoorUpdateFast()</code> 里
+<code>mouseDirection=0</code>(UP) 时 <code>mazeState.mousePos.cY += num</code> ⇒ <strong>原点 (0,0) 在左下角</strong>，
+与"发车前把车摆在左下角、车头朝上"的现场约定一致。</p>
+<p>而本层 <code>control/maze_rec.py</code> 的 <code>_STEP</code> 表把 UP 映成 <code>dy=-1</code>（"数组上一行"，
+与上游 <code>decode_map</code> 的行主序一致）⇒ 落盘数组的行号是<strong>固件 y 的镜像</strong>。
+<strong>旧渲染</strong>按"y 向下"直接画（<code>PY(y)=y0+y*cs</code>）⇒ 抵消了那次镜像，拓扑是对的，
+但 (0,0) 落在<strong>画面左上</strong> —— 与"起点在左下"的约定<strong>看起来相反</strong>，
+现场据此会误判"车摆错了"。</p>
+<p><strong>修法</strong>：渲染时<strong>显式翻转屏幕 y</strong>（<code>draw.js</code> 的 <code>PY(y)=y0+(n-1-y)*cs</code>），
+并同步对调位掩码的"上/下"对应：
+- bit0（上/N，+Y）= 该格屏幕<strong>顶边</strong> = <code>PY(y+1)</code>；
+- bit2（下/S，−Y）= 屏幕<strong>底边</strong> = <code>PY(y)</code>；
+- 前墙那道边同理（d=0 取顶边、d=2 取底边）。</p>
+<p>再在左下角画一个 <strong>"起点"虚线圈</strong>（约定，不压任何读数），左栏「位置」标"（起点角）"、
+「朝向」在非 UP 时标"（起点要求朝上）"。</p>
+<p>⚠️ <strong>这是一次"自洽但方向反"的错</strong>：两种画法拓扑都对、都不会报错、判据也不红 ——
+只有把"车上标的起点"与"图上起点圈"对起来看才发现。⇒ 判据 <strong>I32</strong> 守数据面
+（前墙双档码表 + <code>dirs[0]=UP</code> + 恒等式），<strong>画法</strong>由 <code>browser_check</code> 的 B34x 守
+（图上真的画出了起点圈与前墙档位）。</p>
+<h4 id="_41">三、本轮工具改动</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/static/views/draw.js</code></td>
+<td><code>maze()</code>：屏幕 y 翻转；位掩码上/下对调；新增前墙双档画法与图例；新增起点角虚线圈 + "起点"标注</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_maze8.js</code></td>
+<td>左栏新增「前墙近/远」行（含恒等式当场验）；「位置」标"（起点角）"、「朝向」标"（起点要求朝上）"；中栏把 <code>front</code> 传给 <code>draw.maze</code>，小字报档位</td>
+</tr>
+<tr>
+<td><code>control/adapters/mouse.py</code></td>
+<td><code>meas_meta().maze</code> 增 <code>fronts</code> 码表（<code>FRONT_NAMES</code>，<code>getattr</code> 兜底）—— 未连接时也能画两档名字</td>
+</tr>
+<tr>
+<td><code>control/maze_rec.py</code></td>
+<td><code>_STEP</code> 注释写清"数组行号是固件 y 的镜像"（<strong>逻辑不变</strong>）</td>
+</tr>
+<tr>
+<td><code>tools/drill.py</code></td>
+<td><strong>I31</strong> 修掉"从 <code>spurt</code> 取前墙三项"的<strong>读错键</strong>（改从 <code>state</code> 取）；<strong>新增 I32</strong>（前墙双档 + 起点朝向码表 + 恒等式）；三处 cid 列表加 <code>"I32"</code></td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code></td>
+<td>B34x 新增：三栏页面图上"起点角"与前墙档位渲染断言（<strong>负向</strong>：老上游读不到时不许画 0/无墙）</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

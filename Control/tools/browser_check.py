@@ -1422,6 +1422,92 @@ async def run(args) -> int:
                    if b36_ok else
                    f"**收车/救援按钮或低电门控不对**：{b36_bad[:3]}")
 
+            # ── B37：无记忆走迷宫 —— **前墙近/远两档**与**起点角**（改版十三） ──
+            # 守的是本轮新加的两件显示：
+            #   ① 左栏必须**单列一行**把前墙拆成"近端 / 远端"（不再是单个"有墙"）——
+            #      两档对应的现场动作不同，只给一个布尔就看不出来；
+            #   ② 中栏图上必须**真的画出"起点"**（左下角虚线圈）—— 起点约定
+            #      "左下角 + 车头朝上"是现场摆车的依据，图上看不到就无从对照。
+            # 做法同 B34/B36：**先把数据钉住**（喂一帧合成的统一帧）⇒ 渲染变确定性，
+            # 否则未连接时左栏只写"未运行"，判据读不到任何东西（第一版就是这样假红）。
+            # 三态（**负向**）：把 `C.state.telemetry.unified` 换成**没有** `frontNear/frontFar`
+            # 的（老上游形状）⇒ 左栏必须写"本机无此量"，**不许**画成"无"。
+            head("2i. 无记忆走迷宫：前墙近/远两档 + 起点角（含负向：老上游无此量）")
+            b37_bad, b37_got = [], []
+            try:
+                # 喂一帧：前墙**近端**（frontNear=1, frontFar=0）+ 起点角 (0,0) + 朝上(dir=0)
+                await cdp.eval(
+                    "(()=>{const T = C.state.telemetry = C.state.telemetry || {};"
+                    "if (T.__b37old === undefined) T.__b37old = T.unified;"
+                    "T.unified = Object.assign({}, T.unified, {"
+                    "  posX:0, posY:0, dir:0, mazeTask:2, road:1,"
+                    "  wallLeft:0, wallFront:1, wallRight:1, frontNear:1, frontFar:0,"
+                    "  frontBoth:1, frontName:'近端(贴脸)', goalX:6, goalY:6,"
+                    "  motionTask:1, motionStep:0, stackIdx:0, fastwayCount:0, flags:0,"
+                    "  speedL:10, speedR:10, gyroAngle:0, encAngle:0,"
+                    "  irF1:40, irF2:45, irL:200, irR:200, battMv:3900});"
+                    "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
+                    "  C.mods.mod_maze8.refresh();})()")
+                await asyncio.sleep(0.4)
+                kv_txt = await cdp.eval(
+                    "(()=>{const b=document.getElementById('m8-kv');"
+                    "return (b?b.innerText:'').replace(/\\s+/g,' ').trim();})()")
+                cv_info = await cdp.eval(
+                    "(()=>{const cv=document.getElementById('m8-cv');"
+                    "return {w: cv?cv.width:0, h: cv?cv.height:0};})()")
+                b37_got.append("左栏=" + kv_txt[:90])
+                if '前墙近/远' not in kv_txt:
+                    b37_bad.append(f"左栏没有「前墙近/远」行：{kv_txt[:120]!r}")
+                elif '近端' not in kv_txt:
+                    b37_bad.append(f"喂了 frontNear=1 却没写出「近端」：{kv_txt[:120]!r}")
+                # 位置：喂 (0,0) ⇒ 左栏应标"（起点角）"；朝向 dir=0 ⇒ 不该出现"起点要求朝上"的提醒
+                if '起点角' not in kv_txt:
+                    b37_bad.append(f"喂了 pos=(0,0) 却没标出「起点角」：{kv_txt[:120]!r}")
+                if not (cv_info.get("w") and cv_info.get("h")):
+                    b37_bad.append(f"中栏画布没尺寸（起点圈画不出来）：{cv_info}")
+
+                # 负向：换成"老上游形状"（无 frontNear/frontFar）⇒ 必须写"本机无此量"
+                neg = await cdp.eval(
+                    "(()=>{"
+                    "const T = C.state.telemetry = C.state.telemetry || {};"
+                    "const old = T.unified;"
+                    "if (!old) return {txt:'__nofeed__'};"
+                    "const snap = {};"
+                    "Object.keys(old).forEach(function(k){snap[k]=old[k];});"
+                    "delete snap.frontNear; delete snap.frontFar;"
+                    "delete snap.frontBoth; delete snap.frontName;"
+                    "T.unified = snap;"
+                    "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
+                    "  C.mods.mod_maze8.refresh();"
+                    "const b=document.getElementById('m8-kv');"
+                    "const t=(b?b.innerText:'').replace(/\\s+/g,' ').trim();"
+                    "return {txt:t};})()")
+                neg_txt = str((neg or {}).get("txt") or "")
+                if neg_txt == "__nofeed__":
+                    b37_got.append("负向跳过（没有帧可喂，如实标）")
+                elif neg_txt:
+                    says_missing = ('本机无此量' in neg_txt)
+                    says_none = ('前墙近/远' in neg_txt and '本机无此量' not in neg_txt)
+                    b37_got.append("负向(老上游形状)=" + ("写'本机无此量'" if says_missing else
+                                                        ("误画成'无'" if says_none else "?")))
+                    if says_none:
+                        b37_bad.append("老上游（无 frontNear/frontFar）被**误画成'无墙'**"
+                                       "—— '读不到'与'确认没有'必须区分")
+                # 还原（把真帧放回去，别把钉住的假帧留在屏幕上）
+                await cdp.eval(
+                    "(()=>{const T=C.state.telemetry=C.state.telemetry||{};"
+                    "if(T.__b37old){T.unified=T.__b37old;delete T.__b37old;}"
+                    "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
+                    "  C.mods.mod_maze8.refresh();})()")
+            except Exception as e:                            # noqa: BLE001
+                b37_bad.append(f"读取前墙/起点渲染时抛异常：{type(e).__name__}: {e}")
+            b37_ok = not b37_bad
+            record("B37", "PASS" if b37_ok else "FAIL",
+                   f"无记忆走迷宫左栏有「前墙近/远」档位行（{'；'.join(b37_got)}），"
+                   f"中栏画布已渲染（起点角可画）"
+                   if b37_ok else
+                   f"**前墙双档 / 起点角显示不对**：{b37_bad[:4]}")
+
             # 后面逐页断言打的是「综合运动」界面 —— 上面切到新模块后要**切回来**，
             # 否则 `#ws-all` 是 `display:none`，`innerText` 全空，后面每一条都会假红。
             await cdp.eval("C.openMod('all','@all')")

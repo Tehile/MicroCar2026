@@ -319,14 +319,42 @@ C.mods.mod_maze8 = (function () {
     const st = state || {};
     const show = function (a) { return (a == null) ? '—' : a; };
     const wallTxt = function (v) { return (v == null) ? '—' : (v ? '有' : '无'); };
+    /* 前墙双档（上游 2.3.0）：`frontNear` / `frontFar` 是**互斥**的两档，
+       恒等式 `frontNear | frontFar == wallFront`。所以前墙那一格里写的是
+       "近 / 远" 两档各自的**三态**（有 / 无 / —）。为什么两档都写：
+       近端 = 前方最近一个有墙（贴脸，必须处理），远端 = 当前方向下一个判断有墙
+       （提前量）—— 这两个现场做的动作不一样，只写一个"有墙"看不出该做什么。 */
+    const frontTxt = function (near, far) {
+      if (near == null && far == null) return '—';
+      if (near && far) return '矛盾(两档同时置位)';    // 恒等式破了 —— 当场说出来
+      if (near) return '近端';
+      if (far) return '远端';
+      return '无';
+    };
+    const frontNear = f.frontNear, frontFar = f.frontFar;
+    /* ⚠️ 老上游（≤2.2.1）帧里**没有**这两个通道 ⇒ 两个都是 `undefined`（不是 0）。
+       这时不许画成"无墙"（那是"确认没有"，与"读不到"是两件事）⇒ 写 `—` 并注明。 */
+    const hasFront = (frontNear !== undefined && frontNear !== null) ||
+                     (frontFar !== undefined && frontFar !== null);
     box.innerHTML = [
       ['任务', taskName(f.mazeTask)],
       ['路口', roadName(rep ? f.road : (st.road == null ? f.road : st.road))],
       ['开口(左/前/右)', wallTxt(f.wallLeft) + ' / ' + wallTxt(f.wallFront) + ' / ' + wallTxt(f.wallRight)],
+      /* 前墙两档独立一行；读不到时如实写"这台设备没有这个量（升级上游）"。 */
+      ['前墙近/远', hasFront ? (frontTxt(frontNear, frontFar) +
+        '　（恒等式 ' + ((frontNear != null && frontFar != null &&
+          (((frontNear ? 1 : 0) | (frontFar ? 1 : 0)) === (f.wallFront ? 1 : 0)) &&
+          !(frontNear && frontFar)) ? '成立' : '不成立') + '）')
+        : '—（本机无此量）'],
       ['动作', motionName(f.motionTask) + (f.motionStep == null ? '' : (' · 步 ' + f.motionStep))],
-      ['位置', (f.posX == null) ? '—' : (f.posX + ', ' + f.posY)],
+      /* 位置：起点要求 **左下角 (0,0) 且朝向向上（dir=0）**。
+         现场最容易犯的错就是"复位后没把车摆回起点就发车"（复位只复位固件、
+         不复位物理位置）⇒ 位置这一行顺带标出"在不在起点角"，
+         让人一眼看出该不该先摆车。判"在起点角"只认 (0,0)（左上/右下都不是）。 */
+      ['位置', (f.posX == null) ? '—'
+        : ((f.posX + ', ' + f.posY) + ((f.posX === 0 && f.posY === 0) ? '　（起点角）' : ''))],
       ['终点', (f.goalX == null) ? '—' : (f.goalX + ', ' + f.goalY)],
-      ['朝向', dirName(f.dir)],
+      ['朝向', dirName(f.dir) + ((f.dir === 0) ? '' : '　（起点要求朝上）')],
       ['岔路栈', show(f.stackIdx)],
       ['快路径计数', show(f.fastwayCount)],
       ['标志', flagsOf(f.flags).join(' ') || '—'],
@@ -372,6 +400,12 @@ C.mods.mod_maze8 = (function () {
     }
     const f = cur();
     const track = (rep && rep.track) ? rep.track : (wd.track || []);
+    /* 前墙双档只在**实时读到**时才算得出（复盘那份记录里如果没有这两个通道就没有）。
+       ⚠️ 三态：`undefined`/`null`（这台设备/这份记录没有这个量）**不等于** 0（无墙）。
+       ⇒ 两个都是空时才把 `front` 传 `null`（绘图侧只在实际读到那一档时才画）。 */
+    const near = (f && f.frontNear != null) ? !!f.frontNear : null;
+    const far = (f && f.frontFar != null) ? !!f.frontFar : null;
+    const hasFront = (near !== null || far !== null);
     C.draw.maze(cv, {
       height: 320,
       n: wd.n,
@@ -379,6 +413,7 @@ C.mods.mod_maze8 = (function () {
       pos: (f && f.posX != null) ? [f.posX, f.posY] : null,
       dir: (f && f.dir != null) ? f.dir : null,
       goal: (f && f.goalX != null) ? [f.goalX, f.goalY] : null,
+      front: hasFront ? { near: !!near, far: !!far } : null,
       track: track,
       label: rep ? '复盘 · 重构示意（截至游标）' : '实时 · 重构示意（最近一段）',
     });
@@ -393,10 +428,18 @@ C.mods.mod_maze8 = (function () {
       (wd.visited || []).forEach(function (r) {
         for (let i = 0; i < r.length; i++) if (r[i] === '1') vis++;
       });
-      kv.innerHTML = [
+      /* 前墙两档在小字里再报一次（图例只在画了那条线时才出现；
+         这里给的是"这一帧读到的是哪一档"，读不到就如实说）。 */
+      const rows = [
         ['已探索格子', vis + ' / ' + (wd.n * wd.n)],
         ['轨迹点', (track || []).length],
-      ].map(function (r) {
+      ];
+      if (hasFront) {
+        rows.push(['前墙档位', near && far ? '矛盾' : (near ? '近端' : (far ? '远端' : '无'))]);
+      } else {
+        rows.push(['前墙档位', '—（本机无此量）']);
+      }
+      kv.innerHTML = rows.map(function (r) {
         return '<b>' + C.util.esc(r[0]) + '</b><span>' + C.util.esc(String(r[1])) + '</span>';
       }).join('');
     }
@@ -1189,6 +1232,11 @@ C.mods.mod_maze8 = (function () {
        为什么要给外面用：复盘是这一页的核心动作，深链/自动化要能直接进
        （`#/mouse/mod_maze8` 只是打开模块，"看哪一份"得另外指）。 */
     openRecord: function (name) { return loadRecord(name); },
+
+    /* 重渲染三栏 —— 给自动化用（`browser_check` 的 B37 要喂"老上游形状的帧"
+       再立刻看左栏写的是什么）。它**不取新数据**，只按当前 `C.state.telemetry.latest`
+       重画；生产的实时刷新走 `onMsg`（WS 推一帧画一次），那才是唯一真相来路。 */
+    refresh: function () { renderAll(); },
 
     activate: function () {
       if (!meta) loadMeta();
