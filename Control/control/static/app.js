@@ -341,10 +341,10 @@
     }
     const btn = document.getElementById('dm-connect');
     if (btn) { btn.className = 'mini ' + (tag === 'ok' ? '' : 'primary'); }
-    /* 【救援】只在**已连接**时可点：整机软复位走的还是同一条命令通道，
-       断开时它做不了任何事（点了只会吃一个 409，还让人以为"救援也不好使"）。 */
+    /* 【复位】只在**已连接**时可点：整机软复位走的还是同一条命令通道，
+       断开时它做不了任何事（点了只会吃一个 409，还让人以为"复位也不好使"）。 */
     C.gate(document.getElementById('dm-rescue'),
-           m.connected ? '' : '先连接电脑鼠（救援命令要走同一条链路的命令通道）');
+           m.connected ? '' : '先连接电脑鼠（复位命令要走同一条链路的命令通道）');
   }
 
   function renderDevCamera() {
@@ -1202,7 +1202,7 @@
     document.getElementById('btn-estop').onclick = function () {
       C.guard(function () { return C.api('/api/v1/mouse/estop', { method: 'POST', body: {} }); }, '急停');
     };
-    /* 救援（整机软复位，上游 2.2.0 的 `MCU RESET`）—— 卡死救援口。
+    /* 复位（整机软复位，上游 2.2.0 的 `MCU RESET`）—— 卡死复位口。
        放在设备窗口里而不是只放实验 8：卡死**不只在跑迷宫时发生**（任何一次
        非协作式阻塞等待卡住都一样），而"设备不动了"的第一反应是打开设备窗口看。
        ⚠️ 它是**整机复位**，所以提示必须把两条后果一起说（不复位物理位置 / 约 3 s 才有新帧），
@@ -1212,15 +1212,15 @@
       rsc.onclick = async function () {
         const d = await C.guard(function () {
           return C.api('/api/v1/mouse/rescue', { method: 'POST', body: {} });
-        }, '救援');
+        }, '复位');
         if (!d) return;
         if (d.verified) {
-          C.toast('救援成功：设备已整机复位（rst=' + d.rst + '，等了 ' +
+          C.toast('复位成功：设备已整机复位（rst=' + d.rst + '，等了 ' +
                   C.util.fmt(d.elapsed_s, 1) + ' s）' +
                   '\n复位不复位物理位置，车还在原处。' +
                   '\n⇒ 发车前必须把电脑鼠放回起点角，否则它会按一张错的地图走。', 'ok', 30000);
         } else {
-          C.toast('救援没有复核到复位：rst=' + (d.rst || '—') + '\n' + (d.note || ''), 'warn', 30000);
+          C.toast('复位没有复核到复位：rst=' + (d.rst || '—') + '\n' + (d.note || ''), 'warn', 30000);
         }
         refreshHealth();
       };

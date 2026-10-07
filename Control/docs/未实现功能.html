@@ -172,7 +172,7 @@ li{margin:.28em 0}
 （<code>MAZE RUN</code> 之后一直处于迷宫态）⇒"从发车到停止"里的<strong>"停止"没有权威信号</strong>，
 只能组合弱判据（<code>STOPPED</code> 事件 / 任务机回到 WAIT 持续 N 秒 / 断链 / 帧数上限）。
 ⇒ 界面上<strong>必须有【停止并保存】人工兜底</strong>，且这一点写在界面文案里。
-⚠️ 2.1.1 / 2.2.0 起"收尾"多了两个<strong>正经动作</strong>（【收车】<code>MAZE STOP</code> / 【救援】<code>MCU RESET</code>），
+⚠️ 2.1.1 / 2.2.0 起"收尾"多了两个<strong>正经动作</strong>（【收车】<code>MAZE STOP</code> / 【复位】<code>MCU RESET</code>），
 但它们是<strong>动车</strong>、不是存盘，所以与【停止并保存】<strong>分成三个按钮</strong>，不合并。</p>
 </blockquote>
 <hr />
@@ -291,7 +291,7 @@ li{margin:.28em 0}
     <code>LESSON_Blind8()</code> 的 <code>while(1)</code> <strong>顶部</strong>，主循环却有 30 余处<strong>非协作式阻塞等待</strong>
     （等的是编码器里程这类<strong>物理进度</strong>）⇒ 车在运动时程序正卡在那些循环内部，标志轮不到。
     真机实测：回 <code>OK</code> 但 <code>mazeTask</code> 仍 <code>SEARCH</code>。
-  · ⇒ <strong>可靠收车手段是 <code>MCU RESET</code>（【救援】，2.2.0）</strong> —— 整机软复位，BSS 清零把发车状态
+  · ⇒ <strong>可靠收车手段是 <code>MCU RESET</code>（【复位】，2.2.0）</strong> —— 整机软复位，BSS 清零把发车状态
     一起清掉。代价是<strong>复位不复位物理位置</strong>（发车前必须人工把车放回起点角），且复位后
     约 3 s 才有新遥测帧。由 <strong>I28</strong> 守（含"收车后能再发车"与"急停中发车回 ERR_ESTOP"）。</li>
 <li><strong>课程参数的值读不回来</strong>（2.0.0）：固件 <code>GET ALL</code> / <code>GET &lt;name&gt;</code> 只查<strong>生产表</strong>（24 项），

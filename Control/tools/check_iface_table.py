@@ -52,7 +52,7 @@ RESOLVER = {
     #    ⇒ 本表只放**当前真的存在**的符号 —— 否则"名字写错"会被误读成"上游改名了"。
     "Link": "host.transport.link",
     "Event": "host.api.events",
-    # 2.1.2 / 2.2.0：拉取器的让路机制与救援口（`PullRequester` 是 2.1.0 起的停等拉取器）
+    # 2.1.2 / 2.2.0：拉取器的让路机制与复位口（`PullRequester` 是 2.1.0 起的停等拉取器）
     "PullRequester": "host.api.stream",
     # 1.2.0 / 1.3.0 / 1.4.0 新增的三个子 API 与它们的纯函数
     "MotorLabAPI": "host.api.lab",

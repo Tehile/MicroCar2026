@@ -48,7 +48,7 @@
   ⚠️ 2.1.1 / 2.2.0 起"收尾"多了两个**正经动作**，但它们是**动车**、不是存盘，
   所以各自独立成按钮，**不并进本记录器**：
     · 【收车】`MAZE STOP` —— 停车 + 复位发车状态 + 解锁急停（**车在运动时不可靠**）；
-    · 【救援】`MCU RESET` —— 整机软复位（可靠，但复位不复位物理位置）。
+    · 【复位】`MCU RESET` —— 整机软复位（可靠，但复位不复位物理位置）。
   ⇒ 记录器只管"把已经收到的东西存下来"，**不主动发任何命令**：
     这样"车还在跑时先把已收到的存一份"这件事才成立（现场真的需要）。
 
@@ -789,6 +789,13 @@ class MazeRecorder:
             "t_ms": now_ms,
             "event": str(d.get("event") or ""),
             "reason": str(d.get("reason") or ""),
+            # ⚠️ `reason_text` 是上游给的**人话**（"时间护栏到" / "近墙保护(红外护栏)" …，
+            #    见上游 `codec.RUN_REASON_NAMES`）。界面右栏直接写它 ——
+            #    只丢一个 `TIME` / `IR` 码过去，现场得翻文档才知道"为什么停的"，
+            #    而"为什么停"恰恰是这一条存在的唯一理由。老上游若没给，
+            #    退回 `reason` 码本身（总比空白强，且不编造人话）。
+            "reason_text": str(d.get("reason_text") or d.get("reason") or ""),
+            "text": str(d.get("text") or ""),
             "seq": d.get("seq"),
             "status": str(d.get("status") or ""),
         }
@@ -919,6 +926,31 @@ class MazeRecorder:
                                          else _i(e.get("t_ms")) - z))
                            for e in self._ev_ring],
             }
+
+    def clear_decisions(self) -> Dict[str, Any]:
+        """**清空常驻决策环与事件环**（右栏"决策历程"上那个【清空】按钮）。
+
+        ⚠️ 与 `_reset_epoch()` 的分工（**不能互相替代**）：
+          · `_reset_epoch(kind="launch")` 由 `start()`（发车/开记录）调用，且**带 stash**
+            （发车失败要能 `restore_epoch()` 放回去）；
+          · 这里是**用户手工清**，不带 stash（清了就不该被别处"放回来"），
+            纪元语义标成 `"manual"` —— 它与"发车"不是一回事，界面上要能区分。
+
+        为什么必须**清环 + 换差分器**、而不是只把前端那几行 DOM 抹掉：
+        决策与上行事件的**唯一来路**就是这个常驻环（`live_decisions()`）——
+        前端每 1 s 全量重拉一次，所以"只清显示"在下一次刷新就全回来。
+        这正是上一轮踩过的坑（`#m8-ev-clear` 原叫【清空显示】，点了什么都不发生）。
+        用户要的是"方便下一次发车的记录"，本质是**这一段到此为止、下一段从零开始**，
+        所以正确做法是开一个新纪元（清环 + 换差分器 + 零点交给下一帧）。
+
+        注意：**不影响正在记录的那一段**（`_rec` 不动）—— 清的是"右栏那条线"，
+        不是存盘数据。所以可以随时按，用来把上一段残留从界面上赶走。
+        """
+        with self._lock:
+            self._reset_epoch("manual", stash=False)
+            return {"ok": True, "t0_kind": self._dec_t0_kind,
+                    "note": "已清空决策历程（本层常驻环）—— 下一段从零开始；"
+                            "正在记录的那一段不受影响"}
 
     @staticmethod
     def _num(v: Any) -> Any:
@@ -1118,6 +1150,7 @@ class MazeRecorder:
         for e in (doc.get("events") or []):
             rows.append({"kind": "event", "t_ms": _i(e.get("t_ms")) - t0,
                          "event": e.get("event"), "reason": e.get("reason"),
+                         "reason_text": e.get("reason_text"),
                          "seq": e.get("seq")})
         rows.sort(key=lambda r: _i(r.get("t_ms"), 0))
         return rows

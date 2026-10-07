@@ -520,7 +520,7 @@ li{margin:.28em 0}
 <td><code>POST /api/v1/mouse/rescue</code></td>
 <td>A</td>
 <td><code>ConnAPI.soft_reset</code>（别名 <code>rescue</code>；登记命令 <code>system.reset</code>，线上 <code>MCU RESET</code>）</td>
-<td><strong>救援</strong>（2.2.0 新增）：整机软复位。<code>?verify=0</code> 可跳过复核（<strong>不建议</strong>：<code>accepted=False</code> 不代表失败，真判据是 <code>rst == "SW"</code>）。复位<strong>不复位物理位置</strong>，且约 3 s 才有新帧</td>
+<td><strong>复位</strong>（2.2.0 新增）：整机软复位。<code>?verify=0</code> 可跳过复核（<strong>不建议</strong>：<code>accepted=False</code> 不代表失败，真判据是 <code>rst == "SW"</code>）。复位<strong>不复位物理位置</strong>，且约 3 s 才有新帧</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/mouse/launch_precheck</code></td>
@@ -545,6 +545,12 @@ li{margin:.28em 0}
 <td>A</td>
 <td><code>MazeAPI.state</code>（只取运行状态；<strong>决策序列是本层差分的</strong>）</td>
 <td><strong>实时决策流</strong>（右栏时间线）+ 运行状态（<code>running</code>/<code>task</code>/<code>taskName</code>）。<strong>零设备访问</strong>（读记录器的常驻差分器）。⚠️ 上游 v2.0 删了 <code>MAZE EV</code> 事件流 ⇒ 这条序列只能<strong>主机差分</strong>：<code>TASK</code>/<code>ROAD</code>/<code>TURN</code>/<code>STRAIGHT</code>/<code>JUNC</code>/<code>CELL</code>/<code>HEAD</code>/<code>GOAL</code></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/maze/decisions/clear</code></td>
+<td>A</td>
+<td>—（<strong>零上游调用</strong>：清本层记录器的常驻环）</td>
+<td><strong>清空决策历程</strong>（右栏那条线上的【清空】按钮）。让记录器<strong>开一个新纪元</strong>（清常驻决策环 + 事件环 + 换差分器），而不是只抹前端 DOM —— 前端每 1 s 全量重拉，只抹 DOM 会"清完又回来"。<strong>不影响正在记录的那一段</strong>（只清显示环）。与发车那条路（<code>start()</code> 的 <code>_reset_epoch</code>）的区别：那条<strong>带 stash</strong>（发车失败要能放回），这条<strong>不带</strong></td>
 </tr>
 <tr>
 <td><code>GET /api/v1/mouse/maze/record/live</code></td>
@@ -629,7 +635,7 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td><code>ConnAPI.soft_reset</code>、<code>ConnAPI.rescue</code></td>
-<td><strong>救援</strong>（线上文本 <code>MCU RESET</code>）：整机软复位（卡死救援口）</td>
+<td><strong>复位</strong>（线上文本 <code>MCU RESET</code>）：整机软复位（卡死复位口）</td>
 <td>成功判据是复核 <code>rst == "SW"</code>，<strong>不是 ACK</strong>（<code>accepted=False</code> 不代表失败）</td>
 </tr>
 <tr>

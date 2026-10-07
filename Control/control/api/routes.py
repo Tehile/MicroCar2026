@@ -65,9 +65,9 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_get("/api/v1/mouse/maze/summary", _maze_summary)
     r.add_post("/api/v1/mouse/maze/reset", _maze_reset)
     # 上游 2.1.1 新能力：**收车**（`MAZE STOP`）。v2.0 时代"发过一次车就只能断电"，
-    # 现在有一个明确的收车口 —— 但它**车在运动时不可靠**，所以旁边还要有【救援】。
+    # 现在有一个明确的收车口 —— 但它**车在运动时不可靠**，所以旁边还要有【复位】。
     r.add_post("/api/v1/mouse/maze/stop", _maze_stop)
-    # 上游 2.2.0 新能力：**救援**（整机软复位 `MCU RESET`）。固件主循环有 30 余处
+    # 上游 2.2.0 新能力：**复位**（整机软复位 `MCU RESET`）。固件主循环有 30 余处
     # 非协作式阻塞等待，`STOP` 会让它们永远等不到 ⇒ "越停越死"，软复位是唯一出口。
     r.add_post("/api/v1/mouse/rescue", _mouse_rescue)
     # 发车前**低电预检**（纯读帧、不发命令）：上游 2.2.1 有硬闸，这里只是让它**提前可见**。
@@ -78,6 +78,7 @@ def register(app: web.Application, ctx: Any) -> None:
     # 实时决策流 + 实时快照：右栏时间线与"边跑边回放"各自的数据源。
     # 两者都**零设备访问**（只读记录器内存），所以可以跟着界面刷新走。
     r.add_get("/api/v1/mouse/maze/decisions", _maze_decisions)
+    r.add_post("/api/v1/mouse/maze/decisions/clear", _maze_decisions_clear)
     r.add_get("/api/v1/mouse/maze/record/live", _maze_record_live)
     r.add_post("/api/v1/mouse/maze/record/start", _maze_record_start)
     r.add_post("/api/v1/mouse/maze/record/stop", _maze_record_stop)
@@ -593,6 +594,27 @@ async def _maze_decisions(request: web.Response) -> web.Response:
     out["recording"] = bool(ctx.maze_rec.recording)
     return ok(out)
 
+
+async def _maze_decisions_clear(request: web.Request) -> web.Response:
+    """**清空决策历程**（右栏那条线上的【清空】按钮）。
+
+    为什么需要它：决策与上行事件都由记录器那个**常驻环**供货（`live_decisions()`），
+    前端每 1 s 全量重拉 ⇒ "只抹前端那几行 DOM"在下一次刷新就全回来了。
+    用户要的是"这一段到此为止、下一段从零开始"（方便下一次发车的记录），
+    所以正确的动作是让记录器**开一个新纪元**（清环 + 换差分器），
+    而不是在浏览器里清显示 —— 那是上一轮踩过的坑（旧【清空显示】点了没反应）。
+
+    ⚠️ 与发车那条路（`_timesync_maze_run` 里 `start()` 的 `_reset_epoch("launch")`）
+    的区别：那里**带 stash**（发车失败要能整体放回去），这里**不带** ——
+    用户手工清过之后，别处无权再"放回来"。**不影响正在记录的那一段**（只是清显示环）。
+
+    **零设备访问**：纯内存操作，不发命令、不碰链路。
+    """
+    ctx = request.app["ctx"]
+    out = ctx.maze_rec.clear_decisions()
+    ctx.store.mark("mouse", "maze.decisions.clear", "", out.get("note") or "")
+    return ok(out)
+
 async def _maze_record_live(request: web.Request) -> web.Response:
     """**当前这一段**的完整快照（与落盘那份同形状）—— 供"边跑边回放"。
 
@@ -638,7 +660,7 @@ async def _maze_record_stop(request: web.Request) -> web.Response:
 
     ⚠️ 2.1.1 起"收尾"这件事**多了两个正经动作**（本题只负责存盘，不负责动车）：
       · 【收车】`MAZE STOP` —— 停车 + 复位发车状态 + 解锁急停（**车在运动时不可靠**）；
-      · 【救援】`MCU RESET` —— 整机软复位（可靠，但会把车的位置假设也清掉）。
+      · 【复位】`MCU RESET` —— 整机软复位（可靠，但会把车的位置假设也清掉）。
     ⇒ 收车与存盘是**两件事**，界面上也是两个按钮：先收车（让车停下来、让曲线有意义），
     再【停止并保存】。把两者混成一个按钮会让"只存盘不收车"变得不可能，
     而复盘恰恰需要后者（车还在跑时也想把已收到的先存下来）。
@@ -710,7 +732,7 @@ async def _maze_stop(request: web.Request) -> web.Response:
     而主循环有 30 余处非协作式阻塞等待，运动时程序正卡在那些循环内部）⇒
     真机实测：回 `OK` 但 `mazeTask` 仍 `SEARCH`。
     ⇒ 所以应答里**带实测状态**（`state` / `reliable`），让界面当场判"到底收住没有"；
-    界面据此提示"没用就用【救援】"。**不许只看 `OK` 就宣布收车成功。**
+    界面据此提示"没用就用【复位】"。**不许只看 `OK` 就宣布收车成功。**
     """
     ctx = request.app["ctx"]
     _need_mouse(ctx)
@@ -719,7 +741,7 @@ async def _maze_stop(request: web.Request) -> web.Response:
 
 
 async def _mouse_rescue(request: web.Request) -> web.Response:
-    """**救援**（上游 2.2.0 的 `MCU RESET`）：整机软复位 —— 卡死救援口。
+    """**复位**（上游 2.2.0 的 `MCU RESET`）：整机软复位 —— 卡死复位口。
 
     `?verify=0` 可跳过复位后的 `PING` 复核（默认复核，**强烈建议复核**：
     `accepted=False` 不代表失败，真正的判据是复位原因变成 `SW`）。

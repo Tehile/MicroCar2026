@@ -154,6 +154,7 @@ li{margin:.28em 0}
 <li><a href="#1114">11.14 「回放和实时的决策树不一样」：两条来路必须同一个纪元</a></li>
 <li><a href="#1115-230-240">11.15 上游 2.3.0 / 2.4.0 的跟进记录（"取消独立参数标定"与比赛发车）</a></li>
 <li><a href="#1116">11.16 前墙双档显示 + 起点角显示（改版十三）</a></li>
+<li><a href="#1117">11.17 无记忆走迷宫的五个现场小改（改版十四）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -257,7 +258,7 @@ li{margin:.28em 0}
 2.1.1 新增 <code>MAZE STOP</code>，停车 + <strong>复位发车状态</strong> + 解锁急停 ⇒ 不必断电即可再次发车。
 ⚠️ 但<strong>车在运动时它不可靠</strong>（只置"请退出"标志，而标志检查在 <code>while(1)</code> 顶部，
 主循环有 30 余处非协作式阻塞等待）⇒ 2.2.0 的 <code>MCU RESET</code>（整机软复位）才是<strong>可靠收车手段</strong>。
-界面上因此多了【收车】与【救援】两个按钮。</p>
+界面上因此多了【收车】与【复位】两个按钮。</p>
 <p><strong>② 新增的低电硬闸：<code>ERR_LOWBATT</code>。</strong>
 事故链是"低电 ⇒ 红外发射管变暗 ⇒ 墙检测失效 ⇒ 电机一直转、对红外不敏感 ⇒ 强行断电"，
 而<strong>固件对低电没有任何保护动作</strong>。修法是在<strong>登记表层</strong>加 <code>precheck</code>（<code>maze.run</code> 上，
@@ -385,7 +386,7 @@ li{margin:.28em 0}
 <p><strong>③ 「比赛」页为什么几乎全是只读。</strong> 冲刺档位 <code>spurtMode</code> 是固件<strong>只读镜像</strong>
 （<code>mazeState</code>/<code>taskSt</code> 的位），上位机<strong>设不了</strong>它 —— 冲刺入口是比赛流程里
 "人工贴墙选档"那一段（刻意不动）。⇒ 这一页的职责是<strong>把固件正在想什么说出来</strong>，
-只有两个动作：【比赛发车】（<code>RACE</code>）与【收车】/【救援】。少写这句"我们设不了它"，
+只有两个动作：【比赛发车】（<code>RACE</code>）与【收车】/【复位】。少写这句"我们设不了它"，
 现场会到处找那个不存在的下拉框。</p>
 <p><strong>④ 前墙双档要</strong>当场自校验<strong>。</strong> 2.3.0 把前墙拆成互斥两档（0 无墙 / 1 近端贴脸 /
 2 远端提前量），恒等式 <code>frontNear | frontFar == wallFront</code>。比赛档靠这一档决定
@@ -428,6 +429,34 @@ li{margin:.28em 0}
 <code>frontNear/frontFar</code> —— 而前墙双档在 <strong><code>state</code></strong> 块里（<code>spurt</code> 只有冲刺量）⇒
 这条判据<strong>永远是 <code>None</code></strong>（看着像"老固件读不到"，其实是自己读错了地方＝<strong>假跳过</strong>）。
 同时新增 <strong>I32</strong> 专门守"前墙双档码表 + 起点朝向码表 + 恒等式"。</p>
+<p><strong>改版记录 2026-10-08（十四）</strong>：<strong>只改「无记忆走迷宫」这一页的界面与记录</strong>，
+布局规则、模块划分与其余子系统<strong>全不变</strong>。共动五处细节（都是现场一句话提出来的）：</p>
+<p><strong>①「救援」统一改叫「复位」。</strong> 上游那条命令的真名是<strong>整机软复位</strong>（<code>system.reset</code>，
+线上文本 <code>MCU RESET</code>），界面上却长期写着「救援」—— 同一个东西两个名字，现场对话
+对不上号。⇒ 界面按钮、设备窗口、提示文案、后端错误串、文档<strong>一律改「复位」</strong>；
+<strong>代码里的方法名/命令名不动</strong>（<code>rescue()</code> / <code>system.reset</code> / <code>MCU RESET</code> 保持原样，
+免得把已经跑绿的判据连根拔起）。相关判据（B36/I28）<strong>同步改断言文案</strong> ——
+否则它们是"改对了反而红"。</p>
+<p><strong>② 停止并保存要写清"存到哪儿了"。</strong> 原先只弹一句"已保存 <code>&lt;文件名&gt;</code>"，
+记录落在哪个目录得自己去翻 <code>records/maze/</code>。⇒ 保存成功的提示<strong>写出完整路径</strong>
+（后端 <code>stop()</code> 本就回 <code>path</code>），并把路径挂到状态行的 <code>title</code> 上留着看。</p>
+<p><strong>③ 决策历程要能"清零"。</strong> 用户要的是"这一段到此为止、<strong>下一段从零开始</strong>"。
+关键：决策与事件都由后端那个<strong>常驻环</strong>供货、前端每 1 s 全量重拉 ⇒
+<strong>只抹 DOM 会"清完又回来"</strong>。⇒ 新增 <code>POST /api/v1/mouse/maze/decisions/clear</code>，
+记录器走<strong>与发车同一套机制</strong>（<code>_reset_epoch</code>）开一个新纪元（清环 + 换差分器 + 挪零点）；
+它<strong>不动正在记录的那一段</strong>（存盘数据不受影响），所以随时可按。</p>
+<p><strong>④ 停止时要把"为什么停的"写在界面上。</strong> 停止原因（时间护栏到 / 近墙保护 / 急停 /
+STOP 命令 / 任务跑完）<strong>推不出来</strong> —— 它在帧里同形，只能靠上行事件
+（<code>STOPPED &lt;reason&gt;</code>）那条线。⇒ <code>feed_event</code> 落 <code>reason_text</code>（上游 <code>RUN_REASON_NAMES</code>
+给的<strong>人话</strong>），<code>_timeline</code> 透传，右栏胶囊在"已停止"态拼上它
+（"■ 已停止 · WAIT · 时间护栏到"），决策列表也一并显示。</p>
+<p><strong>⑤ 中栏加"网格尺寸"选择（7×7 / 8×8 / 16×16）。</strong> 迷宫的真实尺寸唯一真源是固件宏
+<code>MAZETYPE</code>（默认 7）—— 现场想按 8/16 的图看时，界面得能跟着换。
+⇒ 中栏加 <code>#m8-msize</code>（<code>auto/7/8/16</code>，记 <code>localStorage</code>）；<strong>只影响显示</strong>，
+<strong>不传后端、不改固件、不改记录</strong>：选了非实际尺寸时按"补空 / 裁剪"重排字符行，
+并<strong>不画</strong>位置/朝向/目标/轨迹（那些是实际坐标系里的量，换网格后画出来是错的），
+状态里另起一行注明"显示尺寸 n×n（模拟；实际 N×N）"。
+新增判据 <strong>B38</strong> 一次守这五条。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -527,7 +556,7 @@ li{margin:.28em 0}
 <tr>
 <td><strong>小车控制</strong></td>
 <td>RemoteControl</td>
-<td>① <strong>实时状态与参数设定</strong>（参数表 <strong>24 项 / 三组</strong> + <strong>实时读数</strong>：统一帧 <strong>49 通道</strong>，含里程 / 陀螺 / <strong>四路红外 / 电压 / 前墙双档 / 比赛冲刺状态</strong> + 清零；<strong>并入</strong>原「运动控制」与「校准例程」两个区块 —— 手动运动（前进 / 后退 / 转向）+ 标定例程（五项 + 场地几何 + 报告））<br>② <strong>无记忆走迷宫</strong>（<code>MAZE RUN BLIND</code>；<strong>三栏</strong>：左=状态机 + 关键传感器实时读数 / 中=<strong>重构示意</strong>（搜过哪里、已知哪里有墙、小车朝向与轨迹）/ 右=<strong>决策与状态迁移时间线</strong>（可滚动）；<strong>从发车到停止自动圈定并落盘</strong>，可<strong>导入文件复盘</strong>）<br>③ <strong>比赛</strong>（<code>MAZE RUN RACE</code>：读 Flash 地图选档发车 + <strong>前墙双档</strong>当场自校验 + <strong>冲刺状态</strong>只读监视 + 收车 / 救援）</td>
+<td>① <strong>实时状态与参数设定</strong>（参数表 <strong>24 项 / 三组</strong> + <strong>实时读数</strong>：统一帧 <strong>49 通道</strong>，含里程 / 陀螺 / <strong>四路红外 / 电压 / 前墙双档 / 比赛冲刺状态</strong> + 清零；<strong>并入</strong>原「运动控制」与「校准例程」两个区块 —— 手动运动（前进 / 后退 / 转向）+ 标定例程（五项 + 场地几何 + 报告））<br>② <strong>无记忆走迷宫</strong>（<code>MAZE RUN BLIND</code>；<strong>三栏</strong>：左=状态机 + 关键传感器实时读数 / 中=<strong>重构示意</strong>（搜过哪里、已知哪里有墙、小车朝向与轨迹）/ 右=<strong>决策与状态迁移时间线</strong>（可滚动）；<strong>从发车到停止自动圈定并落盘</strong>，可<strong>导入文件复盘</strong>）<br>③ <strong>比赛</strong>（<code>MAZE RUN RACE</code>：读 Flash 地图选档发车 + <strong>前墙双档</strong>当场自校验 + <strong>冲刺状态</strong>只读监视 + 收车 / 复位）</td>
 </tr>
 <tr>
 <td><strong>相机</strong></td>
@@ -793,7 +822,7 @@ li{margin:.28em 0}
 <td><strong>有</strong>：2.1.1 加 <code>maze.stop</code>（<code>MAZE STOP</code>）⇒ 停车 + <strong>复位发车状态</strong> + 解锁急停</td>
 </tr>
 <tr>
-<td><strong>救援</strong></td>
+<td><strong>复位</strong></td>
 <td>无</td>
 <td>无</td>
 <td><strong>有</strong>：2.2.0 加 <code>system.reset</code>（<code>MCU RESET</code>，整机软复位）⇒ 卡死不必断电</td>
@@ -886,7 +915,7 @@ li{margin:.28em 0}
 <td><code>mc.maze.stop()</code> —— 停车 + <strong>复位发车状态</strong> + 解锁急停。⚠️ <strong>车在运动时不可靠</strong>（见 §11.12）</td>
 </tr>
 <tr>
-<td><strong>救援</strong></td>
+<td><strong>复位</strong></td>
 <td><code>mc.conn.soft_reset(verify=True, timeout=8.0)</code> / 别名 <code>rescue()</code> —— 整机软复位。<strong>成功判据是复核 <code>rst == "SW"</code>，不是 ACK</strong>（<code>accepted=False</code> 不代表失败）</td>
 </tr>
 <tr>
@@ -1761,7 +1790,7 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 <tr>
 <td>POST</td>
 <td><code>/api/v1/mouse/rescue?verify=</code></td>
-<td><strong>救援</strong>（上游 2.2.0 <code>MCU RESET</code>）：整机软复位。<code>verified</code> 由复核 <code>rst == "SW"</code> 得出</td>
+<td><strong>复位</strong>（上游 2.2.0 <code>MCU RESET</code>）：整机软复位。<code>verified</code> 由复核 <code>rst == "SW"</code> 得出</td>
 </tr>
 <tr>
 <td>GET</td>
@@ -2822,7 +2851,7 @@ python app.py                             # 打开 http://127.0.0.1:8770
 </tr>
 <tr>
 <td><strong>I28</strong></td>
-<td><strong>收车 / 救援 / 急停三件事端到端</strong>（上游 2.1.1~2.2.1）：三个动作端点 <code>/mouse/tare｜stop｜estop</code> <strong>逐个真调一遍</strong>且应答里的 <code>cmd</code> 是<strong>线上文本</strong>（<code>TARE</code>/<code>STOP</code>/<code>ESTOP</code>，即"登记名→线上文本"映射对了）；发车→再发车回 <code>ERR_BUSY</code>；<strong>收车</strong> <code>reliable === true</code> 且任务机回 <code>WAIT</code>；★ <strong>收车后必须能再发车</strong>（2.1.1 修的正是这条）；<strong>救援</strong> <code>verified === true</code> 且 <code>rst === "SW"</code></td>
+<td><strong>收车 / 复位 / 急停三件事端到端</strong>（上游 2.1.1~2.2.1）：三个动作端点 <code>/mouse/tare｜stop｜estop</code> <strong>逐个真调一遍</strong>且应答里的 <code>cmd</code> 是<strong>线上文本</strong>（<code>TARE</code>/<code>STOP</code>/<code>ESTOP</code>，即"登记名→线上文本"映射对了）；发车→再发车回 <code>ERR_BUSY</code>；<strong>收车</strong> <code>reliable === true</code> 且任务机回 <code>WAIT</code>；★ <strong>收车后必须能再发车</strong>（2.1.1 修的正是这条）；<strong>复位</strong> <code>verified === true</code> 且 <code>rst === "SW"</code></td>
 <td><strong>负向</strong>：<strong>急停锁存中发车必须回 <code>ERR_ESTOP</code></strong>（既不是 <code>OK</code> 也不是 <code>ERR_BUSY</code>）—— 它同时钉住"急停真的生效了"；<code>reliable</code> 是<strong>三态</strong>（<code>None</code> = 没等到新帧 ⇒ 判不了，不许当 <code>false</code>）⇒ 把 <code>None</code> 报成"收车失败"是假红、报成成功是假绿</td>
 </tr>
 <tr>
@@ -3792,7 +3821,7 @@ SAVE 时把<strong>输入框里的值</strong>一并提交。<strong>不许</str
 <blockquote>
 <p>⚠️ <strong>2026-10-05 补充（上游 2.1.1 / 2.2.0 起）</strong>：上面这段的<strong>结论仍然成立</strong>
 （"设备不宣布跑完"这件事没变），但<strong>"收尾"的手段变了</strong> —— 现在有两个正经动作：
-【收车】<code>MAZE STOP</code> 与【救援】<code>MCU RESET</code>（见 §11.12）。所以界面上是<strong>三个按钮</strong>，
+【收车】<code>MAZE STOP</code> 与【复位】<code>MCU RESET</code>（见 §11.12）。所以界面上是<strong>三个按钮</strong>，
 各管一件事，<strong>不合并</strong>：</p>
 <table>
 <thead>
@@ -3814,7 +3843,7 @@ SAVE 时把<strong>输入框里的值</strong>一并提交。<strong>不许</str
 <td>跑完了正常收；<strong>车在运动时不可靠</strong></td>
 </tr>
 <tr>
-<td>【救援】</td>
+<td>【复位】</td>
 <td><strong>动车</strong>：整机软复位</td>
 <td>收不住、卡死、失控</td>
 </tr>
@@ -4034,7 +4063,7 @@ POST /api/v1/mouse/tare   →  404  {&quot;type&quot;:&quot;KeyError&quot;,&quot
 <tr>
 <td><code>ERR_BUSY</code></td>
 <td>已在跑迷宫（发车状态没复位）</td>
-<td>先【收车】；收不住就【救援】</td>
+<td>先【收车】；收不住就【复位】</td>
 </tr>
 <tr>
 <td><code>ERR_VALUE</code></td>
@@ -4067,7 +4096,7 @@ POST /api/v1/mouse/tare   →  404  {&quot;type&quot;:&quot;KeyError&quot;,&quot
 <td>与【发车】同一门控</td>
 </tr>
 <tr>
-<td>【救援】</td>
+<td>【复位】</td>
 <td><strong>动车</strong>：整机软复位</td>
 <td>收不住 / 卡死 / 失控</td>
 <td>与【发车】同一门控；<strong>设备窗口里也放一个</strong></td>
@@ -4077,13 +4106,13 @@ POST /api/v1/mouse/tare   →  404  {&quot;type&quot;:&quot;KeyError&quot;,&quot
 <blockquote>
 <p>⚠️ <strong>"收车收住没有"要当场看得见</strong>：<code>MAZE STOP</code> 回 <code>OK</code> <strong>只说明命令被接受</strong>。
 所以应答里带 <strong><code>state</code> / <code>fresh</code> / <code>reliable</code></strong>，界面据此分三种说法：
-收住了 / 没收住（提示改用【救援】）/ <strong>判不了</strong>（没等到新帧）。
+收住了 / 没收住（提示改用【复位】）/ <strong>判不了</strong>（没等到新帧）。
 ⚠️ 而"立刻读状态"是<strong>错的</strong>：命令返回时环形缓冲里最新那帧<strong>仍是停车前的</strong>
 （帧 1/RTT≈5 Hz 拉来，命令约 300 ms 返回）⇒ 会把<strong>已经成功</strong>的收车报成失败。
 实测：回 <code>OK</code> 后立刻读 → <code>task=SEARCH</code>（看着没收住），1 s 后再读 → <code>task=WAIT</code>。
 ⇒ 修法是<strong>等条件（有新帧）而不是等固定时长</strong>，并把它做成三态：等不到就报 <code>None</code>（判不了）。</p>
 </blockquote>
-<p><strong>救援的三条后果必须一起说</strong>（少一条现场就会踩）：</p>
+<p><strong>复位的三条后果必须一起说</strong>（少一条现场就会踩）：</p>
 <ol>
 <li><strong>成功判据是复核 <code>rst == "SW"</code></strong>，不是"ACK 收到" —— 固件先回 ACK 再延迟 ~150 ms 复位，
    ACK 可能与复位抢在一起而没出链路 ⇒ <strong><code>accepted=False</code> 不代表失败</strong>。</li>
@@ -4092,7 +4121,7 @@ POST /api/v1/mouse/tare   →  404  {&quot;type&quot;:&quot;KeyError&quot;,&quot
    既不认路也不认墙（2.2.1 正为此修了它自己的复现脚本）⇒ <strong>发车前必须人工把车放回起点角</strong>。</li>
 <li><strong>复位后约 3 s 才有新遥测帧</strong>：此前读到的是复位前的旧帧，或 <code>main()</code> 尚未初始化完的
    早帧（带 BSS 初值，例如 <code>freemode=False</code>）⇒ <strong>判读状态要等新鲜帧</strong>，读一次就下结论会拿错。
-   （本层的做法：救援后<strong>故意等 3.2 s</strong> 再去读状态，而不是立刻读。）</li>
+   （本层的做法：复位后<strong>故意等 3.2 s</strong> 再去读状态，而不是立刻读。）</li>
 </ol>
 <h4 id="_28">七、判据与校验工具的同批改动</h4>
 <table>
@@ -4105,7 +4134,7 @@ POST /api/v1/mouse/tare   →  404  {&quot;type&quot;:&quot;KeyError&quot;,&quot
 <tbody>
 <tr>
 <td><code>drill.py</code> <strong>I28</strong>（新）</td>
-<td>收车/救援/急停端到端：三个动作端点逐条真调且核对<strong>线上文本</strong>；急停中发车必须 <code>ERR_ESTOP</code>；收车 <code>reliable === true</code>；<strong>收车后能再发车</strong>；救援 <code>verified</code> 且 <code>rst === "SW"</code></td>
+<td>收车/复位/急停端到端：三个动作端点逐条真调且核对<strong>线上文本</strong>；急停中发车必须 <code>ERR_ESTOP</code>；收车 <code>reliable === true</code>；<strong>收车后能再发车</strong>；复位 <code>verified</code> 且 <code>rst === "SW"</code></td>
 </tr>
 <tr>
 <td><code>drill.py</code> <strong>I29</strong>（新，<strong>纯函数、无需设备</strong>）</td>
@@ -4113,7 +4142,7 @@ POST /api/v1/mouse/tare   →  404  {&quot;type&quot;:&quot;KeyError&quot;,&quot
 </tr>
 <tr>
 <td><code>browser_check.py</code> <strong>B36</strong>（新）</td>
-<td>【收车】【救援】按钮在（实验 8 + 设备窗口）；<strong>低电预检会把实测电压摆到门控行</strong>（正）；<strong>电量正常时那一行为空</strong>（负）</td>
+<td>【收车】【复位】按钮在（实验 8 + 设备窗口）；<strong>低电预检会把实测电压摆到门控行</strong>（正）；<strong>电量正常时那一行为空</strong>（负）</td>
 </tr>
 <tr>
 <td><code>preflight.py</code></td>
@@ -4682,6 +4711,173 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <tr>
 <td><code>tools/browser_check.py</code></td>
 <td>B34x 新增：三栏页面图上"起点角"与前墙档位渲染断言（<strong>负向</strong>：老上游读不到时不许画 0/无墙）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1117">11.17 无记忆走迷宫的五个现场小改（改版十四）</h3>
+<p>用户在看完改版十三的界面后一口气提了五条。<strong>全都在「无记忆走迷宫」这一页</strong>，
+布局规则与其余模块一字未动。逐条记在这里，判据 <strong>B38</strong> 一次守完。</p>
+<h4 id="_42">一、「救援」→「复位」（一次"改名要连判据一起改"的实例）</h4>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>改什么</th>
+<th>不改什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>界面</td>
+<td><code>#m8-rescue</code> / <code>#dm-rescue</code> / <code>#rc-rescue</code> 按钮文案、提示、<code>title</code>、<code>toast</code> 一律「复位」</td>
+<td>—</td>
+</tr>
+<tr>
+<td>后端文案</td>
+<td><code>mouse.py</code> 的错误串 / docstring / 能力位注释改「复位」</td>
+<td><strong>方法名 <code>rescue()</code>、登记命令 <code>system.reset</code>、线上文本 <code>MCU RESET</code> 一律不动</strong></td>
+</tr>
+<tr>
+<td>文档</td>
+<td>设计方案 / README / 未实现功能 / 接口对照表 里 UI 面向的「救援」全部替换（约 27 处）</td>
+<td><code>_reset_epoch</code> 等机制名不动</td>
+</tr>
+<tr>
+<td>判据</td>
+<td><strong>B36 / I28 的断言文案</strong>同步从「救援」改「复位」</td>
+<td>断言的<strong>结构</strong>不变（还是"三条命令端点全通 + 负向"）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ <strong>为什么判据必须同改</strong>：B36 原来断言"设备窗口里有『救援』"——
+名字一改，它就会<strong>因为改对了而变红</strong>（假红）。这正是纪律 §"改了 UI 文案必须同步
+改动依赖该文案的判据"的又一例。</p>
+</blockquote>
+<h4 id="_43">二、"停止并保存"要写出<strong>存到哪儿了</strong></h4>
+<p>原先 <code>stopRec()</code> 成功后只把 <code>d.name</code> 写进状态行、弹一句"已保存 <code>&lt;文件名&gt;</code>"——
+记录落在哪个目录得自己去翻 <code>records/maze/</code>。后端 <code>stop()</code> <strong>本就回 <code>path</code></strong>，
+只是前端没用。⇒ 现在：</p>
+<ul>
+<li>状态行：<code>已保存 &lt;name&gt;（&lt;frames&gt; 帧）…</code>，并把 <code>title</code> 挂成 <strong><code>保存位置：&lt;path&gt;</code></strong>；</li>
+<li>右下角 toast：<strong>多行</strong>写全 <code>记录已保存到：\n&lt;path&gt;\n（&lt;frames&gt; 帧…）</code>，留 16 s。</li>
+</ul>
+<blockquote>
+<p>三态纪律照旧：<code>d.ok === false</code>（一帧没收到）分支<strong>不写 <code>path</code>/<code>name</code></strong>
+（那时确实没有），走另一句提示 —— 不许把 <code>undefined</code> 印到界面上（这是曾经的坑）。</p>
+</blockquote>
+<h4 id="dom">三、"决策历程"要能<strong>清零</strong>（关键是"清后端"而不是"抹 DOM"）</h4>
+<p>需求原话是"方便下一次发车的记录"。<strong>要点在数据来路</strong>：</p>
+<pre><code>后端 maze_rec._dec_ring / _ev_ring（常驻环）  ──/maze/decisions──▶  前端 live
+        ▲                                                              │
+        └────────────────── 每 1 s 全量重拉 ◀────────────────────────┘
+</code></pre>
+<p>前端只抹 DOM ⇒ 下一次 1 s 的刷新<strong>又把旧环供回来</strong>（看着像"清不掉"）。
+⇒ 正解是让<strong>后端开一个新纪元</strong>：</p>
+<ul>
+<li>新增 <code>POST /api/v1/mouse/maze/decisions/clear</code> → <code>maze_rec.clear_decisions()</code>；</li>
+<li>内部 <code>_reset_epoch("manual", stash=False)</code> —— 与<strong>发车</strong>用的是同一套机制
+  （清决策环 + 清事件环 + 换差分器 + 挪零点），所以清完的"下一段"和"发车开的段"
+  在结构上完全一致；</li>
+<li><strong>不动正在记录的那一段</strong>（<code>records/maze/*.maze.json</code> 不受影响）⇒ 随时可按；</li>
+<li>界面：历程头部加 <code>#m8-dec-clear</code> 按钮（与「刷新」并列），点了先打后端、成功后
+  作废本地缓存（<code>live=null</code>）并重取。</li>
+</ul>
+<h4 id="_44">四、"停止时的历程"要显示<strong>停止原因</strong></h4>
+<p>停止原因在<strong>帧里同形</strong>（"时间护栏到"和"红外护栏触发"都是 <code>task</code> 迁移），
+<strong>推不出来</strong> ⇒ 唯一来路是上行事件 <code>STOPPED &lt;reason&gt;</code> / <code>ESTOP TRIP</code>。改了三处：</p>
+<ol>
+<li><code>maze_rec.feed_event()</code> 存的 <code>ev</code> 加 <code>reason_text</code>（= <code>d.reason_text or d.reason</code>）
+   与 <code>text</code>；</li>
+<li><code>_timeline()</code> 的 events 行透传 <code>reason_text</code>；</li>
+<li>前端：<code>decText()</code> 的 <code>EVENT</code> 分支显示 <code>STOPPED · &lt;reason_text&gt; #&lt;seq&gt;</code>；
+   新增 <code>stopReasonText()</code>（从 <code>live.events</code> 或 <code>rep.doc.events</code> <strong>倒序</strong>取最后一条
+   停止类事件的 <code>reason_text || reason</code>），<code>runState()</code> 走"已停止"态时拼进胶囊
+   ⇒ <code>■ 已停止 · WAIT · 时间护栏到</code>。</li>
+</ol>
+<blockquote>
+<p>⚠️ 找不到就回<strong>空串</strong>（<strong>不编造</strong>"未知原因"）；<code>live.events</code> 不存在（老后端）也回
+空串，而不是"没有停止原因" —— 三态纪律。</p>
+</blockquote>
+<h4 id="77-88-1616">五、中栏加"网格尺寸"选择（7×7 / 8×8 / 16×16，<strong>只影响显示</strong>）</h4>
+<p>迷宫的真实尺寸唯一真源是固件宏 <strong><code>MAZETYPE</code></strong>（<code>maze.h:69</code>，默认 7；注释写明
+8=四分之一迷宫、16=全迷宫），经设备帧 <code>mazetype</code> → 上游 <code>ring.mazetype</code> →
+本层 <code>mc.maze.mazetype()</code> → 前端 <code>wd.n</code>。现场想按 8/16 的图看时，界面得跟得上。</p>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>控件</td>
+<td>中栏 <code>#m8-msize</code>（<code>auto</code> / <code>7</code> / <code>8</code> / <code>16</code>），记 <code>localStorage['m8.mazeSize']</code></td>
+</tr>
+<tr>
+<td><code>auto</code></td>
+<td>按实际 <code>MAZETYPE</code>（默认 7）—— <strong>默认值，行为与改版十三完全一致</strong></td>
+</tr>
+<tr>
+<td>非 auto</td>
+<td><code>n = clamp(选择值, 2..32)</code>；<code>override = (n !== realN)</code></td>
+</tr>
+<tr>
+<td>重排</td>
+<td><code>resizeRows(rows, n, m, fill)</code>：n×n 字符行 → m×m（m&gt;n 补 <code>fill='0'</code>；m&lt;n 裁剪）</td>
+</tr>
+<tr>
+<td><strong>只影响显示</strong></td>
+<td><code>override</code> 时<strong>不画</strong> <code>pos / dir / goal / front / track</code>（那些是实际坐标系里的量，换网格画出来是错的）；墙/已访问/已知照重排后的画</td>
+</tr>
+<tr>
+<td>标注</td>
+<td>图下角标注 <code>[显示尺寸 n×n，实际 realN×realN]</code>；<code>#m8-wkv</code> 加一行 <code>显示尺寸</code>；<strong>不传后端、不改固件、不改记录</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ 为什么"不画位置/轨迹"：它们由 <code>pos/dir</code> 与实际格距算出，<strong>换网格后坐标系变了</strong>，
+画上去就是错的（宁可留白 + 一行注明，也不画一个看着对其实错的点）。</p>
+</blockquote>
+<h4 id="b38">六、判据 B38（一次守五条）+ 同批改动</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B38（新增）</strong></td>
+<td>① 页内 <code>#m8-rescue</code> + 设备窗口 <code>#dm-rescue</code> 写「复位」且<strong>整页不许再出现「救援」</strong>；② 拦 <code>record/stop</code> 喂带 <code>path</code> 的应答 ⇒ 捕获 toast 断言<strong>写出路径</strong>；③ 拦 <code>decisions/clear</code> 断言<strong>真打到后端</strong>（不是只抹 DOM）；④ 拦 <code>maze/decisions</code> 喂 <code>STOPPED + reason_text='时间护栏到' + running=false</code> ⇒ 胶囊写"已停止"且含"时间护栏到"（测试环境无鼠，临时钉 <code>needMouse</code> 放行，做完还原）；⑤ <code>#m8-msize</code> 有 7/8/16，切 16 后画布仍有尺寸，最后还原 <code>auto</code></td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B36</strong></td>
+<td>断言文案「救援」→「复位」（否则改名后假红）</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B30</strong></td>
+<td><code>mod_maze8</code> id 清单加 <code>#m8-msize</code> / <code>#m8-ev-clear</code> / <code>#m8-dec-clear</code></td>
+</tr>
+<tr>
+<td><code>tools/drill.py</code> <strong>I28</strong></td>
+<td>report 标签「救援 verified=」→「复位 verified=」、「收车/救援/急停」→「收车/复位/急停」</td>
+</tr>
+<tr>
+<td><code>control/maze_rec.py</code></td>
+<td><code>feed_event</code> 存 <code>reason_text</code>/<code>text</code>；新增 <code>clear_decisions()</code>；<code>_timeline</code> 透传 <code>reason_text</code></td>
+</tr>
+<tr>
+<td><code>control/api/routes.py</code></td>
+<td>新增 <code>POST /api/v1/mouse/maze/decisions/clear</code> + handler（调 <code>clear_decisions()</code> 并记 <code>store.mark</code>）</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_maze8.js</code></td>
+<td>改名「复位」；<code>stopRec()</code> 写路径；<code>#m8-dec-clear</code> + <code>clearDecisions()</code>；<code>stopReasonText()</code> + 胶囊拼原因；<code>#m8-msize</code> + <code>resizeRows()</code></td>
 </tr>
 </tbody>
 </table>

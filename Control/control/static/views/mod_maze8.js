@@ -32,14 +32,14 @@
  *     复盘时**实时数据不再驱动界面**（`onMsg` 里对 `rep` 早退）——
  *     否则"过去的画面"会被此刻到的帧冲掉，那就不是复盘了。
  *
- * ## 收车 / 救援（2.1.1 / 2.2.0）
+ * ## 收车 / 复位（2.1.1 / 2.2.0）
  * 上游 2.1.1 之前，发过车之后**没有任何**复位发车状态的路径，只能断电（真机复现）。
  * 现在有两个动作，**分工不同、都要有**：
  *   · 【收车】`MAZE STOP` —— 停车 + 复位发车状态 + 解锁急停。**车在运动时不可靠**
  *     （标志检查在 `LESSON_Blind8()` 的 while(1) 顶部，而主循环有 30 余处非协作式
  *     阻塞等待，运动时程序卡在那些循环内部）⇒ 所以按完**当场看任务机**，
- *     还在 SEARCH 就提示改用救援。
- *   · 【救援】`MCU RESET` —— 整机软复位，**可靠**（BSS 清零把发车状态一起清掉）。
+ *     还在 SEARCH 就提示改用复位。
+ *   · 【复位】`MCU RESET` —— 整机软复位，**可靠**（BSS 清零把发车状态一起清掉）。
  *     代价：复位**不复位物理位置**，且**约 3 s 才有新帧** ⇒ 两条都写进提示里。
  * ⚠️ 这两个都是**动车**，与【停止并保存】（存盘）是三件事，不合并 ——
  * 合并之后"车还在跑时先把已收到的存一份"就做不到了。
@@ -61,6 +61,12 @@ C.mods.mod_maze8 = (function () {
   let rep = null;                // 回放态：{doc, name, ts, idx, playing, wall, track, live}
   let repTimer = null;
   let tlAnchor = -1;             // 右栏已经滚到过哪一条（避免每 1 s 重渲染把用户的滚动顶掉）
+  /* 中栏网格**显示大小**：`'auto'` = 跟设备上报的 `mazetype`（真实尺寸）；
+     数字 = 用户在本页手工覆盖的**显示**尺寸（7 / 8 / 16）。
+     ⚠️ 它**只影响这一页画出来的网格**，不改固件、不写记录、不传后端 ——
+     用途是"模拟显示"：手上没有那块固件的板子时，也能照某一档尺寸看这张图的版式。
+     真实固件尺寸永远是设备帧里的 `mazetype`（见 `wallData().n`）。 */
+  let mazeSize = 'auto';
 
   /* ------------------------------------------------------------ 骨架 */
   function mount(host) {
@@ -92,7 +98,7 @@ C.mods.mod_maze8 = (function () {
           <span>
             <button class="mini primary" id="m8-run">发车</button>
             <button class="mini" id="m8-mstop">收车</button>
-            <button class="mini warn" id="m8-rescue">救援</button>
+            <button class="mini warn" id="m8-rescue">复位</button>
             <button class="mini" id="m8-stop">停止并保存</button>
             <button class="mini" id="m8-state">读取状态</button>
             <button class="mini" id="m8-map">读墙图</button>
@@ -119,14 +125,24 @@ C.mods.mod_maze8 = (function () {
           <div class="kv" id="m8-sens"></div>
         </div>
         <div class="pane">
-          <h4>迷宫重构 <span class="hint" id="m8-winfo"></span></h4>
+          <h4>迷宫重构 <span class="hint" id="m8-winfo"></span>
+            <span class="hint" style="margin-left:auto">大小
+              <select class="mini" id="m8-msize" title="只改这一页画出来的网格大小，不改固件 / 不写记录">
+                <option value="auto">自动</option>
+                <option value="7">7 × 7</option>
+                <option value="8">8 × 8</option>
+                <option value="16">16 × 16</option>
+              </select></span></h4>
           <canvas id="m8-cv" style="width:100%"></canvas>
           <div class="hint" id="m8-wsrc"></div>
           <div class="kv" id="m8-wkv"></div>
         </div>
         <div class="pane">
           <h4>决策历程 <span class="hint" id="m8-tlcount"></span>
-            <span><button class="mini" id="m8-ev-clear">刷新</button></span></h4>
+            <span>
+              <button class="mini" id="m8-ev-clear">刷新</button>
+              <button class="mini" id="m8-dec-clear">清空</button>
+            </span></h4>
           <!-- ★ 时间线进度条放在**这一栏的最顶上**：它驱动的正是下面这条时间线，
                以及左/中两栏的"此刻"。放在别处（比如整页顶部）会让人以为它只管某一部分。 -->
           <div class="tltop">
@@ -174,10 +190,29 @@ C.mods.mod_maze8 = (function () {
          它原来叫【清空显示】—— 那时决策是前端自己攒的，清一下有意义；
          现在决策来自后端（每 1 s 全量拉），"清空"点了什么也不会发生。
          ⇒ 一个点了没反应的按钮比没有按钮更坏（现场会以为它坏了、或以为清空成功了）。
-         改名成它真正做的事：立刻重拉一次（不等那 1 s 的定时器）。 */
+         改名成它真正做的事：立刻重拉一次（不等那 1 s 的定时器）。
+         ★ 现在"清空"是一件真事了（后端开了 `decisions/clear` 端点），
+           所以它有了自己的按钮 `#m8-dec-clear`（见下），不必再借这个名字。 */
       if (rep) return;               // 回放态的数据来自这份文件，重拉没有意义
       loadState(); loadDecisions(); loadRecStatus();
     });
+    bind('#m8-dec-clear', 'onclick', function () { clearDecisions(); });
+    /* 中栏网格显示大小（只改这一页画出来的网格，不碰固件 / 记录）。
+       选择**落 localStorage**：现场换一档之后刷新页面不该跳回自动。 */
+    (function () {
+      const sel = el.querySelector('#m8-msize');
+      if (!sel) return;                    // 缺元素由 bind 之外的判据兜底（见 mount 注释）
+      let saved = null;
+      try { saved = window.localStorage.getItem('m8.mazeSize'); } catch (e) { /* 忽略 */ }
+      if (saved === '7' || saved === '8' || saved === '16' || saved === 'auto') {
+        mazeSize = saved; sel.value = saved;
+      }
+      sel.onchange = function () {
+        mazeSize = sel.value || 'auto';
+        try { window.localStorage.setItem('m8.mazeSize', mazeSize); } catch (e) { /* 忽略 */ }
+        drawMaze();                        // 立刻按新尺寸重画（不必等下一帧）
+      };
+    })();
     bind('#m8-rep-prev', 'onclick', function () { seekRep(repIdx() - 1); });
     bind('#m8-rep-next', 'onclick', function () { seekRep(repIdx() + 1); });
     bind('#m8-rep-play', 'onclick', function () { togglePlay(); });
@@ -379,6 +414,29 @@ C.mods.mod_maze8 = (function () {
   /* ------------------------------------------------------------ 中栏 */
   function wallData() { return rep ? (rep.wall || null) : (wall || null); }
 
+  /* 把一张 n×n 的字符行（`known_rows` / `wall_rows` / `visited`）**重排到 m×m**。
+     为什么要它：中栏的"大小"选择是**纯显示**（模拟另一档固件尺寸时的版式），
+     而底层墙图数组的边长是**设备真实尺寸** `wd.n`。两者一旦不等，直接把数组交给
+     绘图函数会错位（行短了会被 `bit()` 当 0 读，长了会被当"未知"）。
+     ⇒ 显式重排：
+       · m > n：多出来的行/列补 `'0'`（= 没走过、未知 —— 与"确认通"区分开）；
+       · m < n：**裁掉**超出的行/列（只看前 m×m，这是模拟小场地的合理读法）。
+     行内每格按字符取；缺失的格补 `'0'`。这样绘图端的 `bit(rows,x,y,i)` 始终安全。 */
+  function resizeRows(rows, n, m, fill) {
+    if (!rows) return null;
+    if (m === n) return rows;
+    const out = [];
+    for (let y = 0; y < m; y++) {
+      const src = rows[y];
+      let line = '';
+      for (let x = 0; x < m; x++) {
+        line += (src && x < src.length) ? src[x] : fill;
+      }
+      out.push(line);
+    }
+    return out;
+  }
+
   function drawMaze() {
     const cv = el.querySelector('#m8-cv');
     if (!cv || !cv.getContext) return;
@@ -406,16 +464,28 @@ C.mods.mod_maze8 = (function () {
     const near = (f && f.frontNear != null) ? !!f.frontNear : null;
     const far = (f && f.frontFar != null) ? !!f.frontFar : null;
     const hasFront = (near !== null || far !== null);
+    /* 网格边长：`auto` = 设备真实尺寸（`wd.n`）；否则用用户选的**显示**尺寸。
+       ⚠️ 只在"选了具体数字"时才重排数组 —— `auto` 走原路（零改动、零风险）。 */
+    const realN = wd.n;
+    const selN = (mazeSize === 'auto') ? realN : Number(mazeSize);
+    const n = (selN >= 2 && selN <= 32) ? selN : realN;
+    const override = (n !== realN);
+    /* 位置/终点/前墙双档只认**真实尺寸**那套坐标：用户选了别的显示尺寸时，
+       这些"哪一格"的量会因为网格被重排而落到错格 ⇒ 只在实际尺寸下画它们，
+       并在小字里说清"这几项按真实尺寸显示"。这是模拟版式，不该伪造实时读数。 */
     C.draw.maze(cv, {
       height: 320,
-      n: wd.n,
-      known: wd.known_rows, wall: wd.wall_rows, visited: wd.visited,
-      pos: (f && f.posX != null) ? [f.posX, f.posY] : null,
-      dir: (f && f.dir != null) ? f.dir : null,
-      goal: (f && f.goalX != null) ? [f.goalX, f.goalY] : null,
-      front: hasFront ? { near: !!near, far: !!far } : null,
-      track: track,
-      label: rep ? '复盘 · 重构示意（截至游标）' : '实时 · 重构示意（最近一段）',
+      n: n,
+      known: resizeRows(wd.known_rows, realN, n, '0'),
+      wall: resizeRows(wd.wall_rows, realN, n, '0'),
+      visited: resizeRows(wd.visited, realN, n, '0'),
+      pos: (!override && f && f.posX != null) ? [f.posX, f.posY] : null,
+      dir: (!override && f && f.dir != null) ? f.dir : null,
+      goal: (!override && f && f.goalX != null) ? [f.goalX, f.goalY] : null,
+      front: (!override && hasFront) ? { near: !!near, far: !!far } : null,
+      track: override ? null : track,
+      label: (rep ? '复盘 · 重构示意（截至游标）' : '实时 · 重构示意（最近一段）') +
+        (override ? ('　[显示尺寸 ' + n + '×' + n + '，实际 ' + realN + '×' + realN + ']') : ''),
     });
     const wi = el.querySelector('#m8-winfo');
     if (wi) {
@@ -432,8 +502,15 @@ C.mods.mod_maze8 = (function () {
          这里给的是"这一帧读到的是哪一档"，读不到就如实说）。 */
       const rows = [
         ['已探索格子', vis + ' / ' + (wd.n * wd.n)],
-        ['轨迹点', (track || []).length],
       ];
+      /* 显示尺寸被手工覆盖时**如实写出来**：图上是 n×n（模拟版式），
+         而真实尺寸是 wd.n×wd.n —— 两个数都给，免得看的人以为换块板子了。
+         （选 `auto` 时不加这行，界面保持干净。） */
+      if (n !== realN) {
+        rows.push(['显示尺寸', n + ' × ' + n + '（模拟；实际 ' +
+          realN + ' × ' + realN + '）']);
+      }
+      rows.push(['轨迹点', (track || []).length]);
       if (hasFront) {
         rows.push(['前墙档位', near && far ? '矛盾' : (near ? '近端' : (far ? '远端' : '无'))]);
       } else {
@@ -513,7 +590,12 @@ C.mods.mod_maze8 = (function () {
         return '到达终点区 (' + d.x + ',' + d.y + ')' +
           (d.goalX == null ? '' : ('　目标 (' + d.goalX + ',' + d.goalY + ')'));
       case 'EVENT':
-        return String(d.event || '') + (d.reason ? (' · ' + d.reason) : '') +
+        /* 上行事件（`STOPPED <reason>` / `ESTOP TRIP`）。
+           ⚠️ 这里必须写**人话**（`reason_text`，如"时间护栏到"/"近墙保护(红外护栏)"），
+           不要只写 `TIME`/`IR` 那种码 —— "为什么停的"是这个事件存在的**唯一理由**，
+           丢一个码过去等于没答。老上游没给人话时退回码本身（不编造）。 */
+        return String(d.event || '') +
+          ((d.reason_text || d.reason) ? (' · ' + (d.reason_text || d.reason)) : '') +
           (d.seq == null ? '' : (' #' + d.seq));
       default:
         /* ⚠️ **不把原始对象吐到界面上**（曾经这里 `JSON.stringify(d)`，
@@ -621,6 +703,28 @@ C.mods.mod_maze8 = (function () {
     live = d || null;
     renderTlBar();
     renderTimeline();
+  }
+
+  /* 【清空】决策历程 —— 让**后端**开一个新纪元（清常驻环 + 换差分器），
+     而不是在浏览器里把 DOM 抹掉：
+       ① 决策与事件都由后端那个常驻环供货，前端每 1 s 全量重拉 ⇒ 只抹 DOM 会"清完又回来"；
+       ② 用户要的是"这一段到此为止、下一段从零开始"（方便下一次发车的记录），
+          那正是"开新纪元"这件事 —— 与发车走的是同一套机制（`_reset_epoch`）。
+     ⚠️ 它**不动正在记录的那一段**（存盘数据不受影响），所以随时可按。
+     回放态下按它：先把回放数据也一起重取（否则界面还停在旧的快照上）。 */
+  async function clearDecisions() {
+    const d = await C.guard(function () {
+      return C.api('/api/v1/mouse/maze/decisions/clear', { method: 'POST', body: {} });
+    }, '清空决策历程');
+    if (!d) return;
+    const m = el.querySelector('#m8-msg');
+    if (m) m.textContent = d.note || '已清空决策历程';
+    C.toast('决策历程已清空 —— 下一段从零开始\n（正在记录的那一段不受影响）', 'ok', 9000);
+    // 本地缓存也要跟着作废，否则下一次 render 还会画旧的那一份。
+    live = null;
+    tlAnchor = -1;                  // 让新一段的第一条能重新滚进视野
+    if (!rep) { loadState(); loadDecisions(); }
+    else { renderTimeline(); }
   }
 
   /* ------------------------------------------------------------ 取数 */
@@ -740,24 +844,35 @@ C.mods.mod_maze8 = (function () {
     if (!d) return;
     const m = el.querySelector('#m8-msg');
     if (d.ok) {
-      if (m) m.textContent = '已保存 ' + d.name + '（' + d.frames + ' 帧）' +
-        (d.tiny ? ' · 帧数偏少，可能没真跑起来' : '');
-      C.toast('记录已保存：' + d.name, d.tiny ? '' : 'ok', 12000);
+      /* ⚠️ 用户明确要求：保存后要**看得见存到哪儿了**（不只是文件名）。
+         后端 `stop()` 已经返回 `path`（绝对路径）—— 以前只显示 `d.name`，
+         现场想知道"文件在哪、能不能直接打开"时没法从界面得知。
+         ⇒ 文件名进页内提示（留得住），**完整路径进弹窗**（可复制）。
+         路径可能很长，所以放一份到页内 `title` 上，鼠标悬停也能看全。 */
+      const where = d.path || d.name || '(未知路径)';
+      if (m) {
+        m.textContent = '已保存 ' + d.name + '（' + d.frames + ' 帧）' +
+          (d.tiny ? ' · 帧数偏少，可能没真跑起来' : '');
+        m.title = '保存位置：' + where;
+      }
+      C.toast('记录已保存到：\n' + where +
+              '\n（' + d.frames + ' 帧' + (d.tiny ? ' · 帧数偏少' : '') + '）',
+              d.tiny ? '' : 'ok', 16000);
     } else if (m) {
       m.textContent = d.note || '当前没有在记录';
     }
     loadRecStatus();
   }
 
-  /* ------------------------------------------------------------ 收车 / 救援 */
+  /* ------------------------------------------------------------ 收车 / 复位 */
   /* 两个动作的分工（都不是"停止并保存"的替代品，那是存盘、这是动车）：
        · 收车 `MAZE STOP`  = 停车 + 复位发车状态 + 解锁急停；
-       · 救援 `MCU RESET`  = 整机软复位（固件主循环卡在非协作阻塞等待里时的唯一出口）。
+       · 复位 `MCU RESET`  = 整机软复位（固件主循环卡在非协作阻塞等待里时的唯一出口）。
      ⚠️ 为什么两个都要有：收车是"正常收"，但它**车在运动时不可靠** ——
      `MAZE STOP` 只置一个"请退出"标志，而标志的检查在 `LESSON_Blind8()` 的 while(1)
      顶部；主循环有 30 余处非协作式阻塞等待（等的是编码器里程/传感器这类**物理进度**），
      运动时程序正卡在那些循环内部，标志根本轮不到。
-     ⇒ 所以收车之后**当场看任务机**：还在 SEARCH 就说明没收住，该上救援。 */
+     ⇒ 所以收车之后**当场看任务机**：还在 SEARCH 就说明没收住，该上复位。 */
   async function collect() {
     const d = await C.guard(function () {
       return C.api('/api/v1/mouse/maze/stop', { method: 'POST', body: {} });
@@ -781,12 +896,12 @@ C.mods.mod_maze8 = (function () {
       }
       C.toast('收车没生效：任务仍是 ' + (st.taskName || '?') +
               '\nMAZE STOP 只置"请退出"标志，车在运动时轮不到检查。' +
-              '\n⇒ 请点【救援】（整机软复位），那是可靠手段。', 'warn', 26000);
+              '\n⇒ 请点【复位】（整机软复位），那是可靠手段。', 'warn', 26000);
     } else {
       if (m) m.textContent = '已发收车命令，但还没等到新帧，暂时判不了收住没有';
       C.toast('收车命令已发出，但没等到新遥测帧' +
               '\n⇒ 稍后看左栏的任务机：不是 SEARCH 就说明收住了；' +
-              '仍是 SEARCH 就点【救援】。', 'warn', 22000);
+              '仍是 SEARCH 就点【复位】。', 'warn', 22000);
     }
     loadState();
   }
@@ -794,23 +909,23 @@ C.mods.mod_maze8 = (function () {
   async function rescue() {
     const d = await C.guard(function () {
       return C.api('/api/v1/mouse/rescue', { method: 'POST', body: {} });
-    }, '救援（整机软复位）');
+    }, '复位（整机软复位）');
     if (!d) return;
     const m = el.querySelector('#m8-msg');
     if (d.verified) {
-      if (m) m.textContent = '救援成功：复位原因 ' + d.rst + '，等了 ' +
+      if (m) m.textContent = '复位成功：复位原因 ' + d.rst + '，等了 ' +
         C.util.fmt(d.elapsed_s, 1) + ' s';
       /* 三件事必须一起说，少一件现场就会踩：
            ① 复位只复位固件、**不复位物理位置**（车还在迷宫原处）；
            ② 复位后约 3 s 才有新帧，马上读状态会拿到旧帧；
            ③ 复位后不会自动恢复跑。 */
-      C.toast('救援成功（rst=' + d.rst + '）' +
+      C.toast('复位成功（rst=' + d.rst + '）' +
               '\n车的位置假设已被清零，但车还在原处。' +
               '\n⇒ 发车前必须把电脑鼠放回起点角，否则它会按一张错的地图走。' +
               '\n⇒ 复位后约 3 s 才有新遥测帧，别急着判读状态。', 'ok', 30000);
     } else {
-      if (m) m.textContent = '救援未复核通过：rst=' + (d.rst || '—');
-      C.toast('救援没有复核到复位\n' + (d.note || ''), 'warn', 30000);
+      if (m) m.textContent = '复位未复核通过：rst=' + (d.rst || '—');
+      C.toast('复位没有复核到复位\n' + (d.note || ''), 'warn', 30000);
     }
     // 复位后要等新鲜帧（约 3 s）⇒ 这里**故意晚一点**再读状态，而不是立刻读。
     // 立刻读会读到复位前的旧帧或 BSS 初值帧，看着像"复位没生效"。
@@ -984,13 +1099,46 @@ C.mods.mod_maze8 = (function () {
       : { key: 'stop', text: '已停止', task: live.taskName || '' };
   }
 
+  /* 这一段的**停止原因**（右栏胶囊后面那截）。
+     来源是上行事件（`STOPPED <reason>` / `ESTOP TRIP`）—— `reason` **推不出来**，
+     只能靠这条线（见 `maze_rec.feed_event`）。取**最后一条**停止类事件的 `reason_text`。
+     ⚠️ 找不到就回空串（**不编造**"未知原因"那种话；没有就是没收到那条事件）。
+     三态纪律：`live.events` 不存在（老后端）⇒ 也回空串，而不是"没有停止原因"。 */
+  function stopReasonText() {
+    if (rep) {
+      const evs = (rep.doc && rep.doc.events) || [];
+      for (let i = evs.length - 1; i >= 0; i--) {
+        const e = evs[i];
+        if (e && (e.event === 'STOPPED' || String(e.event || '').indexOf('ESTOP') === 0)) {
+          return e.reason_text || e.reason || '';
+        }
+      }
+      return '';
+    }
+    const evs = (live && live.events) || [];
+    for (let i = evs.length - 1; i >= 0; i--) {
+      const e = evs[i];
+      if (e && (e.event === 'STOPPED' || String(e.event || '').indexOf('ESTOP') === 0)) {
+        return e.reason_text || e.reason || '';
+      }
+    }
+    return '';
+  }
+
   function renderTlBar() {
     const pill = el.querySelector('#m8-runpill');
     if (!pill) return;
     const s = runState();
     pill.className = 'runpill ' + s.key;
-    pill.textContent = (s.key === 'run' ? '● ' : (s.key === 'stop' ? '■ ' : '— ')) + s.text +
-      (s.task ? (' · ' + s.task) : '');
+    /* 停止态：把**停止原因**一并写进胶囊（"已停止 · 时间到"），
+       这是现场最想知道的一件事 —— 只写"已停止"等于没回答"为什么"。
+       运行中 / 判不了 / 回放态不拼它（那时没有"停止原因"可言）。 */
+    let tail = s.task ? (' · ' + s.task) : '';
+    if (s.key === 'stop') {
+      const why = stopReasonText();
+      if (why) tail += ' · ' + why;
+    }
+    pill.textContent = (s.key === 'run' ? '● ' : (s.key === 'stop' ? '■ ' : '— ')) + s.text + tail;
     // 进入回放的按钮**只在实时态显示**；退出回放的那个**只有控制条里一个**
     // （曾经两处都有 ⇒ 屏幕上并排两个"退出回放"，那是个纯多余的重复）
     const be = el.querySelector('#m8-rep-enter');

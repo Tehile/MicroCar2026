@@ -12,7 +12,7 @@
  * 冲刺档位 `spurtMode` 是固件**只读镜像**（`mazeState`/`taskSt` 的位），
  * 上位机**设不了**它 —— 冲刺入口是比赛流程里"人工贴墙选档"那一段（刻意不动）。
  * ⇒ 这一页的职责是**把固件正在想什么说出来**，不是发指令。只有两个动作：
- *   【比赛发车】`MAZE RUN RACE`、【收车】/【救援】（与走迷宫页同一套收尾动作）。
+ *   【比赛发车】`MAZE RUN RACE`、【收车】/【复位】（与走迷宫页同一套收尾动作）。
  *   少写这句"我们设不了它"，现场会到处找那个不存在的下拉框。
  *
  * ## 为什么要专门监视 `frontNear` / `frontFar`（2.3.0 前墙双档）
@@ -67,7 +67,7 @@ C.mods.mod_race = (function () {
         <div class="hint" id="rc-hint"></div>
         <div class="row wrap">
           <button class="mini" id="rc-mstop">收车</button>
-          <button class="mini danger" id="rc-rescue">救援</button>
+          <button class="mini danger" id="rc-rescue">复位</button>
           <button class="mini" id="rc-refresh">刷新</button>
         </div>
         <div class="hint" id="rc-rec"></div>
@@ -92,7 +92,7 @@ C.mods.mod_race = (function () {
       </div>`;
     el.querySelector('#rc-run').onclick = function () { run(); };
     el.querySelector('#rc-mstop').onclick = function () { act('maze/stop', '收车'); };
-    el.querySelector('#rc-rescue').onclick = function () { act('rescue', '救援'); };
+    el.querySelector('#rc-rescue').onclick = function () { act('rescue', '复位'); };
     el.querySelector('#rc-refresh').onclick = function () { reload(); };
     startTick();
     loadMeta();
@@ -229,7 +229,7 @@ C.mods.mod_race = (function () {
         note.textContent = '任务机 START（刚发车）⇒ 正在读地图选档。';
       } else {
         note.textContent = '任务机 SEARCH ⇒ 车正在走。要停下：先点【收车】；'
-          + '收车不生效（还在 SEARCH）就点【救援】。';
+          + '收车不生效（还在 SEARCH）就点【复位】。';
       }
     }
   }
@@ -311,7 +311,7 @@ C.mods.mod_race = (function () {
     }, label);
     if (d) {
       C.toast(label + '已下发', path === 'rescue' ? 'warn' : 'ok');
-      /* 收车/救援之后状态会变，催一次；救援约 3 s 才有新帧，所以不指望立刻变。 */
+      /* 收车/复位之后状态会变，催一次；复位约 3 s 才有新帧，所以不指望立刻变。 */
       loadState();
       loadRec();
     }
@@ -353,7 +353,7 @@ C.mods.mod_race = (function () {
       ['rc-run', 'rc-mstop', 'rc-refresh'].forEach(function (id) {
         C.gate(el.querySelector('#' + id), why);
       });
-      /* 救援**不门控**：恰恰是连不上、卡死的时候最需要它（与顶栏急停一致）。 */
+      /* 复位**不门控**：恰恰是连不上、卡死的时候最需要它（与顶栏急停一致）。 */
       if (why) { st = null; sp = null; rec = null; render(); }
       renderHint();
     },

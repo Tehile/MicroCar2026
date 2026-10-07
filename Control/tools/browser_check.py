@@ -1018,11 +1018,12 @@ async def run(args) -> int:
                 # 是本轮新加的，所以一并钉在这里。
                 "mod_maze8": ["#m8-run", "#m8-mstop", "#m8-rescue", "#m8-stop",
                               "#m8-kv", "#m8-sens",
-                              "#m8-cv", "#m8-tl", "#m8-evfault",
+                              "#m8-cv", "#m8-msize", "#m8-tl", "#m8-evfault",
                               "#m8-reclist", "#m8-import", "#m8-recbox",
                               "#m8-runpill", "#m8-tlsld", "#m8-rep-enter",
-                              "#m8-repctl", "#m8-rep-exit"],
-                # 比赛（2.4.0 新页）：`MAZE RUN RACE` 发车 + 收车/救援 + 前墙双档
+                              "#m8-repctl", "#m8-rep-exit",
+                              "#m8-ev-clear", "#m8-dec-clear"],
+                # 比赛（2.4.0 新页）：`MAZE RUN RACE` 发车 + 收车/复位 + 前墙双档
                 # + 冲刺状态 + 状态机。这些 id 是**新加的、别处没有**，所以必须钉住。
                 "mod_race": ["#rc-run", "#rc-mstop", "#rc-rescue", "#rc-refresh",
                              "#rc-front", "#rc-front-ok", "#rc-spurt", "#rc-state"],
@@ -1343,8 +1344,8 @@ async def run(args) -> int:
                    if b35_ok else
                    f"**无记忆走迷宫三栏 / 复盘往返不对**：{b35_bad[:4]}")
 
-            # ── B36：收车 / 救援按钮 + 发车前低电门控（**正反两面**） ──
-            # 守的是上游 2.1.1~2.2.1 新接进来的三个动作：收车、救援、低电提醒。
+            # ── B36：收车 / 复位按钮 + 发车前低电门控（**正反两面**） ──
+            # 守的是上游 2.1.1~2.2.1 新接进来的三个动作：收车、复位、低电提醒。
             #   · 前两个是**按钮在不在**（它们在参数/门控之外，纯 DOM 断言就够）；
             #   · 低电提醒要**真的会显式出现**才叫守住了 —— 而它是"跟着 1 s 定时器
             #     从服务端取回来再渲染"的，所以要：**钉住健康状态**（让 `C.needMouse()`
@@ -1352,7 +1353,7 @@ async def run(args) -> int:
             #     接口**喂 warn 级预检 + 等一个定时器周期。
             #   · **负向**：喂 ok 级时那一行必须**空**。只验"warn 时会有字"是不够的 ——
             #     一个永远有字的提示等于没提示（本层纪律：一道从没红过的闸不算闸）。
-            head("2i. 无记忆走迷宫 / 设备窗口：收车与救援按钮 + 低电门控（含负向）")
+            head("2i. 无记忆走迷宫 / 设备窗口：收车与复位按钮 + 低电门控（含负向）")
             b36_bad = []
             btn = await cdp.eval(
                 "(()=>{C.openMod('mouse','mod_maze8');"
@@ -1361,14 +1362,14 @@ async def run(args) -> int:
                 "return {run:q('m8-run'), mstop:q('m8-mstop'), rescue:q('m8-rescue'),"
                 "  dmRescue:q('dm-rescue'), hint:(document.getElementById('m8-hint')||{}).textContent};})()")
             await asyncio.sleep(0.3)
-            for k, want in (("mstop", "收车"), ("rescue", "救援")):
+            for k, want in (("mstop", "收车"), ("rescue", "复位")):
                 if not btn.get(k, {}).get("there"):
                     b36_bad.append(f"无记忆走迷宫缺少按钮 {k}")
                 elif want not in btn[k]["txt"]:
                     b36_bad.append(f"按钮 {k} 的文案不是「{want}」：{btn[k]['txt']!r}")
             if not btn.get("dmRescue", {}).get("there"):
-                b36_bad.append("设备窗口缺少【救援（软复位）】按钮")
-            elif "救援" not in btn["dmRescue"]["txt"]:
+                b36_bad.append("设备窗口缺少【复位（软复位）】按钮")
+            elif "复位" not in btn["dmRescue"]["txt"]:
                 b36_bad.append(f"dm-rescue 文案可疑：{btn['dmRescue']['txt']!r}")
 
             # 低电门控：钉住"有没有连上"这个**判定入口** + 拦一条接口，等一个定时器周期。
@@ -1416,11 +1417,11 @@ async def run(args) -> int:
                 b36_bad.append(f"电量正常时门控行不该有字，却有：{ok_txt!r}")
             b36_ok = not b36_bad
             record("B36", "PASS" if b36_ok else "FAIL",
-                   f"无记忆走迷宫有【收车】【救援】、设备窗口有【救援（软复位）】；"
+                   f"无记忆走迷宫有【收车】【复位】、设备窗口有【复位（软复位）】；"
                    f"低电预检会把实测电压摆到门控行（warn ⇒ {warn_txt[:46]}…），"
                    f"**电量正常时那一行为空**（负向）"
                    if b36_ok else
-                   f"**收车/救援按钮或低电门控不对**：{b36_bad[:3]}")
+                   f"**收车/复位按钮或低电门控不对**：{b36_bad[:3]}")
 
             # ── B37：无记忆走迷宫 —— **前墙近/远两档**与**起点角**（改版十三） ──
             # 守的是本轮新加的两件显示：
@@ -1507,6 +1508,160 @@ async def run(args) -> int:
                    f"中栏画布已渲染（起点角可画）"
                    if b37_ok else
                    f"**前墙双档 / 起点角显示不对**：{b37_bad[:4]}")
+
+            # ── B38：改版十四的五件小事（复位改名 / 保存路径 / 清空 / 停止原因 / 网格尺寸） ──
+            # 守的是本轮用户明确提的五条：
+            #   ①「救援」→「复位」：界面上**不许再出现「救援」**（按钮 + 设备窗口）；
+            #   ② 停止并保存要**弹窗写清存到哪儿了**（完整路径，不只是文件名）；
+            #   ③ 决策历程要有**清空**按钮，且它真的打到后端（不是只抹 DOM）；
+            #   ④ 停止时**历程要显示停止原因**（人话，不是 `TIME` 那种码）；
+            #   ⑤ 中栏要有**网格尺寸选择**（7/8/16），且**只影响显示**。
+            # 做法同 B34/B36/B37：**先把数据钉住**再断言（未连接时左栏只写"未运行"）。
+            head("2j. 无记忆走迷宫：复位改名 / 保存路径 / 清空 / 停止原因 / 网格尺寸")
+            b38_bad, b38_got = [], []
+            try:
+                # 先回到这一页（上面切过别的模块）
+                await cdp.eval("C.openMod('mouse','mod_maze8')")
+                await asyncio.sleep(0.4)
+                # ① 改名：整页 + 设备窗口里都不许再出现「救援」
+                name_got = await cdp.eval(
+                    "(()=>({page:(document.body.innerText||''),"
+                    "  m8:(document.getElementById('m8-rescue')||{}).textContent||'',"
+                    "  dm:(document.getElementById('dm-rescue')||{}).textContent||''}))()")
+                m8_txt = (name_got or {}).get("m8", "")
+                dm_txt = (name_got or {}).get("dm", "")
+                b38_got.append(f"按钮 m8-rescue={m8_txt!r} dm-rescue={dm_txt!r}")
+                if "复位" not in m8_txt:
+                    b38_bad.append(f"m8-rescue 文案不是「复位」：{m8_txt!r}")
+                if "复位" not in dm_txt:
+                    b38_bad.append(f"dm-rescue 文案不是「复位」：{dm_txt!r}")
+                if "救援" in (name_got or {}).get("page", ""):
+                    b38_bad.append("页面上仍有「救援」字样（应统一改成「复位」）")
+
+                # ② 保存路径：拦 `record/stop` 喂一个带 `path` 的应答 ⇒ 弹窗要**写出路径**。
+                #    （真去落盘一次太慢且要鼠；这里钉的是"界面拿到 path 会不会显示它"。）
+                fake_path = "C:/tmp/rec/20261008_0000_test.maze.json"
+                await cdp.eval(
+                    "(()=>{window.__b38_api=window.__b38_api||C.api;"
+                    " const real=window.__b38_api;"
+                    " window.__b38_toast=[];"
+                    " const rt=C.toast; window.__b38_toastfn=rt;"
+                    " C.toast=function(m,k,t){try{window.__b38_toast.push(String(m));}catch(e){}"
+                    "  return rt(m,k,t);};"
+                    " C.api=function(p,o){"
+                    "  if(String(p).indexOf('maze/record/stop')>=0){"
+                    "   return Promise.resolve(" + json.dumps(
+                        {"ok": True, "name": "20261008_0000_test.maze.json",
+                         "path": fake_path, "frames": 120, "tiny": False}) + ");}"
+                    "  return real(p,o);};"
+                    " return true;})()")
+                await cdp.eval("document.getElementById('m8-stop').click()")
+                await asyncio.sleep(0.6)
+                toast_got = await cdp.eval(
+                    "(()=>{const a=window.__b38_toast||[];"
+                    "return {toast:a.join('\\n')};})()")
+                tt = str((toast_got or {}).get("toast") or "")
+                b38_got.append("保存弹窗=" + tt.replace("\n", " / ")[:80])
+                if "test.maze.json" not in tt and "maze.json" not in tt:
+                    b38_bad.append(f"停止并保存的弹窗没写出保存位置：{tt[:90]!r}")
+                elif "maze.json" not in tt:
+                    b38_bad.append(f"弹窗里没有文件名/路径：{tt[:90]!r}")
+                # 还原 api/toast
+                await cdp.eval(
+                    "(()=>{if(window.__b38_api)C.api=window.__b38_api;"
+                    " if(window.__b38_toastfn)C.toast=window.__b38_toastfn;"
+                    " return true;})()")
+
+                # ③ 清空按钮：点它必须**真的打到后端**（拦 `decisions/clear` 看有没有被调到）
+                await cdp.eval(
+                    "(()=>{window.__b38_hit=false;"
+                    " const real=window.__b38_api||C.api; window.__b38_api=real;"
+                    " C.api=function(p,o){"
+                    "  if(String(p).indexOf('maze/decisions/clear')>=0){window.__b38_hit=true;"
+                    "   return Promise.resolve({ok:true,t0_kind:'manual',note:'已清空决策历程'});}"
+                    "  return real(p,o);};"
+                    " return true;})()")
+                await cdp.eval("document.getElementById('m8-dec-clear').click()")
+                await asyncio.sleep(0.5)
+                hit = await cdp.eval("(()=>!!window.__b38_hit)()")
+                b38_got.append("清空打到后端=" + str(hit))
+                if not hit:
+                    b38_bad.append("【清空】按钮没有打到后端 `decisions/clear`（只抹了 DOM？）")
+                await cdp.eval(
+                    "(()=>{if(window.__b38_api)C.api=window.__b38_api;return true;})()")
+
+                # ④ 停止原因：右栏胶囊在"已停止"时要带上**人话**原因。
+                #    做法：拦 `maze/decisions` 喂一条带 `reason_text` 的 STOPPED 事件 +
+                #    `running=false` ⇒ 渲染确定（胶囊应写"已停止 · WAIT · 时间护栏到"）。
+                #    `reason_text` 是上游给的**人话**（`codec.RUN_REASON_NAMES`）——
+                #    只丢 `TIME` 那种码过去，现场得翻文档才知道"为什么停的"。
+                #    ⚠️ 测试环境没连鼠 ⇒ `loadDecisions()` 会在 `C.needMouse()` 处**早退**
+                #    （把 `live` 清成 null，胶囊就回到"判不了"）⇒ 这里临时把 `needMouse`
+                #    钉成放行，只为让那条喂进去的应答真的走到 `live` 上；做完立刻还原。
+                await cdp.eval(
+                    "(()=>{window.__b38_nm=C.needMouse; C.needMouse=function(){return null;};"
+                    " const real=window.__b38_api||C.api; window.__b38_api=real;"
+                    " C.api=function(p,o){"
+                    "  if(String(p).indexOf('maze/decisions')>=0 && String(p).indexOf('clear')<0){"
+                    "   return Promise.resolve(" + json.dumps(
+                        {"decisions": [], "events": [
+                            {"t_ms": 1200, "event": "STOPPED", "reason": "TIME",
+                             "reason_text": "时间护栏到", "seq": 3}],
+                         "duration_ms": 1200, "t0_kind": "launch",
+                         "running": False, "task": 0, "taskName": "WAIT",
+                         "recording": False}) + ");}"
+                    "  return real(p,o);};"
+                    " return true;})()")
+                await cdp.eval("C.openMod('mouse','mod_maze8')")
+                await asyncio.sleep(0.6)
+                pill = await cdp.eval(
+                    "(()=>{const p=document.getElementById('m8-runpill');"
+                    "return (p?p.textContent:'').trim();})()")
+                b38_got.append("停止胶囊=" + str(pill)[:60])
+                if "已停止" not in str(pill):
+                    b38_bad.append(f"停止态胶囊不对：{pill!r}")
+                elif "时间护栏到" not in str(pill):
+                    b38_bad.append(f"停止原因没写人话（应为「时间护栏到」）：{pill!r}")
+                await cdp.eval(
+                    "(()=>{if(window.__b38_nm)C.needMouse=window.__b38_nm;"
+                    " if(window.__b38_api)C.api=window.__b38_api;return true;})()")
+
+                # ⑤ 网格尺寸：选 16 ⇒ 画布仍渲染 + 选项在；且**不许动后端**（记录/墙图端点不被调）
+                sel = await cdp.eval(
+                    "(()=>{const s=document.getElementById('m8-msize');"
+                    "if(!s)return {there:false};"
+                    "const opts=Array.from(s.options).map(function(o){return o.value;});"
+                    "return {there:true,opts:opts};})()")
+                if not (sel or {}).get("there"):
+                    b38_bad.append("中栏没有网格尺寸选择 #m8-msize")
+                else:
+                    opts = (sel or {}).get("opts") or []
+                    b38_got.append("尺寸选项=" + ",".join(opts))
+                    for need in ("7", "8", "16"):
+                        if need not in opts:
+                            b38_bad.append(f"网格尺寸缺少 {need}×{need} 选项（有 {opts}）")
+                # 切到 16 之后画布应仍有尺寸（不崩即可）
+                await cdp.eval(
+                    "(()=>{const s=document.getElementById('m8-msize');"
+                    "if(s){s.value='16';s.onchange&&s.onchange();}return true;})()")
+                await asyncio.sleep(0.3)
+                cv2 = await cdp.eval(
+                    "(()=>{const c=document.getElementById('m8-cv');"
+                    "return {w:c?c.width:0,h:c?c.height:0};})()")
+                if not ((cv2 or {}).get("w") and (cv2 or {}).get("h")):
+                    b38_bad.append(f"选了一个显示尺寸后画布没尺寸（画不出来）：{cv2}")
+                # 还原成 auto，别把 16 留进 localStorage 影响别的判据
+                await cdp.eval(
+                    "(()=>{const s=document.getElementById('m8-msize');"
+                    "if(s){s.value='auto';s.onchange&&s.onchange();}return true;})()")
+            except Exception as e:                            # noqa: BLE001
+                b38_bad.append(f"读取改版十四渲染时抛异常：{type(e).__name__}: {e}")
+            b38_ok = not b38_bad
+            record("B38", "PASS" if b38_ok else "FAIL",
+                   f"「救援」已统一为「复位」（页内 + 设备窗口）；停止并保存的弹窗写出保存路径；"
+                   f"【清空】按钮真的打到后端；停止原因写人话（{'；'.join(b38_got)}）"
+                   if b38_ok else
+                   f"**改版十四的界面不对**：{b38_bad[:4]}")
 
             # 后面逐页断言打的是「综合运动」界面 —— 上面切到新模块后要**切回来**，
             # 否则 `#ws-all` 是 `display:none`，`innerText` 全空，后面每一条都会假红。

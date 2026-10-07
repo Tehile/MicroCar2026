@@ -282,7 +282,7 @@ class MouseAdapter:
              "pull_mode": False,
              # 2.1.1：**收车命令** `MAZE STOP`（`mc.maze.stop()`）—— 推翻"发过车就只能断电"
              "maze_stop": False,
-             # 2.2.0：**整机软复位**救援口 `mc.conn.soft_reset()` / `rescue()`
+             # 2.2.0：**整机软复位**复位口 `mc.conn.soft_reset()` / `rescue()`
              "soft_reset": False,
              # 2.2.1：发车前**低电硬闸**（上游 `registry.LAUNCH_MIN_MV`，默认 7000 mV）
              "launch_gate": False,
@@ -411,7 +411,7 @@ class MouseAdapter:
             f["maze_stop"] = hasattr(MazeAPI, "stop")
         except Exception:                                     # noqa: BLE001
             pass
-        # ---- 2.2.0 救援（整机软复位）：`ConnAPI.soft_reset` / 别名 `rescue`，命令 `system.reset`。
+        # ---- 2.2.0 复位（整机软复位）：`ConnAPI.soft_reset` / 别名 `rescue`，命令 `system.reset`。
         # ⚠️ 判据是**方法存在**而不是版本号：`soft_reset` 是 2.2.0 新增的，v2.1 的 `ConnAPI`
         #   没有它，而 `ConnAPI` 这个类本身两版都在 ⇒ 只有新增符号能区分。
         try:
@@ -1044,7 +1044,7 @@ class MouseAdapter:
         |---|---|---|
         | `ERR_LOWBATT` | **上位机自己的低电闸**拦下了（压根没发出去，`data.blocked=True`） | 充电/换电；确需台架强发把车架离地面后用 `send_raw` |
         | `ERR_ESTOP` | 急停**锁存中**（固件会接受请求然后被 ISR 每帧清零速度，现场表现为"发了车却不动"） | 先点【解锁急停】 |
-        | `ERR_BUSY` | 已经在跑迷宫（发车状态没复位） | 先【收车】（`MAZE STOP`），不行再【救援】 |
+        | `ERR_BUSY` | 已经在跑迷宫（发车状态没复位） | 先【收车】（`MAZE STOP`），不行再【复位】 |
         | `ERR_VALUE` | 该固件档位没有这条命令 | 换远程档固件 |
 
         ⚠️ `ERR_LOWBATT` **不是设备回的** —— 它是上游在 `send_cmd` 的登记表层拦的，
@@ -1082,7 +1082,7 @@ class MouseAdapter:
                 f"发车失败：已经在跑迷宫（ERR_BUSY）"
                 f"\n  ⇒ 发车状态没复位。以前这种情况只能断电，现在有正经的收车口："
                 f"\n  ⇒ 先点【收车】（`MAZE STOP`）。若任务机**仍停在 SEARCH**，说明车还在动"
-                f"（`MAZE STOP` 只置\"请退出\"标志，车在运动时轮不到检查），改用【救援】（软复位）。")
+                f"（`MAZE STOP` 只置\"请退出\"标志，车在运动时轮不到检查），改用【复位】（软复位）。")
         raise MouseError(
             f"远程发车失败：{st}\n"
             f"  ⇒ `MAZE RUN` 只在 MOUSE_DATA_LOG 档固件里实现；其余档位会返回 ERR_VALUE。"
@@ -1103,7 +1103,7 @@ class MouseAdapter:
         （`motion.c` 的 `while (cellOdom < dis)` 等）。车在运动时程序正卡在那些循环
         **内部**，标志根本轮不到 ⇒ 真机实测：`MAZE STOP` 回 `OK`，但 `mazeTask` 仍 `SEARCH`、
         `MAZE RUN` 仍 `ERR_BUSY`。
-        ⇒ **可靠收车手段是【救援】（`MCU RESET`，整机软复位，BSS 清零把发车状态一起清掉）。**
+        ⇒ **可靠收车手段是【复位】（`MCU RESET`，整机软复位，BSS 清零把发车状态一起清掉）。**
 
         所以本方法**把实测状态一并返回**（`task`），让界面能当场判"到底收住没有"，
         而不是只看一个 `OK` 就以为收车成功（`OK` 只表示"命令被接受"）。
@@ -1112,7 +1112,7 @@ class MouseAdapter:
         if not self._features.get("maze_stop"):
             raise MouseError(
                 "本机上游没有收车命令（`MAZE STOP`，2.1.1 新增）"
-                "\n  ⇒ 旧版上游在发车之后**没有**任何复位发车状态的路径，只能断电或用【救援】。"
+                "\n  ⇒ 旧版上游在发车之后**没有**任何复位发车状态的路径，只能断电或用【复位】。"
                 "\n  ⇒ 升级 `RemoteControl` 到 2.1.1 及以上即可。")
         # 先记下"现在有几帧"，收车后**等到帧数涨了**才去读状态 —— 见下面 `_wait_fresh_frame`
         # 的说明（不等会读到停车前那一帧，把"收住了"误判成"没收住"）。
@@ -1172,7 +1172,7 @@ class MouseAdapter:
         return False
 
     def rescue(self, verify: bool = True) -> dict:
-        """**救援**：整机软复位（`MCU RESET` → 固件 `Sys_Soft_Reset()`）—— 卡死救援口。
+        """**复位**：整机软复位（`MCU RESET` → 固件 `Sys_Soft_Reset()`）—— 卡死复位口。
 
         为什么需要它（2.2.0，真机复现的现场缺陷）：走迷宫的主循环里有大量**非协作式阻塞
         等待**（`motion.c` 的 `while (odomStr.cellOdom < dis) ;` 等 30 余处），它们等的是
@@ -1194,10 +1194,10 @@ class MouseAdapter:
         读一次就下结论会拿到误导性的值。本方法把这个等待交给上游的复核循环，
         并把 `elapsed_s` 一起返回，让界面能显示"等了多久才等到"。
         """
-        mc = self._need("timesync", "救援（整机软复位）")
+        mc = self._need("timesync", "复位（整机软复位）")
         if not self._features.get("soft_reset"):
             raise MouseError(
-                "本机上游没有救援命令（`mc.conn.soft_reset()`，2.2.0 新增）"
+                "本机上游没有复位命令（`mc.conn.soft_reset()`，2.2.0 新增）"
                 "\n  ⇒ 旧版上游遇到固件卡死只能断电，或手工重连串口。"
                 "\n  ⇒ 升级 `RemoteControl` 到 2.2.0 及以上即可。")
         r = mc.conn.soft_reset(verify=bool(verify))
@@ -1211,7 +1211,7 @@ class MouseAdapter:
                "elapsed_s": d.get("elapsed_s")}
         if not out["verified"]:
             # 不抛错（`accepted=False` 不代表失败），但要把"没复核成"如实说出来，
-            # 并且**给下一步** —— 否则现场只能看到"救援按钮点了没反应"。
+            # 并且**给下一步** —— 否则现场只能看到"复位按钮点了没反应"。
             out["note"] = (
                 "复位**没有复核到**（`rst` 不是 `SW`）"
                 + (f"，当前 rst={d.get('rst')}" if d.get("rst") else "，设备没有回应")

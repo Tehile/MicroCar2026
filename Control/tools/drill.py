@@ -706,7 +706,7 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"负向：不存在→{c_bad}（应 404）；空记录 ok={(empty_r.get('data') or {}).get('ok')}"
            f"（应 False）新增={names1 - names0}")
 
-    # ---- I28：收车 / 救援 / 急停（上游 2.1.1 / 2.2.0 / 2.2.1）
+    # ---- I28：收车 / 复位 / 急停（上游 2.1.1 / 2.2.0 / 2.2.1）
     # 这条判据有两层，**第二层才是重点**：
     #
     # **第一层：三个"无参数简单命令"端点必须真的通。**
@@ -720,13 +720,13 @@ def _mouse_sections(base: str, args, sim) -> None:
     #   所以这里**逐个真调一遍**，并核对回来的 `cmd` 是**线上文本**（TARE/STOP/ESTOP）——
     #   那正是"登记名 → 线上文本"映射对了的证据。
     #
-    # **第二层：三种失败要能分得开，且收车/救援的往返要成立。**
+    # **第二层：三种失败要能分得开，且收车/复位的往返要成立。**
     #   · 急停中发车 ⇒ `ERR_ESTOP`（**不是** `ERR_BUSY`，也不是 OK）；
     #   · 已在跑再发车 ⇒ `ERR_BUSY`；
     #   · 收车 ⇒ 必须等到**新帧**才判（旧帧会把成功报成失败），所以 `reliable`
     #     必须是 `True`（模拟器上收得住；三态里的 `None` 表示"没等到帧、判不了"）；
     #   · ★ **收车后必须能再发车** —— 2.1.1 修的正是这条（以前"发过一次车就只能断电"）；
-    #   · 救援 ⇒ `verified` 必须与复位原因一致（`rst == "SW"`），**不许只看 accepted**。
+    #   · 复位 ⇒ `verified` 必须与复位原因一致（`rst == "SW"`），**不许只看 accepted**。
     # I27 结尾**故意把拉取关掉了**（为验"空记录不落盘"）⇒ 这里必须先重开：
     # 收车后的"等新帧"要靠帧在来，没有帧就只剩 `reliable=None`（判不了）。
     api(base, "/api/v1/mouse/stream", "POST", {"on": True})
@@ -793,7 +793,7 @@ def _mouse_sections(base: str, args, sim) -> None:
     # ⑤ ★ 收车后**再发车**（2.1.1 修的就是这条：以前只能断电）
     r3, c3, msg3, relaunch_ok, low3 = launch_checked(base)
 
-    # ⑥ 救援（把车弄停 ⇒ 之后才能验"静止时收车真能收住"）
+    # ⑥ 复位（把车弄停 ⇒ 之后才能验"静止时收车真能收住"）
     rr, cr, _ = api(base, "/api/v1/mouse/rescue", "POST", {}, timeout=45)
     rv = rr.get("data") or {}
     rescue_ok = (cr == 200 and bool(rv.get("verified")) and rv.get("rst") == "SW"
@@ -832,19 +832,19 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"**收车如实报告**：reliable={moving_rel!r} / task={moving_task}"
            f"（自洽，{'模拟器当场就收住了' if moving_rel is True else '如实报告没收住'}）；"
            f"**收车后能再发车**（2.1.1 修的就是这条）：{relaunch_ok}；"
-           f"救援 verified={rv.get('verified')}（rst={rv.get('rst')}、"
+           f"复位 verified={rv.get('verified')}（rst={rv.get('rst')}、"
            f"accepted={rv.get('accepted')}、{rv.get('elapsed_s')}s）⇒ 复位后 task={task_rst}；"
            f"**静止态收车收得住**：reliable={rel2}（task={task2}）；"
            f"低电预检 level={pv.get('level')}（阈值 {pv.get('min_mv')} mV）" + low_note
            if i28_ok else
-           f"**收车/救援/急停没成立**：简单命令={simple}（应 200/OK/线上文本）"
+           f"**收车/复位/急停没成立**：简单命令={simple}（应 200/OK/线上文本）"
            f" simple_ok={simple_ok}；急停中发车 code={cm} msg={emsg[:90]!r}"
            f" estop_gate_ok={estop_gate_ok}；解锁后发车 code={c1} ok1={ok1}"
            f" msg={msg1[:120]!r}；"
            f"收车如实报告 code={cs} reliable={rel!r} task={task0} "
            f"has_field={has_field} consistent={consistent} moving_honest={moving_honest}；"
            f"收车后再发车 code={c3} relaunch_ok={relaunch_ok} msg={msg3[:120]!r}；"
-           f"救援 code={cr} {rv} rescue_ok={rescue_ok}；"
+           f"复位 code={cr} {rv} rescue_ok={rescue_ok}；"
            f"静止态收车：code={cs2} reliable={rel2!r} task={task2} collect_ok={collect_ok}；"
            f"预检 code={cp} {pv} pre_ok={pre_ok}")
 
@@ -862,7 +862,7 @@ def _mouse_sections(base: str, args, sim) -> None:
     # 判据四条（两条正向 + **两条负向**）：
     #   ① 逐条相等：同一时刻取环与快照，`decisions` 必须**完全一致**（含 `t_ms`）；
     #   ② 落盘那份也一样（保存后读回再与环比对）；
-    #   ③ 负向 **换段不残留**：收车 → 救援 → 再发车之后，新环必须**从 0 附近重新开始**
+    #   ③ 负向 **换段不残留**：收车 → 复位 → 再发车之后，新环必须**从 0 附近重新开始**
     #      （`max(t_ms)` 不许接着上一段的时长往上堆），且**不许出现负 `t_ms`**；
     #   ④ 负向 **发车被拒不许抹掉右栏**：`ERR_BUSY` 时环必须**原样保留**（前缀不变）、
     #      零点没被挪走（仍无负 t）。
@@ -922,7 +922,7 @@ def _mouse_sections(base: str, args, sim) -> None:
     file_eq = (bool(name30) and n_f > 0
                and all(_dk(fdec[i]) == _dk(ring1b[i]) for i in range(n_f)))
 
-    # ③ 负向：**换段不残留**。收车 → 救援 → 再发车，新环必须从 0 附近重新开始。
+    # ③ 负向：**换段不残留**。收车 → 复位 → 再发车，新环必须从 0 附近重新开始。
     api(base, "/api/v1/mouse/maze/stop", "POST", {}, timeout=25)
     time.sleep(0.8)
     api(base, "/api/v1/mouse/rescue", "POST", {}, timeout=45)
@@ -1472,7 +1472,7 @@ def main(argv=None) -> int:
     ap.add_argument("--frames", type=int, default=8)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--sim", action="store_true",
-                    help="起上游鼠标模拟器，额外验 I15~I17 / I22~I23（时间同步 / 参数分组 / 丢帧 / 统一帧单流 / 迷宫状态机 / 记录往返 / 收车与救援）。"
+                    help="起上游鼠标模拟器，额外验 I15~I17 / I22~I23（时间同步 / 参数分组 / 丢帧 / 统一帧单流 / 迷宫状态机 / 记录往返 / 收车与复位）。"
                          "不加就 SKIP —— 那几条需要一条活链路。")
     ap.add_argument("--sim-port", type=int, default=5556)
     ap.add_argument("--fake-cam-port", type=int, default=8797,
