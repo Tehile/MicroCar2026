@@ -1,4 +1,4 @@
-"""前墙双档 + 比赛状态 只读验收（v2.3.0 / PROTO 4 / FW 215）。
+"""前墙双档 + 比赛状态 只读验收（v2.4 / PROTO 5 / FW 216 / 远程档 txbuf 512）。
 
 检验 v2.3.0 新增的 4 个只读监视字节（载荷 45→49 B）是否真的按协议回传：
 
@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import time
@@ -55,6 +56,24 @@ from host.protocol.codec import (  # noqa: E402
 FORBIDDEN = {"MOVE", "MAZE", "CAL", "ARM", "ESTOP", "STOP", "MCU", "PARAMS", "SAVE"}
 
 ACK_RE = re.compile(rb"ACK (-?\d+) ([A-Za-z0-9_ ]+)")
+
+
+def _fw_expect():
+    """从固件 `link.h` 现读 (LINK_PROTO_VER, LINK_FW_VER)，读不到返回 None。
+
+    ⚠️ 故意**不写死** —— 写死的话每次升版本都得来改测试，久了就变成
+    "改测试让它过"而不是"发现两侧漂移"（与 pull_smoke 同一做法）。
+    注意 `PONG` 的第 4 个字段是 TX 环缓冲大小，它**随档位变**
+    （远程档 512 / 比赛档 256），所以不参与核对。
+    """
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "code_stm32f1_mouse", "HARDWARE", "link.h")
+    try:
+        h = open(p, encoding="utf-8").read()
+        return (int(re.search(r"#define\s+LINK_PROTO_VER\s+(\d+)", h).group(1)),
+                int(re.search(r"#define\s+LINK_FW_VER\s+(\d+)", h).group(1)))
+    except Exception:
+        return None
 
 
 def build(cmd: str, seq: int) -> bytes:
@@ -145,9 +164,11 @@ def main() -> int:
         print(f"  固件: {ver_line or '(无 PONG 应答)'}")
         if ver_line:
             m = re.search(r"PONG (\d+) (\d+)", ver_line)
-            if m and (m.group(1) != "4" or m.group(2) != "215"):
-                print(f"  ⚠️ 期望 PONG 4 215（v2.3.0），实际 {m.group(1)} {m.group(2)}"
-                      f" —— 板上可能不是新固件，下面的新字段会读成 0")
+            exp = _fw_expect()
+            if m and exp is not None and (int(m.group(1)), int(m.group(2))) != exp:
+                print(f"  ⚠️ 期望 PONG {exp[0]} {exp[1]}（现读自源码 link.h），"
+                      f"实际 {m.group(1)} {m.group(2)}"
+                      f" —— 板上固件与当前源码不一致，下面的字段可能读成 0")
 
         rows = []
         for i in range(args.count):

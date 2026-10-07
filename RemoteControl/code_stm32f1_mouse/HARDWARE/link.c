@@ -308,6 +308,22 @@ static void link_TxPut(u8 b)
 {
 	u32 pm = __get_PRIMASK();
 	__disable_irq();
+#ifdef MOUSE_REMOTE
+	/* v2.4 兜底: 环满时**丢弃该字节**而不是回绕覆盖。
+	   本函数是 link_TxStr/TxInt 的内部出口, 原先无条件写入。一旦某条命令的
+	   输出量超过环容量(如 `GET ALL` 一次 24 行 ≈343B > 256B), head 会越过
+	   tail, 把**正在被 DMA 读取或尚未发出**的数据抹掉 —— 现场表现是
+	   "输出从中间某行开始, 前面几行凭空消失", 且不定量、难复现、更难定位。
+	   根治手段是扩容(见 link.h: 远程档 512B); 这条检查保证即使将来又出现
+	   超长输出, 最坏也只是丢尾部若干字节(linkDrop 计数随帧上报),
+	   绝不会破坏已经排好队的字节。 */
+	if (link_TxSpace() == 0)
+	{
+		linkDrop++;
+		__set_PRIMASK(pm);
+		return;
+	}
+#endif
 	linkTxBuf[linkTxHead & (LINK_TX_BUF_SIZE - 1)] = b;
 	linkTxHead = (u16)(linkTxHead + 1);
 	__set_PRIMASK(pm);
@@ -778,11 +794,25 @@ static void link_CalibSave(void)
 	FLASH_Unlock();
 	FLASH_WriteHalfWord(addr, LINK_P_NUM);
 	addr += 2;
+#ifdef MOUSE_REMOTE
+	/* ⚠️ crc 槽(+8) 必须保持**擦除态 0xFFFF**, 只在本函数末尾写一次真 CRC。
+	 * 真机实测 2026-10-07: 原文在此先写个 0 当"占位", 结果那个 CRC 永远写不进去 ——
+	 * F1 的 Flash 编程只能把位从 1 清成 0(flash.c 的 FLASH_WriteHalfWord 是直接把半字
+	 * 写到目标地址, 没有"目标非 0xFFFF 就跳过/先擦"的保护), 于是 +8 先变成 0x0000,
+	 * 末尾那次写 crc 的结果只剩 "0x0000 AND crc" = 0。
+	 * ⇒ 存进 Flash 的 CRC 恒为 0 ⇒ link_CalibLoad 的 crcF != crcC 永远成立、整页被判
+	 * 无效 ⇒ 参数每次上电都回落 link_ParamFromSys 的源码默认值, SAVE 形同虚设
+	 * (改完参数一复位就没了)。擦除后该半字本就是 0xFFFF, 无需占位。
+	 * ⚠️ 也不能"末尾再写一遍 0xFFFF 补救" —— 那同样要 0→1, 同样写不进去。
+	 * 门控在 MOUSE_REMOTE 之下: 比赛流程不使用 SAVE, 比赛档产物因此逐字节不变。 */
+	addr += 2; /* 跳过 crc(+8), 留到本函数末尾一次写入 */
+#else
 	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, 0); /* crc 占位 */
+	FLASH_WriteHalfWord(addr, 0); /* crc 占位(旧行为; 见上面 MOUSE_REMOTE 分支的说明) */
 	addr += 2;
+#endif
 	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, 0);
+	FLASH_WriteHalfWord(addr, 0); /* rsvd(+10) */
 	addr += 2;
 
 	addr = FLASH_ADDR_SYSCALIB + LINK_CALIB_PAYLOAD_OFF;

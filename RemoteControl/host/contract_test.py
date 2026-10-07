@@ -356,6 +356,23 @@ def _test_firmware_mode_gates() -> None:
     check("solve_ratio 线性标定公式", abs(solve_ratio(62.24, 100.0, 110.0) - 56.58) < 0.02)
     check("error_ratio 相对误差", abs(error_ratio(1091.0, 1080.0) - 1.0185) < 0.01)
 
+    # S8f: `PullRequester.stop()` 必须**先等在途 `TELEM` 收尾**再丢弃它。
+    #      为什么钉死(2026-10-07 真机实测, COM7/蓝牙): `TELEM` 一写出串口就**已经在
+    #      线上**了, 固件要等下一个 1 ms tick 才消费它, 期间到达的字节被 `usart.c`
+    #      直接丢弃。若 `off()` 立刻返回, 紧接着发来的命令(最自然的"先停流、再发车"
+    #      写法)有 **~3/4 概率首发被丢** ⇒ 只能干等 2.5 s 超时重发。实测修复前
+    #      223/**2702**/**2700**/**2705** ms, 修复后 0/10。
+    from host.api.stream import PullRequester as _PR
+    check(f"PullRequester.STOP_QUIESCE_MAX_S ≥ 0.3s(实测 RTT ≈300 ms)",
+          float(getattr(_PR, "STOP_QUIESCE_MAX_S", 0.0)) >= 0.3,
+          str(getattr(_PR, "STOP_QUIESCE_MAX_S", None)))
+    _src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "host", "api", "stream.py"), encoding="utf-8").read()
+    _stop_body = _src.split("def stop(self)")[1].split("\n    def ")[0]
+    check("stop() 丢弃前会等 p.done 收尾(不再无条件 abandon)",
+          ("not p.done" in _stop_body) and ("abandon" in _stop_body),
+          f"等p.done={'not p.done' in _stop_body} abandon={'abandon' in _stop_body}")
+
     import os
     import re
 
@@ -499,6 +516,26 @@ def _test_firmware_mode_gates() -> None:
             if f'self._notify("{other}", rec)' in body:
                 sink_bad.append(f"{spec.sink} 误用 {other}")
     check("每个帧 sink 只 notify 自己的 stream(防插错位置)", not sink_bad, " | ".join(sink_bad[:5]))
+
+    # S9d: 标定页的 crc 槽**不得先写 0 占位**(2026-10-07 真机实测揪出的缺陷)。
+    #      背景: `link_CalibSave()` 原先在 +8 先写个 0 当"crc 占位", 末尾再回填真 CRC;
+    #      但 F1 的 Flash 编程**只能把位从 1 清成 0**, 而 `FLASH_WriteHalfWord` 又没有
+    #      "目标非 0xFFFF 就跳过/先擦"的保护 ⇒ 存进去的 CRC 恒为 `0x0000 AND crc = 0`
+    #      ⇒ `link_CalibLoad()` 的 `crcF != crcC` **永远成立**、整页被判无效
+    #      ⇒ 参数每次上电都回落 `link_ParamFromSys()` 的源码默认值, `SAVE` 形同虚设。
+    #      症状极隐蔽: `GET`/`SETQ`/`GET ALL` 走 RAM 的 `linkParam[]`, 与 Flash 页无关,
+    #      所以"写→读"全程正常; 只有"改值 → SAVE → 复位 → 再看"才暴露。判据脚本
+    #      `host/params_persist_probe.py`。修法: 让 +8 保持擦除态 0xFFFF, 末尾写一次。
+    _save_body = link_c.split("link_CalibSave(void)")[1].split("static u8 link_CalibLoad")[0]
+    _gated = ("#ifdef MOUSE_REMOTE" in _save_body) and ("#else" in _save_body)
+    check("link_CalibSave: crc 槽修复被 #ifdef MOUSE_REMOTE 门控(比赛档逐字节不变)", _gated)
+    _remote = _save_body.split("#ifdef MOUSE_REMOTE", 1)[1].split("#else", 1)[0] if _gated else ""
+    check("link_CalibSave(远程档): 不做 crc 占位写(否则存储的 CRC 恒为 0)",
+          bool(_remote) and "FLASH_WriteHalfWord(addr, 0)" not in _remote,
+          f"占位写={'FLASH_WriteHalfWord(addr, 0)' in _remote}")
+    check("link_CalibSave: 末尾仍把真 CRC 写回 +8",
+          "FLASH_ADDR_SYSCALIB + 8" in _save_body, "末尾回填缺失 ⇒ 页面永远无效")
+
     # v2.4: 课程段已删除 —— 生产段就是全集, 两者必须**完全相等**
     # (若不等, `get_all` 的等待集合会多等或漏等, 表现为"偶发超时")
     check("生产段 == 全集(24 项, 无课程段)",

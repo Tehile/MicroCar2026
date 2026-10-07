@@ -26,7 +26,7 @@ python run_host.py
 
 1. 与蓝牙 SPP 模块配对（Windows 会在“设备和打印机”里生成一个**传出** COM 口）
 2. 点“刷新”，下拉框里选带 `[蓝牙]` 标记的那个口
-3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 5 216 7 256 <rst>`
+3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 5 216 7 512 <rst>`
 
 ### 标定 / 采集阶段：不起 GUI，直接看实时数据
 
@@ -219,8 +219,13 @@ host/
 │
 │   -- 真机诊断 / 验收脚本(需接真设备; 多数默认只读, 发车类须显式开关) --
 ├── maze_launch_probe.py     例程8 诊断/验收: 只读体检 / --launch 发车观察 / --cycle 发车状态复位验收
+├── maze_launch_link_test.py **发车链路最小验收**: BLIND 与 RACE 各发一轮, 只判"链路是否通"(--launch)
 ├── raw_ping.py              零依赖探活(裸串口, 不经门面层) —— 区分"链路坏"与"上位机代码坏"
 ├── link_check.py            **链路层验收**: 往返顺畅度 / 重复指令(幂等重放) / 停止原因事件
+├── launch_link_live.py      **运动中链路有效性探针**: 发车后在车运动期间持续收帧 + 主动插 PING(--launch, --target BLIND|RACE)
+├── params_write_test.py     V2 参数验收: GET ALL 完整性 / SETQ 生效 / SAVE 后复位仍生效(--write [--strong])
+├── params_persist_probe.py  **参数持久化定点探针**: 逐步骤打印 SETQ/SAVE/MCU RESET 的回读, 定位"SAVE 不持久化"
+├── move_run_guard_test.py   V3 验收: MOVE RUN 双护栏(TIME/IR) + 运动中二次 MOVE 应 ERR_BUSY + ESTOP 锁存/STOP 解锁(--motor; --safe-ir N 给 T1 加保护阈值)
 ├── estop_latency.py         急停/停止的**实际生效延迟**测量(含拉取器开/关对照)
 ├── maze_relaunch_repro.py   复现/判别「发车→停止→再次发车被拒」(含卡死判别探针)
 ├── real_v21.py              v2.1 分阶段真机验证(指纹/单帧/停等拉取/停发自愈)

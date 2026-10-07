@@ -87,15 +87,38 @@ class PullRequester:
         self._refill()
         return Result(True, "OK", {"inflight": len(self._out)})
 
+    #: `stop()` 时**等在途 `TELEM` 收尾**的上限(秒)。取 ~2× 实测 RTT(≈300 ms)。
+    #: 见 `stop()` 里"为什么要等"的说明。
+    STOP_QUIESCE_MAX_S = 0.60
+
     def stop(self) -> Result:
-        """停止拉取, 并丢弃在途请求(不再等它的应答)。
+        """停止拉取。**先等最后一条在途 `TELEM` 收尾**, 再丢弃它。
 
         立刻停发是关键: 模块缓冲一旦积压, 只有"彻底不再发"才会排空。
+
+        ⚠️ 为什么要"等"而不是直接丢(2026-10-07 真机实测, COM7/蓝牙透传):
+          `TELEM` 一旦写出串口就**已经在线上**了 —— 固件要等下一个 1 ms tick 才
+          消费它(`link.c` 每 tick 只吃一行), 而 `usart.c` 在 `USART_RX_STA & 0x80`
+          未清期间**直接丢弃**随后到达的字节。于是
+              `mc.stream.off()` → 紧接着 `send_cmd(...)`
+          (也就是最自然的"先停流、再发车 / 再发急停"写法)会**撞上那个 1 ms 窗口**:
+          实测 4 次 PING = 223 / **2702** / **2700** / **2705** ms, 即 **3/4 首发被丢**,
+          只能干等 `TIMEOUT_S`(2.5 s) 超时重发。
+          改为"先等在途那条 `TELEM` 拿到应答(应答到达 ⇒ 固件必然已消费完那一行)再返回"
+          之后, 同一时序实测 **0/8** 丢首发(168/182/167 ms ...)。
+
+          等待期间**不发任何字节**, 因此不会加重蓝牙模块缓冲积压 ——
+          与"立刻停发"的设计初衷并不冲突(停发指的是不再产生**新**请求)。
+
+        ⚠️ 仍保留 `abandon` 兜底: 上限挡住"应答真的丢了"的情况, 不让 `off()` 挂死。
         """
         was = self.running
-        self.running = False
+        self.running = False  # 先关闸: tick() 从此不再补发新请求
+        deadline = time.time() + self.STOP_QUIESCE_MAX_S
         out, self._out = self._out, []
         for p in out:
+            while not p.done and time.time() < deadline:
+                time.sleep(0.002)
             if not p.done:
                 try:
                     self._mc.cmd.abandon(p, "STOPPED")
@@ -254,7 +277,12 @@ class StreamAPI:
         return self._req.start()
 
     def off(self, timeout: float = 3.0) -> Result:
-        """停止拉取。**立刻停发** —— 这是让蓝牙模块缓冲排空的唯一手段。"""
+        """停止拉取。**立刻停发** —— 这是让蓝牙模块缓冲排空的唯一手段。
+
+        ⚠️ 会先花 ≤0.6 s **等在途的那条 `TELEM` 收尾**再返回(不额外发字节), 否则
+        紧接着发来的命令有 ~3/4 概率撞上固件的 1 ms 收行窗口而被丢弃 —— 详见
+        `PullRequester.stop()`。
+        """
         return self._req.stop()
 
     def toggle(self, on: bool, timeout: float = 3.0) -> Result:
