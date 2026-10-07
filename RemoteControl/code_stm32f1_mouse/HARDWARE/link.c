@@ -111,11 +111,6 @@ static LinkMoveState linkMove;
 static LinkServoState linkSrv;
 static LinkCalState linkCal;
 static LinkParam linkParam[LINK_P_NUM];
-#ifdef MOUSE_LESSON_LAB
-/* 课程调参量(独立命名空间, id 从 LL_P_KPL=8 起, 不占用生产标定参数的 1..7)。
- * 与生产参数分开存表、分开落页 —— 即"实验代码与最终版代码分开"在存储层的体现。 */
-static LinkParam linkLessonParam[LL_P_NUM];
-#endif
 
 static u16 linkTick;
 static u8 linkSeq;
@@ -164,7 +159,7 @@ static u8 linkEStop;   /* 1=急停锁存中: MOVE/CAL 被拒, 须 STOP 解锁 */
 static u16 linkEvDrop;
 /* v2.0: 一次上电周期内读到的 RCC->CSR 复位原因(PING 应答上报, 见 LINK_Init)。 */
 static u8 linkResetCause;
-#ifdef MOUSE_ESTOP_RECOVERABLE
+#ifdef MOUSE_REMOTE
 /* 远程软复位的**倒计时**(ms, 0 = 无待办)。见 link_HandleLine 的 `MCU RESET` 分支。
  * 为什么要倒计时而不是立刻复位: 要先让 `ACK OK` 有机会离开 TX 环/蓝牙模块,
  * 否则上位机什么都收不到, 只能看到超时, 无从判断到底成没成。
@@ -183,10 +178,13 @@ static u8 linkTimeLed;  /* 时间基准灯当前电平(0/1) */
 static u8 linkMazeReq;   /* 1 = 已收到 MAZE RUN。**边沿信号**: main() 消费后由
                           *     LINK_MazeStarted() 清零 —— 见那里的说明。 */
 static u8 linkMazeRun;   /* 1 = main() 已真的进入迷宫(退出后由 LINK_MazeFinished 清) */
-#ifdef MOUSE_DATA_LOG
+#ifdef MOUSE_REMOTE
 static u8 linkMazeAbort; /* 1 = 收到"退出迷宫"请求, 请 LESSON_Blind8() 返回。
-                          *     只有 [4] 档会用: MAZE STOP 与 ESTOP 置位。
-                          *     门控在 MOUSE_DATA_LOG 之下, 使其余档的 RAM/ROM 不受影响。 */
+                          *     只有远程档会用: MAZE STOP 与 ESTOP 置位。
+                          *     门控在 MOUSE_REMOTE 之下, 使按键比赛档的 RAM/ROM 不受影响。 */
+static u8 linkMazeTarget; /* 本次发车目标(LINK_MAZE_BLIND / LINK_MAZE_RACE)。
+                           *    由 `MAZE RUN [BLIND|RACE]` 写, 由 main() 经
+                           *    LINK_MazeTarget() 读 —— 只在远程档存在。 */
 #endif
 
 static s32 linkLastSeq;
@@ -684,57 +682,11 @@ static u8 link_ParamFind(u16 id, u16 *idx)
 	return 0;
 }
 
-#ifdef MOUSE_LESSON_LAB
-/** @brief 在课程参数表中查 id(与生产参数表完全独立) */
-static u8 link_LessonFind(u16 id, u16 *idx)
-{
-	u16 i;
-	for (i = 0; i < LL_P_NUM; i++)
-	{
-		if (linkLessonParam[i].id == id)
-		{
-			*idx = i;
-			return 1;
-		}
-	}
-	return 0;
-}
-
-/** @brief 把课程参数表同步为"运行时当前值"(开机与 RESET 后调用) */
-static void link_LessonFromSys(void)
-{
-	u16 i;
-	u16 id;
-	s32 q;
-
-	for (i = 0; i < LL_P_NUM; i++)
-	{
-		id = (u16)(LL_P_KPL + i);
-		linkLessonParam[i].id = id;
-		linkLessonParam[i].q = 0;
-		if (LESSONLAB_ParamGet(id, &q))
-			linkLessonParam[i].q = q;
-	}
-}
-#endif
-
 static u8 link_ParamSet(u16 id, s32 q)
 {
 	u16 i;
 	if (!link_ParamFind(id, &i))
-	{
-#ifdef MOUSE_LESSON_LAB
-		/* 不在生产参数表 -> 试课程参数表(独立命名空间与独立落页) */
-		if (!link_LessonFind(id, &i))
-			return 0;
-		if (!LESSONLAB_ParamSet(id, q))
-			return 0; /* 值域非法(如速度超上限) */
-		linkLessonParam[i].q = q;
-		return 1;
-#else
 		return 0;
-#endif
-	}
 	linkParam[i].q = q;
 	return link_ParamApplyOne(id, q);
 }
@@ -791,37 +743,6 @@ static u8 link_NameToId(const char *s, u16 *id)
 		*id = LINK_P_BATTMAXPCT;
 	else if (!strcmp(s, "BATTMINPCT"))
 		*id = LINK_P_BATTMINPCT;
-#ifdef MOUSE_LESSON_LAB
-	/* ---- 课程调参量(实验代码与生产代码分开: 名字也只在本模式下认得) ---- */
-	else if (!strcmp(s, "KPL"))
-		*id = LL_P_KPL;
-	else if (!strcmp(s, "KIL"))
-		*id = LL_P_KIL;
-	else if (!strcmp(s, "KDL"))
-		*id = LL_P_KDL;
-	else if (!strcmp(s, "KPR"))
-		*id = LL_P_KPR;
-	else if (!strcmp(s, "KIR"))
-		*id = LL_P_KIR;
-	else if (!strcmp(s, "KDR"))
-		*id = LL_P_KDR;
-	else if (!strcmp(s, "IRPL"))
-		*id = LL_P_IRPL;
-	else if (!strcmp(s, "IRPR"))
-		*id = LL_P_IRPR;
-	else if (!strcmp(s, "GYROP"))
-		*id = LL_P_GYROP;
-	else if (!strcmp(s, "GYROD"))
-		*id = LL_P_GYROD;
-	else if (!strcmp(s, "SPEEDNEED"))
-		*id = LL_P_SPEEDNEED;
-	else if (!strcmp(s, "ALLDIS"))
-		*id = LL_P_ALLDIS;
-	else if (!strcmp(s, "SENSORMODE"))
-		*id = LL_P_SENSORMODE;
-	else if (!strcmp(s, "WALLMODE"))
-		*id = LL_P_WALLMODE;
-#endif
 	else
 		return 0;
 	return 1;
@@ -944,121 +865,6 @@ static void link_CalibErase(void)
 	FLASH_Lock();
 }
 
-#ifdef MOUSE_LESSON_LAB
-/*-------------------------------------  课程参数持久化(page 100)  -------------------------------------*/
-/**
- * @brief  擦除并写入课程参数页
- * @note   布局与生产参数页同构, 但用**独立 magic**, 因此两页互不误认。
- *         课程参数会被反复试验(每次调参都 SAVE), 单独占一页可避免与生产标定值
- *         共享擦除单元 —— 万一写坏, 坏的只是实验参数。
- */
-static void link_LessonSave(void)
-{
-	u32 addr;
-	u16 i;
-	u16 crc = 0xFFFF;
-
-	FLASH_Unlock();
-	FLASH_ErasePage(FLASH_ADDR_LESSONPARAM);
-
-	addr = FLASH_ADDR_LESSONPARAM;
-	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, (int)(LINK_LESSON_MAGIC & 0xFFFF));
-	addr += 2;
-	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, (int)((LINK_LESSON_MAGIC >> 16) & 0xFFFF));
-	addr += 2;
-	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, LINK_CALIB_VER);
-	addr += 2;
-	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, LL_P_NUM);
-	addr += 2;
-	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, 0); /* crc 占位 */
-	addr += 2;
-	FLASH_Unlock();
-	FLASH_WriteHalfWord(addr, 0);
-	addr += 2;
-
-	addr = FLASH_ADDR_LESSONPARAM + LINK_CALIB_PAYLOAD_OFF;
-	for (i = 0; i < LL_P_NUM; i++)
-	{
-		FLASH_Unlock();
-		FLASH_WriteHalfWord(addr, (int)linkLessonParam[i].id);
-		crc = link_CrcByte(crc, (u8)(linkLessonParam[i].id & 0xFF));
-		crc = link_CrcByte(crc, (u8)((linkLessonParam[i].id >> 8) & 0xFF));
-		addr += 2;
-		FLASH_Unlock();
-		FLASH_WriteHalfWord(addr, (int)((u32)linkLessonParam[i].q & 0xFFFF));
-		crc = link_CrcByte(crc, (u8)((u32)linkLessonParam[i].q & 0xFF));
-		crc = link_CrcByte(crc, (u8)(((u32)linkLessonParam[i].q >> 8) & 0xFF));
-		addr += 2;
-		FLASH_Unlock();
-		FLASH_WriteHalfWord(addr, (int)(((u32)linkLessonParam[i].q >> 16) & 0xFFFF));
-		crc = link_CrcByte(crc, (u8)(((u32)linkLessonParam[i].q >> 16) & 0xFF));
-		crc = link_CrcByte(crc, (u8)(((u32)linkLessonParam[i].q >> 24) & 0xFF));
-		addr += 2;
-	}
-
-	FLASH_Unlock();
-	FLASH_WriteHalfWord(FLASH_ADDR_LESSONPARAM + 8, (int)crc);
-	FLASH_Lock();
-}
-
-/**
- * @brief 从 Flash 载入课程参数并应用
- * @return 1=载入成功 0=无有效参数(等价于"用默认值")
- */
-static u8 link_LessonLoad(void)
-{
-	u32 addr;
-	u32 magic;
-	u16 i, cnt;
-	u16 crcF, crcC = 0xFFFF;
-
-	magic = (u32)(FLASH_ReadHalfWord(FLASH_ADDR_LESSONPARAM) & 0xFFFF);
-	magic |= (u32)(FLASH_ReadHalfWord(FLASH_ADDR_LESSONPARAM + 2) & 0xFFFF) << 16;
-	if (magic != LINK_LESSON_MAGIC)
-		return 0;
-	if ((u16)FLASH_ReadHalfWord(FLASH_ADDR_LESSONPARAM + 4) != LINK_CALIB_VER)
-		return 0;
-	cnt = (u16)FLASH_ReadHalfWord(FLASH_ADDR_LESSONPARAM + 6);
-	if (cnt != LL_P_NUM)
-		return 0;
-	crcF = (u16)FLASH_ReadHalfWord(FLASH_ADDR_LESSONPARAM + 8);
-
-	addr = FLASH_ADDR_LESSONPARAM + LINK_CALIB_PAYLOAD_OFF;
-	for (i = 0; i < LL_P_NUM; i++)
-	{
-		linkLessonParam[i].id = (u16)FLASH_ReadHalfWord(addr);
-		crcC = link_CrcByte(crcC, (u8)(linkLessonParam[i].id & 0xFF));
-		crcC = link_CrcByte(crcC, (u8)((linkLessonParam[i].id >> 8) & 0xFF));
-		addr += 2;
-		linkLessonParam[i].q = (s32)((u32)FLASH_ReadHalfWord(addr) & 0xFFFF);
-		crcC = link_CrcByte(crcC, (u8)((u32)linkLessonParam[i].q & 0xFF));
-		crcC = link_CrcByte(crcC, (u8)(((u32)linkLessonParam[i].q >> 8) & 0xFF));
-		addr += 2;
-		linkLessonParam[i].q |= (s32)(((u32)FLASH_ReadHalfWord(addr) & 0xFFFF) << 16);
-		crcC = link_CrcByte(crcC, (u8)(((u32)linkLessonParam[i].q >> 16) & 0xFF));
-		crcC = link_CrcByte(crcC, (u8)(((u32)linkLessonParam[i].q >> 24) & 0xFF));
-		addr += 2;
-	}
-	if (crcF != crcC)
-		return 0;
-
-	for (i = 0; i < LL_P_NUM; i++)
-		LESSONLAB_ParamSet(linkLessonParam[i].id, linkLessonParam[i].q);
-	return 1;
-}
-
-static void link_LessonErase(void)
-{
-	FLASH_Unlock();
-	FLASH_ErasePage(FLASH_ADDR_LESSONPARAM);
-	FLASH_Lock();
-}
-#endif /* MOUSE_LESSON_LAB */
 
 /*-------------------------------------  红外查表重建  -------------------------------------*/
 /**
@@ -1113,11 +919,7 @@ static u8 link_Flags(void)
 		f |= LINK_FLAG_SLEEP;
 	if (emergMon.active == 1)
 		f |= LINK_FLAG_EMERG;
-#ifdef MOUSE_TEST_NO_MOTOR
-	/* 安全测试模式: 把"电机已被物理禁用"这一事实明确告知上位机,
-	 * 便于现场一眼确认烧进去的是安全固件(而不是靠推断)。 */
-	f |= LINK_FLAG_MOTOR_OFF;
-#endif
+	/* v2.4: LINK_FLAG_MOTOR_OFF 不再有发送方 —— "电机物理禁用"的安全档已随双档简化取消。 */
 	/* 急停锁存是独立于 emergMon 的**链路层**事实: 表示"必须显式 STOP 才能再动"。 */
 	if (linkEStop)
 		f |= LINK_FLAG_ESTOP_LOCK;
@@ -1340,14 +1142,6 @@ static void link_StopMotion(const char *runReason)
 	linkCal.needSample = 0;
 	irCalib.calibMode = 0;
 
-#ifdef MOUSE_LESSON_LAB
-	/* 课程实验若在跑, 一并停掉并带上真实原因(急停 vs 正常停车)。
-	 * 必须在清完上面这些状态之后: ll_Finish 会写 speedSt, 而这里刚把速度归零。 */
-	if (runReason != NULL && !strcmp(runReason, LINK_RUN_REASON_ESTOP))
-		LESSONLAB_Abort(LL_REASON_ESTOP);
-	else
-		LESSONLAB_Abort(LL_REASON_STOP);
-#endif
 }
 
 /**
@@ -2154,69 +1948,6 @@ static void link_ExecCmd(char *line, s32 seq)
 		return;
 	}
 
-#ifdef MOUSE_LESSON_LAB
-	/* ================= LESSON: 课程调参实验启停 =================
-	 * 语法: LESSON START <exp> [a] [b] [c] [d] | LESSON STOP | LESSON STATUS
-	 * 参数含义随实验而定(见 APP/lesson_lab.c 的 LESSONLAB_Start 注释):
-	 *      2 编码器测距 : a=速度cm/s b=目标距离mm        c=时间上限ms
-	 *      3 匀变速直行 : a=巡航速度 b=加速ms c=匀速ms    d=减速ms
-	 *      5 陀螺标定   : a=目标角度 b=旋转速度           c=时间上限ms
-	 *      6 多传感器   : a=速度cm/s b=目标距离mm        c=时间上限ms
-	 * 实验结束时固件主动上行一行 "LESSON DONE ..."; 上位机据此判定实验结束。
-	 * v2.0: 实验波形不再"停车后 SCOPE DUMP 整块回传", 而是**实验期间就由统一帧
-	 *       全速上行**(自时钟 ≈217 Hz), 主机边收边攒 —— 见《传输模式重构设计方案》§6。 */
-	if (link_TokIs(&p, "LESSON"))
-	{
-		if (link_TokIs(&p, "START"))
-		{
-			s32 exp = link_TokNum(&p);
-			s32 a = link_TokNum(&p);
-			s32 b = link_TokNum(&p);
-			s32 c = link_TokNum(&p);
-			s32 d = link_TokNum(&p);
-			u8 rc;
-
-			if (linkEStop)
-			{
-				link_Ack(seq, "ERR_ESTOP");
-				return;
-			}
-			if (link_MotionBusy())
-			{
-				link_Ack(seq, "ERR_BUSY"); /* 一次只允许一个会动的东西 */
-				return;
-			}
-			rc = LESSONLAB_Start((u16)exp, a, b, c, d);
-			if (rc == LL_OK)
-				link_Ack(seq, "OK");
-			else if (rc == LL_ERR_BUSY)
-				link_Ack(seq, "ERR_BUSY");
-			else if (rc == LL_ERR_VALUE)
-				link_Ack(seq, "ERR_VALUE");
-			else
-				link_Ack(seq, "ERR_EXP");
-			return;
-		}
-		if (link_TokIs(&p, "STOP"))
-		{
-			LESSONLAB_Stop();
-			link_Ack(seq, "OK");
-			return;
-		}
-		if (link_TokIs(&p, "STATUS"))
-		{
-			link_TxStr("LESSON STATUS ");
-			link_TxInt((s32)LESSONLAB_Exp());
-			link_TxPut(' ');
-			link_TxInt((s32)LESSONLAB_Running());
-			link_TxStr("\r\n");
-			link_Ack(seq, "OK");
-			return;
-		}
-		link_Ack(seq, "ERR_VALUE");
-		return;
-	}
-#endif /* MOUSE_LESSON_LAB */
 
 	/* ================= SAVE / RESET ================= */
 	if (link_TokIs(&p, "SAVE"))
@@ -2226,18 +1957,7 @@ static void link_ExecCmd(char *line, s32 seq)
 			link_Ack(seq, "ERR_BUSY");
 			return;
 		}
-#ifdef MOUSE_LESSON_LAB
-		if (LESSONLAB_Running())
-		{
-			/* 实验中禁止写 Flash: 擦写期间的取指停顿会打断 1kHz 控制环 */
-			link_Ack(seq, "ERR_BUSY");
-			return;
-		}
-#endif
 		link_CalibSave();
-#ifdef MOUSE_LESSON_LAB
-		link_LessonSave(); /* 课程参数落到独立页 100, 不碰生产参数页 99 */
-#endif
 		link_Ack(seq, "OK");
 		return;
 	}
@@ -2245,9 +1965,6 @@ static void link_ExecCmd(char *line, s32 seq)
 	if (link_TokIs(&p, "RESET"))
 	{
 		link_CalibErase();
-#ifdef MOUSE_LESSON_LAB
-		link_LessonErase(); /* 实验参数随生产参数一起清掉: "交比赛固件"时不必单独清理 */
-#endif
 		/* 只擦除参数页。RAM 中 sysCfg 保持当前值不动, 因此 RESET 的完整效果
 		 * (回落到 ISR_Init 里的源码默认值)在下次上电由 LINK_Init 体现。
 		 * 这样做的原因: 运行中把 sysCfg 改回默认值会让机器人的运动参数突变,
@@ -2256,7 +1973,7 @@ static void link_ExecCmd(char *line, s32 seq)
 		return;
 	}
 
-#ifdef MOUSE_ESTOP_RECOVERABLE
+#ifdef MOUSE_REMOTE
 	/* ================= MCU RESET —— 远程软复位(救援口) =================
 	 * ⚠️ 与上面的 `RESET` **完全不同**, 别看错:
 	 *      `RESET`      —— 擦除参数页, 让参数回落源码默认值(不重启)
@@ -2269,11 +1986,11 @@ static void link_ExecCmd(char *line, s32 seq)
 	 *   ⇒ 电机 PWM 恒 0 ⇒ 轮子永不再转 ⇒ **那些条件永远不可能满足**。
 	 *   结果是"越停越死": 命令通道照常回 OK, 但主循环卡在函数内部,
 	 *   `LESSON_Blind8()` 顶部的退出检查**根本轮不到** ⇒ 只能断电。
-	 *   本命令提供一个**不必断电**的出口: 复位后 [4] 档自然回到发车等待循环。
+	 *   本命令提供一个**不必断电**的出口: 复位后远程档自然回到发车等待循环。
 	 *
-	 * 为什么放在 `MOUSE_ESTOP_RECOVERABLE`(=[1][2][3][4]) 之下:
+	 * 为什么只在远程档编译:
 	 *   它和"急停可恢复"是同一类东西 —— 都是"操作者握着最终控制权"的手段。
-	 *   比赛固件([5])不编译本段, 使那支固件的机器码**与本轮改动逐字节一致**。
+	 *   按键比赛档不编译本段, 使那支固件的机器码**与 v2.3.0 逐字节一致**。
 	 *
 	 * 为什么延迟而不是立刻复位:
 	 *   命令处理跑在 SysTick 里, 直接复位会让刚入队的 `ACK OK` 一起消失,
@@ -2306,7 +2023,7 @@ static void link_ExecCmd(char *line, s32 seq)
 		link_Ack(seq, "ERR_VALUE");
 		return;
 	}
-#endif /* MOUSE_ESTOP_RECOVERABLE */
+#endif /* MOUSE_REMOTE */
 
 	/* ================= TARE / STOP / ESTOP ================= */
 	if (link_TokIs(&p, "TARE"))
@@ -2320,18 +2037,14 @@ static void link_ExecCmd(char *line, s32 seq)
 	if (link_TokIs(&p, "STOP"))
 	{
 		link_StopMotion(LINK_RUN_REASON_USER);
-#ifdef MOUSE_DATA_LOG
-		/* [4] 档: `STOP` 的语义是"把控制权还给操作者"。若电脑鼠正在迷宫里跑,
-		 * 那就一并把程序带出迷宫循环 —— 否则车停了、程序仍在 while(1) 里空转,
-		 * 发车状态无法复位(现场表现: 停了车也下不去新指令)。 */
+#ifdef MOUSE_REMOTE
+		/* 远程档: `STOP` 的语义是"把控制权还给操作者"。两件事一起做:
+		 *   1) 若电脑鼠正在迷宫里跑, 把程序带出迷宫循环 —— 否则车停了、程序仍在
+		 *      while(1) 里空转, 发车状态无法复位(现场表现: 停了车也下不去新指令);
+		 *   2) 兼作"解急停" —— 这是操作者重新取得控制权的唯一入口。同时把
+		 *      sleepmode 清回 0, 使急停后板子仍在线(传感器/链路继续工作)。
+		 * 按键比赛档保持原语义: 急停后必然休眠, 不接受远程复位。 */
 		linkMazeAbort = 1;
-#endif
-#ifdef MOUSE_ESTOP_RECOVERABLE
-		/* 实验/采集档(见 main.h 的 MOUSE_ESTOP_RECOVERABLE): STOP 兼作"解急停" ——
-		 * 这是操作者重新取得控制权的唯一入口。同时把 sleepmode 清回 0, 使急停后
-		 * 板子仍在线(传感器/链路继续工作)。
-		 * 比赛固件(MOUSE_ESTOP_RECOVERABLE 未定义)保持原语义:
-		 * 急停后必然休眠, 不接受远程复位。 */
 		linkEStop = 0;
 		emergMon.active = 0;
 		emergMon.delay = 0;
@@ -2345,12 +2058,12 @@ static void link_ExecCmd(char *line, s32 seq)
 	{
 		/* 若正在 MOVE RUN, 先按 RUN 的格式上报一次, 让上位机拿到统一的明细行 */
 		link_StopMotion(LINK_RUN_REASON_ESTOP);
-#ifdef MOUSE_DATA_LOG
-		/* 急停的含义就是"把我从迷宫里带出来": 置退出请求, 让 LESSON_Blind8 返回,
-		 * 主循环回到等待态(否则车停了、程序还在迷宫 while(1) 里, 状态无法复位)。 */
+#ifdef MOUSE_REMOTE
+		/* 远程档: 急停的含义就是"把我从迷宫里带出来": 置退出请求, 让 LESSON_Blind8
+		 * 返回, 主循环回到等待态(否则车停了、程序还在迷宫 while(1) 里, 状态无法复位)。 */
 		linkMazeAbort = 1;
 #endif
-		emergMon.active = 1; /* 触发既有急停通路(比赛固件会 200ms 后休眠; 测试模式不休眠) */
+		emergMon.active = 1; /* 触发既有急停通路(按键比赛档会 200ms 后休眠; 远程档不休眠) */
 		linkEStop = 1;       /* 锁存: 之后的 MOVE/CAL 一律 ERR_ESTOP, 直到显式 STOP */
 		link_Ack(seq, "OK");
 		return;
@@ -2394,17 +2107,26 @@ static void link_ExecCmd(char *line, s32 seq)
 
 	if (link_TokIs(&p, "MAZE"))
 	{
-		/* MAZE RUN —— 请 main() 进入无记忆走迷宫(LESSON_Blind8)。
+		/* MAZE RUN [BLIND|RACE] —— 请 main() 进入无记忆走迷宫(LESSON_Blind8)。
 		 * 本命令只置请求位: 真正"跑"由主循环执行, 命令处理在中断里,
-		 * 这里绝不能在 ISR 里跑那个 while(1)。 */
+		 * 这里绝不能在 ISR 里跑那个 while(1)。
+		 * 动作词**可选**: 不带 = BLIND, 因此旧上位机(只发 `MAZE RUN`)照常工作。 */
 		if (link_TokIs(&p, "RUN"))
 		{
-#ifndef MOUSE_DATA_LOG
-			/* 只有数据收集档的 main() 会等这条命令。其余固件若回 OK 就是撒谎
+#ifndef MOUSE_REMOTE
+			/* 只有远程档的 main() 会等这条命令。按键比赛档若回 OK 就是撒谎
 			 * (主机以为发车了, 其实没有任何东西会跑), 所以明确拒绝。 */
 			link_Ack(seq, "ERR_VALUE");
 			return;
 #else
+			/* 解析可选目标词。link_TokIs 不消耗未匹配的 token, 故两句顺序无关;
+			 * 认不出的词一律按 BLIND 处理(向前兼容: 语义更保守, 不会突然跑比赛流程)。 */
+			linkMazeTarget = LINK_MAZE_BLIND;
+			if (link_TokIs(&p, "RACE"))
+				linkMazeTarget = LINK_MAZE_RACE;
+			else if (link_TokIs(&p, "BLIND"))
+				linkMazeTarget = LINK_MAZE_BLIND;
+
 			if (linkMazeReq || linkMazeRun)
 			{
 				link_Ack(seq, "ERR_BUSY");
@@ -2422,7 +2144,7 @@ static void link_ExecCmd(char *line, s32 seq)
 			return;
 #endif
 		}
-#ifdef MOUSE_DATA_LOG
+#ifdef MOUSE_REMOTE
 		if (link_TokIs(&p, "STOP"))
 		{
 			/* ---- MAZE STOP —— "把电脑鼠带出迷宫, 控制权还给操作者"(v2.1 新增) ----
@@ -2433,9 +2155,8 @@ static void link_ExecCmd(char *line, s32 seq)
 			 *
 			 * 置 abort 让主循环从 LESSON_Blind8() 返回, main() 随即复位发车状态
 			 * (LINK_MazeFinished), 下一次 `MAZE RUN` 才能被接受。
-			 * 同时清急停锁存与 sleepmode: 这是操作者重新取得控制权的入口, 语义
-			 * 与 `STOP` 在测试档里的用法一致。
-			 * 整段门控在 MOUSE_DATA_LOG 之下 —— 其余档落到下面的 ERR_VALUE,
+			 * 同时清急停锁存与 sleepmode: 这是操作者重新取得控制权的入口。
+			 * 整段门控在 MOUSE_REMOTE 之下 —— 按键比赛档落到下面的 ERR_VALUE,
 			 * 与"从未有过这条命令"完全等价。 */
 			linkMazeAbort = 1;
 			link_StopMotion(LINK_RUN_REASON_USER);
@@ -2446,7 +2167,7 @@ static void link_ExecCmd(char *line, s32 seq)
 			link_Ack(seq, "OK");
 			return;
 		}
-#endif /* MOUSE_DATA_LOG */
+#endif /* MOUSE_REMOTE */
 		/* MAZE EV / MAZE RST 已删除(v2.0):
 		 *   - `MAZE EV <mask>` 与整条 MAZE EV 事件流一起取消(无事件行可配);
 		 *   - `MAZE RST` 原先只清 linkMaze 里的统计(事件计数/岔路口/死路/转弯/格数),
@@ -2459,15 +2180,6 @@ static void link_ExecCmd(char *line, s32 seq)
 	/* ================= MOVE ================= */
 	if (link_TokIs(&p, "MOVE"))
 	{
-#ifdef MOUSE_LESSON_LAB
-		/* 课程实验正在跑时拒绝一切 MOVE: 两者都在写 speedSt 的速度目标,
-		 * 同时存在会互相覆盖 —— 宁可明确回 ERR_BUSY, 也不要"半听谁的话"。 */
-		if (LESSONLAB_Running())
-		{
-			link_Ack(seq, "ERR_BUSY");
-			return;
-		}
-#endif
 		/* ---- MOVE RUN: 受"时间 + 红外"双护栏约束的远程运动(电机远程控制实验) ----
 		 * 用法: MOVE RUN <spL> <spR> [<ms>] [<ir_mm>]
 		 *   spL/spR : 左右轮目标速度(cm/s), 可正可负, 可为 0(单轮)；不能同时为 0
@@ -2808,7 +2520,7 @@ void LINK_Init(void)
 	linkEStop = 0;   /* 上电不锁存: 只有真正急停过才锁 */
 	linkEvDrop = 0;
 	linkResetCause = 0;
-#ifdef MOUSE_ESTOP_RECOVERABLE
+#ifdef MOUSE_REMOTE
 	linkMcuResetDelay = 0; /* 上电不挂起远程软复位(见 `MCU RESET` 分支) */
 #endif
 
@@ -2886,15 +2598,6 @@ void LINK_Init(void)
 	if (!link_CalibLoad())
 		link_ParamFromSys(); /* 载入失败时确保参数表与源码默认值一致 */
 
-#ifdef MOUSE_LESSON_LAB
-	/* ================= 课程调参参数(独立页 100) =================
-	 * 顺序: 先置默认增益(= motor.h 红线常量的引用), 再据此建表,
-	 *       最后尝试用 page100 覆盖 —— 没有有效参数就用默认值, 与生产参数的做法一致。 */
-	LESSONLAB_Init();
-	link_LessonFromSys();
-	if (!link_LessonLoad())
-		link_LessonFromSys();
-#endif
 
 	linkEncPrevL = odomStr.encL;
 	linkEncPrevR = odomStr.encR;
@@ -2909,7 +2612,7 @@ void LINK_Tick(void)
 	linkTick++;
 	linkTimeMs++; /* 全局毫秒时基(独立于任何测试档): 与 linkTick 不同, u32 不回绕 */
 
-#ifdef MOUSE_ESTOP_RECOVERABLE
+#ifdef MOUSE_REMOTE
 	/* 0a. 远程软复位倒计时(见 `MCU RESET` 分支)。
 	 * 必须放在**中断上下文**里递减 —— 这样即使主循环已经卡死在
 	 * `MOTION/*.c` 的阻塞等待里, 这条救援路径依然能走到(这正是它的意义)。
@@ -2959,21 +2662,6 @@ void LINK_Tick(void)
 	/* 3. 运动 / 角度扫描 / 标定状态机 */
 	link_MoveService();
 
-#ifdef MOUSE_LESSON_LAB
-	/* 4. 课程实验引擎 + 结束回报
-	 *    与 link_MoveService 并列, 同样跑在 1ms 上下文里 —— 因此实验剖面
-	 *    (加速/匀速/减速)也是硬件定时的, 不受上位机抖动影响。
-	 *    整段在 #ifdef 之内: 正式固件里连这段代码都不存在。 */
-	{
-		static char lessonLine[96];
-		LESSONLAB_Tick();
-		if (LESSONLAB_TakeDone(lessonLine, (u16)sizeof(lessonLine)))
-		{
-			link_TxStr(lessonLine);
-			link_TxStr("\r\n");
-		}
-	}
-#endif
 	link_ServoService();
 	if (linkCal.active)
 		link_CalibService(linkCal.item, LINK_ACT_STEP);
@@ -3039,31 +2727,41 @@ u8 LINK_MazeRequested(void)
  */
 void LINK_MazeStarted(void)
 {
-#ifdef MOUSE_DATA_LOG
-	/* 只有数据收集档的 main() 会消费这个请求位(其余档的 main() 不调用本函数),
-	 * 故一并门控起来 —— 保证比赛固件(LESSON_Blind8 不可打断的那一档)的
-	 * 机器码与本轮改动**逐字节一致**。 */
+#ifdef MOUSE_REMOTE
+	/* 只有远程档的 main() 会消费这个请求位(按键比赛档的 main() 不调用本函数),
+	 * 故一并门控起来 —— 保证按键比赛档(LESSON_Blind8 不可打断的那一档)的
+	 * 机器码与 v2.3.0 **逐字节一致**。 */
 	linkMazeReq = 0; /* 消费掉请求位 —— 不带这一行就会永久 ERR_BUSY */
 #endif
 	linkMazeRun = 1;
 }
 
-#ifdef MOUSE_DATA_LOG
+#ifdef MOUSE_REMOTE
+/**
+ * @brief  取本次发车目标(由 main() 在 LINK_MazeStarted() 之后调用)
+ * @param  none
+ * @return LINK_MAZE_BLIND / LINK_MAZE_RACE
+ * @note   值由 `MAZE RUN [BLIND|RACE]` 的命令分支写入; 不带动作词即 BLIND。
+ *         只有远程档存在这个函数 —— 按键比赛档的 main() 完全不看发车目标。
+ */
+u8 LINK_MazeTarget(void)
+{
+	return linkMazeTarget;
+}
+
 /**
  * @brief  标记"迷宫已结束/已退出"(由 main() 在 LESSON_Blind8() 返回后调用)
  * @param  none
  * @return none
  * @note   清掉 linkMazeRun, 使下一次 `MAZE RUN` 能被接受 ——
  *         这是"**可重复发车**"的另一半(另一半是 LESSON_Blind8 的退出检查)。
- *         只被数据收集档的 main() 调用, 故门控在 MOUSE_DATA_LOG 之下。
+ *         只被远程档的 main() 调用, 故门控在 MOUSE_REMOTE 之下。
  */
 void LINK_MazeFinished(void)
 {
 	linkMazeRun = 0;
 }
-#endif /* MOUSE_DATA_LOG */
 
-#ifdef MOUSE_DATA_LOG
 /**
  * @brief  是否有"退出迷宫"请求(APP/lesson.c 的 LESSON_Blind8 每轮检查)
  * @param  none
@@ -3073,11 +2771,11 @@ void LINK_MazeFinished(void)
  *         那个循环**, 于是"车停了但程序还在迷宫里"—— 发车状态无法复位, 现场表现为
  *         "急停之后什么指令都下不去"。有了退出通道, main() 才能回到等待态。
  *
- *         **比赛固件不调用本函数**: LESSON_Blind8 里的调用被 #ifdef MOUSE_DATA_LOG
+ *         **按键比赛档不调用本函数**: LESSON_Blind8 里的调用被 #ifdef MOUSE_REMOTE
  *         包住, 预处理阶段就消失, 因此那支固件的机器码一行都没变。
  */
 u8 LINK_MazeAbortRequested(void)
 {
 	return linkMazeAbort;
 }
-#endif /* MOUSE_DATA_LOG */
+#endif /* MOUSE_REMOTE */

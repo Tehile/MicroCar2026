@@ -13,10 +13,10 @@
 
 #include "lesson.h"
 
-#ifdef MOUSE_DATA_LOG
-/* [4] 数据收集档专用: 读取"退出迷宫"请求(LINK_MazeAbortRequested, 定义于 HARDWARE/link.c)。
- * 只在数据收集档引入这个依赖 —— 其余档连这个头文件都不参与编译,
- * 因此 LESSON_Blind8() 在那些档里的机器码与原来完全一致。 */
+#ifdef MOUSE_REMOTE
+/* 远程档专用: 读取"退出迷宫"请求(LINK_MazeAbortRequested, 定义于 HARDWARE/link.c)。
+ * 只在远程档引入这个依赖 —— 按键比赛档连这个头文件都不参与编译,
+ * 因此 LESSON_Blind8() 在那一档里的机器码与原来完全一致。 */
 #include "link.h"
 #endif
 
@@ -521,8 +521,8 @@ void LESSON_Blind8(void)
 	mazeState.mouseTask = WAIT;
 	while (1)
 	{
-#ifdef MOUSE_DATA_LOG
-		/* ---- [4] 档: 可被打断的迷宫循环 ----
+#ifdef MOUSE_REMOTE
+		/* ---- 远程档: 可被打断的迷宫循环 ----
 		 * 收到"退出迷宫"请求(`MAZE STOP` 或 `ESTOP`)就返回, 使 main() 能回到等待态、
 		 * 允许**再次发车**。没有这一段时, 急停只能停电机、停不掉这个 while(1),
 		 * 于是"车停了但程序还在迷宫里", 发车状态无法复位(真机复现 2026-10-05)。
@@ -530,7 +530,7 @@ void LESSON_Blind8(void)
 		 * 退出前把停车动作做干净: 速度目标归零 + 回到自由模式(电机输出恒 0)
 		 * + 清掉运动任务, 不让一个"半途的"动作残留到下一轮。
 		 *
-		 * **比赛固件不编译这一段**(MOUSE_DATA_LOG 未定义时整段消失),
+		 * **按键比赛档不编译这一段**(MOUSE_REMOTE 未定义时整段消失),
 		 * 本函数的机器码一行都没变。 */
 		if (LINK_MazeAbortRequested())
 		{

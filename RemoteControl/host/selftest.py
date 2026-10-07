@@ -265,8 +265,8 @@ def test_e2e(port: int = 5555, auto_spawn: bool = True) -> None:
               link.stats()["unified"] > n_before, str(link.stats()["unified"]))
 
         client.get_all()
-        # v2.0: `GET ALL` 只遍历**生产命名空间**(与固件 linkParam 一致):
-        # 标定 1..7 + 红外/电源 22..38 = 24 项。课程参数 8..21 在独立表里, 读侧读不回。
+        # `GET ALL` 遍历固件 `linkParam[LINK_P_NUM]`: 标定 1..7 + 红外/电源 22..38 = 24 项。
+        # v2.4 起课程参数(8..21)已删除, 这就是全部参数。
         check("GET ALL 回读 24 项生产参数", len(client.params) == 24,
               str(sorted(client.params)))
 

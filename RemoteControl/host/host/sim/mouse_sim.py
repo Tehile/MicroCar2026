@@ -2,7 +2,7 @@
 
 它按与固件 HARDWARE/link.c **完全相同的字节级协议**回话:
     - 1kHz 内部节拍; 收到 `TELEM` 就回一帧统一帧(LINK_TYPE_UNIFIED, 45B payload)
-    - 响应全部文本命令(ACK/GET/SET/SETQ/SAVE/RESET/TARE/STOP/ESTOP/TELEM/MAP/MOVE/CAL/ARM/MAZE/LESSON)
+    - 响应全部文本命令(ACK/GET/SET/SETQ/SAVE/RESET/TARE/STOP/ESTOP/TELEM/MAP/MOVE/CAL/ARM/MAZE)
     - 上行异常事件只有两条: `STOPPED <reason> #n` / `ESTOP TRIP #n`
     - 复刻 Flash 参数页的 magic/version/CRC 校验与"校验失败即忽略"的降级行为
 
@@ -58,8 +58,8 @@ from ..protocol.codec import (
 )
 
 MAZETYPE = 7
-PROTO_VER = 3
-FW_VER = 214
+PROTO_VER = 5
+FW_VER = 216
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {
@@ -71,21 +71,6 @@ PARAM_DEFAULTS: Dict[int, float] = {
     5: 399.0,  # GYRORATIO (u16 截断后的值)
     6: 67.0,  # ENCANGLE  (u16)(75*0.90)
     7: 42.0,  # WALLDIST
-    # ---- 课程调参(8..21, 仅 MOUSE_LESSON_LAB 固件可读; 生产固件会回 ERR_NAME) ----
-    8: 10.75,  # KPL  (= motor.h 红线值)
-    9: 0.55,   # KIL
-    10: 0.55,  # KDL
-    11: 10.20, # KPR
-    12: 0.5,   # KIR
-    13: 0.5,   # KDR
-    14: 0.1,   # IRPL
-    15: 0.1,   # IRPR
-    16: 2.5,   # GYROP
-    17: 1.6,   # GYROD
-    18: 50.0,  # SPEEDNEED
-    19: 1000.0,  # ALLDIS
-    20: 0.0,   # SENSORMODE  (0=全关)
-    21: 1.0,   # WALLMODE     (1=靠左)
     # ---- 红外测量与阈值(22-32, 生产命名空间; 默认值 = 固件 core.h 的原宏值) ----
     22: 160.0,  # IRTHRWALL  (WALL_SIDE_THRESHOLD)
     23: 150.0,  # IRTHR45    (WALL_45_THRESHOLD)
@@ -114,20 +99,6 @@ PARAM_NAMES = {
     5: "GYRORATIO",
     6: "ENCANGLE",
     7: "WALLDIST",
-    8: "KPL",
-    9: "KIL",
-    10: "KDL",
-    11: "KPR",
-    12: "KIR",
-    13: "KDR",
-    14: "IRPL",
-    15: "IRPR",
-    16: "GYROP",
-    17: "GYROD",
-    18: "SPEEDNEED",
-    19: "ALLDIS",
-    20: "SENSORMODE",
-    21: "WALLMODE",
     22: "IRTHRWALL",
     23: "IRTHR45",
     24: "IRTHRCRIT",
@@ -148,19 +119,11 @@ PARAM_NAMES = {
 }
 NAME_IDS = {v: k for k, v in PARAM_NAMES.items()}
 
-#: **生产命名空间** —— 与固件 `linkParam[LINK_P_NUM]` 一一对应。
+#: **全部参数** —— 与固件 `linkParam[LINK_P_NUM]`(=24)一一对应。
 #: ⚠️ 这不是"随便挑一段": 固件的 `GET ALL` 只遍历这张表, `GET <name>` 也只查它。
-#: 课程参数(8..21)只存在于 [3] 档的**独立**表里, 写侧能写、**读侧读不回** ——
-#: 模拟器必须原样复刻这个不对称, 否则测试会掩盖真机上的 `ERR_NAME`。
+#: v2.4: 课程参数(8..21)随课程层删除, 于是**任何固件都是同一张 24 项表**,
+#: 不再有"写侧能写、读侧读不回"的不对称。
 PRODUCTION_IDS: Tuple[int, ...] = tuple(range(1, 8)) + tuple(range(22, 39))
-LESSON_IDS: Tuple[int, ...] = tuple(range(8, 22))
-
-# 课程实验号(与固件 APP/lesson_lab.h LL_EXP_* 一致)
-LL_EXP_ENCODER = 2
-LL_EXP_PID = 3
-LL_EXP_GYRO = 5
-LL_EXP_MULTI = 6
-LL_VALID_EXPS = (LL_EXP_ENCODER, LL_EXP_PID, LL_EXP_GYRO, LL_EXP_MULTI)
 
 UP, RIGHT, DOWN, LEFT = 0, 1, 2, 3
 DIR_DELTA = {UP: (0, 1), RIGHT: (1, 0), DOWN: (0, -1), LEFT: (-1, 0)}
@@ -313,7 +276,7 @@ class MouseSim:
         self.ev_drop = 0  # 因空间不足被丢弃的事件条数 -> flags 的 EVQ
 
         # 运动驱动
-        self.move_mode = "NONE"  # NONE / FWD / ROT / RUN / SERVO / LESSON / EXPLORE
+        self.move_mode = "NONE"  # NONE / FWD / ROT / RUN / SERVO / EXPLORE
         self.move_pulses = 0
         self.move_start_l = 0.0
         self.move_start_r = 0.0
@@ -340,30 +303,6 @@ class MouseSim:
         self.phase_dist = 0.0
         self.turn_target_dir = UP
 
-        # ---- 课程调参实验(与固件 APP/lesson_lab.c LL_REASON_* 对齐) ----
-        # 模拟器始终接受 LESSON 命令组(无论上位机怎么配), 便于开发与契约测试;
-        # 真实固件中这一段在 #ifdef MOUSE_LESSON_LAB 内, 生产固件会回 ERR_CMD。
-        self.lesson_running = False
-        self.lesson_exp = 0
-        self.lesson_phase = "IDLE"   # IDLE/ACC/CRUISE/DEC/STOP
-        self.lesson_limit = 0       # 时间护栏 ms
-        self.lesson_elapsed = 0     # ms
-        self.lesson_dist_target = 0  # mm
-        self.lesson_angle_target = 0  # 度
-        self.lesson_v_cruise = 0     # cm/s
-        self.lesson_t_acc = 0
-        self.lesson_t_cruise = 0
-        self.lesson_t_dec = 0
-        self.lesson_start_l = 0.0   # 起点位移快照 mm
-        self.lesson_start_r = 0.0
-        self.lesson_d_l = 0          # 累计脉冲(回传用)
-        self.lesson_d_r = 0
-        self.lesson_v_peak_l = 0
-        self.lesson_v_peak_r = 0
-        self.lesson_gyro_start = 0.0  # 起点航向快照(度)
-        self.lesson_done_pending = False  # LESSON DONE 已待发送
-        self.lesson_done_line = ""
-
         # ---- 时间同步 / 发车(与固件 link.c 的 ARM / MAZE RUN 对齐) ----
         self.link_time_ms = 0     # 上电以来的毫秒时基(u32)
         self.arm_ms = 0           # 发车基准; 0 = 未武装
@@ -371,6 +310,8 @@ class MouseSim:
         self.time_led = 0         # 1Hz 时间基准灯电平
         self.maze_running = False
         self.maze_requested = False
+        #: 发车目标(`MAZE RUN [BLIND|RACE]`)—— v2.4 新增, 与固件 linkMazeTarget 对齐
+        self.maze_target = "BLIND"
 
         # ---- 标定(请求-响应, 与固件 LinkCalState 对齐) ----
         #: 挂起的命令 seq; -1 = 无。命令到达时不立刻 ACK, 采集完成才由
@@ -505,10 +446,6 @@ class MouseSim:
                 self._cal_finish(True, (sum_acc, sum_enc, int(deg)))
             return
 
-        if self.move_mode == "LESSON":
-            self._drive_lesson()
-            return
-
         if self.move_mode != "EXPLORE":
             self.motion_task = 0
             return
@@ -541,109 +478,6 @@ class MouseSim:
                 self.speed_target_r = -sign * v
                 self.pid_err = self.gyro
 
-    # ---------------------------------------------------------- 课程调参实验
-
-    def _drive_lesson(self) -> None:
-        """模拟器课程实验引擎 — 与固件 APP/lesson_lab.c LESSONLAB_Tick 等价。
-
-        每个实验都按"加速 -> 匀速 -> 减速 -> 停"或"距离/角度判据"推进;
-        所有实验都共享一条时间护栏: elapsed >= limit 即停。
-        """
-        # 上层把 lesson_running 设为 False 即停车(LESSON STOP 路径)
-        if not self.lesson_running:
-            self._finish_lesson("STOP")
-            return
-
-        self.lesson_elapsed += 1
-
-        # 速度峰值统计(所有实验通用): "电机真的转了"的证据
-        ai = abs(int(self.speed_l))
-        if ai > self.lesson_v_peak_l:
-            self.lesson_v_peak_l = ai
-        ai = abs(int(self.speed_r))
-        if ai > self.lesson_v_peak_r:
-            self.lesson_v_peak_r = ai
-
-        # 剖面推进
-        d_l = self.dist_l_mm - self.lesson_start_l   # 行驶 mm
-        d_r = self.dist_r_mm - self.lesson_start_r
-
-        if self.lesson_exp == LL_EXP_PID:
-            e = self.lesson_elapsed
-            t1 = self.lesson_t_acc
-            t2 = t1 + self.lesson_t_cruise
-            t3 = t2 + self.lesson_t_dec
-            if e <= t1:
-                self.lesson_phase = "ACC"
-                v = int(self.lesson_v_cruise * e / max(1, t1))
-            elif e <= t2:
-                self.lesson_phase = "CRUISE"
-                v = self.lesson_v_cruise
-            elif e <= t3:
-                self.lesson_phase = "DEC"
-                te = e - t2
-                v = int(self.lesson_v_cruise * (self.lesson_t_dec - te) / max(1, self.lesson_t_dec))
-            else:
-                self._finish_lesson("DONE")
-                return
-            self.speed_target_l = self.speed_target_r = float(v)
-            self.motion_task = 32  # SMARTSTRAIGHTFAST
-        elif self.lesson_exp == LL_EXP_ENCODER:
-            self.lesson_phase = "CRUISE"
-            if abs(d_l) >= self.lesson_dist_target or abs(d_r) >= self.lesson_dist_target:
-                self._finish_lesson("DIST")
-                return
-            self.speed_target_l = self.speed_target_r = float(self.lesson_v_cruise)
-            self.motion_task = 32
-        elif self.lesson_exp == LL_EXP_GYRO:
-            # 原地转: 左右轮反向; 用 gyro 增长判停
-            self.lesson_phase = "CRUISE"
-            cur = self.gyro - self.lesson_gyro_start
-            if abs(cur) >= abs(self.lesson_angle_target):
-                self._finish_lesson("ANGLE")
-                return
-            sign = 1.0 if self.lesson_angle_target > 0 else -1.0
-            self.speed_target_l = sign * self.lesson_v_cruise
-            self.speed_target_r = -sign * self.lesson_v_cruise
-            self.motion_task = 2  # TURN
-        elif self.lesson_exp == LL_EXP_MULTI:
-            self.lesson_phase = "CRUISE"
-            if abs(d_l) >= self.lesson_dist_target or abs(d_r) >= self.lesson_dist_target:
-                self._finish_lesson("DONE")
-                return
-            self.speed_target_l = self.speed_target_r = float(self.lesson_v_cruise)
-            self.motion_task = 32
-        else:
-            self._finish_lesson("STOP")
-            return
-
-        # 时间护栏(与固件一致, 放最后判)
-        if self.lesson_elapsed >= self.lesson_limit:
-            self._finish_lesson("TIME")
-
-    def _finish_lesson(self, reason: str) -> None:
-        """与固件 ll_Finish 等价的停车 + 上报明细行(仍走 `LESSON DONE ...`)。"""
-        d_l_mm = self.dist_l_mm - self.lesson_start_l
-        d_r_mm = self.dist_r_mm - self.lesson_start_r
-        # 脉冲量(与固件一致): mm * pulse/mm
-        self.lesson_d_l = int(d_l_mm * self.params[1])
-        self.lesson_d_r = int(d_r_mm * self.params[2])
-        self.speed_target_l = self.speed_target_r = 0.0
-        self.freemode = 1
-        self.move_mode = "NONE"
-        self.motion_task = 0
-        self.lesson_running = False
-        self.lesson_phase = "STOP"
-        self.lesson_done_pending = True
-        # LESSON DONE <exp> <REASON> <ms> <dL> <dR> <vpkL> <vpkR> <angle>
-        ang_end = self.gyro - self.lesson_gyro_start
-        self.lesson_done_line = (
-            f"LESSON DONE {int(self.lesson_exp)} {reason} {int(self.lesson_elapsed)} "
-            f"{int(self.lesson_d_l)} {int(self.lesson_d_r)} "
-            f"{int(self.lesson_v_peak_l)} {int(self.lesson_v_peak_r)} "
-            f"{int(ang_end)}"
-        )
-
     def _motion_busy(self) -> bool:
         """是否有任何"正在动"的活动 —— 对应固件 `link_MotionBusy()`。
 
@@ -655,8 +489,7 @@ class MouseSim:
         模拟器当时也没查, 所以整套测试盖不住这个问题; 这里补上, 让
         "第二条 MOVE 必须被 ERR_BUSY 拒掉" 成为可回归的断言。
         """
-        return ((self.move_mode != "NONE") or bool(self.lesson_running)
-                or self.cal_ack_seq >= 0)
+        return ((self.move_mode != "NONE") or self.cal_ack_seq >= 0)
 
     def _flags(self) -> int:
         """统一帧 flags 字节 —— 与固件 `link_Flags()` 位定义逐位一致。
@@ -745,67 +578,6 @@ class MouseSim:
             self._cal_finish(True)
         else:  # IRDATA: 一个相位 = 一条命令, 采够就 ACK(第 4 相位的 ACK 即"整套完成")
             self._cal_finish(True)
-
-    def _start_lesson(self, exp: int, a: int, b: int, c: int, d: int) -> str:
-        """验证参数并启动一个课程实验, 返回 ACK 状态。"""
-        if self.estop_lock:
-            return "ERR_ESTOP"
-        if self.lesson_running or self._motion_busy():
-            return "ERR_BUSY"
-        # 与固件 LESSONLAB_Start 同样的逐项校验
-        if exp == LL_EXP_ENCODER:
-            if a <= 0 or a > 300 or b <= 0 or c <= 0:
-                return "ERR_VALUE"
-        elif exp == LL_EXP_PID:
-            if a <= 0 or a > 300 or b < 0 or c < 0 or d < 0:
-                return "ERR_VALUE"
-            if b == 0 or d == 0:
-                return "ERR_VALUE"
-        elif exp == LL_EXP_GYRO:
-            if a == 0 or abs(a) > 3600 or b <= 0 or b > 300 or c <= 0:
-                return "ERR_VALUE"
-        elif exp == LL_EXP_MULTI:
-            if a <= 0 or a > 300 or b <= 0 or c <= 0:
-                return "ERR_VALUE"
-        else:
-            return "ERR_EXP"
-
-        self.lesson_exp = exp
-        self.lesson_elapsed = 0
-        self.lesson_phase = "CRUISE" if exp != LL_EXP_PID else "ACC"
-        # 与固件 LESSONLAB_Start 的字段映射对齐:
-        #   exp2 ENCODER: vCruise=a, distTarget=b, limit=c
-        #   exp3 PID:     vCruise=a, tAcc=b, tCruise=c, tDec=d, limit=b+c+d+500
-        #   exp5 GYRO:    angleTarget=a, vCruise=b, limit=c   <-- 注意 vCruise 取 b
-        #   exp6 MULTI:   vCruise=a, distTarget=b, limit=c
-        self.lesson_v_cruise = b if exp == LL_EXP_GYRO else a
-        self.lesson_start_l = self.dist_l_mm
-        self.lesson_start_r = self.dist_r_mm
-        if exp == LL_EXP_PID:
-            self.lesson_t_acc = b
-            self.lesson_t_cruise = c
-            self.lesson_t_dec = d
-            self.lesson_limit = b + c + d + 500
-        else:
-            self.lesson_t_acc = self.lesson_t_cruise = self.lesson_t_dec = 0
-            self.lesson_limit = max(1, min(c, 60000))
-        if exp in (LL_EXP_ENCODER, LL_EXP_MULTI):
-            self.lesson_dist_target = b
-        else:
-            self.lesson_dist_target = 0
-        if exp == LL_EXP_GYRO:
-            self.lesson_angle_target = a
-        else:
-            self.lesson_angle_target = 0
-        self.lesson_gyro_start = self.gyro
-
-        self.freemode = 0
-        self.lesson_running = True
-        self.lesson_v_peak_l = self.lesson_v_peak_r = 0
-        self.lesson_d_l = self.lesson_d_r = 0
-        self.lesson_done_pending = False   # 清掉上一次的待发 DONE 行
-        self.move_mode = "LESSON"
-        return "OK"
 
     # ---------------------------------------------------------- MOVE RUN
 
@@ -1017,16 +789,14 @@ class MouseSim:
             ]
         if c == "GET":
             if len(t) >= 2 and t[1].upper() == "ALL":
-                # ⚠️ 只回**生产**命名空间(与固件 `linkParam[LINK_P_NUM]` 一致);
-                # 课程参数不在这张表里, 因此也不在 GET ALL 的输出里。
+                # 只回 `linkParam[LINK_P_NUM]` 那张表(= 24 项, 与固件 `GET ALL` 同构)。
+                # v2.4: 课程参数随课程层删除, 于是这张表就是**全部**参数, 没有第二张。
                 lines = [f"P {i} {_q(self.params[i])}\r\n" for i in PRODUCTION_IDS]
                 return lines + [ack("OK")]
             if len(t) >= 2 and t[1].upper() in NAME_IDS:
                 i = NAME_IDS[t[1].upper()]
-                if i in PRODUCTION_IDS:
-                    return [f"P {i} {_q(self.params[i])}\r\n", ack("OK")]
-                # 课程参数: 固件读侧只查生产表 -> 一律 ERR_NAME(写侧却是通的)。
-                return [ack("ERR_NAME")]
+                return [f"P {i} {_q(self.params[i])}\r\n", ack("OK")]
+            # 不在册的名字一律 ERR_NAME(与固件 `link_NameToId` 的失败路径一致)
             return [ack("ERR_NAME")]
         if c == "SET":
             if len(t) < 3 or t[1].upper() not in NAME_IDS:
@@ -1190,12 +960,20 @@ class MouseSim:
             return [ack_u("OK", self.arm_ms)]
         if c == "MAZE":
             if len(t) >= 2 and t[1].upper() == "RUN":
+                # MAZE RUN [BLIND|RACE] —— v2.4 起带可选目标词。
+                # RACE 在固件里会先跑 STATE_LoadMapAndSelectSpeed() /
+                # STATE_DetermineGoaheadNum()(读 Flash 地图选档+定冲刺)再进主循环;
+                # 模拟器没有 Flash 地图, 因此两者都落到同一套探索驱动, 只记录目标。
+                goal = t[2].upper() if len(t) >= 3 else "BLIND"
+                if goal not in ("BLIND", "RACE"):
+                    return [ack("ERR_VALUE")]
                 if self.maze_requested or self.maze_running:
                     return [ack("ERR_BUSY")]
                 if self.estop_lock:
                     # 与固件一致: 急停锁存中直接发车会被 ISR 每周期清零速度,
                     # 与其让主机看到"发了车却不动", 不如明确回 ERR_ESTOP
                     return [ack("ERR_ESTOP")]
+                self.maze_target = goal
                 self.maze_requested = True
                 self.maze_running = True   # 模拟器没有"主循环等待"一说, 直接开跑
                 self.mouse_task = 2        # MAZESEARCH
@@ -1212,38 +990,6 @@ class MouseSim:
                 self._maze_release()
                 return [ack("OK")]
             # MAZE EV / MAZE RST 已删除(v2.0) —— 与固件一样回 ERR_VALUE
-            return [ack("ERR_VALUE")]
-        if c == "LESSON":
-            # LESSON START <exp> [a] [b] [c] [d]  /  LESSON STOP  /  LESSON STATUS
-            if len(t) < 2:
-                return [ack("ERR_VALUE")]
-            a = t[1].upper()
-            if a == "STATUS":
-                return [
-                    f"LESSON STATUS {int(self.lesson_exp)} {1 if self.lesson_running else 0}\r\n",
-                    ack("OK"),
-                ]
-            if a == "STOP":
-                if self.lesson_running:
-                    self._finish_lesson("STOP")
-                else:
-                    # 没在跑也回 OK + 一行(幂等, 与固件 LESSONLAB_Abort 行为一致)
-                    self.lesson_done_pending = True
-                    self.lesson_done_line = "LESSON DONE 0 STOP 0 0 0 0 0 0"
-                return [ack("OK")]
-            if a == "START":
-                if len(t) < 3:
-                    return [ack("ERR_VALUE")]
-                try:
-                    exp = int(t[2])
-                    a1 = int(t[3]) if len(t) >= 4 else 0
-                    a2 = int(t[4]) if len(t) >= 5 else 0
-                    a3 = int(t[5]) if len(t) >= 6 else 0
-                    a4 = int(t[6]) if len(t) >= 7 else 0
-                except ValueError:
-                    return [ack("ERR_VALUE")]
-                st = self._start_lesson(exp, a1, a2, a3, a4)
-                return [ack(st)]
             return [ack("ERR_VALUE")]
         if c == "CAL":
             # CAL <item> {START|ABORT|<phase 0..3>}
@@ -1280,8 +1026,6 @@ class MouseSim:
 
     def _halt(self) -> None:
         """停车 + 清运动/标定子状态(与固件 `link_StopMotion()` 对齐)。"""
-        if self.lesson_running:
-            self._finish_lesson("STOP")
         self.speed_target_l = self.speed_target_r = 0.0
         self.move_mode = "NONE"
         self.freemode = 1
@@ -1375,14 +1119,11 @@ class MouseSim:
                 if next_tick < now - 0.25:  # 落后太多则重新对齐, 避免追帧风暴
                     next_tick = now + 0.001
 
-            # 事件行(在 1ms 节拍里产生)与课程 DONE 行走同一条上行通道
+            # 事件行在 1ms 节拍里产生, 由服务循环搬到 tx
             with self.lock:
                 for ev in self.ev_out:
                     tx += (ev + "\r\n").encode()
                 self.ev_out.clear()
-                if self.lesson_done_pending:
-                    self.lesson_done_pending = False
-                    tx += (self.lesson_done_line + "\r\n").encode()
 
                 # (v2.1 起不再有"自时钟统一帧" —— 遥测完全由上位机的 TELEM 请求驱动,
                 #  见 handle_line 里的 TELEM 分支)

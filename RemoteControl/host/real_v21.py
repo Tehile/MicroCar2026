@@ -19,7 +19,7 @@ import time
 
 sys.path.insert(0, ".")
 
-MOTOR_CMDS = ("MOVE", "MAZE RUN", "LESSON START", "CAL", "TARE")
+MOTOR_CMDS = ("MOVE", "MAZE RUN", "MCU RESET", "CAL", "TARE")
 
 
 def main() -> int:

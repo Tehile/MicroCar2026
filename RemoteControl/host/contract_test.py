@@ -40,7 +40,7 @@ from host.protocol.codec import (
     pack_unified,
     split_items,
 )
-from host.protocol.commands import LESSON_PARAM_IDS, PARAM_IDS, PRODUCTION_PARAM_IDS
+from host.protocol.commands import PARAM_IDS, PRODUCTION_PARAM_IDS
 from host.registry import (
     COMMANDS,
     FRAMES,
@@ -85,10 +85,11 @@ def test_static() -> None:
     bad = check_frame_dispatch_is_table_driven(src)
     check("link.py 帧分派走 registry.FRAMES(无硬编码 decode_*)", not bad, "\n".join(bad))
 
-    # S4: 数量基线(与固件实际命令集一致: v2.0 = 18 条命令 / 2 种帧 / 38 参数)
-    check(f"COMMANDS 登记 {len(COMMANDS)} 条(基线 18)", len(COMMANDS) >= 18, str(len(COMMANDS)))
+    # S4: 数量基线(与固件实际命令集一致: v2.4 = 21 条命令 / 2 种帧 / 24 参数)
+    check(f"COMMANDS 登记 {len(COMMANDS)} 条(基线 21)", len(COMMANDS) >= 21, str(len(COMMANDS)))
     check(f"FRAMES 登记 {len(FRAMES)} 种(基线 2)", len(FRAMES) >= 2, str(len(FRAMES)))
-    check(f"PARAM_IDS 登记 {len(PARAM_IDS)} 项(基线 38)", len(PARAM_IDS) >= 38, str(len(PARAM_IDS)))
+    check(f"PARAM_IDS 登记 {len(PARAM_IDS)} 项(基线 24 = 固件 LINK_P_NUM)",
+          len(PARAM_IDS) >= 24, str(len(PARAM_IDS)))
     check(f"PRODUCTION_PARAM_IDS 生产段 {len(PRODUCTION_PARAM_IDS)} 项(基线 24)",
           len(PRODUCTION_PARAM_IDS) >= 24, str(len(PRODUCTION_PARAM_IDS)))
 
@@ -251,18 +252,109 @@ def _test_protocol_constants_vs_firmware() -> None:
 
 
 def _test_firmware_mode_gates() -> None:
-    """S5: 固件档位门控一致性(真机实测缺陷的静态回归, 2026-10-04)。
+    """S8: 档位宏**唯一性** 与 课程实验层**清除彻底性**(v2.4 重构的静态回归)。
 
-    背景: `MOUSE_TEST_MODE` 只由 [1][2][3] 派生, **[4] MOUSE_DATA_LOG 刻意不派生**
-    (它要跑 doTask*/LESSON_ISR 自走)。当"实验档共同行为"被写成裸
-    `#ifdef MOUSE_TEST_MODE` 时, [4] 会静默退化成比赛固件语义:
-      · 急停锁存无法用 `STOP` 解除 -> 一次急停废掉整场采集;
-      · 急停 200ms 后 sleepmode=1 -> isr.c 跳过全部采样, 但 LINK_Tick() 在门外
-        照发帧 -> "链路活着、数据冻结", 现场极难察觉。
-    这类错误**不会有编译错误**, 而且档位无关的模拟器抓不到 —— 只能静态查源码。
-    故这里断言: 实验档共同行为必须走**具名派生宏** `MOUSE_ESTOP_RECOVERABLE`。
+    背景: v2.4 把编译档位由 5 档压成 2 档 ——
+
+        定义 MOUSE_REMOTE  -> 远程档(上位机接管: 监视 + 参数 + 手动运动 + 远程发车)
+        什么都不定义       -> 按键比赛档(功能与重构前**逐字节一致**)
+
+    同时删除了整层课程调参实验(固件 `APP/lesson_lab.c` + 上位机 `api/lesson.py`)。
+
+    这个重构最危险的失败模式是**静默降级**: 漏改一处 `#ifdef`, 编译器不会报错,
+    但远程档会悄悄退化成比赛语义(或反过来)。历史教训就摆在那里 —— v2.1 之前
+    "[4] 档不派生 MOUSE_TEST_MODE" 让 `STOP` 解急停整段失效, 一次急停废掉整场采集。
+
+    所以这里改成"**白名单**"式断言: 档位宏只允许 `MOUSE_REMOTE` 一个名字存在,
+    旧宏名在整个固件树里出现次数必须为 **0**。将来谁再引入新档位宏, 必须显式
+    来这里登记 —— 让它成为一个"有意识"的决定, 而不是一次疏忽。
     """
-    print("\n[S5] 固件档位门控一致性")
+    print("\n[S8] 档位宏唯一性与课程层清除")
+
+    import os
+    import re
+
+    fw = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code_stm32f1_mouse")
+    main_h = open(os.path.join(fw, "USER", "main.h"), encoding="utf-8").read()
+    link_c = open(os.path.join(fw, "HARDWARE", "link.c"), encoding="utf-8").read()
+    isr_c = open(os.path.join(fw, "HARDWARE", "isr.c"), encoding="utf-8").read()
+    link_h = open(os.path.join(fw, "HARDWARE", "link.h"), encoding="utf-8").read()
+
+    # S8a: 档位宏白名单 —— main.h 里 `#define MOUSE_*` 只允许 MOUSE_REMOTE
+    defined = set(re.findall(r"#define\s+(MOUSE_\w+)", main_h))
+    check("main.h: 档位宏只有 MOUSE_REMOTE", defined == {"MOUSE_REMOTE"}, str(sorted(defined)))
+    check("main.h: MOUSE_REMOTE 的定义存在(可注释掉, 但不许消失)",
+          "#define MOUSE_REMOTE 1" in main_h)
+
+    # S8b: 旧档位宏在整个固件树里**零残留**(含派生宏)。
+    #      `.uvprojx` 也要扫 —— 档位宏曾经同时出现在工程文件的预处理定义里。
+    LEGACY = ("MOUSE_TEST_NO_MOTOR", "MOUSE_TEST_MOTOR_LAB", "MOUSE_LESSON_LAB",
+              "MOUSE_DATA_LOG", "MOUSE_TEST_MODE", "MOUSE_ESTOP_RECOVERABLE")
+    leftover: list = []
+    for dirpath, _dirs, files in os.walk(fw):
+        if "tools" in dirpath.replace("\\", "/"):
+            continue
+        for fn in sorted(files):
+            if not fn.endswith((".c", ".h", ".uvprojx")):
+                continue
+            path = os.path.join(dirpath, fn)
+            try:
+                text = open(path, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for name in LEGACY:
+                n = len(re.findall(r"\b" + name + r"\b", text))
+                if n:
+                    leftover.append(f"{os.path.relpath(path, fw)}: {name} x{n}")
+    check(f"固件树已无旧档位宏({len(LEGACY)} 个名字 x 0 次)",
+          not leftover, " | ".join(leftover[:6]))
+
+    # S8c: 课程实验层**整层**清除 —— 源文件不存在、无人 include、命令关键字不在
+    check("APP/lesson_lab.c 已删除",
+          not os.path.exists(os.path.join(fw, "APP", "lesson_lab.c")))
+    check("APP/lesson_lab.h 已删除",
+          not os.path.exists(os.path.join(fw, "APP", "lesson_lab.h")))
+    inc = [fn for _dp, _d, fs in os.walk(fw) for fn in fs
+           if fn.endswith((".c", ".h")) and 'lesson_lab.h"' in
+           open(os.path.join(_dp, fn), encoding="utf-8", errors="replace").read()]
+    check("无任何源码 include lesson_lab.h", not inc, str(inc))
+    check("link.c: 无 LESSON / LESSONLAB 命令关键字或符号",
+          ('"LESSON' not in link_c) and ("LESSONLAB_" not in link_c)
+          and ("link_Lesson" not in link_c),
+          f'字面量={link_c.count(chr(34) + "LESSON")} LESSONLAB_={link_c.count("LESSONLAB_")}')
+    # 上位机侧: 课程模块与登记命令都不该还在
+    check("registry: 无 lesson.* 命令",
+          not [n for n in COMMANDS if n.startswith("lesson.")],
+          str(sorted(n for n in COMMANDS if n.startswith("lesson."))))
+
+    # S8d: 生产参数表条目数**必须**等于固件 LINK_P_NUM。
+    #      为什么钉死: `link_CalibLoad()` 判 `cnt != LINK_P_NUM` 即认为整页无效 ——
+    #      上位机若与固件条目数不一致, 参数页会**静默作废**, 标定回落默认值。
+    m_pn = re.search(r"#define\s+LINK_P_NUM\s+(\d+)", link_h)
+    check("link.h: 找到 LINK_P_NUM", bool(m_pn))
+    if m_pn:
+        n_fw = int(m_pn.group(1))
+        check(f"LINK_P_NUM({n_fw}) == 24(生产表: 1-7 + 22-38, v2.4 起无课程表)",
+              n_fw == 24, str(n_fw))
+        check(f"主机 PARAM_IDS 项数({len(PARAM_IDS)}) == 固件 LINK_P_NUM({n_fw})",
+              len(PARAM_IDS) == n_fw, f"{len(PARAM_IDS)} vs {n_fw}")
+
+    # S8e: 标定算参能力**必须保留**(用户明确要求: 课程层可以删, 算参函数不行)。
+    #      它们已从 `api/lesson.py` 迁到 `api/calc.py`, 仍是纯函数, 仍从 host.api 导出。
+    from host.api import (error_ratio, ir_error_stats, pick_best_position,  # noqa: F401
+                          solve_ratio, step_metrics, straightness_metrics,
+                          theory_gyro_ratio, theory_track_ratio)
+    from host.api import calc as _calc
+    calc_need = ("theory_track_ratio", "theory_gyro_ratio", "solve_ratio", "error_ratio",
+                 "step_metrics", "straightness_metrics", "ir_error_stats",
+                 "pick_best_position")
+    miss = [n for n in calc_need if not hasattr(_calc, n)]
+    check(f"标定算参 {len(calc_need)} 个纯函数仍在 api/calc.py", not miss, str(miss))
+    check("理论里程系数/角度系数可算(默认参数)",
+          abs(theory_track_ratio() - 62.24) < 0.05 and abs(theory_gyro_ratio() - 415.8) < 1.0,
+          f"{theory_track_ratio():.2f} / {theory_gyro_ratio():.2f}")
+    check("solve_ratio 线性标定公式", abs(solve_ratio(62.24, 100.0, 110.0) - 56.58) < 0.02)
+    check("error_ratio 相对误差", abs(error_ratio(1091.0, 1080.0) - 1.0185) < 0.01)
 
     import os
     import re
@@ -272,41 +364,8 @@ def _test_firmware_mode_gates() -> None:
     link_c = open(os.path.join(fw, "HARDWARE", "link.c"), encoding="utf-8").read()
     isr_c = open(os.path.join(fw, "HARDWARE", "isr.c"), encoding="utf-8").read()
 
-    # S5a: 具名派生宏存在, 且明确覆盖 [4]
-    derived = re.search(
-        r"#if defined\(MOUSE_TEST_MODE\) \|\| defined\(MOUSE_DATA_LOG\)\s*\n"
-        r"#define MOUSE_ESTOP_RECOVERABLE 1", main_h)
-    check("main.h: MOUSE_ESTOP_RECOVERABLE = MOUSE_TEST_MODE || MOUSE_DATA_LOG",
-          bool(derived), "未找到派生定义")
-
-    # S5b: link.c 的 STOP 解锁块 —— 只认具名宏, 不许残留裸 MOUSE_TEST_MODE
-    #      注意 anchor 必须用 `link_StopMotion(LINK_RUN_REASON_USER)`(顶层 STOP 的处理体)：
-    #      `link_TokIs(&p, "STOP")` 在 link.c 里出现两次(lessson 子命令 / 顶层), 用前者会抓错块;
-    #      而 `link_StopMotion(LINK_RUN_REASON_ESTOP)` 是 ESTOP 分支, 也不是这里要的。
-    i = link_c.find("link_StopMotion(LINK_RUN_REASON_USER)")
-    stop_blk = link_c[max(0, i - 260):i + 900] if i >= 0 else ""
-    check("link.c: 找到顶层 STOP 处理块", bool(stop_blk))
-    check("link.c: STOP 解锁走 MOUSE_ESTOP_RECOVERABLE",
-          "MOUSE_ESTOP_RECOVERABLE" in stop_blk, stop_blk[:120])
-    check("link.c: STOP 块内无裸 MOUSE_TEST_MODE",
-          "MOUSE_TEST_MODE" not in stop_blk)
-
-    # S5c: isr.c 的急停休眠块(窗口止于块末尾的 LINK_EStopTrip(); —— 再往后
-    #      还有一处合法的 `#ifndef MOUSE_TEST_MODE` 用于 LESSON_ISR, 不能框进来)
-    i = isr_c.find("if (emergMon.active == 1)")
-    j = isr_c.find("LINK_EStopTrip();", i) if i >= 0 else -1
-    em_blk = isr_c[i:j] if (i >= 0 and j > i) else ""
-    check("isr.c: 找到急停处理块", bool(em_blk))
-    check("isr.c: 急停休眠走 MOUSE_ESTOP_RECOVERABLE",
-          "MOUSE_ESTOP_RECOVERABLE" in em_blk, em_blk[:160])
-    check("isr.c: 急停块内无裸 MOUSE_TEST_MODE", "MOUSE_TEST_MODE" not in em_blk)
-
-    # S5d: 残留裸门控的**清点基线** —— 将来新加一处会立刻报红
-    #      isr.c 余 3 处: 779 #ifdef(运动状态机停用) / 881 #endif / 902 #ifndef(LESSON_ISR)
-    check("link.c 已无裸 MOUSE_TEST_MODE(基线 0)", link_c.count("MOUSE_TEST_MODE") == 0,
-          str(link_c.count("MOUSE_TEST_MODE")))
-    check("isr.c 裸 MOUSE_TEST_MODE 仅剩 3 处(基线 3)", isr_c.count("MOUSE_TEST_MODE") == 3,
-          str(isr_c.count("MOUSE_TEST_MODE")))
+    # ---- 以下为与档位无关的固件静态不变量 ----
+    print("\n[S9] 固件静态不变量(Flash 布局 / 注释闭合 / 帧 sink)")
 
     # S5e: 程序区上界必须与 Flash 数据区起始页严格对齐。
     #      uvprojx 内 0x8000000 出现多次(全芯片描述 + 实际启用的 IROM1),
@@ -327,7 +386,7 @@ def _test_firmware_mode_gates() -> None:
         check(f"程序区上界 0x{min(sizes):X} == 数据区起始 0x{data_start:X}(不越界)",
               min(sizes) == data_start, f"sizes={[hex(x) for x in sizes]} data=0x{data_start:X}")
 
-    # S5f: Flash 页布局不得互相踩踏。
+    # S9a: Flash 页布局不得互相踩踏。
     #      背景(2026-10-04 实测): 链路模块原先把标定页取在 page 99/100, 而运行数据区的
     #      **擦除范围**是 `saveNum/100+1 = 13 页` = page 89..101 —— 两个标定页正落在里面,
     #      一次 FLASH_EraseRunData()(calibrate.c / menu.c / state.c 共 3 处调用)
@@ -352,7 +411,8 @@ def _test_firmware_mode_gates() -> None:
         check(f"运行数据区擦除范围 = {pages} 页 (page "
               f"{(erase_lo - 0x08000000)//0x400}..{(erase_hi - 0x08000000)//0x400 - 1})",
               pages == 13, f"pages={pages}")
-        for macro_name in ("FLASH_ADDR_SYSCALIB", "FLASH_ADDR_LESSONPARAM"):
+        # v2.4: FLASH_ADDR_LESSONPARAM(课程参数页)随课程层删除, 只剩生产标定页。
+        for macro_name in ("FLASH_ADDR_SYSCALIB",):
             a = addr_of(macro_name, link_h)
             check(f"link.h: 找到 {macro_name}", a is not None)
             if a is None:
@@ -368,7 +428,7 @@ def _test_firmware_mode_gates() -> None:
             check(f"{macro_name} 1KB 对齐", aligned)
             check(f"{macro_name} 不越过迷宫页(118)", below_maze)
 
-    # S5g: 源码"注释提前闭合"扫描。
+    # S9b: 源码"注释提前闭合"扫描。
     #      场景: 在 `/* ... */` 块注释里写了形如 `doTask*/LESSON_ISR` 或 `TEE_*/CROSS` 的文本,
     #      其中的 `*/` 会**提前结束注释**, 后面的文字被当成代码 → 报出一堆看似无关的错误
     #      (上次是 main.h 869 个 error, 这次是 link.c 的 "struct has no field")。
@@ -409,7 +469,7 @@ def _test_firmware_mode_gates() -> None:
     check("固件源码无'注释提前闭合'(跨行注释内的 */ 之后不得再有内容)",
           not bad, " | ".join(bad[:5]))
 
-    # S5h: 每个帧 sink 必须用**自己的** stream 名去 notify。
+    # S9c: 每个帧 sink 必须用**自己的** stream 名去 notify。
     #      背景(2026-10-04 实测踩过): 往 ring.py 里插新 sink 时, 锚点选在
     #      `push_time` 的最后一行之前, 结果把它的 `self._notify("time", rec)`
     #      挤进了新函数的末尾 —— 于是 TIME 帧不再通知(时间同步样本恒为 0),
@@ -439,10 +499,11 @@ def _test_firmware_mode_gates() -> None:
             if f'self._notify("{other}", rec)' in body:
                 sink_bad.append(f"{spec.sink} 误用 {other}")
     check("每个帧 sink 只 notify 自己的 stream(防插错位置)", not sink_bad, " | ".join(sink_bad[:5]))
-    # 生产段必须是全集的子集, 且课程段不混入(否则 get_all 的等待集合会算错)
-    check("生产段 ∩ 课程段 = ∅",
-          not (set(PRODUCTION_PARAM_IDS) & set(LESSON_PARAM_IDS)),
-          str(sorted(set(PRODUCTION_PARAM_IDS) & set(LESSON_PARAM_IDS))))
+    # v2.4: 课程段已删除 —— 生产段就是全集, 两者必须**完全相等**
+    # (若不等, `get_all` 的等待集合会多等或漏等, 表现为"偶发超时")
+    check("生产段 == 全集(24 项, 无课程段)",
+          set(PRODUCTION_PARAM_IDS) == set(PARAM_IDS),
+          f"prod={len(PRODUCTION_PARAM_IDS)} all={len(PARAM_IDS)}")
 
     # FRAMES 覆盖全部 TYPE_* 常量
     all_types = {TYPE_UNIFIED, TYPE_MAP}
@@ -465,12 +526,14 @@ def _test_firmware_mode_gates() -> None:
                 break
         # v2.0: 子命令里的 `scope` 与 `snap` 已随协议精简删除(命令集 41→18,
         # 帧 9→2); 这里保持"现存子命令全覆盖"的检出力 —— 少一个立刻报红。
+        # v2.4: `lesson` 子命令随课程层删除; 其余保持"现存子命令全覆盖"的检出力。
         need = {"ports", "connect", "get", "get-all", "set", "calib", "save",
                 "maze", "monitor", "motor-test", "estop", "diagnose", "scan-baud",
-                "replay", "lesson", "datalog"}
+                "replay", "datalog"}
         missing = need - choices
-        check(f"CLI 可导入且子命令齐备({len(choices)} 个, 含 motor-test/lesson/datalog)",
+        check(f"CLI 可导入且子命令齐备({len(choices)} 个, 含 motor-test/datalog)",
               not missing, f"缺 {sorted(missing)}")
+        check("CLI 已无 lesson 子命令", "lesson" not in choices)
     except Exception as e:  # noqa: BLE001
         check("CLI 可导入并构建 parser", False, f"{type(e).__name__}: {e}")
 
@@ -490,6 +553,22 @@ def test_command_build() -> None:
         # 命令必须是大写关键字开头(与固件 token 解析一致)
         head = line.split()[0].upper()
         check(f"{name}: 关键字大写 '{head}'", head == line.split()[0], repr(line))
+
+
+def test_maze_run_target() -> None:
+    """[S2b] `MAZE RUN` 的目标词拼装 —— 默认 BLIND 必须**省略**, 保持旧日志格式。"""
+    print("\n[S2b] MAZE RUN 目标词")
+    check("默认 = 'MAZE RUN'(不带词)",
+          command_line("maze.run") == "MAZE RUN", command_line("maze.run"))
+    check("target='BLIND' 仍省略",
+          command_line("maze.run", target="BLIND") == "MAZE RUN",
+          command_line("maze.run", target="BLIND"))
+    check("target='RACE' 显式带上",
+          command_line("maze.run", target="RACE") == "MAZE RUN RACE",
+          command_line("maze.run", target="RACE"))
+    check("小写输入归一化为大写",
+          command_line("maze.run", target="race") == "MAZE RUN RACE",
+          command_line("maze.run", target="race"))
 
 
 def test_frames_roundtrip() -> None:
@@ -545,8 +624,6 @@ def test_commands_e2e(port: int) -> None:
             # 不清场就会误报 ERR_BUSY。
             "tare", "move.fwd", "stop", "move.rot", "stop", "move.run", "stop",
             "estop", "estop.clear",
-            # ---- 课程调参实验(放最后: start 会启动一段剖面, status 应见 running=1) ----
-            "lesson.start", "lesson.status", "lesson.stop",
             # ---- 时间同步 / 数据收集 ----
             # maze.stop 收车并复位发车状态 —— 不加它的话设备会停在"探索中",
             # 而 maze.run 的 busy 判据正是"请求位或运行位"（v2.1 真机缺陷的落点）。
@@ -564,6 +641,15 @@ def test_commands_e2e(port: int) -> None:
             check(f"{name}: ACK OK", r.ok, f"{r.status} cmd={r.data.get('cmd')!r}")
             # 运动类命令要留出真实结束时间, 否则下一条会被 ERR_BUSY 拒掉(这是正确行为)
             time.sleep(0.25 if name.startswith("move.") else 0.02)
+
+        # v2.4: 发车目标词也要各跑一次(默认 BLIND 在上面已覆盖)
+        r = mc.send_cmd("maze.run", target="RACE", timeout=5.0)
+        check("maze.run RACE: ACK OK", r.ok, f"{r.status} cmd={r.data.get('cmd')!r}")
+        time.sleep(0.25)
+        r = mc.send_cmd("maze.stop", timeout=5.0)
+        check("maze.stop(RACE 后): ACK OK", r.ok, r.status)
+        r = mc.send_cmd("maze.run", target="NOPE", timeout=5.0)
+        check("maze.run 非法目标被拒", not r.ok, f"{r.status}(拼装阶段就该拦下)")
 
         # 覆盖率: 所有登记命令都必须被跑到
         missing = set(COMMANDS) - covered
@@ -743,30 +829,23 @@ def test_idempotency_e2e(port: int) -> None:
 
 
 def test_params_e2e(port: int) -> None:
-    """[D2] 参数读写往返 —— 并**钉死"课程参数读不回"这个固件不对称**。
+    """[D2] 参数读写往返(24 项生产表)。
 
-    ⚠️ 真机事实(固件 `link.c`): `linkParam[LINK_P_NUM]` 只装**生产命名空间**
-    (id 1..7 标定 + 22..38 红外/电源)。`GET ALL` 只遍历它, `GET <name>` 也只在
-    它里面查 —— 于是**课程 14 项(id 8..21)压根读不回来**, 一律回 `ERR_NAME`;
-    而写侧(`SET`/`SETQ`)有课程分支, 是通的。课程值只活在 [3] 档的**独立**页
-    (page 116) 里, 固件读侧没有接上。
+    v2.4: 原先这里还要单独验"课程参数 GET 回 ERR_NAME(`ERR_NAME`)"——
+    固件的 `GET <name>` 只查生产表, 而写侧有课程分支, 形成"写得进、读不回"的
+    不对称。课程层整体删除后**不再有第二个命名空间**, 于是本用例简化为一条:
+    生产表 24 项逐项"读 -> 写回同一值 -> 再读", 必须逐位一致。
 
-    为什么必须把它写成断言而不是"跳过": 模拟器早期版本回全部 38 项,
-    **掩盖了这个不对称**, 让真机上的 `GET KPL -> ERR_NAME` 变成一个"随机故障"。
-    现在模拟器原样复刻, 本用例就分两组各自断言:
-
-        生产段 (24 项)  读 -> 写回同一值 -> 再读, 逐位一致
-        课程段 (14 项)  `GET` 必须回 `ERR_NAME`(读不回); `SETQ` 必须回 `OK`(写得进)
+    为什么必须写成断言而不是"跳过": 模拟器早期版本回全部 38 项, 掩盖了真机上
+    的 `ERR_NAME`, 让"读参数偶发失败"变成一个随机故障。现在两侧都只有一张表。
     """
-    print("\n[D2] 参数读写往返 + 课程参数读侧不对称")
+    print("\n[D2] 参数读写往返(24 项)")
     from host.api import MouseClient
 
     with MouseClient.connect_to(f"tcp://127.0.0.1:{port}") as mc:
-        # 登记表本身要自洽: 两段不重叠且并集就是全集
-        check("生产段 + 课程段 == PARAM_IDS(38 项)",
-              set(PRODUCTION_PARAM_IDS) | set(LESSON_PARAM_IDS) == set(PARAM_IDS),
-              f"prod={len(PRODUCTION_PARAM_IDS)} lesson={len(LESSON_PARAM_IDS)} "
-              f"all={len(PARAM_IDS)}")
+        check("生产段 == 全集(24 项)",
+              set(PRODUCTION_PARAM_IDS) == set(PARAM_IDS),
+              f"prod={len(PRODUCTION_PARAM_IDS)} all={len(PARAM_IDS)}")
 
         # ---- 生产段: 真正可读可写 ----
         for name, nid in sorted(PRODUCTION_PARAM_IDS.items(), key=lambda kv: kv[1]):
@@ -780,13 +859,11 @@ def test_params_e2e(port: int) -> None:
             check(f"{name}: 回读与写入一致", r.ok and r.data.get("readback") == before,
                   str(r.data.get("readback")))
 
-        # ---- 课程段: 读不回(固件读侧只有生产表), 但写得进 ----
-        for name, nid in sorted(LESSON_PARAM_IDS.items(), key=lambda kv: kv[1]):
+        # ---- 已删除的课程参数名必须**彻底不认**(防"半删"留下幻影项) ----
+        for name in ("KPL", "KIR", "GYROP", "SENSORMODE", "WALLMODE"):
             r = mc.send_cmd("params.get", name=name, timeout=3.0)
-            check(f"{name}: GET 回 ERR_NAME(读侧无课程表)",
-                  (not r.ok) and r.status == "ERR_NAME", r.status)
-        w = mc.send_cmd("params.setq", name="KPL", q=float_to_q1616(10.5), timeout=3.0)
-        check("KPL: SETQ 回 OK(写侧有课程分支)", w.ok, w.status)
+            check(f"{name}: 已随课程层删除, GET 回 ERR_NAME",
+                  (not r.ok), f"{r.status}")
 
 
 # ---------------------------------------------------------------- 示例参数
@@ -811,12 +888,8 @@ _EXAMPLE_ARGS = {
     "sp_l": 40,
     "sp_r": -40,
     "ir_mm": 10,
-    # ---- 课程调参实验 ----
-    "exp": 3,           # lesson.start
-    "a": 50,            # v  (实验三/四/七) 或 angle (实验六)
-    "b": 200,           # dist (实验三/七) 或 t_acc (实验四) 或 v (实验六)
-    "c": 800,           # ms (实验三/六/七) 或 t_cruise (实验四)
-    "d": 200,           # t_dec (实验四)
+    # ---- 迷宫发车目标(v2.4: `MAZE RUN [BLIND|RACE]`) ----
+    "target": "RACE",
 }
 
 
@@ -878,6 +951,7 @@ def main() -> int:
     print("=" * 66)
     test_static()
     test_command_build()
+    test_maze_run_target()
     test_frames_roundtrip()
 
     port = args.port or _free_port()

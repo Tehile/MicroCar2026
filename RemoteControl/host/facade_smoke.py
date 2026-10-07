@@ -91,8 +91,8 @@ def _run_impl(port: int) -> None:
         # ------------------------------------------------------------ 参数(E/D)
         print("\n[E] 参数 + [D] 可靠传输(回读校验)")
         got = mc.params.get_all()
-        # 7 项生产标定 + 17 项红外/电源 = 24 项生产参数。v2.0 起固件 `GET ALL` **只遍历
-        # 生产命名空间**(与 linkParam[] 一致); 课程 14 项在独立表里, 读侧读不回。
+        # 7 项生产标定 + 17 项红外/电源 = 24 项。v2.4 起课程命名空间已删除,
+        # 这就是固件 `linkParam[LINK_P_NUM]` 的全部内容, 也是 `GET ALL` 的全部输出。
         check("GET ALL 回读 24 项生产参数", len(got) == 24, str(len(got)))
         check("生产命名空间 24 项齐备", set(mc.params.production_names()) <= set(got),
               str(sorted(set(mc.params.production_names()) - set(got))))

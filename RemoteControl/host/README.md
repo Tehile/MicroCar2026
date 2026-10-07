@@ -26,7 +26,7 @@ python run_host.py
 
 1. 与蓝牙 SPP 模块配对（Windows 会在“设备和打印机”里生成一个**传出** COM 口）
 2. 点“刷新”，下拉框里选带 `[蓝牙]` 标记的那个口
-3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 1 100 7`
+3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 5 216 7 256 <rst>`
 
 ### 标定 / 采集阶段：不起 GUI，直接看实时数据
 
@@ -37,8 +37,16 @@ python -m host.monitor tcp://127.0.0.1:5555  # 无硬件：连模拟器
 python -m host.monitor replay://sessions/2026-09-27_0151   # 回放历史会话
 ```
 
-配套固件开关 `MOUSE_TEST_NO_MOTOR`（`code_stm32f1_mouse/USER/main.h`）会把电机彻底停用，
-详见 [`../docs/安全测试模式与实时监视.md`](../docs/安全测试模式与实时监视.md)。
+固件档位自 **v2.4 起只有两档**（`code_stm32f1_mouse/USER/main.h`）：
+
+| 档 | 开关 | 能力 |
+|---|---|---|
+| **远程档** | `#define MOUSE_REMOTE 1` | 上位机全程接管：监视 + 参数读写 + 手动运动 + 远程发车/收车 + `MCU RESET` |
+| **按键比赛档** | **什么都不定义** | 与比赛固件一致（按键 + 物理启动） |
+
+远程档值守态默认 `freemode=1`（电机不输出），只有收到 `MOVE *` / `MAZE RUN` 才会动。
+⚠️ v2.4 起**不再有「电机绝不可能动」的档** —— 静态标定时请把轮子架离地面。
+详见 [`../docs/双档简化设计方案.md`](../docs/双档简化设计方案.md) §8。
 
 ### 标定
 
@@ -56,7 +64,7 @@ python -m host.cli calib angle    --target COM7    # 角度系数(需电机，�
 
 ### 电机远程控制实验（轮子悬空，双流）
 
-固件切到 `MOUSE_TEST_MOTOR_LAB`（电机可控、无自走策略）。停止条件全在固件 1 ms 中断里，
+固件烧**远程档**（`#define MOUSE_REMOTE 1`）。停止条件全在固件 1 ms 中断里，
 上位机被 kill 也不会失控。
 
 ```bash
@@ -69,33 +77,9 @@ python -m host.cli estop --resume --target COM7      # 解急停/正常停车
 
 详见 [`../docs/电机远程控制与双流传输.md`](../docs/电机远程控制与双流传输.md)。
 
-### 课程调参实验（实验三~八）
-
-固件切到 `MOUSE_LESSON_LAB`（电机可控 + 按课件剖面驱动的引擎）。上位机设参 → 传到电脑鼠 →
-按剖面动作 → 回传数据 → **自动算参**。实验代码与最终版代码分开（`APP/lesson_lab.c` 整层在
-`#ifdef MOUSE_LESSON_LAB` 内）。
-
-```bash
-python -m host.lesson COM7 --list                    # 可驱动的实验清单
-python -m host.lesson COM7 --theory                  # 里程/角度系数理论值
-python -m host.lesson COM7 --params                  # 14 个课程调参量
-python -m host.lesson COM7 --set KPL=11.5 --save     # 设参并落 Flash(page100)
-
-# 实验三 编码器测距: 直行到固件自认 100mm, 实测 110mm 后自动算修正系数并写回
-python -m host.lesson COM7 2 --v 60 --dist 100 --truth 110 --apply --save
-# 实验四 匀变速直线: 加速200 → 匀速800 → 减速200, 回传曲线算 σ%/ts/tp
-python -m host.lesson COM7 3 --v 50 --t-acc 200 --t-cruise 800 --t-dec 200 --out step.csv
-# 实验六 陀螺标定: 原地转 1080 度
-python -m host.lesson COM7 5 --angle 1080 --v 60 --truth 1080 --apply
-# 实验七 多传感器校准直行
-python -m host.lesson COM7 6 --v 50 --dist 1000 --ms 8000
-```
-
-详见 [`../docs/课程调参实验与参数设定.md`](../docs/课程调参实验与参数设定.md)。
-
 ### 数据收集与时间同步（远程发车 + 完整采集）
 
-固件切到 `MOUSE_DATA_LOG`（第五档：电机可控 + **含自走策略** + 远程发车）。
+固件烧**远程档**（`#define MOUSE_REMOTE 1`；含自走策略 + 远程发车）。
 `ARM` 让电脑鼠从发车命令开始以 **1Hz 闪 LED** 并回传毫秒时基；上位机据此把**每一个接收到的
 样本**都换算成"发车以来毫秒"—— 蓝牙链路抖动不再污染数据的时间轴。
 
@@ -163,7 +147,7 @@ python -m host.cli rescue --target COM7     # 卡住/失控时的收车与救援
 
 ### 迷宫状态（实验 8 无记忆走迷宫）
 
-仅在 `MOUSE_DATA_LOG` 下有效。v2.0 起固件**不再单发迷宫帧/事件**（`MAZE EV` 与
+仅在**远程档**下有效。v2.0 起固件**不再单发迷宫帧/事件**（`MAZE EV` 与
 `LINK_TYPE_MAZE` 已删除），迷宫状态改由主机侧从统一帧里的三位墙原语
 （`wallLeft/wallFront/wallRight`）**逐帧复刻**：路口类型（直道 / 左弯 / 右弯 / T 型 / 十字 / 死路）、
 朝向、坐标、任务迁移、岔路栈深度。
@@ -171,6 +155,12 @@ python -m host.cli rescue --target COM7     # 卡住/失控时的收车与救援
 ```bash
 python -m host.cli maze state   --target COM7     # 最近一帧状态(来自统一帧)
 python -m host.cli maze summary --target COM7     # 汇总(识别的路口/转弯/死路统计)
+python -m host.cli maze spurt   --target COM7     # 冲刺档位/前行格数(只读监视)
+
+# 发车(v2.4: 可选目标) —— 会动! 且带低电硬闸
+python -m host.cli maze run --goal blind --target COM7   # 无记忆走迷宫(实验8, 默认)
+python -m host.cli maze run --goal race  --target COM7   # 正式比赛入口(需有效 Flash 地图)
+python -m host.cli maze stop --target COM7               # 收车(停车+复位发车状态+解急停)
 ```
 
 上位机 `mc.maze`（墙图拉取 + 状态复刻）；`monitor` 收到统一帧后自动多出一节迷宫面板。
@@ -181,17 +171,19 @@ python -m host.cli maze summary --target COM7     # 汇总(识别的路口/转�
 ```bash
 python selftest.py          # 协议断言(CRC/Q16.16/帧/自恢复/墙图/落盘)
 python selftest.py --e2e    # 额外拉起模拟器做端到端回归
-python contract_test.py     # 契约断言(登记表↔模拟器逐条对齐; 24 命令 / 2 帧 / 38 参数
-                            #            + 档位门控、Flash 页布局、注释闭合等静态断言)
-python maze_smoke.py        # 迷宫状态断言(路口分类/状态复刻)
+python contract_test.py     # 契约断言(登记表↔模拟器逐条对齐; 21 命令 / 2 帧 / 24 参数
+                            #   + [S8]档位宏唯一性、[S9]Flash布局/注释闭合、[S2b]发车目标词)
+python maze_smoke.py        # 迷宫状态断言(路口分类/状态复刻/发车-收车-再发车)
 python motor_lab_smoke.py   # 电机远程控制断言(时间/红外护栏、急停锁存)
-python lesson_smoke.py      # 课程调参断言(参数读写/启停/四个剖面/自动算参/安全拒绝)
 python timesync_smoke.py    # 时间同步断言(纯函数/发车/逐帧时间/丢帧/落盘/远程发车)
 python facade_smoke.py      # 门面断言(MouseClient 全功能组 A–J)
 python monitor_smoke.py     # 实时监视器断言(含 --expect-safe 正/反例、motor_guard 拦截)
 python pull_smoke.py        # 拉取链路断言(停等: 在途恒<=1、停流后彻底不再收帧、锚刷新)
 python uismoke.py           # 离屏构建 GUI、接模拟器、跑通并截图到 ../docs/ui_*.png
 ```
+
+> 上表即「**八套件**」（v2.4 起，原九套件的 `lesson_smoke` 已随课程层删除）。
+> `uismoke.py` 需要 PySide6；未装则跳过，其余七套无需 GUI 依赖。
 
 > `selftest.py --e2e` 与 `uismoke.py` 会自己拉起模拟器，不需要手动开终端 A。
 
@@ -219,7 +211,6 @@ host/
 ├── contract_test.py         注册表契约(登记表↔模拟器逐条对齐 + 源码静态断言)
 ├── maze_smoke.py            迷宫状态冒烟(路口分类/状态复刻)
 ├── motor_lab_smoke.py       电机远程控制实验冒烟(双护栏/急停)
-├── lesson_smoke.py          课程调参实验冒烟(参数/启停/剖面/算参)
 ├── timesync_smoke.py        数据收集与时间同步冒烟(纯函数/发车/逐帧时间/丢帧/落盘)
 ├── facade_smoke.py          门面全功能冒烟
 ├── monitor_smoke.py         实时监视器冒烟
@@ -236,7 +227,6 @@ host/
 ├── real_burst.py            成串请求回收率(停等设计的实测依据)
 ├── real_discriminate.py     非运动命令探活(定位"失联")
 ├── real_throughput.py       吞吐压测
-├── real_lesson_sampling.py  课程实验采样密度实测
 ├── requirements.txt
 └── host/
     ├── protocol/
@@ -254,13 +244,12 @@ host/
     ├── cli.py               命令行入口(每个子命令 = 一次 API 调用)
     ├── monitor.py           实时数据监视器(终端仪表盘)
     ├── motor_test.py        电机远程控制实验终端入口
-    ├── lesson.py            课程调参实验终端入口(设参 + 启停 + 自动算参)
     ├── datalog.py           数据收集台(远程发车 + 时间同步 + 完整采集)
     ├── replay.py            离线回放后端
     ├── api/                 门面 MouseClient + 子 API
     │   ├── client.py        门面本体
     │   ├── lab.py           mc.lab: 电机实验(远程运动)
-    │   ├── lesson.py        mc.lesson: 课程调参 + 算参纯函数
+    │   ├── calc.py         标定算参**纯函数**(理论系数/线性标定/阶跃/直行/红外误差)
     │   ├── maze.py          mc.maze: 墙图 + 迷宫状态(从统一帧复刻, 实验8)
     │   ├── timesync.py      mc.timesync: 时间同步 + 偏移/漂移拟合纯函数
     │   └── ...              conn / params / telemetry / stream / calib / move /
@@ -275,7 +264,7 @@ host/
     │   ├── calib_wizard.py  5 项半自动标定向导
     │   └── console.py       文本调试台(显示设备 printf 输出)
     └── sim/
-        └── mouse_sim.py     设备模拟器(协议一致 + 仿真物理 + 迷宫探索 + 课程实验 + 时间同步)
+        └── mouse_sim.py     设备模拟器(协议一致 + 仿真物理 + 迷宫探索 + 时间同步)
 ```
 
 ---
@@ -348,24 +337,24 @@ df.plot(x="t_host_ms", y=["speedL", "speedR", "gyroAngle", "pidErr"])
 |---|---|---|
 | 帧开销 8B | `LINK_FRAME_OVERHEAD` | `codec.FRAME_OVERHEAD` |
 | 帧类型码 | `LINK_TYPE_UNIFIED` / `LINK_TYPE_MAP` | `codec.TYPE_UNIFIED` / `codec.TYPE_MAP` |
-| 统一帧长度 45B | `LINK_UNIFIED_LEN` | `codec.UNIFIED_LEN` |
+| 统一帧长度 49B | `LINK_UNIFIED_LEN` | `codec.UNIFIED_LEN` |
 | 统一帧字段偏移 | `LINK_U_*` | `codec.U_*` |
 | 统一帧标志位 | `LINK_FLAG_*` | `codec.FLAG_*` |
-| 生产参数 id 1..7 | `LINK_P_*` | `commands.PARAM_IDS_BASE` |
-| 课程参数 id 8..21 | `LL_P_*`（`lesson_lab.h`） | `commands.LESSON_PARAM_IDS` |
-| 课程实验号 2/3/5/6 | `LL_EXP_*` | `api/lesson.py: LESSON_EXPS` |
+| 生产参数 id 1..7 + 22..38 | `LINK_P_*` | `commands.PARAM_IDS`（= `PRODUCTION_PARAM_IDS`） |
+| 档位开关（唯一） | `MOUSE_REMOTE` | 不涉及（主机只看 `PONG` 的 proto/fw） |
 | 时间锚(ms8 同余还原) | 每条 `TELEM` 的 ACK 都带完整 u32 时基(每次刷新) | `store.set_anchor` / `mc.timesync` |
 | 角度基准往复 10 次 | `LINK_SRV_REPS` | `calib_wizard.SRV_REPS` |
 | 迷宫尺寸 | `MAZETYPE` | 由 `PONG` 上报，不写死 |
 
-固件测试模式开关（`code_stm32f1_mouse/USER/main.h`，五选一、互斥）：
+固件档位开关（`code_stm32f1_mouse/USER/main.h`）—— **v2.4 起只有两档**，且不再有派生宏：
 
-| 宏 | 电机 | 自走策略 | 用途 | 上位机入口 |
-|---|---|---|---|---|
-| `MOUSE_TEST_NO_MOTOR` | 禁用 | 无 | 静态标定 / 回传 | `monitor` / `calib` |
-| `MOUSE_TEST_MOTOR_LAB` | 可控 | 无 | 电机远程控制（双护栏） | `python -m host.motor_test` |
-| `MOUSE_LESSON_LAB` | 可控 | 无 | 课程调参实验（剖面引擎） | `python -m host.lesson` |
-| `MOUSE_DATA_LOG` | 可控 | **有** | **数据收集（远程发车）** | `python -m host.datalog` |
-| 都不定义 | 可控 | 有 | 比赛固件（自走 / 菜单 / 课程） | — |
+| 宏 | 自走策略 | 用途 | 上位机入口 |
+|---|---|---|---|
+| `#define MOUSE_REMOTE 1` | 有（`MAZE RUN [BLIND\|RACE]` 触发） | **远程档**：监视 / 参数 / 手动运动 / 远程发车收车 / `MCU RESET` | `monitor` · `calib` · `motor_test` · `cli maze` · `datalog` |
+| 都不定义 | 有（按键启动） | **按键比赛档**（与比赛固件逐字节一致） | — |
 
-> 前三个测试档都定义 `MOUSE_TEST_MODE`（关掉"自己跑起来"的口子）；`MOUSE_DATA_LOG` **不定义**它——它就是要跑自走策略。
+> 历史：v2.3 及以前有五档（`MOUSE_TEST_NO_MOTOR` / `MOUSE_TEST_MOTOR_LAB` /
+> `MOUSE_LESSON_LAB` / `MOUSE_DATA_LOG` / 比赛），并用 `MOUSE_TEST_MODE`、
+> `MOUSE_ESTOP_RECOVERABLE` 两个**派生宏**描述「实验档共同行为」。档位压成两档后
+> 无共同行为可派生，两个派生宏一并删除；`contract_test` 的 `[S8]` 用**白名单**断言
+> 钉死这件事（旧宏名在整个固件树出现次数必须为 0）。

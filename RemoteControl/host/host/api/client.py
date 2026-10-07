@@ -47,7 +47,6 @@ from .conn import ConnAPI
 from .errors import Result, ReentrancyError, clamp_timeout
 from .events import Event, EventBus, EventMsg
 from .lab import MotorLabAPI
-from .lesson import LessonAPI
 from .maze import MazeAPI
 from .move import MoveAPI
 from .params import ParamsAPI
@@ -125,7 +124,6 @@ class MouseClient:
         self.move = MoveAPI(self)
         self.maze = MazeAPI(self)
         self.lab = MotorLabAPI(self)
-        self.lesson = LessonAPI(self)
         self.timesync = TimeSyncAPI(self)
         self.analyze = AnalyzeAPI(self)
         self.session = SessionAPI(self)
@@ -219,18 +217,9 @@ class MouseClient:
             self.bus.emit(Event.TEXT, {"line": line, "direction": "<-", "kind": head})
             return
 
-        if head == "LESSON":
-            # 课程调参实验(仅 MOUSE_LESSON_LAB 固件)的异步行:
-            #   "LESSON DONE <exp> <REASON> <ms> <dL> <dR> <vpkL> <vpkR> <angle>"
-            #   "LESSON STATUS <exp> <running>"
-            self.bus.emit(
-                Event.LESSON,
-                {
-                    "kind": (line.split()[1] if len(line.split()) > 1 else ""),
-                    "fields": line.split()[2:],
-                    "raw": line,
-                },
-            )
+        # v2.4: 这里原来还有一个 `head == "LESSON"` 分支(课程调参实验的异步行
+        # `LESSON DONE ...` / `LESSON STATUS ...`)。课程层整体删除后固件不再发这些行,
+        # 分支与 `Event.LESSON` 一并移除。
         self.bus.emit(Event.TEXT, {"line": line, "direction": "<-", "kind": head})
 
     # ============================================================ 连接

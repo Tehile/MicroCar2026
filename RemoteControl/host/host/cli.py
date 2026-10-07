@@ -114,36 +114,6 @@ def cmd_motor_test(args) -> None:
     raise SystemExit(motor_test.main(argv))
 
 
-def cmd_lesson(args) -> None:
-    """课程调参实验(参数设定 + 启停 + 自动算参) —— 串到 host.lesson。"""
-    from host import lesson
-
-    argv = []
-    if args.target:
-        argv.append(args.target)
-    if args.exp is not None:
-        argv.append(str(args.exp))
-    argv += ["--baud", str(args.baud), "--hz", str(args.hz)]
-    for pair in args.set or []:
-        argv += ["--set", pair]
-    for name, attr in (("v", "v"), ("dist", "dist"), ("ms", "ms"), ("angle", "angle"),
-                       ("t-acc", "t_acc"), ("t-cruise", "t_cruise"), ("t-dec", "t_dec")):
-        val = getattr(args, attr, None)
-        if val is not None:
-            argv += ["--" + name, str(val)]
-    if args.truth is not None:
-        argv += ["--truth", str(args.truth)]
-    if args.out:
-        argv += ["--out", args.out]
-    for flag in ("list", "theory", "params", "status", "stop", "start", "save", "apply",
-                 "json", "no_color"):
-        if getattr(args, flag.replace("-", "_"), False):
-            argv.append("--" + flag.replace("_", "-"))
-    if args.readback is False:
-        argv.append("--no-readback")
-    raise SystemExit(lesson.main(argv))
-
-
 def cmd_datalog(args) -> None:
     """数据收集台(远程发车 + 时间同步 + 完整采集) —— 串到 host.datalog。"""
     from host import datalog
@@ -476,6 +446,17 @@ def cmd_maze(args) -> None:
                     print(line)
             return
 
+        if action == "run":
+            # ⚠️ 会发车: 先过登记表的低电闸(registry._precheck_maze_run)。
+            goal = (getattr(args, "goal", None) or "blind").upper()
+            r = mc.maze.run(target=goal)
+            print(f"MAZE RUN {goal} -> {r.status}")
+            if not r.ok:
+                if r.status == "ERR_LOWBATT":
+                    print(f"  拒绝发车: {r.data.get('hint', '')}")
+                raise SystemExit(1)
+            return
+
         if action == "stop":
             # ⚠️ 会停车: 把电脑鼠带出迷宫 + 复位发车状态 + 解锁急停。
             r = mc.maze.stop()
@@ -603,11 +584,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--target")
     sp.add_argument("--json", action="store_true")
 
-    sp = sub.add_parser("maze", help="迷宫: 墙图 + 状态(从统一帧读取)(实验8)")
+    sp = sub.add_parser("maze", help="迷宫: 墙图 + 状态(从统一帧读取) + 发车/收车")
     sp.add_argument("action", nargs="?", default="map",
-                    choices=["map", "state", "spurt", "summary", "stop"],
+                    choices=["map", "state", "spurt", "summary", "run", "stop"],
                     help="map=拉墙图(默认) state=当前迷宫状态 spurt=比赛冲刺状态(只读) "
-                         "summary=汇总 stop=收车(会停车! 带出迷宫+复位发车状态+解锁急停)")
+                         "summary=汇总 run=远程发车(会动! 见 --goal) "
+                         "stop=收车(会停车! 带出迷宫+复位发车状态+解锁急停)")
+    sp.add_argument("--goal", choices=["blind", "race"], default="blind",
+                    help="run 的目标: blind=无记忆走迷宫(默认) race=正式比赛代码(先读图选档)")
     sp.add_argument("--out", help="map: 导出 map.json")
     sp.add_argument("--target")
     sp.add_argument("--json", action="store_true")
@@ -644,35 +628,6 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--estop", action="store_true", help="只发急停")
     sp.add_argument("--resume", action="store_true", help="只发 STOP(解急停)")
     sp.add_argument("--expect-safe", action="store_true")
-
-    sp = sub.add_parser("lesson", help="课程调参实验(参数设定 + 启停 + 自动算参)")
-    sp.add_argument("target", nargs="?", default=None, help="串口/TCP; 省略则自动选择")
-    sp.add_argument("exp", nargs="?", type=int, default=None, help="实验号 2/3/5/6")
-    sp.add_argument("--baud", type=int, default=115200)
-    sp.add_argument("--list", action="store_true", help="列出可驱动的实验")
-    sp.add_argument("--theory", action="store_true", help="打印里程/角度系数理论值")
-    sp.add_argument("--params", action="store_true", help="打印 14 个课程调参量")
-    sp.add_argument("--status", action="store_true", help="只打印状态")
-    sp.add_argument("--stop", action="store_true", help="结束当前实验(LESSON STOP)")
-    sp.add_argument("--start", action="store_true", help="只启动实验, 不等结果")
-    sp.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
-                    help="设定课程参数, 可重复")
-    sp.add_argument("--no-readback", dest="readback", action="store_false", default=True)
-    sp.add_argument("--save", action="store_true", help="设参/应用后落 Flash(page 116)")
-    sp.add_argument("--v", type=int, default=None, help="目标速度 cm/s")
-    sp.add_argument("--dist", type=int, default=None, help="目标里程 mm")
-    sp.add_argument("--ms", type=int, default=None, help="时间护栏 ms")
-    sp.add_argument("--angle", type=int, default=None, help="目标角度 度")
-    sp.add_argument("--t-acc", dest="t_acc", type=int, default=None, help="加速段 ms")
-    sp.add_argument("--t-cruise", dest="t_cruise", type=int, default=None, help="匀速段 ms")
-    sp.add_argument("--t-dec", dest="t_dec", type=int, default=None, help="减速段 ms")
-    sp.add_argument("--truth", type=float, default=None,
-                    help="实测真值: 实验三=实际距离(mm), 实验六=实际角度(度)")
-    sp.add_argument("--apply", action="store_true", help="把算出的修正系数写回设备")
-    sp.add_argument("--hz", type=float, default=5.0)
-    sp.add_argument("--out", help="把实验期间捕获的统一帧导出为 CSV")
-    sp.add_argument("--json", action="store_true")
-    sp.add_argument("--no-color", dest="no_color", action="store_true")
 
     sp = sub.add_parser("datalog", help="数据收集台(远程发车 + 时间同步 + 完整采集)")
     sp.add_argument("target", nargs="?", default=None, help="串口/TCP; 省略则自动选择")
@@ -729,7 +684,6 @@ _DISPATCH = {
     "maze": cmd_maze,
     "rescue": cmd_rescue,
     "motor-test": cmd_motor_test,
-    "lesson": cmd_lesson,
     "datalog": cmd_datalog,
     "estop": cmd_estop,
     "diagnose": cmd_diagnose,

@@ -9,92 +9,39 @@
 #include <string.h>
 
 /* ==========================================================================================
- *  测试模式开关 —— 五选一(最多定义一个; 五个都不定义 = 比赛固件)
+ *  档位开关 —— 二选一(不定义 = 按键比赛档)
  * ------------------------------------------------------------------------------------------
  *
- *  [1] MOUSE_TEST_NO_MOTOR —— 安全测试模式(数据回传 / 标定阶段)
- *      电机与运动策略被彻底停用, 电脑鼠在任何情况下都不可能自行启动:
- *        - MOTOR_PwmInit() 不启用 TIM4 PWM, 只把 PB6..PB9 配成推挽输出并保持低电平
- *        - MOTOR_LoopControl() 恒输出 0, 任何路径算出的 PWM 都到不了电机
- *        - SysTick 内的运动状态机(doTask*)与课程实验(LESSON_ISR)整体跳过
- *        - main() 跳过按键菜单与 STATE_MainLoop, 直接进入"链路 + 传感器"值守循环
- *      仍然保留: 陀螺 / 编码器 / 红外 / ADC 采集, 蓝牙遥测上行, 下行命令与远程标定服务。
+ *  MOUSE_REMOTE —— 远程档(上位机接管)
+ *      值守态(未发车): 统一帧遥测 + 参数读写(GET/SETQ/SET/SAVE/RESET) + 远程标定(CAL/TARE)
+ *                      + 手动运动 MOVE FWD/ROT/RUN(自带"时间 + 红外"双护栏) + 急停/解锁
+ *      发车态        : `MAZE RUN [BLIND|RACE]` —— 实验8(无记忆走迷宫) / 正式比赛入口序列
+ *      收车          : `MAZE STOP` / `ESTOP` / `MCU RESET`(复位前先停车)
+ *                      可反复"发车 → 收车 → 再发车", 不必断电。
  *
- *  [2] MOUSE_TEST_MOTOR_LAB —— 电机远程控制实验模式(轮子悬空时使用)
- *      电机**可控**, 但仍然没有任何"自己跑起来"的路径:
- *        - 菜单 / STATE_MainLoop / 课程实验 / 运动状态机(doTask*)全部不编进去,
- *          因此唯一能改变速度目标的地方就是下行命令;
- *        - 只有 `MOVE RUN <spL> <spR> [ms] [ir_mm]` 能让轮子转, 它自带**双护栏**:
- *              时间护栏: 到时(默认 2000 ms)无条件停
- *              红外护栏: 任一红外读数 < 阈值(默认 10 mm)立即停
- *          护栏在 1ms ISR 里判定, 不依赖上位机在线;
- *        - `ESTOP` 是锁存急停: 停车并锁死, 之后的 MOVE/CAL 一律回 ERR_ESTOP,
- *          必须显式 `STOP` 才解锁 —— 操作者始终握有最终控制权;
- *        - 运动过程中的全部观测量由**统一帧**(LINK_TYPE_UNIFIED)自时钟上行,
- *          约 217 Hz; 不需要上位机配合, 也没有"停车后回传日志"这一步
- *          (v2.0 删除了 SCOPE/DUMP 双流, 理由与替代方案见 HARDWARE/link.h)。
+ *      ⚠️ 本档**刻意不复现**两件只有操作者在现场才能完成的事:
+ *           1) 按键菜单 `MENU_Run()`;
+ *           2) 把鼻尖顶墙来选冲刺方向与速度档(`STATE_LoadMapAndSelectSpeed` /
+ *              `STATE_DetermineGoaheadNum` 里的两个 `while(1)`)。
+ *         远程场景前方没有近物, 那两个循环会**永久卡死**(真机实测 2026-10-05),
+ *         因此在本档整段跳过。代价: 本档**不产生冲刺选档量**(spurtmode / spurtSpd /
+ *         goaheadnum 保持初值), 真跑起来后与真比赛的冲刺行为不同 —— 这是远程化的
+ *         必然取舍, 不是缺陷。要恢复真冲刺行为, 必须回到按键比赛档。
  *
- *  [3] MOUSE_LESSON_LAB —— 课程调参实验模式(参数设定 + 实验启停 + 数据回传)
- *      面向课件实验三~七的"调参工作台"。与 [2] 一样电机可控且无自走策略, 另有:
- *        - 一套**可运行时改**的关键参数(电机 PID 六增益、红外/陀螺 P/D、
- *          目标速度/距离、传感器方案), 由上位机 SETQ 下发、GET 回读、SAVE 落盘;
- *        - 一套**实验引擎**(见 APP/lesson_lab.c): 上位机 `LESSON START <exp>` 启动,
- *          固件按实验剖面驱动电机并在结束时自动停车、回 `LESSON DONE`;
- *        - 课程参数存放在**独立的 Flash 页(page 116)**, 与生产标定参数(page 115)互不干扰;
- *        - 全部代码在 `#ifdef MOUSE_LESSON_LAB` 之下 —— **正式固件里一个字节都不占用**。
- *      这一档的存在就是"实验代码与最终版代码分开"这条要求的落点:
- *      要交比赛固件时, 什么都不定义即可, 实验层自动消失。
+ *  不定义 —— 按键比赛档
+ *      上电进按键菜单, 一切靠板上按键与物理摆放。
+ *      本档的编译产物与 v2.3.0 的比赛固件**逐字节一致**(改动前后各编一次比 .axf 即可验)。
+ *      **远程发车/收车命令在本档不编译**(回 ERR_VALUE) —— 避免"主机以为发车了, 但其实
+ *      没有任何东西会跑"这种撒谎式应答; 比赛规则也要求人在现场。
  *
- *  [4] MOUSE_DATA_LOG —— 数据收集档(无记忆走迷宫 + 运动控制, 远程发车)
- *      这一档**要跑自走策略**, 因此与 [1][2][3] 不同, 它**不定义 MOUSE_TEST_MODE**:
- *        - 菜单 / 运动状态机(doTask*) / 课程 ISR 全部保留编译;
- *        - 跳过按键菜单, 改为**等上位机发车**: 收到 `ARM`(武装计时 + 点亮 1Hz 基准灯)
- *          与 `MAZE RUN`(请固件开始跑) 后进入 LESSON_Blind8() 无记忆走迷宫;
- *        - 于是"运动控制(加减速/转向/遇障转向/不可避免时停车)"整套都在数据流之下,
- *          而遥测与命令由 SysTick 里的 LINK_Tick() 持续服务 —— 主循环卡在迷宫的
- *          while(1) 里也照样收数据、收命令, 这一点是数据完整性的前提。
- *      时间同步(ms 时基 / ARM / 1Hz 基准灯 / TIME 帧)本身**不依赖本档**,
- *      它在 link.c 里无条件编译, 生产固件同样可用; 本档只是把它与自走策略
- *      组合成"可远程发车、可完整采集"的采集平台。
+ *  ⚠️ 为什么远程档必须"急停可恢复": 若继承比赛档的急停语义, 急停 200ms 后进 sleepmode
+ *     ⇒ isr.c 跳过全部采样与 SAFETY_Monitor, 而 LINK_Tick() 在门外照发帧
+ *     ⇒ 表现为"链路活着、数据冻结"(upMs 在涨, 采样量逐字节不变), 现场极难察觉。
+ *     所以远程档: `STOP` 能解急停锁存, 且急停后不休眠。
  *
- *  [5] 全部注释掉 = 原比赛固件(自走 / 按键菜单 / 课程实验)。
- *
- *  改回安全模式或比赛固件: 只改下面这一段宏定义即可, 其余代码一行都不用动。
+ *  改档: 只改下面这一行宏定义即可, 其余代码一行都不用动。
  * ========================================================================================== */
-/* #define MOUSE_TEST_NO_MOTOR 1 */ /* [1] 安全测试模式(电机禁用) */
-/* #define MOUSE_TEST_MOTOR_LAB 1 */ /* [2] 电机远程控制实验(电机可控 + 双护栏) */
-/* #define MOUSE_LESSON_LAB 1 */ /* [3] 课程调参实验(参数设定 + 实验启停 + 算参) */
-#define MOUSE_DATA_LOG 1 /* [4] 数据收集档(无记忆迷宫 + 运动控制 + 远程发车) */
-
-#if (defined(MOUSE_TEST_NO_MOTOR) ? 1 : 0) + (defined(MOUSE_TEST_MOTOR_LAB) ? 1 : 0) + \
-        (defined(MOUSE_LESSON_LAB) ? 1 : 0) + (defined(MOUSE_DATA_LOG) ? 1 : 0) > 1
-#error "MOUSE_TEST_NO_MOTOR / MOUSE_TEST_MOTOR_LAB / MOUSE_LESSON_LAB / MOUSE_DATA_LOG 四者互斥, 最多定义一个"
-#endif
-
-/* 三个*测试*模式的共同行为: 不跑菜单/状态机(自走)/课程示例, 只做采集 + 通信 + 显式命令。
- * 注意 MOUSE_DATA_LOG **不在其中** —— 数据收集档就是要跑自走策略。 */
-#if defined(MOUSE_TEST_NO_MOTOR) || defined(MOUSE_TEST_MOTOR_LAB) || defined(MOUSE_LESSON_LAB)
-#define MOUSE_TEST_MODE 1
-#endif
-
-/* 急停可恢复(实验/采集档的共同行为):
- *   1) 远程 `STOP` 能解除急停锁存(link.c 的 STOP 分支);
- *   2) 急停后**不进入 sleepmode**(isr.c 的 emergMon 分支)。
- * 只有比赛固件保留原语义: 急停即休眠、不接受远程复位(比赛规则要求, 且此时人在现场)。
- *
- * ⚠️ 为什么 MOUSE_DATA_LOG 也必须在这里(2026-10-04 真机实测的缺陷):
- *   它刻意不定义 MOUSE_TEST_MODE(因为要跑 doTask 系列 与 LESSON_ISR 自走), 但上面两条
- *   当时写成裸 `#ifdef MOUSE_TEST_MODE`, 于是数据收集档**继承了比赛固件的急停语义**:
- *     · `STOP` 回 OK 但 linkEStop 不复位 -> 之后的 MOVE/CAL 全部 ERR_ESTOP,
- *       只能断电重启, 一次急停就废掉一整场采集;
- *     · 急停 200ms 后 sleepmode=1 -> isr.c 跳过全部采样与 SAFETY_Monitor,
- *       而 LINK_Tick() 在门外照发帧 => **链路活着、数据冻结**(upMs 在涨,
- *       cpu/adcBatt/battMv 逐字节不变), 上位机看不出异常。
- *   教训: "会动的实验档"应该用**具名派生宏**表达, 不要在各处重复裸 #ifdef ——
- *   漏一处不会有编译错误, 只有在真机上才表现为行为不一致。 */
-#if defined(MOUSE_TEST_MODE) || defined(MOUSE_DATA_LOG)
-#define MOUSE_ESTOP_RECOVERABLE 1
-#endif
+#define MOUSE_REMOTE 1 /* 远程档(上位机接管: 监视 + 参数 + 手动运动 + 远程发车) */
 
 /* 基础层 */
 #include "sys.h"
@@ -147,7 +94,6 @@ typedef unsigned int uint;     // Unsigned 32 bit quantity  无符号32位整型
 #include "menu.h"
 #include "calibrate.h"
 #include "lesson.h"
-#include "lesson_lab.h" /* 课程调参实验服务(仅 MOUSE_LESSON_LAB 下参与编译)
 
 /* 位带操作(GPIO 单引脚读写基础设施)
  * 供各硬件模块头定义引脚别名: irs.h(INFR_*) / led.h(LED1-8,BUTTON1) / core.h(RIGHTDIR,LEFTDIR)
@@ -162,16 +108,16 @@ typedef unsigned int uint;     // Unsigned 32 bit quantity  无符号32位整型
 #define GPIOC_ODR_Addr (GPIOC_BASE + 12) // 0x4001100C
 #define GPIOD_ODR_Addr (GPIOD_BASE + 12) // 0x4001140C
 #define GPIOE_ODR_Addr (GPIOE_BASE + 12) // 0x4001180C
-#define GPIOF_ODR_Addr (GPIOF_BASE + 12) // 0x40011A0C
-#define GPIOG_ODR_Addr (GPIOG_BASE + 12) // 0x40011E0C
+#define GPIOF_ODR_Addr (GPIOF_BASE + 12) // 0x40011C0C
+#define GPIOG_ODR_Addr (GPIOG_BASE + 12) // 0x4001200C
 
 #define GPIOA_IDR_Addr (GPIOA_BASE + 8) // 0x40010808
 #define GPIOB_IDR_Addr (GPIOB_BASE + 8) // 0x40010C08
 #define GPIOC_IDR_Addr (GPIOC_BASE + 8) // 0x40011008
 #define GPIOD_IDR_Addr (GPIOD_BASE + 8) // 0x40011408
 #define GPIOE_IDR_Addr (GPIOE_BASE + 8) // 0x40011808
-#define GPIOF_IDR_Addr (GPIOF_BASE + 8) // 0x40011A08
-#define GPIOG_IDR_Addr (GPIOG_BASE + 8) // 0x40011E08
+#define GPIOF_IDR_Addr (GPIOF_BASE + 8) // 0x40011C08
+#define GPIOG_IDR_Addr (GPIOG_BASE + 8) // 0x40012008
 
 // IO口操作,只对单一的IO口!
 // 确保n的值小于16!

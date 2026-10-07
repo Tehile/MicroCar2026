@@ -30,30 +30,6 @@ PARAM_IDS_BASE: Dict[str, int] = {
     "WALLDIST": 7,
 }
 
-# ---- 课程调参量(仅 MOUSE_LESSON_LAB 固件有; 与固件 APP/lesson_lab.h 的 LL_P_* 一致) ----
-# 刻意从 8 开始: 与生产参数的 1..7 不重叠, 两套命名空间互不干扰。
-# 固件侧同样把它们存在**独立的 Flash 页(page100)**, 与生产标定页(99)分开。
-LESSON_PARAM_IDS: Dict[str, int] = {
-    # 电机速度环 PID(实验四/七)—— 固件里是运行时变量, 默认值 = motor.h 红线常量
-    "KPL": 8,
-    "KIL": 9,
-    "KDL": 10,
-    "KPR": 11,
-    "KIR": 12,
-    "KDR": 13,
-    # 姿态纠偏增益(实验七)
-    "IRPL": 14,
-    "IRPR": 15,
-    "GYROP": 16,
-    "GYROD": 17,
-    # 实验目标(实验三/六/七)
-    "SPEEDNEED": 18,
-    "ALLDIS": 19,
-    # 传感器方案与贴墙方向(实验七)
-    "SENSORMODE": 20,
-    "WALLMODE": 21,
-}
-
 # ---- 红外测量与阈值(22-32) / 电源监控(33-38) ----
 # 与固件 HARDWARE/link.h 的 LINK_P_IR* / LINK_P_BATT* **必须逐项一致**。
 # 这一段属**生产命名空间**(任何固件都有), 因此落在固件的 linkParam[] 里,
@@ -81,26 +57,25 @@ PARAM_IDS_MEAS: Dict[str, int] = {
     "BATTMINPCT": 38,  # 档位下限
 }
 
-#: 名字 <-> id 的唯一来源(生产 + 课程 + 测量)。
-PARAM_IDS: Dict[str, int] = {**PARAM_IDS_BASE, **LESSON_PARAM_IDS, **PARAM_IDS_MEAS}
+#: 名字 <-> id 的唯一来源。**v2.4 起只剩生产命名空间** —— 课程调参量(8..21)已随
+#: 课程层一并删除, 因此这里的条目数与固件 `LINK_P_NUM`(=24)严格相等。
+PARAM_IDS: Dict[str, int] = {**PARAM_IDS_BASE, **PARAM_IDS_MEAS}
 PARAM_NAMES: Dict[int, str] = {v: k for k, v in PARAM_IDS.items()}
 
-#: 生产命名空间(任何固件都有, 会落 Flash page99) —— **`GET ALL` 只回这些**。
-#: 用途: `ParamsAPI.get_all()` 据此决定"要等哪些 id 到齐", 否则会为课程段白等超时。
-PRODUCTION_PARAM_IDS: Dict[str, int] = {**PARAM_IDS_BASE, **PARAM_IDS_MEAS}
+#: 生产命名空间(任何固件都有, 落 Flash page115) —— **`GET ALL` 只回这些**。
+#: v2.4 起与 PARAM_IDS 完全重合; 保留这个别名是因为 `ParamsAPI.get_all()` 用它
+#: 决定"要等哪些 id 到齐", 以及契约测试拿它做 ARG 表一致性断言。
+PRODUCTION_PARAM_IDS: Dict[str, int] = dict(PARAM_IDS)
 
 #: 分组标签, 仅供 CLI / 文档分节显示
 PARAM_GROUPS: Dict[str, str] = {
     **{n: "生产标定" for n in PARAM_IDS_BASE},
-    **{n: "课程调参" for n in LESSON_PARAM_IDS},
     **{n: "红外测量" for n in PARAM_IDS_MEAS if n.startswith("IR")},
     **{n: "电源监控" for n in PARAM_IDS_MEAS if n.startswith("BATT")},
 }
 
 #: 枚举型参数的取值含义(0/1 类开关、模式号)。CLI/文档用来把数字翻成人话。
 PARAM_ENUM: Dict[str, Dict[int, str]] = {
-    "SENSORMODE": {0: "全关", 1: "仅红外", 2: "仅陀螺", 3: "红外+陀螺"},
-    "WALLMODE": {1: "靠左", 2: "靠右"},
     "IRKALSW": {0: "关闭卡尔曼", 1: "启用卡尔曼"},
     "IRFRONTMODE": {0: "均值(现状)", 1: "取小(更保守)", 2: "加权"},
 }
@@ -114,21 +89,6 @@ PARAM_META: Dict[str, Tuple[str, int, str]] = {
     "GYRORATIO": ("LSB/度", 0, "陀螺角速率积分系数"),
     "ENCANGLE": ("pulse/度", 0, "左右轮脉冲差 -> 角度; 固件为 u16, 取整"),
     "WALLDIST": ("mm", 0, "车中心到墙距离; 固件为 u8, 取整"),
-    # ---- 课程调参量 ----
-    "KPL": ("PWM/(pulse/ms)", 3, "左轮速度环 Kp; 默认 = 红线值 10.75"),
-    "KIL": ("PWM/(pulse/ms)", 3, "左轮速度环 Ki; 默认 0.55"),
-    "KDL": ("PWM/(pulse/ms)", 3, "左轮速度环 Kd; 默认 0.55"),
-    "KPR": ("PWM/(pulse/ms)", 3, "右轮速度环 Kp; 默认 = 红线值 10.20"),
-    "KIR": ("PWM/(pulse/ms)", 3, "右轮速度环 Ki; 默认 0.5"),
-    "KDR": ("PWM/(pulse/ms)", 3, "右轮速度环 Kd; 默认 0.5"),
-    "IRPL": ("(cm/s)/mm", 4, "红外纠偏 左轮 P; 默认 0.1"),
-    "IRPR": ("(cm/s)/mm", 4, "红外纠偏 右轮 P; 默认 0.1"),
-    "GYROP": ("(cm/s)/度", 3, "陀螺纠偏 P; 默认 2.5"),
-    "GYROD": ("(cm/s)/度", 3, "陀螺纠偏 D; 默认 1.6"),
-    "SPEEDNEED": ("cm/s", 0, "实验目标速度; 默认 50"),
-    "ALLDIS": ("mm", 0, "实验目标距离; 默认 1000"),
-    "SENSORMODE": ("0-3", 0, "传感器方案 0=全关 1=仅红外 2=仅陀螺 3=红外+陀螺"),
-    "WALLMODE": ("1|2", 0, "贴墙方向 1=靠左 2=靠右"),
     # ---- 红外测量与阈值(22-32) ----
     "IRTHRWALL": ("mm", 0, "侧墙判定阈值; 唯一真源 = wallSns.wallThresh, 默认 160"),
     "IRTHR45": ("mm", 0, "45 度侧墙阈值(斜线矫正用); 默认 150"),

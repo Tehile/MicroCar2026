@@ -9,6 +9,121 @@
 
 ---
 
+## [2.4.0] — 2026-10-07
+
+### 主题：编译档位 **5 → 2**，删除整层课程调参实验
+
+用户决定的最终形态只有两档 —— 它们是**同一个固件开关的两面**，不再有中间态：
+
+| 档 | 开关 | 能力 |
+|---|---|---|
+| **远程档** | `#define MOUSE_REMOTE 1` | 上位机全程接管: 监视 + 参数读写 + 手动运动 + 远程发车/收车 + `MCU RESET` |
+| **按键比赛档** | **什么都不定义** | 与 v2.3.0 的比赛固件**逐字节一致**（已实测证明） |
+
+被删掉的四档是 `MOUSE_TEST_NO_MOTOR`（电机电器禁用）、`MOUSE_TEST_MOTOR_LAB`
+（可控无自走）、`MOUSE_LESSON_LAB`（课程剖面引擎）、`MOUSE_DATA_LOG`（可控含自走）。
+远程档 = 原 [2] 的远程运动 + [3] 的参数读写 + [4] 的远程发车与监视，**合并为一档**。
+
+### 为什么可以删（两条读代码核实的事实）
+
+1. **参数读写本来就不受档位门控。** `GET` / `GET ALL` / `SETQ` / `SET` / `SAVE` /
+   `RESET` 的命令体全在 `#ifdef` 之外 ⇒ "不发车时允许参数读写"**早就成立**，
+   删课程层不会损失任何生产参数能力（page 115 的 24 项读写在任何档、任何时刻可用）。
+2. **课程 14 个参数在自走路径里是死参数。** 逐个追消费者后确认，删掉它们
+   不影响 `LESSON_Blind8()` 的任何判据。
+
+### 破坏性接口变更
+
+- `registry.API_VERSION` 2.3.0 → **2.4.0**；固件 `LINK_FW_VER` 215 → **216**；
+  **`LINK_PROTO_VER` 4 → 5**（命令集扩展 `MAZE RUN [BLIND|RACE]`）。
+  设备指纹: `PONG 5 216 7 256 <rst>`。
+- **命令集 21 条**（原 24 条）：删除 `lesson.start` / `lesson.stop` / `lesson.status`。
+- **`maze.run` 增加可选目标词**：`MAZE RUN [BLIND|RACE]`，默认 `BLIND` 时**省略**
+  （于是 v2.3 时代的调用点与日志格式原样保留）。
+
+  | 目标 | 固件路径 |
+  |---|---|
+  | `BLIND`（默认） | `LESSON_Blind8()` 无记忆走迷宫（= 实验八剖面） |
+  | `RACE` | 先 `STATE_LoadMapAndSelectSpeed()` + `STATE_DetermineGoaheadNum()`（读 Flash 地图选档/定冲刺），再进主循环 |
+
+  `MazeAPI.run(target="BLIND")`、CLI `maze run --goal {blind,race}`。
+- **参数表 38 → 24 项**：`commands.PARAM_IDS` 只剩生产命名空间
+  （`PARAM_IDS_BASE` 1–7 + `PARAM_IDS_MEAS` 22–38），与固件 `LINK_P_NUM = 24` **严格相等**。
+  同时删除 `LESSON_PARAM_IDS`、`PARAM_META`/`PARAM_GROUPS`/`PARAM_ENUM` 里的课程条目。
+  ⚠️ **`LINK_P_NUM` 数值绝不可动** —— `link_CalibLoad()` 判 `cnt != LINK_P_NUM` 即认定整页
+  无效，改条目数会让现有标定（page 115）静默作废。本版**保持 24 不变**，只是不再有第二张表。
+- `Event.LESSON` 事件类型删除（固件不再发 `LESSON DONE/STATUS` 行）。
+
+### 删除
+
+| 位置 | 对象 |
+|---|---|
+| 固件 | `APP/lesson_lab.c` / `lesson_lab.h`（整层 751 行）、`USER/Mouse.uvprojx` 里的引用 |
+| 固件 | `MOUSE_TEST_MODE` / `MOUSE_ESTOP_RECOVERABLE` 两个**派生宏**（只剩一个档位宏后无可派生） |
+| 固件 | `link.c` 里 `LINK_LESSON_MAGIC` / `LINK_LESSON_ACT_*` / `FLASH_ADDR_LESSONPARAM` / `LESSON` 命令组 |
+| 上位机 | `host/host/api/lesson.py`（865 行）、`host/host/lesson.py`（568 行）、`host/lesson_smoke.py`、`host/real_lesson_sampling.py` |
+| 上位机 | `MouseClient.lesson` 子 API 挂载、CLI `lesson` 子命令 |
+| 模拟器 | `_drive_lesson` / `_finish_lesson` / `_start_lesson` 与 `LESSON` 命令分支、参数 8–21 |
+
+Flash **page 116**（原课程参数页）随之释放为备用；page 115（生产标定页）**未动**。
+
+### 新增：标定算参独立成模块（能力保留）
+
+课程层删了，但**算参工具与"课程"无关**（用户明确要求保留），因此从 `api/lesson.py`
+原样迁到新的 `host/host/api/calc.py`，仍是**纯函数**、仍从 `host.api` 导出：
+
+`theory_track_ratio` / `theory_gyro_ratio` / `solve_ratio` / `error_ratio` /
+`StepMetrics`+`step_metrics` / `StraightMetrics`+`straightness_metrics` /
+`IrErrorStats`+`ir_error_stats` / `pick_best_position`（另新增导出 `error_ratio`、
+`IrErrorStats`）。它们可脱离硬件单测，也可喂 `mc.analyze` / 离线回放。
+
+### 不改（本轮用户裁定）
+
+- **冲刺不做**：远程档整段跳过"选档/定冲刺"（`STATE_LoadMapAndSelectSpeed()` /
+  `STATE_DetermineGoaheadNum()` 的阻断段在远程档被跳过 —— 它们各有一个
+  "等前方红外 < 20mm" 的 `while(1)`，远程场景前方无近物 ⇒ 永久卡死 ⇒ 每次
+  `MAZE RUN` 都 `ERR_BUSY`）。于是远程档**不产生冲刺量**；`RACE` 目标下仍走这两步
+  （因为要读地图），所以 `RACE` 需要设备里有一张**有效 Flash 地图**。
+- **`MOUSE_REMOTE_LOCK` 不做**（设计方案 §6.1 的候选）：接受"不再有电机绝不可能动的固件"，
+  理由是远程档护栏已足够（`MOVE RUN` 时间+红外双护栏、`ESTOP` 锁存、值守态默认不动）。
+- **`STATE_MazeSearch()` 内置 `SPURT` 空转**（§6.4）仍不动：属原有比赛代码行为。
+
+### 验证
+
+- **两档编译均 0 Error**（Warning 58，与 v2.3.0 同）：远程档 ROM **75996 B**
+  / RAM 16848 B；按键比赛档 ROM **91120 B** / RAM 16840 B。
+- **比赛档零改动的严格证明**：改动前后各编一次"全不定义"固件，ROM/Code/RO/RO-data/RW
+  五段**完全相同**，`.hex` **逐字节一致**。
+  （`.axf` 会变 —— 它含 DWARF 行号表，注释/行号变动必然导致差异，不能作判据。）
+  唯一会同时进入两档的差异是 `LINK_PROTO_VER`/`LINK_FW_VER` 两个版本常量；
+  临时把它们还原为 4/215 后 `.hex` 恢复一致，证明**其余改动对比赛档机器码完全中性**。
+- **八套件 515 项全绿**（原九套件 562 项；`lesson_smoke` 已删）。`contract_test` **212 项**：
+  `[S5]` 拆成 **`[S8]` 档位宏唯一性与课程层清除**（白名单断言：`main.h` 里
+  `#define MOUSE_*` 只允许 `MOUSE_REMOTE`；6 个旧宏名在整个固件树出现次数为 0；
+  `lesson_lab.c/h` 不存在且无人 include；`link.c` 无 `"LESSON` 字面量/`LESSONLAB_` 符号；
+  `PARAM_IDS` 项数 == `LINK_P_NUM`；**8 个算参纯函数仍在位且数值正确**）
+  与 **`[S9]` 固件静态不变量**（Flash 布局 / 注释提前闭合 / 帧 sink）；
+  新增 **`[S2b]` `MAZE RUN` 目标词拼装**（默认必须省略 `BLIND`）。
+- `pull_smoke` 的设备指纹断言改为**从 `link.h` 现读** `LINK_PROTO_VER`/`LINK_FW_VER`，
+  不再写死 —— 写死的断言久了会变成"改测试让它过"。
+
+### 真机待验证（V1–V7）
+
+| # | 步骤 | 判据 |
+|---|---|---|
+| V1 | 烧远程档，`PING` | `PONG 5 216 7 256 <rst>` |
+| V2 | 值守态 `GET ALL` / `SETQ` / `SAVE` | 24 项读回正确；`SAVE` 后重上电仍生效（page 115 未被破坏） |
+| V3 | 值守态 `MOVE RUN ...` | 双护栏生效；`ESTOP` 锁存；`STOP` 解锁 |
+| V4 | `MAZE RUN`（不带参数） | 与 v2.3.0 的实验八行为一致（`mazeTask` 进 SEARCH） |
+| V5 | `MAZE RUN RACE` | 比赛入口序列跑完；`goal`/`spurtFlag`/`goaheadnum`/`spurtMode` 在帧里被真实赋值 |
+| V6 | 运动中 `MAZE STOP` / `MCU RESET` | 都能收车；`PING` 报 `rst=SW`；随后可**再次发车** |
+| V7 | 烧比赛档，按键启动 | 与现状完全一致（hex 比对已证明，可免测） |
+
+⚠️ **V5 前置**：`RACE` 会读 Flash 地图，且复位只复位固件不复位物理位置 ⇒
+发车前**必须**把车人工摆回起点角。
+
+---
+
 ## [2.3.0] — 2026-10-07
 
 ### 新增：前墙拆成"近端 / 远端"两档（只读监视）

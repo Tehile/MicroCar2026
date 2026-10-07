@@ -1,7 +1,7 @@
 # 上位机可编程接口参考（API Reference）
 
-> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-07 18:50:54
-> API 版本：`2.3.0`　|　包：`host`
+> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-07 20:40:52
+> API 版本：`2.4.0`　|　包：`host`
 
 > 这是「让上位机做一件事 = 调一个方法」的完整接口清单。
 > 每个方法都会等待设备应答（默认 `wait=True` 且带超时），脚本能写直线代码。
@@ -39,12 +39,9 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `calib.cal` | `CAL GYRO START` | `item, act` | 1.0 | 标定项控制: item ∈ {GYRO,WALLDIST,IRDATA,GYRORATIO,ENCANGLE}。act ∈ {START,ABORT}, 或 IRDATA 的相位号 0..3。**采完才回 ACK**(ACK 即「这一步完成, 请摆下一个位置」); 最坏可能数秒, 故超时 10s 且不重发。结果值用 `GET` 回读 |
 | `estop` | `ESTOP` | `—` | 1.0 | 急停(置 freemode, 并锁存直到 STOP) |
 | `estop.clear` | `STOP` | `—` | 1.0 | `stop` 的同义入口(语义即「停车 + 解急停锁存」), 保留以便书写直观 |
-| `lesson.start` | `LESSON START 3 50 200 800 200` | `exp, a, b, c, d` | 1.0 | 启动课程实验并自带时间护栏。exp: 2=编码器测距 3=匀变速直行 5=陀螺标定 6=多传感器直行; 结束时固件上行 `LESSON DONE ...` |
-| `lesson.status` | `LESSON STATUS` | `—` | 1.0 | 回一行 `LESSON STATUS <exp> <running>` 异步状态 |
-| `lesson.stop` | `LESSON STOP` | `—` | 1.0 | 中止课程实验(停车并回 LESSON DONE ... STOP) |
 | `maze.dump` | `MAP DUMP` | `—` | 1.0 | 墙图整块回传(98B) |
-| `maze.run` | `MAZE RUN` | `—` | 1.0 | 远程发车跑无记忆走迷宫(**仅 MOUSE_DATA_LOG 档**; 其余固件回 ERR_VALUE)。 固件只置请求位, 真正的 while(1) 迷宫由主循环执行 —— 所以下达后命令通道与遥测都不会被阻塞。 ⚠️ 已在跑时回 `ERR_BUSY`, 急停锁存中回 `ERR_ESTOP`; 收车用 `maze.stop`(或 `STOP`), 之后才能再次发车 |
-| `maze.stop` | `MAZE STOP` | `—` | 1.0 | **把电脑鼠带出迷宫**: 停车 + 复位发车状态 + 解锁急停(**仅 MOUSE_DATA_LOG 档**; 其余固件回 ERR_VALUE)。 发车后固件主循环停在 LESSON_Blind8() 的 while(1) 里, 光靠 ESTOP/STOP 停不掉那个循环、发车状态无法复位 —— 本命令让主循环回到等待态, 于是**不必断电就能重新发车** |
+| `maze.run` | `MAZE RUN` | `target` | 1.0 | 远程发车(**仅远程档 MOUSE_REMOTE**; 比赛固件回 ERR_VALUE)。 target ∈ {BLIND, RACE}: BLIND=无记忆走迷宫(实验八剖面, 默认), RACE=正式比赛代码(先读图选档再发车)。 固件只置请求位, 真正的 while(1) 迷宫由主循环执行 —— 所以下达后命令通道与遥测都不会被阻塞。 ⚠️ 已在跑时回 `ERR_BUSY`, 急停锁存中回 `ERR_ESTOP`; 收车用 `maze.stop`(或 `system.reset`), 之后才能再次发车 |
+| `maze.stop` | `MAZE STOP` | `—` | 1.0 | **把电脑鼠带出迷宫**: 停车 + 复位发车状态 + 解锁急停(**仅远程档 MOUSE_REMOTE**; 比赛固件回 ERR_VALUE)。 发车后固件主循环停在 LESSON_Blind8() 的 while(1) 里, 光靠 ESTOP/STOP 停不掉那个循环、发车状态无法复位。 ⚠️ 主循环里有大量**非协作式阻塞等待**, 标志位常常轮不到 ⇒ 现场常见现象是回 OK 但 task 仍在 SEARCH; 真正可靠的收车是 `system.reset` |
 | `move.fwd` | `MOVE FWD 3000 40` | `pulses, speed` | 1.0 | 固定脉冲直线(开环) |
 | `move.rot` | `MOVE ROT 2000 100` | `pwm, ms` | 1.0 | 固定 PWM 定长原地转(开环) |
 | `move.run` | `MOVE RUN 40 40 100 10` | `sp_l, sp_r, ms, ir_mm` | 1.0 | 受双护栏约束的远程运动: 左右轮速度(cm/s) + 最长运行时间(默认2000ms) + 红外停车阈值(默认10mm, 负值=关闭)。停止后上行 `STOPPED <REASON> #n` |
@@ -55,8 +52,8 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `params.set` | `SET TRACKL 53.2` | `name, v` | 1.0 | 写十进制(精度低, 仅供手工调试) |
 | `params.setq` | `SETQ TRACKL 3486515` | `name, q` | 1.0 | 写精确 Q16.16 定点(推荐路径) |
 | `ping` | `PING` | `—` | 1.0 | 心跳; 回 `PONG <proto> <fw> <mazetype> <txbuf> <rst>`, rst ∈ {POR,SW,IWDG,PIN} 是**上次复位原因**(连上后第一条就该发它) |
-| `stop` | `STOP` | `—` | 1.0 | 正常停车 + **解急停锁存**(测试/采集档); 这是重新获得控制权的唯一入口 |
-| `system.reset` | `MCU RESET` | `—` | 1.0 | **整机软复位**(`Sys_Soft_Reset`, SYSRESETREQ): 程序从 main() 重跑, 用于把设备从**卡死**中救回来 —— 走迷宫的主循环里有大量非协作式阻塞等待(等编码器里程/传感器), 而 `STOP` 会让电机永不再转, 那些条件永远不成立, 于是程序卡在函数内部、连 `MAZE STOP` 的退出检查都轮不到(真机实测)。 ⚠️ 与 `params.reset` (发的是 `RESET`, 只擦参数不重启) **不是一回事**。 ACK 先回, 约 150ms 后才真正复位; 成功判据是**复位后 PING 报 `rst=SW`**。 仅 [1][2][3][4] 档支持(比赛固件回 ERR_VALUE), 且会打断任何进行中的运动 |
+| `stop` | `STOP` | `—` | 1.0 | 正常停车 + **解急停锁存**(远程档); 这是重新获得控制权的唯一入口 |
+| `system.reset` | `MCU RESET` | `—` | 1.0 | **整机软复位**(`Sys_Soft_Reset`, SYSRESETREQ): 程序从 main() 重跑, 用于把设备从**卡死**中救回来 —— 走迷宫的主循环里有大量非协作式阻塞等待(等编码器里程/传感器), 而 `STOP` 会让电机永不再转, 那些条件永远不成立, 于是程序卡在函数内部、连 `MAZE STOP` 的退出检查都轮不到(真机实测)。 ⚠️ 与 `params.reset` (发的是 `RESET`, 只擦参数不重启) **不是一回事**。 ACK 先回, 约 150ms 后才真正复位; 成功判据是**复位后 PING 报 `rst=SW`**。 仅**远程档**(MOUSE_REMOTE)支持, 比赛固件回 ERR_VALUE, 且会打断任何进行中的运动 |
 | `tare` | `TARE` | `—` | 1.0 | 陀螺角累加器与里程基准清零 |
 | `telem` | `TELEM` | `—` | 1.0 | **拉取一帧遥测**: 回一帧统一帧(53B) + `ACK <seq> OK <upMs>`(带时间锚)。v2.1 起遥测是**请求-响应**式的 —— 固件不再自时钟发送, 发多少帧完全由上位机决定。⚠️ 必须**一次只发一条**(严格停等): 固件每 1ms tick 只消费一行命令, 成串发必丢(实测回收率: 背靠背 2 条仅 50%)。上位机的 `api/stream.py` 已按停等实现，会自动调用它。不重发: 每次请求都必须真的产生一帧, 重发只会多要一帧。 |
 
@@ -78,20 +75,6 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `GYRORATIO` | 5 | LSB/度 | 0 | 陀螺角速率积分系数 |
 | `ENCANGLE` | 6 | pulse/度 | 0 | 左右轮脉冲差 -> 角度; 固件为 u16, 取整 |
 | `WALLDIST` | 7 | mm | 0 | 车中心到墙距离; 固件为 u8, 取整 |
-| `KPL` | 8 | PWM/(pulse/ms) | 3 | 左轮速度环 Kp; 默认 = 红线值 10.75 |
-| `KIL` | 9 | PWM/(pulse/ms) | 3 | 左轮速度环 Ki; 默认 0.55 |
-| `KDL` | 10 | PWM/(pulse/ms) | 3 | 左轮速度环 Kd; 默认 0.55 |
-| `KPR` | 11 | PWM/(pulse/ms) | 3 | 右轮速度环 Kp; 默认 = 红线值 10.20 |
-| `KIR` | 12 | PWM/(pulse/ms) | 3 | 右轮速度环 Ki; 默认 0.5 |
-| `KDR` | 13 | PWM/(pulse/ms) | 3 | 右轮速度环 Kd; 默认 0.5 |
-| `IRPL` | 14 | (cm/s)/mm | 4 | 红外纠偏 左轮 P; 默认 0.1 |
-| `IRPR` | 15 | (cm/s)/mm | 4 | 红外纠偏 右轮 P; 默认 0.1 |
-| `GYROP` | 16 | (cm/s)/度 | 3 | 陀螺纠偏 P; 默认 2.5 |
-| `GYROD` | 17 | (cm/s)/度 | 3 | 陀螺纠偏 D; 默认 1.6 |
-| `SPEEDNEED` | 18 | cm/s | 0 | 实验目标速度; 默认 50 |
-| `ALLDIS` | 19 | mm | 0 | 实验目标距离; 默认 1000 |
-| `SENSORMODE` | 20 | 0-3 | 0 | 传感器方案 0=全关 1=仅红外 2=仅陀螺 3=红外+陀螺 |
-| `WALLMODE` | 21 | 1|2 | 0 | 贴墙方向 1=靠左 2=靠右 |
 | `IRTHRWALL` | 22 | mm | 0 | 侧墙判定阈值; 唯一真源 = wallSns.wallThresh, 默认 160 |
 | `IRTHR45` | 23 | mm | 0 | 45 度侧墙阈值(斜线矫正用); 默认 150 |
 | `IRTHRCRIT` | 24 | mm | 0 | 临界墙阈值(斜线转弯起始点, 低于此值禁动); 默认 60 |
@@ -122,7 +105,6 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `calib` | 标定消息 {kind, fields, raw}(v2.0 起 CAL 为请求-响应, 一般经 ACK 返回) |
 | `move` | 运动结束消息 {kind, fields, raw}(v2.0 起经 EVENT 派发 `STOPPED`) |
 | `estop` | 急停触发 {kind, fields, raw} |
-| `lesson` | 课程实验异步消息 {kind, fields, raw} (kind=DONE/STATUS) |
 | `event` | 统一上行事件 {event, reason, seq, text, raw} (STOPPED / ESTOP TRIP) |
 | `timesync` | 时间同步消息 {kind, fields, raw} (kind=anchor/armed/lost) |
 | `map` | 墙图 {mazetype, posX, posY, ...} |
@@ -206,7 +188,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `set_many` | `(self, mapping: 'Dict[str, float]', readback: 'bool' = True, derive_speed: 'bool' = False, timeout: 'float' = 3.0) -> 'List[Result]'` | 批量写。derive_speed=True 时对 TRACK* 自动派生对应的 SPEED*。 |
 | `set_raw` | `(self, name: 'str', q: 'int', readback: 'bool' = True, timeout: 'float' = 3.0) -> 'Result'` | 写 Q16.16 原始值(不做换算)。 |
 | `snapshot` | `(self) -> 'Dict[str, float]'` | **本地缓存**的参数值(由历次 GET / GET ALL 的回话填充)。 |
-| `table` | `(self) -> 'str'` | 人可读的参数表(CLI 用)。按"生产标定 / 课程调参"分节 —— |
+| `table` | `(self) -> 'str'` | 人可读的参数表(CLI 用)。按"生产标定 / 红外测量 / 电源监控"分节。 |
 
 ### 7.4 `mc.telemetry` — 遥测
 
@@ -300,23 +282,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `run` | `(self, sp_l: 'int' = 40, sp_r: 'int' = 40, ms: 'int' = 2000, ir_mm: 'int' = 10, sample_hz: 'float' = 50.0, on_sample: 'Optional[Dict[str, Any]]' = None) -> 'RunResult'` | 跑一次带双护栏的远程运动, 并采下运动期间的统一帧样本。 |
 | `status` | `(self) -> 'Dict[str, Any]'` | 一眼看清"现在能不能动"。 |
 
-### 7.9 `mc.lesson` — 课程调参实验
-
-课程调参实验: 参数设定 + 实验启停 + 由回传数据自动算参。
-
-| 方法 | 签名 | 说明 |
-|---|---|---|
-| `explain` | `(self, res: 'LessonResult') -> 'str'` | 把一次课程实验整理成人能读的结论。 |
-| `param_meta` | `(self) -> 'Dict[str, Any]'` |  |
-| `params` | `(self, refresh: 'bool' = True) -> 'Dict[str, float]'` | 当前课程调参量的值(只返回课程命名空间里的那 14 项)。 |
-| `read_param` | `(self, name: 'str', timeout: 'float' = 3.0) -> 'Optional[float]'` | 读单个课程参数(强刷)。 |
-| `run` | `(self, exp: 'int', capture: 'bool' = True, sample_hz: 'float' = 5.0, budget_extra: 'float' = 8.0, on_progress: 'Optional[Callable[[float, Optional[int], Optional[int]], None]]' = None, on_sample: 'Optional[Callable[[Dict[str, Any]], None]]' = None, on_timeout_plan: 'Optional[Callable[[int], None]]' = None, **kwargs: 'Any') -> 'LessonResult'` | 跑一次课程实验: 启动 -> 等 DONE -> 由**本地捕获的统一帧序列**自动算参。 |
-| `set_params` | `(self, mapping: 'Dict[str, float]', readback: 'bool' = True, save: 'bool' = False, timeout: 'float' = 3.0) -> 'List[Result]'` | 批量下发课程参数(默认逐项回读校验; save=True 时再落 Flash)。 |
-| `start` | `(self, exp: 'int', a: 'int' = 0, b: 'int' = 0, c: 'int' = 0, d: 'int' = 0, timeout: 'float' = 3.0) -> 'Result'` | 只启动实验, 不等结果(要阻塞跑完整流程请用 `run()`)。 |
-| `status` | `(self) -> 'Dict[str, Any]'` | 课程实验视角的状态。 |
-| `stop` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 中止当前实验(固件会停车并回一行 `LESSON DONE ... STOP`)。 |
-
-### 7.10 `mc.timesync` — 时间同步 / 数据收集
+### 7.9 `mc.timesync` — 时间同步 / 数据收集
 
 时间同步 —— 把"设备毫秒时基"映射到"本机单调时钟", 从而算出**每个接收帧的准确时间**。
 
@@ -329,7 +295,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `explain` | `(self) -> 'str'` |  |
 | `frame_time` | `(self, rec: 'dict') -> 'Optional[float]'` | 把一帧记录换算成**本机单调秒**(即"这一帧真正发生的时刻")。 |
 | `frame_time_up` | `(self, rec: 'dict') -> 'Optional[int]'` | 把一帧记录换算成**设备毫秒时基**上的发送时刻。 |
-| `maze_run` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 远程发车跑无记忆走迷宫(仅 `MOUSE_DATA_LOG` 档; 其余固件回 ERR_VALUE)。 |
+| `maze_run` | `(self, target: 'str' = 'BLIND', timeout: 'float' = 3.0) -> 'Result'` | 远程发车(仅**远程档** `MOUSE_REMOTE`; 比赛固件回 ERR_VALUE)。 |
 | `needs_anchor` | `(self) -> 'bool'` | 是否需要(重新)索要时间锚。 |
 | `note_frame` | `(self, rec: 'dict') -> 'Optional[int]'` | 由读取线程喂入一帧统一帧记录(内部用, 也可手工喂)。 |
 | `offset_s` | `(self) -> 'Optional[float]'` | 当前偏移估计(秒)。`t_pc_mono = offset + up_ms/1000`。 |
@@ -338,7 +304,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `snapshot` | `(self) -> 'TimeSyncState'` |  |
 | `wait_sync` | `(self, samples: 'int' = 2, timeout: 'float' = 5.0) -> 'bool'` | 等至少 `samples` 个可用帧到达(建立可用映射)。返回是否达到。 |
 
-### 7.11 `mc.maze` — 迷宫
+### 7.10 `mc.maze` — 迷宫
 
 迷宫: 墙图拉取/渲染 + **状态从统一帧读取**(实验8 无记忆走迷宫)。
 
@@ -356,7 +322,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `road` | `(self) -> 'int'` | 当前路口类型码(由三位墙原语逐帧分类)。 |
 | `road_debounced` | `(self, samples: 'int' = 2, gap_s: 'float' = 0.02) -> 'str'` | 连续 `samples` 次(每次间隔 `gap_s`)分类一致才认。复刻固件 20ms 去抖的意图。 |
 | `road_name` | `(self) -> 'str'` |  |
-| `run` | `(self, timeout: 'float' = 3.0)` | 远程发车跑无记忆走迷宫(仅 `MOUSE_DATA_LOG` 档; 其余固件回 ERR_VALUE)。 |
+| `run` | `(self, target: 'str' = 'BLIND', timeout: 'float' = 3.0)` | 远程发车(仅**远程档** `MOUSE_REMOTE`; 比赛固件回 ERR_VALUE)。 |
 | `spurt` | `(self) -> 'Optional[Dict[str, Any]]'` | 比赛冲刺状态(v2.3, 只读)。无数据时 None。 |
 | `state` | `(self) -> 'Optional[Dict[str, Any]]'` | 统一的迷宫视图(直接来自最新帧)。无数据时 None。 |
 | `stop` | `(self, timeout: 'float' = 3.0)` | 把电脑鼠**带出迷宫**, 复位发车状态并解锁急停（`MAZE STOP`）。 |
@@ -365,7 +331,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `to_text` | `(self, mark: 'Optional[Tuple[int, int]]' = None) -> 'str'` | 渲染成 ASCII 迷宫。 |
 | `visited` | `(self) -> 'Optional[List[List[bool]]]'` |  |
 
-### 7.12 `mc.analyze` — 离线分析
+### 7.11 `mc.analyze` — 离线分析
 
 离线分析: 阶跃指标、跟踪误差、按运动任务分段。
 
@@ -386,7 +352,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `task_name` | `(self, code: 'int') -> 'str'` |  |
 | `tracking` | `(self, t: 'Sequence[float]', y: 'Sequence[float]', ref: 'Sequence[float]', tail_frac: 'float' = 0.2) -> 'Dict[str, float]'` | 跟踪误差: rms / maxabs / tail_mean / tail_rms。 |
 
-### 7.13 `mc.session` — 会话记录
+### 7.12 `mc.session` — 会话记录
 
 会话记录: 目录、落盘开关、备注、标定报告、历史会话列表。
 
@@ -398,6 +364,22 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `note` | `(self, text: 'str') -> 'None'` | 写一条备注。会话未开启时先暂存, 开启后补写。 |
 | `open` | `(self, name: 'Optional[str]' = None) -> 'Optional[str]'` | 开启会话, 返回目录路径。已开启则直接返回当前路径。 |
 | `report` | `(self, lines: 'List[str]') -> 'Optional[str]'` | 追加写入 `calib/report.md`。 |
+
+### 7.13 `host.api.calc` — 标定算参(纯函数)
+
+不碰设备、不作副作用, 可脱离硬件单测; 也可用于离线回放。
+v2.4 从课程层迁出后独立成模块 —— **能力保留, 与课程无关**。
+
+| 函数 / 类型 | 作用 |
+|---|---|
+| `theory_track_ratio(...) -> float` | 里程系数理论值(由机械参数算, 默认 ≈62.24) |
+| `theory_gyro_ratio(...) -> float` | 陀螺角速率系数理论值(由 ADC 刻度算, 默认 ≈415.8) |
+| `solve_ratio(cur, reading, truth) -> float` | 线性标定: 新系数 = 旧系数 × 读数 / 真值 |
+| `error_ratio(reading, truth) -> float` | 相对误差(%), 用于「误差 ≤3%」验收线 |
+| `StepMetrics` / `step_metrics(t_ms, y, ...)` | 阶跃响应 σ% / ts / tp / rise |
+| `StraightMetrics` / `straightness_metrics(t, sl, sr, gy)` | 直行质量: 航向漂移 + 左右轮不对称 |
+| `IrErrorStats` / `ir_error_stats(measured, truth)` | 红外标定误差: max/mean/RMS/最差点 |
+| `pick_best_position(stats_by_pos)` | 在若干标定位置里选平均误差最小的 |
 
 ## 8. 命令行工具
 
@@ -417,10 +399,9 @@ python -m host.monitor [目标]      # 实时数据仪表盘(标定/回传阶段
 | `calib` | 跑一项标定 |
 | `save` | 把参数表写入 Flash(page 115) |
 | `params` | 参数读写族(与 registry 的 params.* 逐条对齐) |
-| `maze` | 迷宫: 墙图 + 状态(从统一帧读取)(实验8) |
+| `maze` | 迷宫: 墙图 + 状态(从统一帧读取) + 发车/收车 |
 | `monitor` | 实时数据监视器(终端仪表盘) |
 | `motor-test` | 电机远程控制实验(运动期间采样统一帧) |
-| `lesson` | 课程调参实验(参数设定 + 启停 + 自动算参) |
 | `datalog` | 数据收集台(远程发车 + 时间同步 + 完整采集) |
 | `estop` | 一键急停 / --resume 解锁 |
 | `diagnose` | 诊断单个串口 |

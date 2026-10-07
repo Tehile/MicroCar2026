@@ -72,8 +72,8 @@ class ParamsAPI:
         """回读全部参数。refresh=True 时先发 `GET ALL`。
 
         **只等生产命名空间**(1-7 + 22-38 = 24 项): 固件 `GET ALL` 的循环上界是
-        `LINK_P_NUM`, 课程调参 8-21 在独立表里、不参与 `GET ALL`。
-        若这里按 `PARAM_IDS`(全 39 项)等待, 每次调用都会白等满超时。
+        `LINK_P_NUM`。v2.4 起课程命名空间已删除, 于是 `PRODUCTION_PARAM_IDS`
+        与 `PARAM_IDS`**完全重合**(都是 24 项), 等待集合不再有歧义。
         """
         if refresh:
             r = self._mc.send_cmd("params.get_all", timeout=timeout)
@@ -195,9 +195,10 @@ class ParamsAPI:
     # ------------------------------------------------------------ 展示
 
     def table(self) -> str:
-        """人可读的参数表(CLI 用)。按"生产标定 / 课程调参"分节 ——
-        前者任何固件都有, 后者只有 `MOUSE_LESSON_LAB` 固件才有, 分开显示便于一眼看出
-        "当前板子上跑的是哪一版"。"""
+        """人可读的参数表(CLI 用)。按"生产标定 / 红外测量 / 电源监控"分节。
+
+        v2.4: 原先的"课程调参"一节(14 项, 只有 `MOUSE_LESSON_LAB` 固件才有)随课程层
+        一并删除 —— 现在**任何固件都是同一张 24 项表**。"""
         cur = self.snapshot()
         lines: List[str] = []
         last: Optional[str] = None

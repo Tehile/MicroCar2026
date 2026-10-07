@@ -40,32 +40,21 @@
 /*---------------------------------------  D E F I N I T I O N  ---------------------------------------*/
 
 /* ---- 协议版本 ---- */
-#define LINK_PROTO_VER 4 /* v2.3: **统一帧载荷加长**(45 -> 49 B, 帧 53 -> 57 B) —— 线格式变了, 故协议号进一位。
-                          *        加长的是 4 个纯**只读监视**字节: 前墙双档 / 冲刺档位与标志 /
-                          *        冲刺前行格数 / 90°路径动作计数。命令集与命令文本一字未动。 */
-#define LINK_FW_VER 215  /* 2.15 —— v2.3.0: 前墙拆"近端/远端"两档 + 比赛状态量回传。
-                          *        固件侧只在**链路层**做两件事: ① 组帧时由 `wallSns.front` +
-                          *        两组前墙阈值**派生**出 frontNear/frontFar(恒等式
-                          *        near|far == front, 故 5 个既有决策消费点一字未改);
-                          *        ② 把比赛的冲刺选档量(spurtmode/taskSt/…)只读镜像进帧。
-                          *        另把 `APP/state.c` 的 `spurtmode` 由 static 改为全局
-                          *        (**只加可见性, 逻辑一字未改**) —— 它是文件静态量, 否则链路层读不到。
-                          *        214 = v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。
-                          *        真机事故 2026-10-05: 首版只置倒计时未停车, 现场
-                          *        出现"复位后电机继续转、且对红外障碍物不再响应",
-                          *        操作者被迫强行断电。现在先走 `link_StopMotion()`
-                          *        (freemode=1 ⇒ PWM 恒 0), 让 150ms 倒计时在静态下
-                          *        度过。另: 复位只复位**固件**, 不复位**物理位置** ——
-                          *        复位后须人工把车放回起点角再发车。
-                          *        213 = v2.2.0(首版 MCU RESET)。
-                          *        走迷宫的主循环有 30 余处**非协作式阻塞等待**在等物理进度,
-                          *        而 `STOP` 会让电机永不再转 ⇒ 那些条件永远不成立 ⇒
-                          *        程序卡在函数内部、连退出检查都轮不到 ⇒ 只能断电。
-                          *        `MCU RESET` 给出不必断电的出口(复位后回等待循环,
-                          *        PING 报 rst=SW 可验证)。仅 MOUSE_ESTOP_RECOVERABLE
-                          *        (=[1][2][3][4]) 编译; **比赛固件[5] ROM 逐字节不变**。
-                          *        212 = v2.1.1 第 2 次迭代(解阻塞 main() 的发车前死等)。
-                          *        **线格式未变**(帧结构/CRC 照旧), 故 PROTO_VER 仍是 3。 */
+#define LINK_PROTO_VER 5 /* v2.4: **命令集扩展** —— `MAZE RUN` 增加可选目标词 BLIND|RACE。
+                          *        线格式(帧结构/CRC/字段)一字未变, 但"同一串命令文本在
+                          *        新旧固件上含义不同", 故协议号进一位, 让上位机能用
+                          *        `device.proto >= 5` 判断"该固件是否支持 RACE 目标"。
+                          *        (v2.3 是帧长变化: 45 -> 49 B。)
+                          *        v2.1 是命令集变化(STREAM ON/OFF -> TELEM)。 */
+#define LINK_FW_VER 216  /* 2.16 —— v2.4.0: 档位开关由五档压成两档(见 USER/main.h)。
+                          *        · 远程档 `MOUSE_REMOTE`: 合并原 [2] 的远程运动、[3] 的
+                          *          参数读写、[4] 的远程发车与监视; 去掉课程实验层
+                          *          (APP/lesson_lab.c 整层删除, 含 page116 与 LESSON 命令)。
+                          *        · 不定义 = 按键比赛档: **编译产物与 v2.3.0 逐字节一致**。
+                          *        另: `LINK_P_NUM` 仍为 24(生产表未动), 但课程表(8-21)
+                          *        连同 page116 一并消失 ⇒ 旧固件存的课程参数不再被读取。
+                          *        215 = v2.3.0: 前墙拆"近端/远端"两档 + 比赛状态量回传。
+                          *        214 = v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。 */
 
 /* ---- 帧同步头与开销 ----
  * 布局: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(LEN) | CRC16(2,LE)
@@ -195,7 +184,7 @@
 #define LINK_FLAG_EMERG 0x04    /* 急停生效(本次上电以来触发过一次, 由 emergMon.active 镜像) */
 #define LINK_FLAG_SCOPING 0x08  /* [v2.0 恒 0] 示波器采集中 */
 #define LINK_FLAG_DUMPING 0x10  /* [v2.0 恒 0] dump 传输中 */
-#define LINK_FLAG_MOTOR_OFF 0x20 /* 固件处于安全测试模式(MOUSE_TEST_NO_MOTOR): 电机物理禁用 */
+#define LINK_FLAG_MOTOR_OFF 0x20 /* [保留恒 0] 曾用于"安全测试模式(电机禁用)"; v2.4 取消该档后无发送方 */
 #define LINK_FLAG_ESTOP_LOCK 0x40 /* 急停**锁存**中: 新的 MOVE/CAL 会被拒(ERR_ESTOP), 须 STOP 解锁 */
 #define LINK_FLAG_EVQ 0x80        /* v2.0(替代 RUNLOG): 有事件行因 TX 空间不足被丢弃 → 事件流不完整 */
 
@@ -212,43 +201,31 @@
 #define LINK_EV_NEED_SPACE 64u
 
 /* ---- Flash 标定参数页 ----
- * 页规划（与 flash.h 同步, 2026-10-04 调整）:
+ * 页规划（与 flash.h 同步, 2026-10-04 调整; v2.4 起 page 116 转为备用）:
  *   page 0..100   程序区(101 KB, IROM1 上限 0x19400)
  *   page 101      运行数据计数
  *   page 102..114 运行数据录制区（擦除范围正好 13 页）
  *   page 115      本模块的生产标定页 ← 原为 page 99
- *   page 116      课程调参参数页     ← 原为 page 100
+ *   page 116      备用(原"课程调参参数页", 随课程实验层在 v2.4 一并删除)
  *   page 117      备用
  *   page 118..127 迷宫/路径/红外/陀螺零偏
  *
  * ⚠️ 为什么从 99/100 上移到 115/116:
  *   运行数据区的擦除范围是 `saveNum/100+1 = 13 页`, 即 **page 89..101**。
  *   原先取 page 99/100 时, 两个标定页都落在该范围内 —— 一次 FLASH_EraseRunData()
- *   就会把生产标定与课程参数一起擦掉。上移后录制区为 102..114, 不再相交。
+ *   就会把生产标定一起擦掉。上移后录制区为 102..114, 不再相交。
  *   **后续若再改运行数据区或 saveNum, 必须重新核对本页是否落在擦除范围内。** */
 #define FLASH_ADDR_SYSCALIB 0x0801CC00   /* page 115 */
 #define LINK_CALIB_MAGIC 0x4D435331 /* 'MCS1' */
 #define LINK_CALIB_VER 1
 #define LINK_CALIB_PAYLOAD_OFF 16   /* 头 12B + 4B 对齐预留 */
 
-/* ---- 课程调参参数页(仅 MOUSE_LESSON_LAB) ----
- * 生产标定参数在 page 115, 课程参数**另起 page 116**。分开的理由:
- *   1) "实验代码与最终版代码分开"这条要求落到存储上就是"参数分页"——
- *      交比赛固件前清掉实验参数, 不会碰到生产标定值;
- *   2) 课程参数较多且会频繁试验(每次调参都在翻页), 不应与生产值共享一个擦除单元。 */
-#define FLASH_ADDR_LESSONPARAM 0x0801D000 /* page 116 */
-#define LINK_LESSON_MAGIC 0x4D434C32      /* 'MCL2' */
-
-/* ---- LESSON 命令的动作词 ---- */
-#define LINK_LESSON_ACT_START "START"
-#define LINK_LESSON_ACT_STOP "STOP"
-#define LINK_LESSON_ACT_STATUS "STATUS"
-
 /* ---- 标定参数 id ----
  * 分段约定(与上位机 protocol/commands.py 的 PARAM_IDS 必须逐项一致):
- *   1-7   生产标定     任何固件都有, 落 Flash page115
- *   8-21  课程调参     仅 MOUSE_LESSON_LAB, 落独立 page116
- *   22-38 红外测量+电源 任何固件都有, 落 Flash page115 (本文件下方)
+ *   1-7   生产标定     落 Flash page115
+ *   22-38 红外测量+电源 落 Flash page115 (本文件下方)
+ * ⚠️ v2.4: 原"8-21 课程调参(独立 page116)"整段删除 —— 课程实验层已移除,
+ *   生产表条目数 `LINK_P_NUM` 保持 24 不变(因此 page115 的旧数据仍有效)。
  */
 #define LINK_P_TRACKL 1   /* sysCfg.trackRatioL   里程脉冲/mm */
 #define LINK_P_TRACKR 2   /* sysCfg.trackRatioR */
@@ -279,7 +256,7 @@
 #define LINK_P_BATTMAXPCT 37 /* powerCfg.battMaxPct 档位上限         */
 #define LINK_P_BATTMINPCT 38 /* powerCfg.battMinPct 档位下限         */
 
-#define LINK_P_NUM 24 /* 生产表条目数 = 1-7 + 22-38 (课程 8-21 在独立表) */
+#define LINK_P_NUM 24 /* 生产表条目数 = 1-7 + 22-38 (v2.4 起不再有课程表) */
 
 /* 参数值域钳制(link_ParamApplyOne 用): 防止写进离谱值把判定打穿 */
 #define LINK_IR_THR_MAX 1000u /* 红外阈值上限 mm(>表长即等价关闭) */
@@ -329,7 +306,7 @@
  * 让电机永不再转 ⇒ 那些条件永远不成立 ⇒ 主循环卡在函数内部, `LESSON_Blind8()`
  * 顶部的退出检查轮不到。表现是"命令照回 OK, 但车再也不响应, 只能断电"。
  * 本命令给出一个**不必断电**的出口(真机实测 2026-10-05)。
- * 仅 `MOUSE_ESTOP_RECOVERABLE`(=[1][2][3][4]) 编译; 比赛固件[5]不含此命令。 */
+ * 仅远程档(MOUSE_REMOTE)编译; 按键比赛档不含此命令 —— 比赛要求人在现场。 */
 #define LINK_MCU_RESET_DELAY_MS 150 /* 先发 ACK, 延时这么多 ms 后再复位
                                      * (远小于上位机 2.5s 命令超时, 又留足蓝牙转发时间) */
 
@@ -363,12 +340,22 @@ u8 LINK_MazeRequested(void);  /* 是否已收到 MAZE RUN 请求 */
 void LINK_MazeStarted(void);  /* 由 main() 在真正进入迷宫前调用: 消费请求位 + 置"已在跑" */
 void LINK_MazeFinished(void); /* 由 main() 在退出迷宫后调用: 复位发车状态, 以允许再次发车 */
 
-#ifdef MOUSE_DATA_LOG
+#ifdef MOUSE_REMOTE
+/* ---- 远程发车目标(`MAZE RUN [BLIND|RACE]`) ----
+ * 只有远程档编译这两条命令分支。**不带动作词时 = BLIND**, 因此 v2.3.0 的上位机
+ * 不做任何修改也照常工作(它发 `MAZE RUN`, 固件按 BLIND 处理)。
+ *   BLIND —— 实验8: 直接用内存里的地图做无记忆走迷宫;
+ *   RACE  —— 正式比赛入口序列: 每次发车前重载 Flash 地图/起终点/目标方向, 再探索。
+ *            (冲刺选档的两个 while(1) 在远程档被跳过, 见 APP/state.c。) */
+#define LINK_MAZE_BLIND 0
+#define LINK_MAZE_RACE 1
+u8 LINK_MazeTarget(void); /* 取本次发车目标(在 LINK_MazeStarted() 之后有效) */
+
 /* 是否有"退出迷宫"请求(LESSON_Blind8 的 while(1) 用; 见 APP/lesson.c)。
- * 只有 `MAZE STOP` 与 `ESTOP` 会置位。**比赛固件不编译本声明与对应检查**,
+ * 只有 `MAZE STOP` 与 `ESTOP` 会置位。**按键比赛档不编译本声明与对应检查**,
  * 于是 LESSON_Blind8 的机器码与原来完全一致。 */
 u8 LINK_MazeAbortRequested(void);
-#endif
+#endif /* MOUSE_REMOTE */
 
 /* printf 出口: usart.c 的 fputc() 调用它, 使 printf 与遥测共用 TX 环缓冲。
  * 返回 1=已入队, 0=环满已丢弃(不阻塞)。 见 link.c 中的详细说明。 */

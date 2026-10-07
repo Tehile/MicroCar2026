@@ -419,11 +419,6 @@
               <FileType>1</FileType>
               <FilePath>..\APP\lesson.c</FilePath>
             </File>
-            <File>
-              <FileName>lesson_lab.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\APP\lesson_lab.c</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>

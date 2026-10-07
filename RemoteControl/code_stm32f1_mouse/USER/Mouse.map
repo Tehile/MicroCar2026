@@ -27,10 +27,11 @@ Section Cross References
     main.o(i.main) refers to calibrate.o(i.CALIB_InitIr) for CALIB_InitIr
     main.o(i.main) refers to state.o(i.STATE_LoadMapAndSelectSpeed) for STATE_LoadMapAndSelectSpeed
     main.o(i.main) refers to state.o(i.STATE_DetermineGoaheadNum) for STATE_DetermineGoaheadNum
-    main.o(i.main) refers to motion.o(i.MOTION_SetAngle) for MOTION_SetAngle
     main.o(i.main) refers to delay.o(i.DELAY_Ms) for DELAY_Ms
     main.o(i.main) refers to link.o(i.LINK_MazeRequested) for LINK_MazeRequested
     main.o(i.main) refers to link.o(i.LINK_MazeStarted) for LINK_MazeStarted
+    main.o(i.main) refers to link.o(i.LINK_MazeTarget) for LINK_MazeTarget
+    main.o(i.main) refers to motion.o(i.MOTION_SetAngle) for MOTION_SetAngle
     main.o(i.main) refers to lesson.o(i.LESSON_Blind8) for LESSON_Blind8
     main.o(i.main) refers to link.o(i.LINK_MazeFinished) for LINK_MazeFinished
     main.o(i.main) refers to core.o(.bss) for speedSt
@@ -653,6 +654,7 @@ Section Cross References
     link.o(i.LINK_MazeFinished) refers to link.o(.data) for linkMazeRun
     link.o(i.LINK_MazeRequested) refers to link.o(.data) for linkMazeReq
     link.o(i.LINK_MazeStarted) refers to link.o(.data) for linkMazeReq
+    link.o(i.LINK_MazeTarget) refers to link.o(.data) for linkMazeTarget
     link.o(i.LINK_PutChar) refers to link.o(.data) for linkTxHead
     link.o(i.LINK_PutChar) refers to link.o(.bss) for linkTxBuf
     link.o(i.LINK_Tick) refers to sys.o(i.Sys_Soft_Reset) for Sys_Soft_Reset
@@ -1566,9 +1568,6 @@ Removing Unused input sections from the image.
     Removing lesson.o(i.LESSON_Pid3), (324 bytes).
     Removing lesson.o(i.LESSON_Turn7), (76 bytes).
     Removing lesson.o(.conststring), (71 bytes).
-    Removing lesson_lab.o(.rev16_text), (4 bytes).
-    Removing lesson_lab.o(.revsh_text), (4 bytes).
-    Removing lesson_lab.o(.rrx_text), (6 bytes).
     Removing delay.o(.rev16_text), (4 bytes).
     Removing delay.o(.revsh_text), (4 bytes).
     Removing delay.o(.rrx_text), (6 bytes).
@@ -1670,7 +1669,7 @@ Removing Unused input sections from the image.
     Removing explore.o(.rrx_text), (6 bytes).
     Removing dfixul.o(.text), (48 bytes).
 
-143 unused section(s) (total 17591 bytes) removed from the image.
+140 unused section(s) (total 17577 bytes) removed from the image.
 
 ==============================================================================
 
@@ -1684,33 +1683,33 @@ Image Symbol Table
     ../clib/microlib/division.c              0x00000000   Number         0  uldiv.o ABSOLUTE
     ../clib/microlib/division.c              0x00000000   Number         0  uidiv.o ABSOLUTE
     ../clib/microlib/errno.c                 0x00000000   Number         0  errno.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry9b.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry7b.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry9a.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry5.o ABSOLUTE
     ../clib/microlib/init/entry.s            0x00000000   Number         0  entry11a.o ABSOLUTE
     ../clib/microlib/init/entry.s            0x00000000   Number         0  entry.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry11b.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry10a.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry2.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry8b.o ABSOLUTE
-    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry8a.o ABSOLUTE
     ../clib/microlib/init/entry.s            0x00000000   Number         0  entry10b.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry8a.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry8b.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry9a.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry2.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry7b.o ABSOLUTE
     ../clib/microlib/init/entry.s            0x00000000   Number         0  entry7a.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry9b.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry5.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry10a.o ABSOLUTE
+    ../clib/microlib/init/entry.s            0x00000000   Number         0  entry11b.o ABSOLUTE
     ../clib/microlib/longlong.c              0x00000000   Number         0  llsshr.o ABSOLUTE
     ../clib/microlib/longlong.c              0x00000000   Number         0  llushr.o ABSOLUTE
     ../clib/microlib/longlong.c              0x00000000   Number         0  llshl.o ABSOLUTE
+    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf5.o ABSOLUTE
+    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printfa.o ABSOLUTE
     ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf8.o ABSOLUTE
     ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf7.o ABSOLUTE
     ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf6.o ABSOLUTE
-    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf5.o ABSOLUTE
     ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf4.o ABSOLUTE
     ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf2.o ABSOLUTE
-    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf1.o ABSOLUTE
-    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf0.o ABSOLUTE
-    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printfb.o ABSOLUTE
     ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf3.o ABSOLUTE
-    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printfa.o ABSOLUTE
+    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printfb.o ABSOLUTE
+    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf0.o ABSOLUTE
+    ../clib/microlib/printf/printf.c         0x00000000   Number         0  printf1.o ABSOLUTE
     ../clib/microlib/printf/stubs.s          0x00000000   Number         0  stubs.o ABSOLUTE
     ../clib/microlib/string/strcmp.c         0x00000000   Number         0  strcmp.o ABSOLUTE
     ../clib/microlib/string/strlen.c         0x00000000   Number         0  strlen.o ABSOLUTE
@@ -1718,23 +1717,23 @@ Image Symbol Table
     ../clib/microlib/stubs.s                 0x00000000   Number         0  iusefp.o ABSOLUTE
     ../clib/microlib/stubs.s                 0x00000000   Number         0  useno.o ABSOLUTE
     ../fplib/microlib/f2d.c                  0x00000000   Number         0  f2d.o ABSOLUTE
-    ../fplib/microlib/fpadd.c                0x00000000   Number         0  dadd.o ABSOLUTE
     ../fplib/microlib/fpadd.c                0x00000000   Number         0  fadd.o ABSOLUTE
+    ../fplib/microlib/fpadd.c                0x00000000   Number         0  dadd.o ABSOLUTE
     ../fplib/microlib/fpdiv.c                0x00000000   Number         0  ddiv.o ABSOLUTE
     ../fplib/microlib/fpdiv.c                0x00000000   Number         0  fdiv.o ABSOLUTE
-    ../fplib/microlib/fpepilogue.c           0x00000000   Number         0  fepilogue.o ABSOLUTE
     ../fplib/microlib/fpepilogue.c           0x00000000   Number         0  depilogue.o ABSOLUTE
+    ../fplib/microlib/fpepilogue.c           0x00000000   Number         0  fepilogue.o ABSOLUTE
+    ../fplib/microlib/fpfix.c                0x00000000   Number         0  dfixul.o ABSOLUTE
+    ../fplib/microlib/fpfix.c                0x00000000   Number         0  dfixui.o ABSOLUTE
+    ../fplib/microlib/fpfix.c                0x00000000   Number         0  ffixui.o ABSOLUTE
     ../fplib/microlib/fpfix.c                0x00000000   Number         0  ffixi.o ABSOLUTE
     ../fplib/microlib/fpfix.c                0x00000000   Number         0  dfixi.o ABSOLUTE
-    ../fplib/microlib/fpfix.c                0x00000000   Number         0  dfixui.o ABSOLUTE
-    ../fplib/microlib/fpfix.c                0x00000000   Number         0  dfixul.o ABSOLUTE
-    ../fplib/microlib/fpfix.c                0x00000000   Number         0  ffixui.o ABSOLUTE
     ../fplib/microlib/fpflt.c                0x00000000   Number         0  fflti.o ABSOLUTE
     ../fplib/microlib/fpflt.c                0x00000000   Number         0  ffltui.o ABSOLUTE
     ../fplib/microlib/fpflt.c                0x00000000   Number         0  dflti.o ABSOLUTE
     ../fplib/microlib/fpflt.c                0x00000000   Number         0  dfltui.o ABSOLUTE
-    ../fplib/microlib/fpmul.c                0x00000000   Number         0  dmul.o ABSOLUTE
     ../fplib/microlib/fpmul.c                0x00000000   Number         0  fmul.o ABSOLUTE
+    ../fplib/microlib/fpmul.c                0x00000000   Number         0  dmul.o ABSOLUTE
     ../fplib/microlib/fpscalb.c              0x00000000   Number         0  dscalb.o ABSOLUTE
     ../mathlib/dunder.c                      0x00000000   Number         0  dunder.o ABSOLUTE
     ../mathlib/exp.c                         0x00000000   Number         0  exp.o ABSOLUTE
@@ -1746,7 +1745,6 @@ Image Symbol Table
     ../mathlib/qnan.c                        0x00000000   Number         0  qnan.o ABSOLUTE
     ..\APP\calibrate.c                       0x00000000   Number         0  calibrate.o ABSOLUTE
     ..\APP\lesson.c                          0x00000000   Number         0  lesson.o ABSOLUTE
-    ..\APP\lesson_lab.c                      0x00000000   Number         0  lesson_lab.o ABSOLUTE
     ..\APP\menu.c                            0x00000000   Number         0  menu.o ABSOLUTE
     ..\APP\state.c                           0x00000000   Number         0  state.o ABSOLUTE
     ..\HARDWARE\adc.c                        0x00000000   Number         0  adc.o ABSOLUTE
@@ -1773,7 +1771,6 @@ Image Symbol Table
     ..\STRATEGY\path.c                       0x00000000   Number         0  path.o ABSOLUTE
     ..\\APP\\calibrate.c                     0x00000000   Number         0  calibrate.o ABSOLUTE
     ..\\APP\\lesson.c                        0x00000000   Number         0  lesson.o ABSOLUTE
-    ..\\APP\\lesson_lab.c                    0x00000000   Number         0  lesson_lab.o ABSOLUTE
     ..\\APP\\menu.c                          0x00000000   Number         0  menu.o ABSOLUTE
     ..\\APP\\state.c                         0x00000000   Number         0  state.o ABSOLUTE
     ..\\HARDWARE\\adc.c                      0x00000000   Number         0  adc.o ABSOLUTE
@@ -1845,8 +1842,8 @@ Image Symbol Table
     .text                                    0x080007d4   Section        0  llshl.o(.text)
     .text                                    0x080007f2   Section        0  llushr.o(.text)
     .text                                    0x08000812   Section        0  llsshr.o(.text)
-    .text                                    0x08000836   Section        0  iusefp.o(.text)
     .text                                    0x08000836   Section        0  fepilogue.o(.text)
+    .text                                    0x08000836   Section        0  iusefp.o(.text)
     .text                                    0x080008a4   Section        0  depilogue.o(.text)
     .text                                    0x0800095e   Section        0  dscalb.o(.text)
     .text                                    0x0800098c   Section       36  init.o(.text)
@@ -1909,262 +1906,263 @@ Image Symbol Table
     i.LINK_MazeFinished                      0x08003814   Section        0  link.o(i.LINK_MazeFinished)
     i.LINK_MazeRequested                     0x08003820   Section        0  link.o(i.LINK_MazeRequested)
     i.LINK_MazeStarted                       0x0800382c   Section        0  link.o(i.LINK_MazeStarted)
-    i.LINK_Tick                              0x08003844   Section        0  link.o(i.LINK_Tick)
-    i.MAZE_BreakOrNot                        0x08003934   Section        0  maze.o(i.MAZE_BreakOrNot)
-    i.MAZE_CoorUpdate                        0x0800395c   Section        0  maze.o(i.MAZE_CoorUpdate)
-    i.MAZE_Init                              0x080039b0   Section        0  maze.o(i.MAZE_Init)
-    i.MAZE_NeighborCoor                      0x08003a10   Section        0  maze.o(i.MAZE_NeighborCoor)
-    MAZE_NeighborCoor                        0x08003a11   Thumb Code   154  maze.o(i.MAZE_NeighborCoor)
-    i.MAZE_VisitedDataGet                    0x08003ab0   Section        0  maze.o(i.MAZE_VisitedDataGet)
-    i.MAZE_WallCheck                         0x08003adc   Section        0  maze.o(i.MAZE_WallCheck)
-    i.MOTION_Acc                             0x08003d38   Section        0  motion.o(i.MOTION_Acc)
-    i.MOTION_After180Turn                    0x08003da0   Section        0  motion.o(i.MOTION_After180Turn)
-    i.MOTION_Before180Turn                   0x08003f50   Section        0  motion.o(i.MOTION_Before180Turn)
-    i.MOTION_Before90Turn                    0x08004028   Section        0  motion.o(i.MOTION_Before90Turn)
-    i.MOTION_GoStraight                      0x0800418c   Section        0  motion.o(i.MOTION_GoStraight)
-    i.MOTION_MouseGoahead                    0x080041b0   Section        0  motion.o(i.MOTION_MouseGoahead)
-    i.MOTION_MouseTurnBack                   0x08004258   Section        0  motion.o(i.MOTION_MouseTurnBack)
-    i.MOTION_MouseTurnBackSpecial            0x080042b4   Section        0  motion.o(i.MOTION_MouseTurnBackSpecial)
-    i.MOTION_MouseTurnLeft                   0x080042ec   Section        0  motion.o(i.MOTION_MouseTurnLeft)
-    i.MOTION_MouseTurnRight                  0x080043f8   Section        0  motion.o(i.MOTION_MouseTurnRight)
-    i.MOTION_PointTurnExec                   0x08004504   Section        0  motion.o(i.MOTION_PointTurnExec)
-    MOTION_PointTurnExec                     0x08004505   Thumb Code   100  motion.o(i.MOTION_PointTurnExec)
-    i.MOTION_PointTurnLeft                   0x08004580   Section        0  motion.o(i.MOTION_PointTurnLeft)
-    i.MOTION_PointTurnRight                  0x0800458a   Section        0  motion.o(i.MOTION_PointTurnRight)
-    i.MOTION_SetAngle                        0x08004594   Section        0  motion.o(i.MOTION_SetAngle)
-    i.MOTION_SetTrack                        0x080045bc   Section        0  motion.o(i.MOTION_SetTrack)
-    i.MOTION_Stop                            0x080045d0   Section        0  motion.o(i.MOTION_Stop)
-    i.MOTION_Straight90                      0x08004648   Section        0  motion.o(i.MOTION_Straight90)
-    i.MOTION_Straight90CalcSpeed             0x080046f0   Section        0  motion.o(i.MOTION_Straight90CalcSpeed)
-    MOTION_Straight90CalcSpeed               0x080046f1   Thumb Code   856  motion.o(i.MOTION_Straight90CalcSpeed)
-    i.MOTION_Straight90SetGainAndParam       0x08004a60   Section        0  motion.o(i.MOTION_Straight90SetGainAndParam)
-    MOTION_Straight90SetGainAndParam         0x08004a61   Thumb Code   344  motion.o(i.MOTION_Straight90SetGainAndParam)
-    i.MOTION_Turn                            0x08004bec   Section        0  motion.o(i.MOTION_Turn)
-    i.MOTION_TurnAround                      0x08004c94   Section        0  motion.o(i.MOTION_TurnAround)
-    i.MOTOR_EncLeftInit                      0x08004cf0   Section        0  motor.o(i.MOTOR_EncLeftInit)
-    i.MOTOR_EncRightInit                     0x08004dc0   Section        0  motor.o(i.MOTOR_EncRightInit)
-    i.MOTOR_EncSample                        0x08004e7c   Section        0  motor.o(i.MOTOR_EncSample)
-    i.MOTOR_LeftPwm                          0x08005014   Section        0  motor.o(i.MOTOR_LeftPwm)
-    i.MOTOR_LoopControl                      0x08005080   Section        0  motor.o(i.MOTOR_LoopControl)
-    i.MOTOR_PidCalcOut                       0x080051a4   Section        0  motor.o(i.MOTOR_PidCalcOut)
-    i.MOTOR_PidUpdateErr                     0x08005210   Section        0  motor.o(i.MOTOR_PidUpdateErr)
-    i.MOTOR_PwmInit                          0x08005244   Section        0  motor.o(i.MOTOR_PwmInit)
-    i.MOTOR_RightPwm                         0x0800535c   Section        0  motor.o(i.MOTOR_RightPwm)
-    i.MOUSE_Init                             0x080053c8   Section        0  main.o(i.MOUSE_Init)
-    i.MYRCC_DeInit                           0x080053dc   Section        0  sys.o(i.MYRCC_DeInit)
-    i.MY_NVIC_Init                           0x08005440   Section        0  sys.o(i.MY_NVIC_Init)
-    i.MY_NVIC_PriorityGroupConfig            0x080054dc   Section        0  sys.o(i.MY_NVIC_PriorityGroupConfig)
-    i.MY_NVIC_SetVectorTable                 0x08005504   Section        0  sys.o(i.MY_NVIC_SetVectorTable)
-    i.ODOM_Sample                            0x08005518   Section        0  odom.o(i.ODOM_Sample)
-    i.PATH_Fastway4Dir                       0x08005858   Section        0  path.o(i.PATH_Fastway4Dir)
-    i.SAFETY_Monitor                         0x08005de0   Section        0  safety.o(i.SAFETY_Monitor)
-    i.SEARCH_HasWall                         0x0800606c   Section        0  search.o(i.SEARCH_HasWall)
-    i.SEARCH_Init                            0x08006124   Section        0  search.o(i.SEARCH_Init)
-    i.SEARCH_NoWall                          0x08006150   Section        0  search.o(i.SEARCH_NoWall)
-    i.SEARCH_Search                          0x0800621c   Section        0  search.o(i.SEARCH_Search)
-    i.SPURT_Action90                         0x080062cc   Section        0  spurt.o(i.SPURT_Action90)
-    i.SPURT_ActionGenerate90                 0x08006548   Section        0  spurt.o(i.SPURT_ActionGenerate90)
-    i.SPURT_BeforeTurnL                      0x08006818   Section        0  spurt.o(i.SPURT_BeforeTurnL)
-    i.SPURT_BeforeTurnR                      0x08006850   Section        0  spurt.o(i.SPURT_BeforeTurnR)
-    i.SPURT_GainSet90                        0x08006888   Section        0  spurt.o(i.SPURT_GainSet90)
-    i.SPURT_Init                             0x080068f8   Section        0  spurt.o(i.SPURT_Init)
-    i.SPURT_ObjectGoTo                       0x0800694c   Section        0  spurt.o(i.SPURT_ObjectGoTo)
-    i.SPURT_TurnLeft                         0x08006ad8   Section        0  spurt.o(i.SPURT_TurnLeft)
-    i.SPURT_TurnRight                        0x08006b98   Section        0  spurt.o(i.SPURT_TurnRight)
-    i.STATE_DetermineGoaheadNum              0x08006c58   Section        0  state.o(i.STATE_DetermineGoaheadNum)
-    i.STATE_LoadMapAndSelectSpeed            0x08006c5c   Section        0  state.o(i.STATE_LoadMapAndSelectSpeed)
-    i.STATE_MazeSearch                       0x08006dbc   Section        0  state.o(i.STATE_MazeSearch)
-    i.STATE_ReturnSearch                     0x0800738c   Section        0  state.o(i.STATE_ReturnSearch)
-    i.SYS_ClockInit                          0x08007868   Section        0  sys.o(i.SYS_ClockInit)
-    i.SysTick_Handler                        0x080078f0   Section        0  isr.o(i.SysTick_Handler)
-    i.Sys_Soft_Reset                         0x08007a70   Section        0  sys.o(i.Sys_Soft_Reset)
-    i.TASK_Init                              0x08007a80   Section        0  main.o(i.TASK_Init)
-    TASK_Init                                0x08007a81   Thumb Code    18  main.o(i.TASK_Init)
-    i.USART1_IRQHandler                      0x08007a98   Section        0  usart.o(i.USART1_IRQHandler)
-    i.USART_Init                             0x08007b1c   Section        0  usart.o(i.USART_Init)
-    i.__ARM_fpclassify                       0x08007ba8   Section        0  fpclassify.o(i.__ARM_fpclassify)
-    i.__kernel_poly                          0x08007bd0   Section        0  poly.o(i.__kernel_poly)
-    i.__mathlib_dbl_divzero                  0x08007c7c   Section        0  dunder.o(i.__mathlib_dbl_divzero)
-    i.__mathlib_dbl_infnan                   0x08007c8c   Section        0  dunder.o(i.__mathlib_dbl_infnan)
-    i.__mathlib_dbl_invalid                  0x08007c92   Section        0  dunder.o(i.__mathlib_dbl_invalid)
-    i.__mathlib_dbl_overflow                 0x08007c9e   Section        0  dunder.o(i.__mathlib_dbl_overflow)
-    i.__mathlib_dbl_underflow                0x08007cac   Section        0  dunder.o(i.__mathlib_dbl_underflow)
-    i.__scatterload_copy                     0x08007cbc   Section       14  handlers.o(i.__scatterload_copy)
-    i.__scatterload_null                     0x08007cca   Section        2  handlers.o(i.__scatterload_null)
-    i.__scatterload_zeroinit                 0x08007ccc   Section       14  handlers.o(i.__scatterload_zeroinit)
-    i.__set_errno                            0x08007cdc   Section        0  errno.o(i.__set_errno)
-    i.abovezero                              0x08007ce8   Section        0  isr.o(i.abovezero)
-    abovezero                                0x08007ce9   Thumb Code    14  isr.o(i.abovezero)
-    i.adcAboveZero                           0x08007cf6   Section        0  irs.o(i.adcAboveZero)
-    adcAboveZero                             0x08007cf7   Thumb Code    14  irs.o(i.adcAboveZero)
-    i.doTaskAcc                              0x08007d04   Section        0  isr.o(i.doTaskAcc)
-    doTaskAcc                                0x08007d05   Thumb Code   254  isr.o(i.doTaskAcc)
-    i.doTaskBefore180Turn                    0x08007e28   Section        0  isr.o(i.doTaskBefore180Turn)
-    doTaskBefore180Turn                      0x08007e29   Thumb Code   586  isr.o(i.doTaskBefore180Turn)
-    i.doTaskBefore90Turn                     0x08008090   Section        0  isr.o(i.doTaskBefore90Turn)
-    doTaskBefore90Turn                       0x08008091   Thumb Code   240  isr.o(i.doTaskBefore90Turn)
-    i.doTaskForwardIrTest                    0x080081a4   Section        0  isr.o(i.doTaskForwardIrTest)
-    doTaskForwardIrTest                      0x080081a5   Thumb Code   338  isr.o(i.doTaskForwardIrTest)
-    i.doTaskGoStraight                       0x08008308   Section        0  isr.o(i.doTaskGoStraight)
-    doTaskGoStraight                         0x08008309   Thumb Code   134  isr.o(i.doTaskGoStraight)
-    i.doTaskKeepWallDistance                 0x080083a4   Section        0  isr.o(i.doTaskKeepWallDistance)
-    doTaskKeepWallDistance                   0x080083a5   Thumb Code   354  isr.o(i.doTaskKeepWallDistance)
-    i.doTaskPointTurn90                      0x08008518   Section        0  isr.o(i.doTaskPointTurn90)
-    doTaskPointTurn90                        0x08008519   Thumb Code   460  isr.o(i.doTaskPointTurn90)
-    i.doTaskSlowDown                         0x08008708   Section        0  isr.o(i.doTaskSlowDown)
-    doTaskSlowDown                           0x08008709   Thumb Code    40  isr.o(i.doTaskSlowDown)
-    i.doTaskSmartStraight                    0x0800873c   Section        0  isr.o(i.doTaskSmartStraight)
-    doTaskSmartStraight                      0x0800873d   Thumb Code   322  isr.o(i.doTaskSmartStraight)
-    i.doTaskSmartStraightFast                0x080088a4   Section        0  isr.o(i.doTaskSmartStraightFast)
-    doTaskSmartStraightFast                  0x080088a5   Thumb Code   986  isr.o(i.doTaskSmartStraightFast)
-    i.doTaskSmartStraightSpurt               0x08008cb4   Section        0  isr.o(i.doTaskSmartStraightSpurt)
-    doTaskSmartStraightSpurt                 0x08008cb5   Thumb Code   322  isr.o(i.doTaskSmartStraightSpurt)
-    i.doTaskSmartStraightSpurtL              0x08008e1c   Section        0  isr.o(i.doTaskSmartStraightSpurtL)
-    doTaskSmartStraightSpurtL                0x08008e1d   Thumb Code   322  isr.o(i.doTaskSmartStraightSpurtL)
-    i.doTaskSpeedUp                          0x08008f84   Section        0  isr.o(i.doTaskSpeedUp)
-    doTaskSpeedUp                            0x08008f85   Thumb Code    40  isr.o(i.doTaskSpeedUp)
-    i.doTaskSpurt90Blind                     0x08008fb8   Section        0  isr.o(i.doTaskSpurt90Blind)
-    doTaskSpurt90Blind                       0x08008fb9   Thumb Code   188  isr.o(i.doTaskSpurt90Blind)
-    i.doTaskSpurt90Ir                        0x08009088   Section        0  isr.o(i.doTaskSpurt90Ir)
-    doTaskSpurt90Ir                          0x08009089   Thumb Code   722  isr.o(i.doTaskSpurt90Ir)
-    i.doTaskStop                             0x08009380   Section        0  isr.o(i.doTaskStop)
-    doTaskStop                               0x08009381   Thumb Code   332  isr.o(i.doTaskStop)
-    i.doTaskStraight45                       0x080094ec   Section        0  isr.o(i.doTaskStraight45)
-    doTaskStraight45                         0x080094ed   Thumb Code   700  isr.o(i.doTaskStraight45)
-    i.doTaskStraightEyeCloseCoorAdj          0x080097c0   Section        0  isr.o(i.doTaskStraightEyeCloseCoorAdj)
-    doTaskStraightEyeCloseCoorAdj            0x080097c1   Thumb Code   120  isr.o(i.doTaskStraightEyeCloseCoorAdj)
-    i.doTaskStraightPole                     0x0800984c   Section        0  isr.o(i.doTaskStraightPole)
-    doTaskStraightPole                       0x0800984d   Thumb Code   114  isr.o(i.doTaskStraightPole)
-    i.doTaskTurn                             0x080098d4   Section        0  isr.o(i.doTaskTurn)
-    doTaskTurn                               0x080098d5   Thumb Code   280  isr.o(i.doTaskTurn)
-    i.doTaskTurnAround                       0x08009a00   Section        0  isr.o(i.doTaskTurnAround)
-    doTaskTurnAround                         0x08009a01   Thumb Code   578  isr.o(i.doTaskTurnAround)
-    i.doWallDetect                           0x08009c68   Section        0  isr.o(i.doWallDetect)
-    doWallDetect                             0x08009c69   Thumb Code   400  isr.o(i.doWallDetect)
-    i.exp                                    0x08009e04   Section        0  exp.o(i.exp)
-    i.link_Ack                               0x0800a088   Section        0  link.o(i.link_Ack)
-    link_Ack                                 0x0800a089   Thumb Code    72  link.o(i.link_Ack)
-    i.link_AckI3                             0x0800a0e0   Section        0  link.o(i.link_AckI3)
-    link_AckI3                               0x0800a0e1   Thumb Code    86  link.o(i.link_AckI3)
-    i.link_AckU                              0x0800a144   Section        0  link.o(i.link_AckU)
-    link_AckU                                0x0800a145   Thumb Code    52  link.o(i.link_AckU)
-    i.link_CalAck                            0x0800a184   Section        0  link.o(i.link_CalAck)
-    link_CalAck                              0x0800a185   Thumb Code    40  link.o(i.link_CalAck)
-    i.link_CalItemToId                       0x0800a1c0   Section        0  link.o(i.link_CalItemToId)
-    link_CalItemToId                         0x0800a1c1   Thumb Code    78  link.o(i.link_CalItemToId)
-    i.link_CalibErase                        0x0800a244   Section        0  link.o(i.link_CalibErase)
-    link_CalibErase                          0x0800a245   Thumb Code    18  link.o(i.link_CalibErase)
-    i.link_CalibLoad                         0x0800a25c   Section        0  link.o(i.link_CalibLoad)
-    link_CalibLoad                           0x0800a25d   Thumb Code   310  link.o(i.link_CalibLoad)
-    i.link_CalibSave                         0x0800a3a0   Section        0  link.o(i.link_CalibSave)
-    link_CalibSave                           0x0800a3a1   Thumb Code   312  link.o(i.link_CalibSave)
-    i.link_CalibService                      0x0800a4e0   Section        0  link.o(i.link_CalibService)
-    link_CalibService                        0x0800a4e1   Thumb Code  1092  link.o(i.link_CalibService)
-    i.link_ClampQ                            0x0800a924   Section        0  link.o(i.link_ClampQ)
-    link_ClampQ                              0x0800a925   Thumb Code    22  link.o(i.link_ClampQ)
-    i.link_Crc16                             0x0800a93a   Section        0  link.o(i.link_Crc16)
-    link_Crc16                               0x0800a93b   Thumb Code    38  link.o(i.link_Crc16)
-    i.link_CrcByte                           0x0800a960   Section        0  link.o(i.link_CrcByte)
-    link_CrcByte                             0x0800a961   Thumb Code    30  link.o(i.link_CrcByte)
-    i.link_D2Q                               0x0800a984   Section        0  link.o(i.link_D2Q)
-    link_D2Q                                 0x0800a985   Thumb Code    78  link.o(i.link_D2Q)
-    i.link_DmaIdle                           0x0800a9dc   Section        0  link.o(i.link_DmaIdle)
-    link_DmaIdle                             0x0800a9dd   Thumb Code    40  link.o(i.link_DmaIdle)
-    i.link_DmaInit                           0x0800aa10   Section        0  link.o(i.link_DmaInit)
-    link_DmaInit                             0x0800aa11   Thumb Code    32  link.o(i.link_DmaInit)
-    i.link_DmaStart                          0x0800aa3c   Section        0  link.o(i.link_DmaStart)
-    link_DmaStart                            0x0800aa3d   Thumb Code    22  link.o(i.link_DmaStart)
-    i.link_EncAccumulate                     0x0800aa5c   Section        0  link.o(i.link_EncAccumulate)
-    link_EncAccumulate                       0x0800aa5d   Thumb Code   106  link.o(i.link_EncAccumulate)
-    i.link_EvLine                            0x0800aadc   Section        0  link.o(i.link_EvLine)
-    link_EvLine                              0x0800aadd   Thumb Code    84  link.o(i.link_EvLine)
-    i.link_ExecCmd                           0x0800ab3c   Section        0  link.o(i.link_ExecCmd)
-    link_ExecCmd                             0x0800ab3d   Thumb Code  2002  link.o(i.link_ExecCmd)
-    i.link_F2Q                               0x0800b350   Section        0  link.o(i.link_F2Q)
-    link_F2Q                                 0x0800b351   Thumb Code    64  link.o(i.link_F2Q)
-    i.link_Flags                             0x0800b390   Section        0  link.o(i.link_Flags)
-    link_Flags                               0x0800b391   Thumb Code    64  link.o(i.link_Flags)
-    i.link_HandleLine                        0x0800b3e0   Section        0  link.o(i.link_HandleLine)
-    link_HandleLine                          0x0800b3e1   Thumb Code   406  link.o(i.link_HandleLine)
-    i.link_IrRebuild                         0x0800b5b4   Section        0  link.o(i.link_IrRebuild)
-    link_IrRebuild                           0x0800b5b5   Thumb Code   248  link.o(i.link_IrRebuild)
-    i.link_MinIr                             0x0800b6d4   Section        0  link.o(i.link_MinIr)
-    link_MinIr                               0x0800b6d5   Thumb Code    40  link.o(i.link_MinIr)
-    i.link_MotionBusy                        0x0800b700   Section        0  link.o(i.link_MotionBusy)
-    link_MotionBusy                          0x0800b701   Thumb Code    44  link.o(i.link_MotionBusy)
-    i.link_MoveFinishRun                     0x0800b73c   Section        0  link.o(i.link_MoveFinishRun)
-    link_MoveFinishRun                       0x0800b73d   Thumb Code    96  link.o(i.link_MoveFinishRun)
-    i.link_MoveService                       0x0800b7b0   Section        0  link.o(i.link_MoveService)
-    link_MoveService                         0x0800b7b1   Thumb Code   232  link.o(i.link_MoveService)
-    i.link_NameToId                          0x0800b8bc   Section        0  link.o(i.link_NameToId)
-    link_NameToId                            0x0800b8bd   Thumb Code   398  link.o(i.link_NameToId)
-    i.link_ParamApplyOne                     0x0800bb48   Section        0  link.o(i.link_ParamApplyOne)
-    link_ParamApplyOne                       0x0800bb49   Thumb Code   676  link.o(i.link_ParamApplyOne)
-    i.link_ParamFind                         0x0800be0c   Section        0  link.o(i.link_ParamFind)
-    link_ParamFind                           0x0800be0d   Thumb Code    36  link.o(i.link_ParamFind)
-    i.link_ParamFromSys                      0x0800be34   Section        0  link.o(i.link_ParamFromSys)
-    link_ParamFromSys                        0x0800be35   Thumb Code   444  link.o(i.link_ParamFromSys)
-    i.link_ParamSet                          0x0800c004   Section        0  link.o(i.link_ParamSet)
-    link_ParamSet                            0x0800c005   Thumb Code    42  link.o(i.link_ParamSet)
-    i.link_Put16                             0x0800c034   Section        0  link.o(i.link_Put16)
-    link_Put16                               0x0800c035   Thumb Code     8  link.o(i.link_Put16)
-    i.link_Q2F                               0x0800c03c   Section        0  link.o(i.link_Q2F)
-    link_Q2F                                 0x0800c03d   Thumb Code    22  link.o(i.link_Q2F)
-    i.link_Q2I                               0x0800c052   Section        0  link.o(i.link_Q2I)
-    link_Q2I                                 0x0800c053   Thumb Code    24  link.o(i.link_Q2I)
-    i.link_ResetCauseName                    0x0800c06c   Section        0  link.o(i.link_ResetCauseName)
-    link_ResetCauseName                      0x0800c06d   Thumb Code    34  link.o(i.link_ResetCauseName)
-    i.link_Sat16                             0x0800c0a8   Section        0  link.o(i.link_Sat16)
-    link_Sat16                               0x0800c0a9   Thumb Code    28  link.o(i.link_Sat16)
-    i.link_SendFrame                         0x0800c0c8   Section        0  link.o(i.link_SendFrame)
-    link_SendFrame                           0x0800c0c9   Thumb Code   168  link.o(i.link_SendFrame)
-    i.link_SendMap                           0x0800c17c   Section        0  link.o(i.link_SendMap)
-    link_SendMap                             0x0800c17d   Thumb Code   154  link.o(i.link_SendMap)
-    i.link_SendUnified                       0x0800c21c   Section        0  link.o(i.link_SendUnified)
-    link_SendUnified                         0x0800c21d   Thumb Code   842  link.o(i.link_SendUnified)
-    i.link_ServoService                      0x0800c5a0   Section        0  link.o(i.link_ServoService)
-    link_ServoService                        0x0800c5a1   Thumb Code   366  link.o(i.link_ServoService)
-    i.link_SkipSp                            0x0800c72c   Section        0  link.o(i.link_SkipSp)
-    link_SkipSp                              0x0800c72d   Thumb Code    18  link.o(i.link_SkipSp)
-    i.link_StopMotion                        0x0800c740   Section        0  link.o(i.link_StopMotion)
-    link_StopMotion                          0x0800c741   Thumb Code    60  link.o(i.link_StopMotion)
-    i.link_TokIs                             0x0800c794   Section        0  link.o(i.link_TokIs)
-    link_TokIs                               0x0800c795   Thumb Code    74  link.o(i.link_TokIs)
-    i.link_TokNum                            0x0800c7de   Section        0  link.o(i.link_TokNum)
-    link_TokNum                              0x0800c7df   Thumb Code    80  link.o(i.link_TokNum)
-    i.link_TokQ16                            0x0800c82e   Section        0  link.o(i.link_TokQ16)
-    link_TokQ16                              0x0800c82f   Thumb Code   200  link.o(i.link_TokQ16)
-    i.link_TokWord                           0x0800c8f6   Section        0  link.o(i.link_TokWord)
-    link_TokWord                             0x0800c8f7   Thumb Code    66  link.o(i.link_TokWord)
-    i.link_TxDrain                           0x0800c938   Section        0  link.o(i.link_TxDrain)
-    link_TxDrain                             0x0800c939   Thumb Code    52  link.o(i.link_TxDrain)
-    i.link_TxInt                             0x0800c978   Section        0  link.o(i.link_TxInt)
-    link_TxInt                               0x0800c979   Thumb Code    90  link.o(i.link_TxInt)
-    i.link_TxPut                             0x0800c9d4   Section        0  link.o(i.link_TxPut)
-    link_TxPut                               0x0800c9d5   Thumb Code    38  link.o(i.link_TxPut)
-    i.link_TxSpace                           0x0800ca04   Section        0  link.o(i.link_TxSpace)
-    link_TxSpace                             0x0800ca05   Thumb Code    14  link.o(i.link_TxSpace)
-    i.link_TxStr                             0x0800ca12   Section        0  link.o(i.link_TxStr)
-    link_TxStr                               0x0800ca13   Thumb Code    22  link.o(i.link_TxStr)
-    i.link_TxUsed                            0x0800ca28   Section        0  link.o(i.link_TxUsed)
-    link_TxUsed                              0x0800ca29   Thumb Code    14  link.o(i.link_TxUsed)
-    i.log                                    0x0800ca40   Section        0  log.o(i.log)
-    i.main                                   0x0800cd9c   Section        0  main.o(i.main)
-    .constdata                               0x0800ce28   Section        3  flash.o(.constdata)
-    .constdata                               0x0800ce2c   Section       32  link.o(.constdata)
-    linkCrcTab                               0x0800ce2c   Data          32  link.o(.constdata)
-    .constdata                               0x0800ce4c   Section    20266  speedtable.o(.constdata)
-    .constdata                               0x08011d78   Section      480  motion.o(.constdata)
-    turnParamTable                           0x08011d78   Data         480  motion.o(.constdata)
-    .constdata                               0x08011f58   Section       88  exp.o(.constdata)
-    halF                                     0x08011f58   Data          16  exp.o(.constdata)
-    ln2HI                                    0x08011f68   Data          16  exp.o(.constdata)
-    ln2LO                                    0x08011f78   Data          16  exp.o(.constdata)
-    P                                        0x08011f88   Data          40  exp.o(.constdata)
-    .constdata                               0x08011fb0   Section       56  log.o(.constdata)
-    Lg2                                      0x08011fb0   Data          24  log.o(.constdata)
-    Lg                                       0x08011fc8   Data          32  log.o(.constdata)
-    .constdata                               0x08011fe8   Section        8  qnan.o(.constdata)
+    i.LINK_MazeTarget                        0x08003844   Section        0  link.o(i.LINK_MazeTarget)
+    i.LINK_Tick                              0x08003850   Section        0  link.o(i.LINK_Tick)
+    i.MAZE_BreakOrNot                        0x08003940   Section        0  maze.o(i.MAZE_BreakOrNot)
+    i.MAZE_CoorUpdate                        0x08003968   Section        0  maze.o(i.MAZE_CoorUpdate)
+    i.MAZE_Init                              0x080039bc   Section        0  maze.o(i.MAZE_Init)
+    i.MAZE_NeighborCoor                      0x08003a1c   Section        0  maze.o(i.MAZE_NeighborCoor)
+    MAZE_NeighborCoor                        0x08003a1d   Thumb Code   154  maze.o(i.MAZE_NeighborCoor)
+    i.MAZE_VisitedDataGet                    0x08003abc   Section        0  maze.o(i.MAZE_VisitedDataGet)
+    i.MAZE_WallCheck                         0x08003ae8   Section        0  maze.o(i.MAZE_WallCheck)
+    i.MOTION_Acc                             0x08003d44   Section        0  motion.o(i.MOTION_Acc)
+    i.MOTION_After180Turn                    0x08003dac   Section        0  motion.o(i.MOTION_After180Turn)
+    i.MOTION_Before180Turn                   0x08003f5c   Section        0  motion.o(i.MOTION_Before180Turn)
+    i.MOTION_Before90Turn                    0x08004034   Section        0  motion.o(i.MOTION_Before90Turn)
+    i.MOTION_GoStraight                      0x08004198   Section        0  motion.o(i.MOTION_GoStraight)
+    i.MOTION_MouseGoahead                    0x080041bc   Section        0  motion.o(i.MOTION_MouseGoahead)
+    i.MOTION_MouseTurnBack                   0x08004264   Section        0  motion.o(i.MOTION_MouseTurnBack)
+    i.MOTION_MouseTurnBackSpecial            0x080042c0   Section        0  motion.o(i.MOTION_MouseTurnBackSpecial)
+    i.MOTION_MouseTurnLeft                   0x080042f8   Section        0  motion.o(i.MOTION_MouseTurnLeft)
+    i.MOTION_MouseTurnRight                  0x08004404   Section        0  motion.o(i.MOTION_MouseTurnRight)
+    i.MOTION_PointTurnExec                   0x08004510   Section        0  motion.o(i.MOTION_PointTurnExec)
+    MOTION_PointTurnExec                     0x08004511   Thumb Code   100  motion.o(i.MOTION_PointTurnExec)
+    i.MOTION_PointTurnLeft                   0x0800458c   Section        0  motion.o(i.MOTION_PointTurnLeft)
+    i.MOTION_PointTurnRight                  0x08004596   Section        0  motion.o(i.MOTION_PointTurnRight)
+    i.MOTION_SetAngle                        0x080045a0   Section        0  motion.o(i.MOTION_SetAngle)
+    i.MOTION_SetTrack                        0x080045c8   Section        0  motion.o(i.MOTION_SetTrack)
+    i.MOTION_Stop                            0x080045dc   Section        0  motion.o(i.MOTION_Stop)
+    i.MOTION_Straight90                      0x08004654   Section        0  motion.o(i.MOTION_Straight90)
+    i.MOTION_Straight90CalcSpeed             0x080046fc   Section        0  motion.o(i.MOTION_Straight90CalcSpeed)
+    MOTION_Straight90CalcSpeed               0x080046fd   Thumb Code   856  motion.o(i.MOTION_Straight90CalcSpeed)
+    i.MOTION_Straight90SetGainAndParam       0x08004a6c   Section        0  motion.o(i.MOTION_Straight90SetGainAndParam)
+    MOTION_Straight90SetGainAndParam         0x08004a6d   Thumb Code   344  motion.o(i.MOTION_Straight90SetGainAndParam)
+    i.MOTION_Turn                            0x08004bf8   Section        0  motion.o(i.MOTION_Turn)
+    i.MOTION_TurnAround                      0x08004ca0   Section        0  motion.o(i.MOTION_TurnAround)
+    i.MOTOR_EncLeftInit                      0x08004cfc   Section        0  motor.o(i.MOTOR_EncLeftInit)
+    i.MOTOR_EncRightInit                     0x08004dcc   Section        0  motor.o(i.MOTOR_EncRightInit)
+    i.MOTOR_EncSample                        0x08004e88   Section        0  motor.o(i.MOTOR_EncSample)
+    i.MOTOR_LeftPwm                          0x08005020   Section        0  motor.o(i.MOTOR_LeftPwm)
+    i.MOTOR_LoopControl                      0x0800508c   Section        0  motor.o(i.MOTOR_LoopControl)
+    i.MOTOR_PidCalcOut                       0x080051b0   Section        0  motor.o(i.MOTOR_PidCalcOut)
+    i.MOTOR_PidUpdateErr                     0x0800521c   Section        0  motor.o(i.MOTOR_PidUpdateErr)
+    i.MOTOR_PwmInit                          0x08005250   Section        0  motor.o(i.MOTOR_PwmInit)
+    i.MOTOR_RightPwm                         0x08005368   Section        0  motor.o(i.MOTOR_RightPwm)
+    i.MOUSE_Init                             0x080053d4   Section        0  main.o(i.MOUSE_Init)
+    i.MYRCC_DeInit                           0x080053e8   Section        0  sys.o(i.MYRCC_DeInit)
+    i.MY_NVIC_Init                           0x0800544c   Section        0  sys.o(i.MY_NVIC_Init)
+    i.MY_NVIC_PriorityGroupConfig            0x080054e8   Section        0  sys.o(i.MY_NVIC_PriorityGroupConfig)
+    i.MY_NVIC_SetVectorTable                 0x08005510   Section        0  sys.o(i.MY_NVIC_SetVectorTable)
+    i.ODOM_Sample                            0x08005524   Section        0  odom.o(i.ODOM_Sample)
+    i.PATH_Fastway4Dir                       0x08005864   Section        0  path.o(i.PATH_Fastway4Dir)
+    i.SAFETY_Monitor                         0x08005dec   Section        0  safety.o(i.SAFETY_Monitor)
+    i.SEARCH_HasWall                         0x08006078   Section        0  search.o(i.SEARCH_HasWall)
+    i.SEARCH_Init                            0x08006130   Section        0  search.o(i.SEARCH_Init)
+    i.SEARCH_NoWall                          0x0800615c   Section        0  search.o(i.SEARCH_NoWall)
+    i.SEARCH_Search                          0x08006228   Section        0  search.o(i.SEARCH_Search)
+    i.SPURT_Action90                         0x080062d8   Section        0  spurt.o(i.SPURT_Action90)
+    i.SPURT_ActionGenerate90                 0x08006554   Section        0  spurt.o(i.SPURT_ActionGenerate90)
+    i.SPURT_BeforeTurnL                      0x08006824   Section        0  spurt.o(i.SPURT_BeforeTurnL)
+    i.SPURT_BeforeTurnR                      0x0800685c   Section        0  spurt.o(i.SPURT_BeforeTurnR)
+    i.SPURT_GainSet90                        0x08006894   Section        0  spurt.o(i.SPURT_GainSet90)
+    i.SPURT_Init                             0x08006904   Section        0  spurt.o(i.SPURT_Init)
+    i.SPURT_ObjectGoTo                       0x08006958   Section        0  spurt.o(i.SPURT_ObjectGoTo)
+    i.SPURT_TurnLeft                         0x08006ae4   Section        0  spurt.o(i.SPURT_TurnLeft)
+    i.SPURT_TurnRight                        0x08006ba4   Section        0  spurt.o(i.SPURT_TurnRight)
+    i.STATE_DetermineGoaheadNum              0x08006c64   Section        0  state.o(i.STATE_DetermineGoaheadNum)
+    i.STATE_LoadMapAndSelectSpeed            0x08006c68   Section        0  state.o(i.STATE_LoadMapAndSelectSpeed)
+    i.STATE_MazeSearch                       0x08006dc8   Section        0  state.o(i.STATE_MazeSearch)
+    i.STATE_ReturnSearch                     0x08007398   Section        0  state.o(i.STATE_ReturnSearch)
+    i.SYS_ClockInit                          0x08007874   Section        0  sys.o(i.SYS_ClockInit)
+    i.SysTick_Handler                        0x080078fc   Section        0  isr.o(i.SysTick_Handler)
+    i.Sys_Soft_Reset                         0x08007a7c   Section        0  sys.o(i.Sys_Soft_Reset)
+    i.TASK_Init                              0x08007a8c   Section        0  main.o(i.TASK_Init)
+    TASK_Init                                0x08007a8d   Thumb Code    18  main.o(i.TASK_Init)
+    i.USART1_IRQHandler                      0x08007aa4   Section        0  usart.o(i.USART1_IRQHandler)
+    i.USART_Init                             0x08007b28   Section        0  usart.o(i.USART_Init)
+    i.__ARM_fpclassify                       0x08007bb4   Section        0  fpclassify.o(i.__ARM_fpclassify)
+    i.__kernel_poly                          0x08007bdc   Section        0  poly.o(i.__kernel_poly)
+    i.__mathlib_dbl_divzero                  0x08007c88   Section        0  dunder.o(i.__mathlib_dbl_divzero)
+    i.__mathlib_dbl_infnan                   0x08007c98   Section        0  dunder.o(i.__mathlib_dbl_infnan)
+    i.__mathlib_dbl_invalid                  0x08007c9e   Section        0  dunder.o(i.__mathlib_dbl_invalid)
+    i.__mathlib_dbl_overflow                 0x08007caa   Section        0  dunder.o(i.__mathlib_dbl_overflow)
+    i.__mathlib_dbl_underflow                0x08007cb8   Section        0  dunder.o(i.__mathlib_dbl_underflow)
+    i.__scatterload_copy                     0x08007cc8   Section       14  handlers.o(i.__scatterload_copy)
+    i.__scatterload_null                     0x08007cd6   Section        2  handlers.o(i.__scatterload_null)
+    i.__scatterload_zeroinit                 0x08007cd8   Section       14  handlers.o(i.__scatterload_zeroinit)
+    i.__set_errno                            0x08007ce8   Section        0  errno.o(i.__set_errno)
+    i.abovezero                              0x08007cf4   Section        0  isr.o(i.abovezero)
+    abovezero                                0x08007cf5   Thumb Code    14  isr.o(i.abovezero)
+    i.adcAboveZero                           0x08007d02   Section        0  irs.o(i.adcAboveZero)
+    adcAboveZero                             0x08007d03   Thumb Code    14  irs.o(i.adcAboveZero)
+    i.doTaskAcc                              0x08007d10   Section        0  isr.o(i.doTaskAcc)
+    doTaskAcc                                0x08007d11   Thumb Code   254  isr.o(i.doTaskAcc)
+    i.doTaskBefore180Turn                    0x08007e34   Section        0  isr.o(i.doTaskBefore180Turn)
+    doTaskBefore180Turn                      0x08007e35   Thumb Code   586  isr.o(i.doTaskBefore180Turn)
+    i.doTaskBefore90Turn                     0x0800809c   Section        0  isr.o(i.doTaskBefore90Turn)
+    doTaskBefore90Turn                       0x0800809d   Thumb Code   240  isr.o(i.doTaskBefore90Turn)
+    i.doTaskForwardIrTest                    0x080081b0   Section        0  isr.o(i.doTaskForwardIrTest)
+    doTaskForwardIrTest                      0x080081b1   Thumb Code   338  isr.o(i.doTaskForwardIrTest)
+    i.doTaskGoStraight                       0x08008314   Section        0  isr.o(i.doTaskGoStraight)
+    doTaskGoStraight                         0x08008315   Thumb Code   134  isr.o(i.doTaskGoStraight)
+    i.doTaskKeepWallDistance                 0x080083b0   Section        0  isr.o(i.doTaskKeepWallDistance)
+    doTaskKeepWallDistance                   0x080083b1   Thumb Code   354  isr.o(i.doTaskKeepWallDistance)
+    i.doTaskPointTurn90                      0x08008524   Section        0  isr.o(i.doTaskPointTurn90)
+    doTaskPointTurn90                        0x08008525   Thumb Code   460  isr.o(i.doTaskPointTurn90)
+    i.doTaskSlowDown                         0x08008714   Section        0  isr.o(i.doTaskSlowDown)
+    doTaskSlowDown                           0x08008715   Thumb Code    40  isr.o(i.doTaskSlowDown)
+    i.doTaskSmartStraight                    0x08008748   Section        0  isr.o(i.doTaskSmartStraight)
+    doTaskSmartStraight                      0x08008749   Thumb Code   322  isr.o(i.doTaskSmartStraight)
+    i.doTaskSmartStraightFast                0x080088b0   Section        0  isr.o(i.doTaskSmartStraightFast)
+    doTaskSmartStraightFast                  0x080088b1   Thumb Code   986  isr.o(i.doTaskSmartStraightFast)
+    i.doTaskSmartStraightSpurt               0x08008cc0   Section        0  isr.o(i.doTaskSmartStraightSpurt)
+    doTaskSmartStraightSpurt                 0x08008cc1   Thumb Code   322  isr.o(i.doTaskSmartStraightSpurt)
+    i.doTaskSmartStraightSpurtL              0x08008e28   Section        0  isr.o(i.doTaskSmartStraightSpurtL)
+    doTaskSmartStraightSpurtL                0x08008e29   Thumb Code   322  isr.o(i.doTaskSmartStraightSpurtL)
+    i.doTaskSpeedUp                          0x08008f90   Section        0  isr.o(i.doTaskSpeedUp)
+    doTaskSpeedUp                            0x08008f91   Thumb Code    40  isr.o(i.doTaskSpeedUp)
+    i.doTaskSpurt90Blind                     0x08008fc4   Section        0  isr.o(i.doTaskSpurt90Blind)
+    doTaskSpurt90Blind                       0x08008fc5   Thumb Code   188  isr.o(i.doTaskSpurt90Blind)
+    i.doTaskSpurt90Ir                        0x08009094   Section        0  isr.o(i.doTaskSpurt90Ir)
+    doTaskSpurt90Ir                          0x08009095   Thumb Code   722  isr.o(i.doTaskSpurt90Ir)
+    i.doTaskStop                             0x0800938c   Section        0  isr.o(i.doTaskStop)
+    doTaskStop                               0x0800938d   Thumb Code   332  isr.o(i.doTaskStop)
+    i.doTaskStraight45                       0x080094f8   Section        0  isr.o(i.doTaskStraight45)
+    doTaskStraight45                         0x080094f9   Thumb Code   700  isr.o(i.doTaskStraight45)
+    i.doTaskStraightEyeCloseCoorAdj          0x080097cc   Section        0  isr.o(i.doTaskStraightEyeCloseCoorAdj)
+    doTaskStraightEyeCloseCoorAdj            0x080097cd   Thumb Code   120  isr.o(i.doTaskStraightEyeCloseCoorAdj)
+    i.doTaskStraightPole                     0x08009858   Section        0  isr.o(i.doTaskStraightPole)
+    doTaskStraightPole                       0x08009859   Thumb Code   114  isr.o(i.doTaskStraightPole)
+    i.doTaskTurn                             0x080098e0   Section        0  isr.o(i.doTaskTurn)
+    doTaskTurn                               0x080098e1   Thumb Code   280  isr.o(i.doTaskTurn)
+    i.doTaskTurnAround                       0x08009a0c   Section        0  isr.o(i.doTaskTurnAround)
+    doTaskTurnAround                         0x08009a0d   Thumb Code   578  isr.o(i.doTaskTurnAround)
+    i.doWallDetect                           0x08009c74   Section        0  isr.o(i.doWallDetect)
+    doWallDetect                             0x08009c75   Thumb Code   400  isr.o(i.doWallDetect)
+    i.exp                                    0x08009e10   Section        0  exp.o(i.exp)
+    i.link_Ack                               0x0800a094   Section        0  link.o(i.link_Ack)
+    link_Ack                                 0x0800a095   Thumb Code    72  link.o(i.link_Ack)
+    i.link_AckI3                             0x0800a0ec   Section        0  link.o(i.link_AckI3)
+    link_AckI3                               0x0800a0ed   Thumb Code    86  link.o(i.link_AckI3)
+    i.link_AckU                              0x0800a150   Section        0  link.o(i.link_AckU)
+    link_AckU                                0x0800a151   Thumb Code    52  link.o(i.link_AckU)
+    i.link_CalAck                            0x0800a190   Section        0  link.o(i.link_CalAck)
+    link_CalAck                              0x0800a191   Thumb Code    40  link.o(i.link_CalAck)
+    i.link_CalItemToId                       0x0800a1cc   Section        0  link.o(i.link_CalItemToId)
+    link_CalItemToId                         0x0800a1cd   Thumb Code    78  link.o(i.link_CalItemToId)
+    i.link_CalibErase                        0x0800a250   Section        0  link.o(i.link_CalibErase)
+    link_CalibErase                          0x0800a251   Thumb Code    18  link.o(i.link_CalibErase)
+    i.link_CalibLoad                         0x0800a268   Section        0  link.o(i.link_CalibLoad)
+    link_CalibLoad                           0x0800a269   Thumb Code   310  link.o(i.link_CalibLoad)
+    i.link_CalibSave                         0x0800a3ac   Section        0  link.o(i.link_CalibSave)
+    link_CalibSave                           0x0800a3ad   Thumb Code   312  link.o(i.link_CalibSave)
+    i.link_CalibService                      0x0800a4ec   Section        0  link.o(i.link_CalibService)
+    link_CalibService                        0x0800a4ed   Thumb Code  1092  link.o(i.link_CalibService)
+    i.link_ClampQ                            0x0800a930   Section        0  link.o(i.link_ClampQ)
+    link_ClampQ                              0x0800a931   Thumb Code    22  link.o(i.link_ClampQ)
+    i.link_Crc16                             0x0800a946   Section        0  link.o(i.link_Crc16)
+    link_Crc16                               0x0800a947   Thumb Code    38  link.o(i.link_Crc16)
+    i.link_CrcByte                           0x0800a96c   Section        0  link.o(i.link_CrcByte)
+    link_CrcByte                             0x0800a96d   Thumb Code    30  link.o(i.link_CrcByte)
+    i.link_D2Q                               0x0800a990   Section        0  link.o(i.link_D2Q)
+    link_D2Q                                 0x0800a991   Thumb Code    78  link.o(i.link_D2Q)
+    i.link_DmaIdle                           0x0800a9e8   Section        0  link.o(i.link_DmaIdle)
+    link_DmaIdle                             0x0800a9e9   Thumb Code    40  link.o(i.link_DmaIdle)
+    i.link_DmaInit                           0x0800aa1c   Section        0  link.o(i.link_DmaInit)
+    link_DmaInit                             0x0800aa1d   Thumb Code    32  link.o(i.link_DmaInit)
+    i.link_DmaStart                          0x0800aa48   Section        0  link.o(i.link_DmaStart)
+    link_DmaStart                            0x0800aa49   Thumb Code    22  link.o(i.link_DmaStart)
+    i.link_EncAccumulate                     0x0800aa68   Section        0  link.o(i.link_EncAccumulate)
+    link_EncAccumulate                       0x0800aa69   Thumb Code   106  link.o(i.link_EncAccumulate)
+    i.link_EvLine                            0x0800aae8   Section        0  link.o(i.link_EvLine)
+    link_EvLine                              0x0800aae9   Thumb Code    84  link.o(i.link_EvLine)
+    i.link_ExecCmd                           0x0800ab48   Section        0  link.o(i.link_ExecCmd)
+    link_ExecCmd                             0x0800ab49   Thumb Code  2066  link.o(i.link_ExecCmd)
+    i.link_F2Q                               0x0800b39c   Section        0  link.o(i.link_F2Q)
+    link_F2Q                                 0x0800b39d   Thumb Code    64  link.o(i.link_F2Q)
+    i.link_Flags                             0x0800b3dc   Section        0  link.o(i.link_Flags)
+    link_Flags                               0x0800b3dd   Thumb Code    64  link.o(i.link_Flags)
+    i.link_HandleLine                        0x0800b42c   Section        0  link.o(i.link_HandleLine)
+    link_HandleLine                          0x0800b42d   Thumb Code   406  link.o(i.link_HandleLine)
+    i.link_IrRebuild                         0x0800b600   Section        0  link.o(i.link_IrRebuild)
+    link_IrRebuild                           0x0800b601   Thumb Code   248  link.o(i.link_IrRebuild)
+    i.link_MinIr                             0x0800b720   Section        0  link.o(i.link_MinIr)
+    link_MinIr                               0x0800b721   Thumb Code    40  link.o(i.link_MinIr)
+    i.link_MotionBusy                        0x0800b74c   Section        0  link.o(i.link_MotionBusy)
+    link_MotionBusy                          0x0800b74d   Thumb Code    44  link.o(i.link_MotionBusy)
+    i.link_MoveFinishRun                     0x0800b788   Section        0  link.o(i.link_MoveFinishRun)
+    link_MoveFinishRun                       0x0800b789   Thumb Code    96  link.o(i.link_MoveFinishRun)
+    i.link_MoveService                       0x0800b7fc   Section        0  link.o(i.link_MoveService)
+    link_MoveService                         0x0800b7fd   Thumb Code   232  link.o(i.link_MoveService)
+    i.link_NameToId                          0x0800b908   Section        0  link.o(i.link_NameToId)
+    link_NameToId                            0x0800b909   Thumb Code   398  link.o(i.link_NameToId)
+    i.link_ParamApplyOne                     0x0800bb94   Section        0  link.o(i.link_ParamApplyOne)
+    link_ParamApplyOne                       0x0800bb95   Thumb Code   676  link.o(i.link_ParamApplyOne)
+    i.link_ParamFind                         0x0800be58   Section        0  link.o(i.link_ParamFind)
+    link_ParamFind                           0x0800be59   Thumb Code    36  link.o(i.link_ParamFind)
+    i.link_ParamFromSys                      0x0800be80   Section        0  link.o(i.link_ParamFromSys)
+    link_ParamFromSys                        0x0800be81   Thumb Code   444  link.o(i.link_ParamFromSys)
+    i.link_ParamSet                          0x0800c050   Section        0  link.o(i.link_ParamSet)
+    link_ParamSet                            0x0800c051   Thumb Code    42  link.o(i.link_ParamSet)
+    i.link_Put16                             0x0800c080   Section        0  link.o(i.link_Put16)
+    link_Put16                               0x0800c081   Thumb Code     8  link.o(i.link_Put16)
+    i.link_Q2F                               0x0800c088   Section        0  link.o(i.link_Q2F)
+    link_Q2F                                 0x0800c089   Thumb Code    22  link.o(i.link_Q2F)
+    i.link_Q2I                               0x0800c09e   Section        0  link.o(i.link_Q2I)
+    link_Q2I                                 0x0800c09f   Thumb Code    24  link.o(i.link_Q2I)
+    i.link_ResetCauseName                    0x0800c0b8   Section        0  link.o(i.link_ResetCauseName)
+    link_ResetCauseName                      0x0800c0b9   Thumb Code    34  link.o(i.link_ResetCauseName)
+    i.link_Sat16                             0x0800c0f4   Section        0  link.o(i.link_Sat16)
+    link_Sat16                               0x0800c0f5   Thumb Code    28  link.o(i.link_Sat16)
+    i.link_SendFrame                         0x0800c114   Section        0  link.o(i.link_SendFrame)
+    link_SendFrame                           0x0800c115   Thumb Code   168  link.o(i.link_SendFrame)
+    i.link_SendMap                           0x0800c1c8   Section        0  link.o(i.link_SendMap)
+    link_SendMap                             0x0800c1c9   Thumb Code   154  link.o(i.link_SendMap)
+    i.link_SendUnified                       0x0800c268   Section        0  link.o(i.link_SendUnified)
+    link_SendUnified                         0x0800c269   Thumb Code   842  link.o(i.link_SendUnified)
+    i.link_ServoService                      0x0800c5ec   Section        0  link.o(i.link_ServoService)
+    link_ServoService                        0x0800c5ed   Thumb Code   366  link.o(i.link_ServoService)
+    i.link_SkipSp                            0x0800c778   Section        0  link.o(i.link_SkipSp)
+    link_SkipSp                              0x0800c779   Thumb Code    18  link.o(i.link_SkipSp)
+    i.link_StopMotion                        0x0800c78c   Section        0  link.o(i.link_StopMotion)
+    link_StopMotion                          0x0800c78d   Thumb Code    60  link.o(i.link_StopMotion)
+    i.link_TokIs                             0x0800c7e0   Section        0  link.o(i.link_TokIs)
+    link_TokIs                               0x0800c7e1   Thumb Code    74  link.o(i.link_TokIs)
+    i.link_TokNum                            0x0800c82a   Section        0  link.o(i.link_TokNum)
+    link_TokNum                              0x0800c82b   Thumb Code    80  link.o(i.link_TokNum)
+    i.link_TokQ16                            0x0800c87a   Section        0  link.o(i.link_TokQ16)
+    link_TokQ16                              0x0800c87b   Thumb Code   200  link.o(i.link_TokQ16)
+    i.link_TokWord                           0x0800c942   Section        0  link.o(i.link_TokWord)
+    link_TokWord                             0x0800c943   Thumb Code    66  link.o(i.link_TokWord)
+    i.link_TxDrain                           0x0800c984   Section        0  link.o(i.link_TxDrain)
+    link_TxDrain                             0x0800c985   Thumb Code    52  link.o(i.link_TxDrain)
+    i.link_TxInt                             0x0800c9c4   Section        0  link.o(i.link_TxInt)
+    link_TxInt                               0x0800c9c5   Thumb Code    90  link.o(i.link_TxInt)
+    i.link_TxPut                             0x0800ca20   Section        0  link.o(i.link_TxPut)
+    link_TxPut                               0x0800ca21   Thumb Code    38  link.o(i.link_TxPut)
+    i.link_TxSpace                           0x0800ca50   Section        0  link.o(i.link_TxSpace)
+    link_TxSpace                             0x0800ca51   Thumb Code    14  link.o(i.link_TxSpace)
+    i.link_TxStr                             0x0800ca5e   Section        0  link.o(i.link_TxStr)
+    link_TxStr                               0x0800ca5f   Thumb Code    22  link.o(i.link_TxStr)
+    i.link_TxUsed                            0x0800ca74   Section        0  link.o(i.link_TxUsed)
+    link_TxUsed                              0x0800ca75   Thumb Code    14  link.o(i.link_TxUsed)
+    i.log                                    0x0800ca8c   Section        0  log.o(i.log)
+    i.main                                   0x0800cde8   Section        0  main.o(i.main)
+    .constdata                               0x0800ce84   Section        3  flash.o(.constdata)
+    .constdata                               0x0800ce88   Section       32  link.o(.constdata)
+    linkCrcTab                               0x0800ce88   Data          32  link.o(.constdata)
+    .constdata                               0x0800cea8   Section    20266  speedtable.o(.constdata)
+    .constdata                               0x08011dd4   Section      480  motion.o(.constdata)
+    turnParamTable                           0x08011dd4   Data         480  motion.o(.constdata)
+    .constdata                               0x08011fb8   Section       88  exp.o(.constdata)
+    halF                                     0x08011fb8   Data          16  exp.o(.constdata)
+    ln2HI                                    0x08011fc8   Data          16  exp.o(.constdata)
+    ln2LO                                    0x08011fd8   Data          16  exp.o(.constdata)
+    P                                        0x08011fe8   Data          40  exp.o(.constdata)
+    .constdata                               0x08012010   Section       56  log.o(.constdata)
+    Lg2                                      0x08012010   Data          24  log.o(.constdata)
+    Lg                                       0x08012028   Data          32  log.o(.constdata)
+    .constdata                               0x08012048   Section        8  qnan.o(.constdata)
     .data                                    0x20000000   Section        6  main.o(.data)
     .data                                    0x20000008   Section       13  state.o(.data)
     lTopSpeedH                               0x20000008   Data           4  state.o(.data)
@@ -2200,6 +2198,7 @@ Image Symbol Table
     linkMazeReq                              0x20000846   Data           1  link.o(.data)
     linkMazeRun                              0x20000847   Data           1  link.o(.data)
     linkMazeAbort                            0x20000848   Data           1  link.o(.data)
+    linkMazeTarget                           0x20000849   Data           1  link.o(.data)
     linkLastSeq                              0x2000084c   Data           4  link.o(.data)
     linkLastCrc                              0x20000850   Data           2  link.o(.data)
     linkEncPrevL                             0x20000854   Data           4  link.o(.data)
@@ -2454,131 +2453,132 @@ Image Symbol Table
     LINK_MazeFinished                        0x08003815   Thumb Code     8  link.o(i.LINK_MazeFinished)
     LINK_MazeRequested                       0x08003821   Thumb Code     6  link.o(i.LINK_MazeRequested)
     LINK_MazeStarted                         0x0800382d   Thumb Code    14  link.o(i.LINK_MazeStarted)
-    LINK_Tick                                0x08003845   Thumb Code   194  link.o(i.LINK_Tick)
-    MAZE_BreakOrNot                          0x08003935   Thumb Code    34  maze.o(i.MAZE_BreakOrNot)
-    MAZE_CoorUpdate                          0x0800395d   Thumb Code    80  maze.o(i.MAZE_CoorUpdate)
-    MAZE_Init                                0x080039b1   Thumb Code    92  maze.o(i.MAZE_Init)
-    MAZE_VisitedDataGet                      0x08003ab1   Thumb Code    40  maze.o(i.MAZE_VisitedDataGet)
-    MAZE_WallCheck                           0x08003add   Thumb Code   596  maze.o(i.MAZE_WallCheck)
-    MOTION_Acc                               0x08003d39   Thumb Code    82  motion.o(i.MOTION_Acc)
-    MOTION_After180Turn                      0x08003da1   Thumb Code   398  motion.o(i.MOTION_After180Turn)
-    MOTION_Before180Turn                     0x08003f51   Thumb Code   192  motion.o(i.MOTION_Before180Turn)
-    MOTION_Before90Turn                      0x08004029   Thumb Code   332  motion.o(i.MOTION_Before90Turn)
-    MOTION_GoStraight                        0x0800418d   Thumb Code    26  motion.o(i.MOTION_GoStraight)
-    MOTION_MouseGoahead                      0x080041b1   Thumb Code   142  motion.o(i.MOTION_MouseGoahead)
-    MOTION_MouseTurnBack                     0x08004259   Thumb Code    78  motion.o(i.MOTION_MouseTurnBack)
-    MOTION_MouseTurnBackSpecial              0x080042b5   Thumb Code    46  motion.o(i.MOTION_MouseTurnBackSpecial)
-    MOTION_MouseTurnLeft                     0x080042ed   Thumb Code   236  motion.o(i.MOTION_MouseTurnLeft)
-    MOTION_MouseTurnRight                    0x080043f9   Thumb Code   236  motion.o(i.MOTION_MouseTurnRight)
-    MOTION_PointTurnLeft                     0x08004581   Thumb Code    10  motion.o(i.MOTION_PointTurnLeft)
-    MOTION_PointTurnRight                    0x0800458b   Thumb Code    10  motion.o(i.MOTION_PointTurnRight)
-    MOTION_SetAngle                          0x08004595   Thumb Code    26  motion.o(i.MOTION_SetAngle)
-    MOTION_SetTrack                          0x080045bd   Thumb Code    16  motion.o(i.MOTION_SetTrack)
-    MOTION_Stop                              0x080045d1   Thumb Code   104  motion.o(i.MOTION_Stop)
-    MOTION_Straight90                        0x08004649   Thumb Code   136  motion.o(i.MOTION_Straight90)
-    MOTION_Turn                              0x08004bed   Thumb Code   156  motion.o(i.MOTION_Turn)
-    MOTION_TurnAround                        0x08004c95   Thumb Code    70  motion.o(i.MOTION_TurnAround)
-    MOTOR_EncLeftInit                        0x08004cf1   Thumb Code   186  motor.o(i.MOTOR_EncLeftInit)
-    MOTOR_EncRightInit                       0x08004dc1   Thumb Code   172  motor.o(i.MOTOR_EncRightInit)
-    MOTOR_EncSample                          0x08004e7d   Thumb Code   378  motor.o(i.MOTOR_EncSample)
-    MOTOR_LeftPwm                            0x08005015   Thumb Code    96  motor.o(i.MOTOR_LeftPwm)
-    MOTOR_LoopControl                        0x08005081   Thumb Code   250  motor.o(i.MOTOR_LoopControl)
-    MOTOR_PidCalcOut                         0x080051a5   Thumb Code   108  motor.o(i.MOTOR_PidCalcOut)
-    MOTOR_PidUpdateErr                       0x08005211   Thumb Code    50  motor.o(i.MOTOR_PidUpdateErr)
-    MOTOR_PwmInit                            0x08005245   Thumb Code   268  motor.o(i.MOTOR_PwmInit)
-    MOTOR_RightPwm                           0x0800535d   Thumb Code    96  motor.o(i.MOTOR_RightPwm)
-    MOUSE_Init                               0x080053c9   Thumb Code    20  main.o(i.MOUSE_Init)
-    MYRCC_DeInit                             0x080053dd   Thumb Code    88  sys.o(i.MYRCC_DeInit)
-    MY_NVIC_Init                             0x08005441   Thumb Code   146  sys.o(i.MY_NVIC_Init)
-    MY_NVIC_PriorityGroupConfig              0x080054dd   Thumb Code    32  sys.o(i.MY_NVIC_PriorityGroupConfig)
-    MY_NVIC_SetVectorTable                   0x08005505   Thumb Code    12  sys.o(i.MY_NVIC_SetVectorTable)
-    ODOM_Sample                              0x08005519   Thumb Code   812  odom.o(i.ODOM_Sample)
-    PATH_Fastway4Dir                         0x08005859   Thumb Code  1408  path.o(i.PATH_Fastway4Dir)
-    SAFETY_Monitor                           0x08005de1   Thumb Code   600  safety.o(i.SAFETY_Monitor)
-    SEARCH_HasWall                           0x0800606d   Thumb Code   160  search.o(i.SEARCH_HasWall)
-    SEARCH_Init                              0x08006125   Thumb Code    38  search.o(i.SEARCH_Init)
-    SEARCH_NoWall                            0x08006151   Thumb Code   176  search.o(i.SEARCH_NoWall)
-    SEARCH_Search                            0x0800621d   Thumb Code   150  search.o(i.SEARCH_Search)
-    SPURT_Action90                           0x080062cd   Thumb Code   602  spurt.o(i.SPURT_Action90)
-    SPURT_ActionGenerate90                   0x08006549   Thumb Code   704  spurt.o(i.SPURT_ActionGenerate90)
-    SPURT_BeforeTurnL                        0x08006819   Thumb Code    44  spurt.o(i.SPURT_BeforeTurnL)
-    SPURT_BeforeTurnR                        0x08006851   Thumb Code    44  spurt.o(i.SPURT_BeforeTurnR)
-    SPURT_GainSet90                          0x08006889   Thumb Code    74  spurt.o(i.SPURT_GainSet90)
-    SPURT_Init                               0x080068f9   Thumb Code    70  spurt.o(i.SPURT_Init)
-    SPURT_ObjectGoTo                         0x0800694d   Thumb Code   390  spurt.o(i.SPURT_ObjectGoTo)
-    SPURT_TurnLeft                           0x08006ad9   Thumb Code   164  spurt.o(i.SPURT_TurnLeft)
-    SPURT_TurnRight                          0x08006b99   Thumb Code   164  spurt.o(i.SPURT_TurnRight)
-    STATE_DetermineGoaheadNum                0x08006c59   Thumb Code     2  state.o(i.STATE_DetermineGoaheadNum)
-    STATE_LoadMapAndSelectSpeed              0x08006c5d   Thumb Code   328  state.o(i.STATE_LoadMapAndSelectSpeed)
-    STATE_MazeSearch                         0x08006dbd   Thumb Code  1470  state.o(i.STATE_MazeSearch)
-    STATE_ReturnSearch                       0x0800738d   Thumb Code  1234  state.o(i.STATE_ReturnSearch)
-    SYS_ClockInit                            0x08007869   Thumb Code   128  sys.o(i.SYS_ClockInit)
-    SysTick_Handler                          0x080078f1   Thumb Code   354  isr.o(i.SysTick_Handler)
-    Sys_Soft_Reset                           0x08007a71   Thumb Code     8  sys.o(i.Sys_Soft_Reset)
-    USART1_IRQHandler                        0x08007a99   Thumb Code   118  usart.o(i.USART1_IRQHandler)
-    USART_Init                               0x08007b1d   Thumb Code   126  usart.o(i.USART_Init)
-    __ARM_fpclassify                         0x08007ba9   Thumb Code    40  fpclassify.o(i.__ARM_fpclassify)
-    __kernel_poly                            0x08007bd1   Thumb Code   170  poly.o(i.__kernel_poly)
-    __mathlib_dbl_divzero                    0x08007c7d   Thumb Code    12  dunder.o(i.__mathlib_dbl_divzero)
-    __mathlib_dbl_infnan                     0x08007c8d   Thumb Code     6  dunder.o(i.__mathlib_dbl_infnan)
-    __mathlib_dbl_invalid                    0x08007c93   Thumb Code    12  dunder.o(i.__mathlib_dbl_invalid)
-    __mathlib_dbl_overflow                   0x08007c9f   Thumb Code    14  dunder.o(i.__mathlib_dbl_overflow)
-    __mathlib_dbl_underflow                  0x08007cad   Thumb Code    10  dunder.o(i.__mathlib_dbl_underflow)
-    __scatterload_copy                       0x08007cbd   Thumb Code    14  handlers.o(i.__scatterload_copy)
-    __scatterload_null                       0x08007ccb   Thumb Code     2  handlers.o(i.__scatterload_null)
-    __scatterload_zeroinit                   0x08007ccd   Thumb Code    14  handlers.o(i.__scatterload_zeroinit)
-    __set_errno                              0x08007cdd   Thumb Code     6  errno.o(i.__set_errno)
-    exp                                      0x08009e05   Thumb Code   554  exp.o(i.exp)
-    log                                      0x0800ca41   Thumb Code   808  log.o(i.log)
-    main                                     0x0800cd9d   Thumb Code   110  main.o(i.main)
-    saveNum                                  0x0800ce28   Data           2  flash.o(.constdata)
-    perTimer                                 0x0800ce2a   Data           1  flash.o(.constdata)
-    vouterSpurt                              0x0800ce4c   Data         364  speedtable.o(.constdata)
-    vinnerSpurt                              0x0800cfb8   Data         364  speedtable.o(.constdata)
-    gyroLSpurt                               0x0800d124   Data         364  speedtable.o(.constdata)
-    gyroRSpurt                               0x0800d290   Data         364  speedtable.o(.constdata)
-    vouterSearch                             0x0800d3fc   Data         454  speedtable.o(.constdata)
-    vinnerSearch                             0x0800d5c2   Data         454  speedtable.o(.constdata)
-    gyroLSearch                              0x0800d788   Data         454  speedtable.o(.constdata)
-    gyroRSearch                              0x0800d94e   Data         454  speedtable.o(.constdata)
-    gyroAround                               0x0800db14   Data         534  speedtable.o(.constdata)
-    vlAround                                 0x0800dd2a   Data         534  speedtable.o(.constdata)
-    vrAround                                 0x0800df40   Data         534  speedtable.o(.constdata)
-    gyroLPoint                               0x0800e156   Data         464  speedtable.o(.constdata)
-    gyroRPoint                               0x0800e326   Data         464  speedtable.o(.constdata)
-    vouterPoint                              0x0800e4f6   Data         464  speedtable.o(.constdata)
-    vinnerPoint                              0x0800e6c6   Data         464  speedtable.o(.constdata)
-    vouterT90Low                             0x0800e896   Data         390  speedtable.o(.constdata)
-    vinnerT90Low                             0x0800ea1c   Data         390  speedtable.o(.constdata)
-    gyroLt90Low                              0x0800eba2   Data         390  speedtable.o(.constdata)
-    gyroRt90Low                              0x0800ed28   Data         390  speedtable.o(.constdata)
-    gyroLv90Low                              0x0800eeae   Data         374  speedtable.o(.constdata)
-    gyroRv90Low                              0x0800f024   Data         374  speedtable.o(.constdata)
-    vouterV90Low                             0x0800f19a   Data         374  speedtable.o(.constdata)
-    vinnerV90Low                             0x0800f310   Data         374  speedtable.o(.constdata)
-    gyroLt45Low                              0x0800f486   Data         304  speedtable.o(.constdata)
-    gyroRt45Low                              0x0800f5b6   Data         304  speedtable.o(.constdata)
-    vouterT45Low                             0x0800f6e6   Data         304  speedtable.o(.constdata)
-    vinnerT45Low                             0x0800f816   Data         304  speedtable.o(.constdata)
-    gyroLv45Low                              0x0800f946   Data         342  speedtable.o(.constdata)
-    gyroRv45Low                              0x0800fa9c   Data         342  speedtable.o(.constdata)
-    vouterV45Low                             0x0800fbf2   Data         342  speedtable.o(.constdata)
-    vinnerV45Low                             0x0800fd48   Data         342  speedtable.o(.constdata)
-    gyroLt135Low                             0x0800fe9e   Data         604  speedtable.o(.constdata)
-    gyroRt135Low                             0x080100fa   Data         604  speedtable.o(.constdata)
-    vouterT135Low                            0x08010356   Data         604  speedtable.o(.constdata)
-    vinnerT135Low                            0x080105b2   Data         604  speedtable.o(.constdata)
-    gyroLv135Low                             0x0801080e   Data         588  speedtable.o(.constdata)
-    gyroRv135Low                             0x08010a5a   Data         588  speedtable.o(.constdata)
-    vouterV135Low                            0x08010ca6   Data         588  speedtable.o(.constdata)
-    vinnerV135Low                            0x08010ef2   Data         588  speedtable.o(.constdata)
-    vouter180Low                             0x0801113e   Data         782  speedtable.o(.constdata)
-    vinner180Low                             0x0801144c   Data         782  speedtable.o(.constdata)
-    gyroL180Low                              0x0801175a   Data         782  speedtable.o(.constdata)
-    gyroR180Low                              0x08011a68   Data         782  speedtable.o(.constdata)
-    __mathlib_zero                           0x08011fe8   Data           8  qnan.o(.constdata)
-    Region$$Table$$Base                      0x08011ff0   Number         0  anon$$obj.o(Region$$Table)
-    Region$$Table$$Limit                     0x08012010   Number         0  anon$$obj.o(Region$$Table)
+    LINK_MazeTarget                          0x08003845   Thumb Code     6  link.o(i.LINK_MazeTarget)
+    LINK_Tick                                0x08003851   Thumb Code   194  link.o(i.LINK_Tick)
+    MAZE_BreakOrNot                          0x08003941   Thumb Code    34  maze.o(i.MAZE_BreakOrNot)
+    MAZE_CoorUpdate                          0x08003969   Thumb Code    80  maze.o(i.MAZE_CoorUpdate)
+    MAZE_Init                                0x080039bd   Thumb Code    92  maze.o(i.MAZE_Init)
+    MAZE_VisitedDataGet                      0x08003abd   Thumb Code    40  maze.o(i.MAZE_VisitedDataGet)
+    MAZE_WallCheck                           0x08003ae9   Thumb Code   596  maze.o(i.MAZE_WallCheck)
+    MOTION_Acc                               0x08003d45   Thumb Code    82  motion.o(i.MOTION_Acc)
+    MOTION_After180Turn                      0x08003dad   Thumb Code   398  motion.o(i.MOTION_After180Turn)
+    MOTION_Before180Turn                     0x08003f5d   Thumb Code   192  motion.o(i.MOTION_Before180Turn)
+    MOTION_Before90Turn                      0x08004035   Thumb Code   332  motion.o(i.MOTION_Before90Turn)
+    MOTION_GoStraight                        0x08004199   Thumb Code    26  motion.o(i.MOTION_GoStraight)
+    MOTION_MouseGoahead                      0x080041bd   Thumb Code   142  motion.o(i.MOTION_MouseGoahead)
+    MOTION_MouseTurnBack                     0x08004265   Thumb Code    78  motion.o(i.MOTION_MouseTurnBack)
+    MOTION_MouseTurnBackSpecial              0x080042c1   Thumb Code    46  motion.o(i.MOTION_MouseTurnBackSpecial)
+    MOTION_MouseTurnLeft                     0x080042f9   Thumb Code   236  motion.o(i.MOTION_MouseTurnLeft)
+    MOTION_MouseTurnRight                    0x08004405   Thumb Code   236  motion.o(i.MOTION_MouseTurnRight)
+    MOTION_PointTurnLeft                     0x0800458d   Thumb Code    10  motion.o(i.MOTION_PointTurnLeft)
+    MOTION_PointTurnRight                    0x08004597   Thumb Code    10  motion.o(i.MOTION_PointTurnRight)
+    MOTION_SetAngle                          0x080045a1   Thumb Code    26  motion.o(i.MOTION_SetAngle)
+    MOTION_SetTrack                          0x080045c9   Thumb Code    16  motion.o(i.MOTION_SetTrack)
+    MOTION_Stop                              0x080045dd   Thumb Code   104  motion.o(i.MOTION_Stop)
+    MOTION_Straight90                        0x08004655   Thumb Code   136  motion.o(i.MOTION_Straight90)
+    MOTION_Turn                              0x08004bf9   Thumb Code   156  motion.o(i.MOTION_Turn)
+    MOTION_TurnAround                        0x08004ca1   Thumb Code    70  motion.o(i.MOTION_TurnAround)
+    MOTOR_EncLeftInit                        0x08004cfd   Thumb Code   186  motor.o(i.MOTOR_EncLeftInit)
+    MOTOR_EncRightInit                       0x08004dcd   Thumb Code   172  motor.o(i.MOTOR_EncRightInit)
+    MOTOR_EncSample                          0x08004e89   Thumb Code   378  motor.o(i.MOTOR_EncSample)
+    MOTOR_LeftPwm                            0x08005021   Thumb Code    96  motor.o(i.MOTOR_LeftPwm)
+    MOTOR_LoopControl                        0x0800508d   Thumb Code   250  motor.o(i.MOTOR_LoopControl)
+    MOTOR_PidCalcOut                         0x080051b1   Thumb Code   108  motor.o(i.MOTOR_PidCalcOut)
+    MOTOR_PidUpdateErr                       0x0800521d   Thumb Code    50  motor.o(i.MOTOR_PidUpdateErr)
+    MOTOR_PwmInit                            0x08005251   Thumb Code   268  motor.o(i.MOTOR_PwmInit)
+    MOTOR_RightPwm                           0x08005369   Thumb Code    96  motor.o(i.MOTOR_RightPwm)
+    MOUSE_Init                               0x080053d5   Thumb Code    20  main.o(i.MOUSE_Init)
+    MYRCC_DeInit                             0x080053e9   Thumb Code    88  sys.o(i.MYRCC_DeInit)
+    MY_NVIC_Init                             0x0800544d   Thumb Code   146  sys.o(i.MY_NVIC_Init)
+    MY_NVIC_PriorityGroupConfig              0x080054e9   Thumb Code    32  sys.o(i.MY_NVIC_PriorityGroupConfig)
+    MY_NVIC_SetVectorTable                   0x08005511   Thumb Code    12  sys.o(i.MY_NVIC_SetVectorTable)
+    ODOM_Sample                              0x08005525   Thumb Code   812  odom.o(i.ODOM_Sample)
+    PATH_Fastway4Dir                         0x08005865   Thumb Code  1408  path.o(i.PATH_Fastway4Dir)
+    SAFETY_Monitor                           0x08005ded   Thumb Code   600  safety.o(i.SAFETY_Monitor)
+    SEARCH_HasWall                           0x08006079   Thumb Code   160  search.o(i.SEARCH_HasWall)
+    SEARCH_Init                              0x08006131   Thumb Code    38  search.o(i.SEARCH_Init)
+    SEARCH_NoWall                            0x0800615d   Thumb Code   176  search.o(i.SEARCH_NoWall)
+    SEARCH_Search                            0x08006229   Thumb Code   150  search.o(i.SEARCH_Search)
+    SPURT_Action90                           0x080062d9   Thumb Code   602  spurt.o(i.SPURT_Action90)
+    SPURT_ActionGenerate90                   0x08006555   Thumb Code   704  spurt.o(i.SPURT_ActionGenerate90)
+    SPURT_BeforeTurnL                        0x08006825   Thumb Code    44  spurt.o(i.SPURT_BeforeTurnL)
+    SPURT_BeforeTurnR                        0x0800685d   Thumb Code    44  spurt.o(i.SPURT_BeforeTurnR)
+    SPURT_GainSet90                          0x08006895   Thumb Code    74  spurt.o(i.SPURT_GainSet90)
+    SPURT_Init                               0x08006905   Thumb Code    70  spurt.o(i.SPURT_Init)
+    SPURT_ObjectGoTo                         0x08006959   Thumb Code   390  spurt.o(i.SPURT_ObjectGoTo)
+    SPURT_TurnLeft                           0x08006ae5   Thumb Code   164  spurt.o(i.SPURT_TurnLeft)
+    SPURT_TurnRight                          0x08006ba5   Thumb Code   164  spurt.o(i.SPURT_TurnRight)
+    STATE_DetermineGoaheadNum                0x08006c65   Thumb Code     2  state.o(i.STATE_DetermineGoaheadNum)
+    STATE_LoadMapAndSelectSpeed              0x08006c69   Thumb Code   328  state.o(i.STATE_LoadMapAndSelectSpeed)
+    STATE_MazeSearch                         0x08006dc9   Thumb Code  1470  state.o(i.STATE_MazeSearch)
+    STATE_ReturnSearch                       0x08007399   Thumb Code  1234  state.o(i.STATE_ReturnSearch)
+    SYS_ClockInit                            0x08007875   Thumb Code   128  sys.o(i.SYS_ClockInit)
+    SysTick_Handler                          0x080078fd   Thumb Code   354  isr.o(i.SysTick_Handler)
+    Sys_Soft_Reset                           0x08007a7d   Thumb Code     8  sys.o(i.Sys_Soft_Reset)
+    USART1_IRQHandler                        0x08007aa5   Thumb Code   118  usart.o(i.USART1_IRQHandler)
+    USART_Init                               0x08007b29   Thumb Code   126  usart.o(i.USART_Init)
+    __ARM_fpclassify                         0x08007bb5   Thumb Code    40  fpclassify.o(i.__ARM_fpclassify)
+    __kernel_poly                            0x08007bdd   Thumb Code   170  poly.o(i.__kernel_poly)
+    __mathlib_dbl_divzero                    0x08007c89   Thumb Code    12  dunder.o(i.__mathlib_dbl_divzero)
+    __mathlib_dbl_infnan                     0x08007c99   Thumb Code     6  dunder.o(i.__mathlib_dbl_infnan)
+    __mathlib_dbl_invalid                    0x08007c9f   Thumb Code    12  dunder.o(i.__mathlib_dbl_invalid)
+    __mathlib_dbl_overflow                   0x08007cab   Thumb Code    14  dunder.o(i.__mathlib_dbl_overflow)
+    __mathlib_dbl_underflow                  0x08007cb9   Thumb Code    10  dunder.o(i.__mathlib_dbl_underflow)
+    __scatterload_copy                       0x08007cc9   Thumb Code    14  handlers.o(i.__scatterload_copy)
+    __scatterload_null                       0x08007cd7   Thumb Code     2  handlers.o(i.__scatterload_null)
+    __scatterload_zeroinit                   0x08007cd9   Thumb Code    14  handlers.o(i.__scatterload_zeroinit)
+    __set_errno                              0x08007ce9   Thumb Code     6  errno.o(i.__set_errno)
+    exp                                      0x08009e11   Thumb Code   554  exp.o(i.exp)
+    log                                      0x0800ca8d   Thumb Code   808  log.o(i.log)
+    main                                     0x0800cde9   Thumb Code   126  main.o(i.main)
+    saveNum                                  0x0800ce84   Data           2  flash.o(.constdata)
+    perTimer                                 0x0800ce86   Data           1  flash.o(.constdata)
+    vouterSpurt                              0x0800cea8   Data         364  speedtable.o(.constdata)
+    vinnerSpurt                              0x0800d014   Data         364  speedtable.o(.constdata)
+    gyroLSpurt                               0x0800d180   Data         364  speedtable.o(.constdata)
+    gyroRSpurt                               0x0800d2ec   Data         364  speedtable.o(.constdata)
+    vouterSearch                             0x0800d458   Data         454  speedtable.o(.constdata)
+    vinnerSearch                             0x0800d61e   Data         454  speedtable.o(.constdata)
+    gyroLSearch                              0x0800d7e4   Data         454  speedtable.o(.constdata)
+    gyroRSearch                              0x0800d9aa   Data         454  speedtable.o(.constdata)
+    gyroAround                               0x0800db70   Data         534  speedtable.o(.constdata)
+    vlAround                                 0x0800dd86   Data         534  speedtable.o(.constdata)
+    vrAround                                 0x0800df9c   Data         534  speedtable.o(.constdata)
+    gyroLPoint                               0x0800e1b2   Data         464  speedtable.o(.constdata)
+    gyroRPoint                               0x0800e382   Data         464  speedtable.o(.constdata)
+    vouterPoint                              0x0800e552   Data         464  speedtable.o(.constdata)
+    vinnerPoint                              0x0800e722   Data         464  speedtable.o(.constdata)
+    vouterT90Low                             0x0800e8f2   Data         390  speedtable.o(.constdata)
+    vinnerT90Low                             0x0800ea78   Data         390  speedtable.o(.constdata)
+    gyroLt90Low                              0x0800ebfe   Data         390  speedtable.o(.constdata)
+    gyroRt90Low                              0x0800ed84   Data         390  speedtable.o(.constdata)
+    gyroLv90Low                              0x0800ef0a   Data         374  speedtable.o(.constdata)
+    gyroRv90Low                              0x0800f080   Data         374  speedtable.o(.constdata)
+    vouterV90Low                             0x0800f1f6   Data         374  speedtable.o(.constdata)
+    vinnerV90Low                             0x0800f36c   Data         374  speedtable.o(.constdata)
+    gyroLt45Low                              0x0800f4e2   Data         304  speedtable.o(.constdata)
+    gyroRt45Low                              0x0800f612   Data         304  speedtable.o(.constdata)
+    vouterT45Low                             0x0800f742   Data         304  speedtable.o(.constdata)
+    vinnerT45Low                             0x0800f872   Data         304  speedtable.o(.constdata)
+    gyroLv45Low                              0x0800f9a2   Data         342  speedtable.o(.constdata)
+    gyroRv45Low                              0x0800faf8   Data         342  speedtable.o(.constdata)
+    vouterV45Low                             0x0800fc4e   Data         342  speedtable.o(.constdata)
+    vinnerV45Low                             0x0800fda4   Data         342  speedtable.o(.constdata)
+    gyroLt135Low                             0x0800fefa   Data         604  speedtable.o(.constdata)
+    gyroRt135Low                             0x08010156   Data         604  speedtable.o(.constdata)
+    vouterT135Low                            0x080103b2   Data         604  speedtable.o(.constdata)
+    vinnerT135Low                            0x0801060e   Data         604  speedtable.o(.constdata)
+    gyroLv135Low                             0x0801086a   Data         588  speedtable.o(.constdata)
+    gyroRv135Low                             0x08010ab6   Data         588  speedtable.o(.constdata)
+    vouterV135Low                            0x08010d02   Data         588  speedtable.o(.constdata)
+    vinnerV135Low                            0x08010f4e   Data         588  speedtable.o(.constdata)
+    vouter180Low                             0x0801119a   Data         782  speedtable.o(.constdata)
+    vinner180Low                             0x080114a8   Data         782  speedtable.o(.constdata)
+    gyroL180Low                              0x080117b6   Data         782  speedtable.o(.constdata)
+    gyroR180Low                              0x08011ac4   Data         782  speedtable.o(.constdata)
+    __mathlib_zero                           0x08012048   Data           8  qnan.o(.constdata)
+    Region$$Table$$Base                      0x08012050   Number         0  anon$$obj.o(Region$$Table)
+    Region$$Table$$Limit                     0x08012070   Number         0  anon$$obj.o(Region$$Table)
     taskSt                                   0x20000000   Data           4  main.o(.data)
     flashaddr                                0x20000004   Data           2  main.o(.data)
     spurtmode                                0x20000014   Data           1  state.o(.data)
@@ -2629,331 +2629,333 @@ Memory Map of the image
 
   Image Entry point : 0x080000ed
 
-  Load Region LR_IROM1 (Base: 0x08000000, Size: 0x0001287c, Max: 0x00019400, ABSOLUTE, COMPRESSED[0x000125cc])
+  Load Region LR_IROM1 (Base: 0x08000000, Size: 0x000128dc, Max: 0x00019400, ABSOLUTE, COMPRESSED[0x0001262c])
 
-    Execution Region ER_IROM1 (Exec base: 0x08000000, Load base: 0x08000000, Size: 0x00012010, Max: 0x00019400, ABSOLUTE)
+    Execution Region ER_IROM1 (Exec base: 0x08000000, Load base: 0x08000000, Size: 0x00012070, Max: 0x00019400, ABSOLUTE)
 
     Exec Addr    Load Addr    Size         Type   Attr      Idx    E Section Name        Object
 
-    0x08000000   0x08000000   0x000000ec   Data   RO          187    RESET               stm32f10x.o
-    0x080000ec   0x080000ec   0x00000000   Code   RO         2265  * .ARM.Collect$$$$00000000  mc_w.l(entry.o)
-    0x080000ec   0x080000ec   0x00000004   Code   RO         2592    .ARM.Collect$$$$00000001  mc_w.l(entry2.o)
-    0x080000f0   0x080000f0   0x00000004   Code   RO         2595    .ARM.Collect$$$$00000004  mc_w.l(entry5.o)
-    0x080000f4   0x080000f4   0x00000000   Code   RO         2597    .ARM.Collect$$$$00000008  mc_w.l(entry7b.o)
-    0x080000f4   0x080000f4   0x00000000   Code   RO         2599    .ARM.Collect$$$$0000000A  mc_w.l(entry8b.o)
-    0x080000f4   0x080000f4   0x00000008   Code   RO         2600    .ARM.Collect$$$$0000000B  mc_w.l(entry9a.o)
-    0x080000fc   0x080000fc   0x00000000   Code   RO         2602    .ARM.Collect$$$$0000000D  mc_w.l(entry10a.o)
-    0x080000fc   0x080000fc   0x00000000   Code   RO         2604    .ARM.Collect$$$$0000000F  mc_w.l(entry11a.o)
-    0x080000fc   0x080000fc   0x00000004   Code   RO         2593    .ARM.Collect$$$$00002712  mc_w.l(entry2.o)
-    0x08000100   0x08000100   0x0000001c   Code   RO          188    .text               stm32f10x.o
-    0x0800011c   0x0800011c   0x0000000e   Code   RO         2268    .text               mc_w.l(strlen.o)
-    0x0800012a   0x0800012a   0x0000001c   Code   RO         2270    .text               mc_w.l(strcmp.o)
-    0x08000146   0x08000146   0x0000001e   Code   RO         2272    .text               mc_w.l(strncmp.o)
-    0x08000164   0x08000164   0x000000b0   Code   RO         2535    .text               mf_w.l(fadd.o)
-    0x08000214   0x08000214   0x00000064   Code   RO         2537    .text               mf_w.l(fmul.o)
-    0x08000278   0x08000278   0x0000007c   Code   RO         2539    .text               mf_w.l(fdiv.o)
-    0x080002f4   0x080002f4   0x0000014e   Code   RO         2541    .text               mf_w.l(dadd.o)
-    0x08000442   0x08000442   0x000000e4   Code   RO         2543    .text               mf_w.l(dmul.o)
-    0x08000526   0x08000526   0x000000de   Code   RO         2545    .text               mf_w.l(ddiv.o)
-    0x08000604   0x08000604   0x00000012   Code   RO         2547    .text               mf_w.l(fflti.o)
-    0x08000616   0x08000616   0x0000000a   Code   RO         2549    .text               mf_w.l(ffltui.o)
-    0x08000620   0x08000620   0x00000022   Code   RO         2551    .text               mf_w.l(dflti.o)
-    0x08000642   0x08000642   0x0000001a   Code   RO         2553    .text               mf_w.l(dfltui.o)
-    0x0800065c   0x0800065c   0x00000032   Code   RO         2555    .text               mf_w.l(ffixi.o)
-    0x0800068e   0x0800068e   0x00000028   Code   RO         2557    .text               mf_w.l(ffixui.o)
-    0x080006b6   0x080006b6   0x0000003e   Code   RO         2559    .text               mf_w.l(dfixi.o)
-    0x080006f4   0x080006f4   0x00000032   Code   RO         2561    .text               mf_w.l(dfixui.o)
-    0x08000726   0x08000726   0x00000026   Code   RO         2563    .text               mf_w.l(f2d.o)
-    0x0800074c   0x0800074c   0x00000030   Code   RO         2565    .text               mf_w.l(cdcmple.o)
-    0x0800077c   0x0800077c   0x00000030   Code   RO         2567    .text               mf_w.l(cdrcmple.o)
-    0x080007ac   0x080007ac   0x00000014   Code   RO         2569    .text               mf_w.l(cfcmple.o)
-    0x080007c0   0x080007c0   0x00000014   Code   RO         2571    .text               mf_w.l(cfrcmple.o)
-    0x080007d4   0x080007d4   0x0000001e   Code   RO         2610    .text               mc_w.l(llshl.o)
-    0x080007f2   0x080007f2   0x00000020   Code   RO         2612    .text               mc_w.l(llushr.o)
-    0x08000812   0x08000812   0x00000024   Code   RO         2614    .text               mc_w.l(llsshr.o)
-    0x08000836   0x08000836   0x00000000   Code   RO         2623    .text               mc_w.l(iusefp.o)
-    0x08000836   0x08000836   0x0000006e   Code   RO         2624    .text               mf_w.l(fepilogue.o)
-    0x080008a4   0x080008a4   0x000000ba   Code   RO         2626    .text               mf_w.l(depilogue.o)
-    0x0800095e   0x0800095e   0x0000002e   Code   RO         2628    .text               mf_w.l(dscalb.o)
-    0x0800098c   0x0800098c   0x00000024   Code   RO         2632    .text               mc_w.l(init.o)
-    0x080009b0   0x080009b0   0x0000005e   Code   RO         2642    .text               mc_w.l(__dclz77c.o)
+    0x08000000   0x08000000   0x000000ec   Data   RO          184    RESET               stm32f10x.o
+    0x080000ec   0x080000ec   0x00000000   Code   RO         2250  * .ARM.Collect$$$$00000000  mc_w.l(entry.o)
+    0x080000ec   0x080000ec   0x00000004   Code   RO         2577    .ARM.Collect$$$$00000001  mc_w.l(entry2.o)
+    0x080000f0   0x080000f0   0x00000004   Code   RO         2580    .ARM.Collect$$$$00000004  mc_w.l(entry5.o)
+    0x080000f4   0x080000f4   0x00000000   Code   RO         2582    .ARM.Collect$$$$00000008  mc_w.l(entry7b.o)
+    0x080000f4   0x080000f4   0x00000000   Code   RO         2584    .ARM.Collect$$$$0000000A  mc_w.l(entry8b.o)
+    0x080000f4   0x080000f4   0x00000008   Code   RO         2585    .ARM.Collect$$$$0000000B  mc_w.l(entry9a.o)
+    0x080000fc   0x080000fc   0x00000000   Code   RO         2587    .ARM.Collect$$$$0000000D  mc_w.l(entry10a.o)
+    0x080000fc   0x080000fc   0x00000000   Code   RO         2589    .ARM.Collect$$$$0000000F  mc_w.l(entry11a.o)
+    0x080000fc   0x080000fc   0x00000004   Code   RO         2578    .ARM.Collect$$$$00002712  mc_w.l(entry2.o)
+    0x08000100   0x08000100   0x0000001c   Code   RO          185    .text               stm32f10x.o
+    0x0800011c   0x0800011c   0x0000000e   Code   RO         2253    .text               mc_w.l(strlen.o)
+    0x0800012a   0x0800012a   0x0000001c   Code   RO         2255    .text               mc_w.l(strcmp.o)
+    0x08000146   0x08000146   0x0000001e   Code   RO         2257    .text               mc_w.l(strncmp.o)
+    0x08000164   0x08000164   0x000000b0   Code   RO         2520    .text               mf_w.l(fadd.o)
+    0x08000214   0x08000214   0x00000064   Code   RO         2522    .text               mf_w.l(fmul.o)
+    0x08000278   0x08000278   0x0000007c   Code   RO         2524    .text               mf_w.l(fdiv.o)
+    0x080002f4   0x080002f4   0x0000014e   Code   RO         2526    .text               mf_w.l(dadd.o)
+    0x08000442   0x08000442   0x000000e4   Code   RO         2528    .text               mf_w.l(dmul.o)
+    0x08000526   0x08000526   0x000000de   Code   RO         2530    .text               mf_w.l(ddiv.o)
+    0x08000604   0x08000604   0x00000012   Code   RO         2532    .text               mf_w.l(fflti.o)
+    0x08000616   0x08000616   0x0000000a   Code   RO         2534    .text               mf_w.l(ffltui.o)
+    0x08000620   0x08000620   0x00000022   Code   RO         2536    .text               mf_w.l(dflti.o)
+    0x08000642   0x08000642   0x0000001a   Code   RO         2538    .text               mf_w.l(dfltui.o)
+    0x0800065c   0x0800065c   0x00000032   Code   RO         2540    .text               mf_w.l(ffixi.o)
+    0x0800068e   0x0800068e   0x00000028   Code   RO         2542    .text               mf_w.l(ffixui.o)
+    0x080006b6   0x080006b6   0x0000003e   Code   RO         2544    .text               mf_w.l(dfixi.o)
+    0x080006f4   0x080006f4   0x00000032   Code   RO         2546    .text               mf_w.l(dfixui.o)
+    0x08000726   0x08000726   0x00000026   Code   RO         2548    .text               mf_w.l(f2d.o)
+    0x0800074c   0x0800074c   0x00000030   Code   RO         2550    .text               mf_w.l(cdcmple.o)
+    0x0800077c   0x0800077c   0x00000030   Code   RO         2552    .text               mf_w.l(cdrcmple.o)
+    0x080007ac   0x080007ac   0x00000014   Code   RO         2554    .text               mf_w.l(cfcmple.o)
+    0x080007c0   0x080007c0   0x00000014   Code   RO         2556    .text               mf_w.l(cfrcmple.o)
+    0x080007d4   0x080007d4   0x0000001e   Code   RO         2595    .text               mc_w.l(llshl.o)
+    0x080007f2   0x080007f2   0x00000020   Code   RO         2597    .text               mc_w.l(llushr.o)
+    0x08000812   0x08000812   0x00000024   Code   RO         2599    .text               mc_w.l(llsshr.o)
+    0x08000836   0x08000836   0x00000000   Code   RO         2608    .text               mc_w.l(iusefp.o)
+    0x08000836   0x08000836   0x0000006e   Code   RO         2609    .text               mf_w.l(fepilogue.o)
+    0x080008a4   0x080008a4   0x000000ba   Code   RO         2611    .text               mf_w.l(depilogue.o)
+    0x0800095e   0x0800095e   0x0000002e   Code   RO         2613    .text               mf_w.l(dscalb.o)
+    0x0800098c   0x0800098c   0x00000024   Code   RO         2617    .text               mc_w.l(init.o)
+    0x080009b0   0x080009b0   0x0000005e   Code   RO         2627    .text               mc_w.l(__dclz77c.o)
     0x08000a0e   0x08000a0e   0x00000002   PAD
-    0x08000a10   0x08000a10   0x00000044   Code   RO          685    i.ADC_Get           adc.o
-    0x08000a54   0x08000a54   0x000001b0   Code   RO          686    i.ADC_Init          adc.o
-    0x08000c04   0x08000c04   0x00000364   Code   RO          322    i.CALIB_InitIr      calibrate.o
-    0x08000f68   0x08000f68   0x00000114   Code   RO          653    i.CORE_Init         core.o
-    0x0800107c   0x0800107c   0x00000034   Code   RO          486    i.DELAY_Init        delay.o
-    0x080010b0   0x080010b0   0x00000058   Code   RO          487    i.DELAY_Ms          delay.o
-    0x08001108   0x08001108   0x00000044   Code   RO          488    i.DELAY_Us          delay.o
-    0x0800114c   0x0800114c   0x00000194   Code   RO         2147    i.EXPLORE_BackPointChoice  explore.o
-    0x080012e0   0x080012e0   0x000001a4   Code   RO         2148    i.EXPLORE_CentralMethod  explore.o
-    0x08001484   0x08001484   0x0000009c   Code   RO         2149    i.EXPLORE_CrosswayCheck  explore.o
-    0x08001520   0x08001520   0x00000084   Code   RO         2150    i.EXPLORE_CrosswayChoice  explore.o
-    0x080015a4   0x080015a4   0x00000124   Code   RO         2151    i.EXPLORE_DeadwayCheck  explore.o
-    0x080016c8   0x080016c8   0x000000e4   Code   RO         2152    i.EXPLORE_GoalWallChange  explore.o
-    0x080017ac   0x080017ac   0x000000b4   Code   RO         2153    i.EXPLORE_StepGet   explore.o
-    0x08001860   0x08001860   0x00000068   Code   RO         2154    i.EXPLORE_WallFollowFrontLeft  explore.o
-    0x080018c8   0x080018c8   0x00000068   Code   RO         2155    i.EXPLORE_WallFollowFrontRight  explore.o
-    0x08001930   0x08001930   0x00000068   Code   RO         2156    i.EXPLORE_WallFollowLeft  explore.o
-    0x08001998   0x08001998   0x00000068   Code   RO         2157    i.EXPLORE_WallFollowLeftRight  explore.o
-    0x08001a00   0x08001a00   0x00000068   Code   RO         2158    i.EXPLORE_WallFollowRight  explore.o
-    0x08001a68   0x08001a68   0x00000068   Code   RO         2159    i.EXPLORE_WallFollowRightLeft  explore.o
-    0x08001ad0   0x08001ad0   0x00000048   Code   RO         2160    i.EXPLORE_WallFollowStep  explore.o
-    0x08001b18   0x08001b18   0x0000000c   Code   RO          925    i.FLASH_BlockWrite  flash.o
-    0x08001b24   0x08001b24   0x0000004c   Code   RO          926    i.FLASH_ErasePage   flash.o
-    0x08001b70   0x08001b70   0x00000048   Code   RO          927    i.FLASH_EraseRunData  flash.o
-    0x08001bb8   0x08001bb8   0x0000002c   Code   RO          928    i.FLASH_GetStatus   flash.o
-    0x08001be4   0x08001be4   0x00000014   Code   RO          929    i.FLASH_Lock        flash.o
-    0x08001bf8   0x08001bf8   0x00000008   Code   RO          931    i.FLASH_ReadHalfWord  flash.o
-    0x08001c00   0x08001c00   0x00000174   Code   RO          932    i.FLASH_SaveBlockData  flash.o
-    0x08001d74   0x08001d74   0x00000018   Code   RO          935    i.FLASH_Unlock      flash.o
-    0x08001d8c   0x08001d8c   0x0000002a   Code   RO          936    i.FLASH_WaitDone    flash.o
+    0x08000a10   0x08000a10   0x00000044   Code   RO          664    i.ADC_Get           adc.o
+    0x08000a54   0x08000a54   0x000001b0   Code   RO          665    i.ADC_Init          adc.o
+    0x08000c04   0x08000c04   0x00000364   Code   RO          319    i.CALIB_InitIr      calibrate.o
+    0x08000f68   0x08000f68   0x00000114   Code   RO          632    i.CORE_Init         core.o
+    0x0800107c   0x0800107c   0x00000034   Code   RO          465    i.DELAY_Init        delay.o
+    0x080010b0   0x080010b0   0x00000058   Code   RO          466    i.DELAY_Ms          delay.o
+    0x08001108   0x08001108   0x00000044   Code   RO          467    i.DELAY_Us          delay.o
+    0x0800114c   0x0800114c   0x00000194   Code   RO         2132    i.EXPLORE_BackPointChoice  explore.o
+    0x080012e0   0x080012e0   0x000001a4   Code   RO         2133    i.EXPLORE_CentralMethod  explore.o
+    0x08001484   0x08001484   0x0000009c   Code   RO         2134    i.EXPLORE_CrosswayCheck  explore.o
+    0x08001520   0x08001520   0x00000084   Code   RO         2135    i.EXPLORE_CrosswayChoice  explore.o
+    0x080015a4   0x080015a4   0x00000124   Code   RO         2136    i.EXPLORE_DeadwayCheck  explore.o
+    0x080016c8   0x080016c8   0x000000e4   Code   RO         2137    i.EXPLORE_GoalWallChange  explore.o
+    0x080017ac   0x080017ac   0x000000b4   Code   RO         2138    i.EXPLORE_StepGet   explore.o
+    0x08001860   0x08001860   0x00000068   Code   RO         2139    i.EXPLORE_WallFollowFrontLeft  explore.o
+    0x080018c8   0x080018c8   0x00000068   Code   RO         2140    i.EXPLORE_WallFollowFrontRight  explore.o
+    0x08001930   0x08001930   0x00000068   Code   RO         2141    i.EXPLORE_WallFollowLeft  explore.o
+    0x08001998   0x08001998   0x00000068   Code   RO         2142    i.EXPLORE_WallFollowLeftRight  explore.o
+    0x08001a00   0x08001a00   0x00000068   Code   RO         2143    i.EXPLORE_WallFollowRight  explore.o
+    0x08001a68   0x08001a68   0x00000068   Code   RO         2144    i.EXPLORE_WallFollowRightLeft  explore.o
+    0x08001ad0   0x08001ad0   0x00000048   Code   RO         2145    i.EXPLORE_WallFollowStep  explore.o
+    0x08001b18   0x08001b18   0x0000000c   Code   RO          904    i.FLASH_BlockWrite  flash.o
+    0x08001b24   0x08001b24   0x0000004c   Code   RO          905    i.FLASH_ErasePage   flash.o
+    0x08001b70   0x08001b70   0x00000048   Code   RO          906    i.FLASH_EraseRunData  flash.o
+    0x08001bb8   0x08001bb8   0x0000002c   Code   RO          907    i.FLASH_GetStatus   flash.o
+    0x08001be4   0x08001be4   0x00000014   Code   RO          908    i.FLASH_Lock        flash.o
+    0x08001bf8   0x08001bf8   0x00000008   Code   RO          910    i.FLASH_ReadHalfWord  flash.o
+    0x08001c00   0x08001c00   0x00000174   Code   RO          911    i.FLASH_SaveBlockData  flash.o
+    0x08001d74   0x08001d74   0x00000018   Code   RO          914    i.FLASH_Unlock      flash.o
+    0x08001d8c   0x08001d8c   0x0000002a   Code   RO          915    i.FLASH_WaitDone    flash.o
     0x08001db6   0x08001db6   0x00000002   PAD
-    0x08001db8   0x08001db8   0x00000044   Code   RO          937    i.FLASH_WriteData   flash.o
-    0x08001dfc   0x08001dfc   0x00000040   Code   RO          938    i.FLASH_WriteHalfWord  flash.o
-    0x08001e3c   0x08001e3c   0x000001e0   Code   RO         2069    i.FLOODFILL_Close   floodfill.o
-    0x0800201c   0x0800201c   0x00000038   Code   RO         2070    i.FLOODFILL_CloseCopy  floodfill.o
-    0x08002054   0x08002054   0x00000290   Code   RO         2071    i.FLOODFILL_Open    floodfill.o
-    0x080022e4   0x080022e4   0x00000038   Code   RO         2072    i.FLOODFILL_OpenCopy  floodfill.o
-    0x0800231c   0x0800231c   0x0000011c   Code   RO         1188    i.GYRO_Init         gyro.o
-    0x08002438   0x08002438   0x000000bc   Code   RO         1189    i.GYRO_Sample       gyro.o
+    0x08001db8   0x08001db8   0x00000044   Code   RO          916    i.FLASH_WriteData   flash.o
+    0x08001dfc   0x08001dfc   0x00000040   Code   RO          917    i.FLASH_WriteHalfWord  flash.o
+    0x08001e3c   0x08001e3c   0x000001e0   Code   RO         2054    i.FLOODFILL_Close   floodfill.o
+    0x0800201c   0x0800201c   0x00000038   Code   RO         2055    i.FLOODFILL_CloseCopy  floodfill.o
+    0x08002054   0x08002054   0x00000290   Code   RO         2056    i.FLOODFILL_Open    floodfill.o
+    0x080022e4   0x080022e4   0x00000038   Code   RO         2057    i.FLOODFILL_OpenCopy  floodfill.o
+    0x0800231c   0x0800231c   0x0000011c   Code   RO         1167    i.GYRO_Init         gyro.o
+    0x08002438   0x08002438   0x000000bc   Code   RO         1168    i.GYRO_Sample       gyro.o
     0x080024f4   0x080024f4   0x00000034   Code   RO            4    i.HARDWARE_Init     main.o
-    0x08002528   0x08002528   0x000000b0   Code   RO          715    i.IR_CheckValue     irs.o
-    0x080025d8   0x080025d8   0x00000080   Code   RO          716    i.IR_CurveFit       irs.o
-    0x08002658   0x08002658   0x000000a4   Code   RO          717    i.IR_FindDis        irs.o
-    0x080026fc   0x080026fc   0x00000608   Code   RO          718    i.IR_GetDistance    irs.o
-    0x08002d04   0x08002d04   0x00000064   Code   RO          720    i.IR_InfCorrect     irs.o
-    0x08002d68   0x08002d68   0x000000bc   Code   RO          721    i.IR_Init           irs.o
-    0x08002e24   0x08002e24   0x00000098   Code   RO         1035    i.ISR_Init          isr.o
-    0x08002ebc   0x08002ebc   0x00000080   Code   RO          871    i.LED_Init          led.o
-    0x08002f3c   0x08002f3c   0x000000a4   Code   RO          872    i.LED_Off           led.o
-    0x08002fe0   0x08002fe0   0x000000a4   Code   RO          873    i.LED_On            led.o
-    0x08003084   0x08003084   0x000002a8   Code   RO          383    i.LESSON_Blind8     lesson.o
-    0x0800332c   0x0800332c   0x00000300   Code   RO          386    i.LESSON_ISR        lesson.o
-    0x0800362c   0x0800362c   0x00000048   Code   RO         1274    i.LINK_EStopTrip    link.o
-    0x08003674   0x08003674   0x00000194   Code   RO         1275    i.LINK_Init         link.o
-    0x08003808   0x08003808   0x0000000c   Code   RO         1276    i.LINK_MazeAbortRequested  link.o
-    0x08003814   0x08003814   0x0000000c   Code   RO         1277    i.LINK_MazeFinished  link.o
-    0x08003820   0x08003820   0x0000000c   Code   RO         1278    i.LINK_MazeRequested  link.o
-    0x0800382c   0x0800382c   0x00000018   Code   RO         1279    i.LINK_MazeStarted  link.o
-    0x08003844   0x08003844   0x000000f0   Code   RO         1281    i.LINK_Tick         link.o
-    0x08003934   0x08003934   0x00000028   Code   RO         1992    i.MAZE_BreakOrNot   maze.o
-    0x0800395c   0x0800395c   0x00000054   Code   RO         1993    i.MAZE_CoorUpdate   maze.o
-    0x080039b0   0x080039b0   0x00000060   Code   RO         1995    i.MAZE_Init         maze.o
-    0x08003a10   0x08003a10   0x000000a0   Code   RO         1996    i.MAZE_NeighborCoor  maze.o
-    0x08003ab0   0x08003ab0   0x0000002c   Code   RO         1998    i.MAZE_VisitedDataGet  maze.o
-    0x08003adc   0x08003adc   0x0000025c   Code   RO         1999    i.MAZE_WallCheck    maze.o
-    0x08003d38   0x08003d38   0x00000068   Code   RO         1636    i.MOTION_Acc        motion.o
-    0x08003da0   0x08003da0   0x000001b0   Code   RO         1637    i.MOTION_After180Turn  motion.o
-    0x08003f50   0x08003f50   0x000000d8   Code   RO         1638    i.MOTION_Before180Turn  motion.o
-    0x08004028   0x08004028   0x00000164   Code   RO         1639    i.MOTION_Before90Turn  motion.o
-    0x0800418c   0x0800418c   0x00000024   Code   RO         1641    i.MOTION_GoStraight  motion.o
-    0x080041b0   0x080041b0   0x000000a8   Code   RO         1642    i.MOTION_MouseGoahead  motion.o
-    0x08004258   0x08004258   0x0000005c   Code   RO         1644    i.MOTION_MouseTurnBack  motion.o
-    0x080042b4   0x080042b4   0x00000038   Code   RO         1645    i.MOTION_MouseTurnBackSpecial  motion.o
-    0x080042ec   0x080042ec   0x0000010c   Code   RO         1646    i.MOTION_MouseTurnLeft  motion.o
-    0x080043f8   0x080043f8   0x0000010c   Code   RO         1647    i.MOTION_MouseTurnRight  motion.o
-    0x08004504   0x08004504   0x0000007c   Code   RO         1648    i.MOTION_PointTurnExec  motion.o
-    0x08004580   0x08004580   0x0000000a   Code   RO         1649    i.MOTION_PointTurnLeft  motion.o
-    0x0800458a   0x0800458a   0x0000000a   Code   RO         1650    i.MOTION_PointTurnRight  motion.o
-    0x08004594   0x08004594   0x00000028   Code   RO         1651    i.MOTION_SetAngle   motion.o
-    0x080045bc   0x080045bc   0x00000014   Code   RO         1652    i.MOTION_SetTrack   motion.o
-    0x080045d0   0x080045d0   0x00000078   Code   RO         1655    i.MOTION_Stop       motion.o
-    0x08004648   0x08004648   0x000000a8   Code   RO         1657    i.MOTION_Straight90  motion.o
-    0x080046f0   0x080046f0   0x00000370   Code   RO         1658    i.MOTION_Straight90CalcSpeed  motion.o
-    0x08004a60   0x08004a60   0x0000018c   Code   RO         1659    i.MOTION_Straight90SetGainAndParam  motion.o
-    0x08004bec   0x08004bec   0x000000a8   Code   RO         1660    i.MOTION_Turn       motion.o
-    0x08004c94   0x08004c94   0x0000005c   Code   RO         1661    i.MOTION_TurnAround  motion.o
-    0x08004cf0   0x08004cf0   0x000000d0   Code   RO          787    i.MOTOR_EncLeftInit  motor.o
-    0x08004dc0   0x08004dc0   0x000000bc   Code   RO          788    i.MOTOR_EncRightInit  motor.o
-    0x08004e7c   0x08004e7c   0x00000198   Code   RO          789    i.MOTOR_EncSample   motor.o
-    0x08005014   0x08005014   0x0000006c   Code   RO          790    i.MOTOR_LeftPwm     motor.o
-    0x08005080   0x08005080   0x00000124   Code   RO          791    i.MOTOR_LoopControl  motor.o
-    0x080051a4   0x080051a4   0x0000006c   Code   RO          792    i.MOTOR_PidCalcOut  motor.o
-    0x08005210   0x08005210   0x00000032   Code   RO          794    i.MOTOR_PidUpdateErr  motor.o
-    0x08005242   0x08005242   0x00000002   PAD
-    0x08005244   0x08005244   0x00000118   Code   RO          795    i.MOTOR_PwmInit     motor.o
-    0x0800535c   0x0800535c   0x0000006c   Code   RO          796    i.MOTOR_RightPwm    motor.o
-    0x080053c8   0x080053c8   0x00000014   Code   RO            5    i.MOUSE_Init        main.o
-    0x080053dc   0x080053dc   0x00000064   Code   RO          524    i.MYRCC_DeInit      sys.o
-    0x08005440   0x08005440   0x0000009c   Code   RO          525    i.MY_NVIC_Init      sys.o
-    0x080054dc   0x080054dc   0x00000028   Code   RO          526    i.MY_NVIC_PriorityGroupConfig  sys.o
-    0x08005504   0x08005504   0x00000014   Code   RO          527    i.MY_NVIC_SetVectorTable  sys.o
-    0x08005518   0x08005518   0x00000340   Code   RO         1225    i.ODOM_Sample       odom.o
-    0x08005858   0x08005858   0x00000588   Code   RO         2112    i.PATH_Fastway4Dir  path.o
-    0x08005de0   0x08005de0   0x0000028c   Code   RO         1249    i.SAFETY_Monitor    safety.o
-    0x0800606c   0x0800606c   0x000000b8   Code   RO         1814    i.SEARCH_HasWall    search.o
-    0x08006124   0x08006124   0x0000002c   Code   RO         1815    i.SEARCH_Init       search.o
-    0x08006150   0x08006150   0x000000cc   Code   RO         1816    i.SEARCH_NoWall     search.o
-    0x0800621c   0x0800621c   0x000000b0   Code   RO         1817    i.SEARCH_Search     search.o
-    0x080062cc   0x080062cc   0x0000027c   Code   RO         1863    i.SPURT_Action90    spurt.o
-    0x08006548   0x08006548   0x000002d0   Code   RO         1865    i.SPURT_ActionGenerate90  spurt.o
-    0x08006818   0x08006818   0x00000038   Code   RO         1867    i.SPURT_BeforeTurnL  spurt.o
-    0x08006850   0x08006850   0x00000038   Code   RO         1868    i.SPURT_BeforeTurnR  spurt.o
-    0x08006888   0x08006888   0x00000070   Code   RO         1870    i.SPURT_GainSet90   spurt.o
-    0x080068f8   0x080068f8   0x00000054   Code   RO         1874    i.SPURT_Init        spurt.o
-    0x0800694c   0x0800694c   0x0000018c   Code   RO         1876    i.SPURT_ObjectGoTo  spurt.o
-    0x08006ad8   0x08006ad8   0x000000c0   Code   RO         1877    i.SPURT_TurnLeft    spurt.o
-    0x08006b98   0x08006b98   0x000000c0   Code   RO         1878    i.SPURT_TurnRight   spurt.o
-    0x08006c58   0x08006c58   0x00000002   Code   RO          195    i.STATE_DetermineGoaheadNum  state.o
-    0x08006c5a   0x08006c5a   0x00000002   PAD
-    0x08006c5c   0x08006c5c   0x00000160   Code   RO          197    i.STATE_LoadMapAndSelectSpeed  state.o
-    0x08006dbc   0x08006dbc   0x000005d0   Code   RO          199    i.STATE_MazeSearch  state.o
-    0x0800738c   0x0800738c   0x000004dc   Code   RO          200    i.STATE_ReturnSearch  state.o
-    0x08007868   0x08007868   0x00000088   Code   RO          528    i.SYS_ClockInit     sys.o
-    0x080078f0   0x080078f0   0x00000180   Code   RO         1036    i.SysTick_Handler   isr.o
-    0x08007a70   0x08007a70   0x00000010   Code   RO          529    i.Sys_Soft_Reset    sys.o
-    0x08007a80   0x08007a80   0x00000018   Code   RO            6    i.TASK_Init         main.o
-    0x08007a98   0x08007a98   0x00000084   Code   RO          600    i.USART1_IRQHandler  usart.o
-    0x08007b1c   0x08007b1c   0x0000008c   Code   RO          601    i.USART_Init        usart.o
-    0x08007ba8   0x08007ba8   0x00000028   Code   RO         2587    i.__ARM_fpclassify  m_ws.l(fpclassify.o)
-    0x08007bd0   0x08007bd0   0x000000aa   Code   RO         2589    i.__kernel_poly     m_ws.l(poly.o)
-    0x08007c7a   0x08007c7a   0x00000002   PAD
-    0x08007c7c   0x08007c7c   0x00000010   Code   RO         2573    i.__mathlib_dbl_divzero  m_ws.l(dunder.o)
-    0x08007c8c   0x08007c8c   0x00000006   Code   RO         2574    i.__mathlib_dbl_infnan  m_ws.l(dunder.o)
-    0x08007c92   0x08007c92   0x0000000c   Code   RO         2576    i.__mathlib_dbl_invalid  m_ws.l(dunder.o)
-    0x08007c9e   0x08007c9e   0x0000000e   Code   RO         2577    i.__mathlib_dbl_overflow  m_ws.l(dunder.o)
-    0x08007cac   0x08007cac   0x00000010   Code   RO         2579    i.__mathlib_dbl_underflow  m_ws.l(dunder.o)
-    0x08007cbc   0x08007cbc   0x0000000e   Code   RO         2636    i.__scatterload_copy  mc_w.l(handlers.o)
-    0x08007cca   0x08007cca   0x00000002   Code   RO         2637    i.__scatterload_null  mc_w.l(handlers.o)
-    0x08007ccc   0x08007ccc   0x0000000e   Code   RO         2638    i.__scatterload_zeroinit  mc_w.l(handlers.o)
-    0x08007cda   0x08007cda   0x00000002   PAD
-    0x08007cdc   0x08007cdc   0x0000000c   Code   RO         2618    i.__set_errno       mc_w.l(errno.o)
-    0x08007ce8   0x08007ce8   0x0000000e   Code   RO         1037    i.abovezero         isr.o
-    0x08007cf6   0x08007cf6   0x0000000e   Code   RO          722    i.adcAboveZero      irs.o
-    0x08007d04   0x08007d04   0x00000124   Code   RO         1038    i.doTaskAcc         isr.o
-    0x08007e28   0x08007e28   0x00000268   Code   RO         1039    i.doTaskBefore180Turn  isr.o
-    0x08008090   0x08008090   0x00000114   Code   RO         1040    i.doTaskBefore90Turn  isr.o
-    0x080081a4   0x080081a4   0x00000164   Code   RO         1041    i.doTaskForwardIrTest  isr.o
-    0x08008308   0x08008308   0x0000009c   Code   RO         1042    i.doTaskGoStraight  isr.o
-    0x080083a4   0x080083a4   0x00000174   Code   RO         1043    i.doTaskKeepWallDistance  isr.o
-    0x08008518   0x08008518   0x000001f0   Code   RO         1044    i.doTaskPointTurn90  isr.o
-    0x08008708   0x08008708   0x00000034   Code   RO         1045    i.doTaskSlowDown    isr.o
-    0x0800873c   0x0800873c   0x00000168   Code   RO         1046    i.doTaskSmartStraight  isr.o
-    0x080088a4   0x080088a4   0x00000410   Code   RO         1047    i.doTaskSmartStraightFast  isr.o
-    0x08008cb4   0x08008cb4   0x00000168   Code   RO         1048    i.doTaskSmartStraightSpurt  isr.o
-    0x08008e1c   0x08008e1c   0x00000168   Code   RO         1049    i.doTaskSmartStraightSpurtL  isr.o
-    0x08008f84   0x08008f84   0x00000034   Code   RO         1050    i.doTaskSpeedUp     isr.o
-    0x08008fb8   0x08008fb8   0x000000d0   Code   RO         1051    i.doTaskSpurt90Blind  isr.o
-    0x08009088   0x08009088   0x000002f8   Code   RO         1052    i.doTaskSpurt90Ir   isr.o
-    0x08009380   0x08009380   0x0000016c   Code   RO         1053    i.doTaskStop        isr.o
-    0x080094ec   0x080094ec   0x000002d4   Code   RO         1054    i.doTaskStraight45  isr.o
-    0x080097c0   0x080097c0   0x0000008c   Code   RO         1055    i.doTaskStraightEyeCloseCoorAdj  isr.o
-    0x0800984c   0x0800984c   0x00000088   Code   RO         1056    i.doTaskStraightPole  isr.o
-    0x080098d4   0x080098d4   0x0000012c   Code   RO         1057    i.doTaskTurn        isr.o
-    0x08009a00   0x08009a00   0x00000268   Code   RO         1058    i.doTaskTurnAround  isr.o
-    0x08009c68   0x08009c68   0x0000019c   Code   RO         1059    i.doWallDetect      isr.o
-    0x08009e04   0x08009e04   0x00000284   Code   RO         2246    i.exp               m_ws.l(exp.o)
-    0x0800a088   0x0800a088   0x00000058   Code   RO         1282    i.link_Ack          link.o
-    0x0800a0e0   0x0800a0e0   0x00000064   Code   RO         1283    i.link_AckI3        link.o
-    0x0800a144   0x0800a144   0x00000040   Code   RO         1284    i.link_AckU         link.o
-    0x0800a184   0x0800a184   0x0000003c   Code   RO         1285    i.link_CalAck       link.o
-    0x0800a1c0   0x0800a1c0   0x00000084   Code   RO         1286    i.link_CalItemToId  link.o
-    0x0800a244   0x0800a244   0x00000018   Code   RO         1287    i.link_CalibErase   link.o
-    0x0800a25c   0x0800a25c   0x00000144   Code   RO         1288    i.link_CalibLoad    link.o
-    0x0800a3a0   0x0800a3a0   0x00000140   Code   RO         1289    i.link_CalibSave    link.o
-    0x0800a4e0   0x0800a4e0   0x00000444   Code   RO         1290    i.link_CalibService  link.o
-    0x0800a924   0x0800a924   0x00000016   Code   RO         1291    i.link_ClampQ       link.o
-    0x0800a93a   0x0800a93a   0x00000026   Code   RO         1292    i.link_Crc16        link.o
-    0x0800a960   0x0800a960   0x00000024   Code   RO         1293    i.link_CrcByte      link.o
-    0x0800a984   0x0800a984   0x00000058   Code   RO         1294    i.link_D2Q          link.o
-    0x0800a9dc   0x0800a9dc   0x00000034   Code   RO         1295    i.link_DmaIdle      link.o
-    0x0800aa10   0x0800aa10   0x0000002c   Code   RO         1296    i.link_DmaInit      link.o
-    0x0800aa3c   0x0800aa3c   0x00000020   Code   RO         1297    i.link_DmaStart     link.o
-    0x0800aa5c   0x0800aa5c   0x00000080   Code   RO         1298    i.link_EncAccumulate  link.o
-    0x0800aadc   0x0800aadc   0x00000060   Code   RO         1299    i.link_EvLine       link.o
-    0x0800ab3c   0x0800ab3c   0x00000814   Code   RO         1300    i.link_ExecCmd      link.o
-    0x0800b350   0x0800b350   0x00000040   Code   RO         1301    i.link_F2Q          link.o
-    0x0800b390   0x0800b390   0x00000050   Code   RO         1302    i.link_Flags        link.o
-    0x0800b3e0   0x0800b3e0   0x000001d4   Code   RO         1303    i.link_HandleLine   link.o
-    0x0800b5b4   0x0800b5b4   0x00000120   Code   RO         1304    i.link_IrRebuild    link.o
-    0x0800b6d4   0x0800b6d4   0x0000002c   Code   RO         1305    i.link_MinIr        link.o
-    0x0800b700   0x0800b700   0x0000003c   Code   RO         1306    i.link_MotionBusy   link.o
-    0x0800b73c   0x0800b73c   0x00000074   Code   RO         1307    i.link_MoveFinishRun  link.o
-    0x0800b7b0   0x0800b7b0   0x0000010c   Code   RO         1308    i.link_MoveService  link.o
-    0x0800b8bc   0x0800b8bc   0x0000028c   Code   RO         1309    i.link_NameToId     link.o
-    0x0800bb48   0x0800bb48   0x000002c4   Code   RO         1310    i.link_ParamApplyOne  link.o
-    0x0800be0c   0x0800be0c   0x00000028   Code   RO         1311    i.link_ParamFind    link.o
-    0x0800be34   0x0800be34   0x000001d0   Code   RO         1312    i.link_ParamFromSys  link.o
-    0x0800c004   0x0800c004   0x00000030   Code   RO         1313    i.link_ParamSet     link.o
-    0x0800c034   0x0800c034   0x00000008   Code   RO         1314    i.link_Put16        link.o
-    0x0800c03c   0x0800c03c   0x00000016   Code   RO         1315    i.link_Q2F          link.o
-    0x0800c052   0x0800c052   0x00000018   Code   RO         1316    i.link_Q2I          link.o
-    0x0800c06a   0x0800c06a   0x00000002   PAD
-    0x0800c06c   0x0800c06c   0x0000003c   Code   RO         1317    i.link_ResetCauseName  link.o
-    0x0800c0a8   0x0800c0a8   0x00000020   Code   RO         1318    i.link_Sat16        link.o
-    0x0800c0c8   0x0800c0c8   0x000000b4   Code   RO         1319    i.link_SendFrame    link.o
-    0x0800c17c   0x0800c17c   0x000000a0   Code   RO         1320    i.link_SendMap      link.o
-    0x0800c21c   0x0800c21c   0x00000384   Code   RO         1321    i.link_SendUnified  link.o
-    0x0800c5a0   0x0800c5a0   0x0000018c   Code   RO         1322    i.link_ServoService  link.o
-    0x0800c72c   0x0800c72c   0x00000012   Code   RO         1323    i.link_SkipSp       link.o
-    0x0800c73e   0x0800c73e   0x00000002   PAD
-    0x0800c740   0x0800c740   0x00000054   Code   RO         1324    i.link_StopMotion   link.o
-    0x0800c794   0x0800c794   0x0000004a   Code   RO         1325    i.link_TokIs        link.o
-    0x0800c7de   0x0800c7de   0x00000050   Code   RO         1326    i.link_TokNum       link.o
-    0x0800c82e   0x0800c82e   0x000000c8   Code   RO         1327    i.link_TokQ16       link.o
-    0x0800c8f6   0x0800c8f6   0x00000042   Code   RO         1328    i.link_TokWord      link.o
-    0x0800c938   0x0800c938   0x00000040   Code   RO         1329    i.link_TxDrain      link.o
-    0x0800c978   0x0800c978   0x0000005a   Code   RO         1330    i.link_TxInt        link.o
-    0x0800c9d2   0x0800c9d2   0x00000002   PAD
-    0x0800c9d4   0x0800c9d4   0x00000030   Code   RO         1331    i.link_TxPut        link.o
-    0x0800ca04   0x0800ca04   0x0000000e   Code   RO         1332    i.link_TxSpace      link.o
-    0x0800ca12   0x0800ca12   0x00000016   Code   RO         1333    i.link_TxStr        link.o
-    0x0800ca28   0x0800ca28   0x00000018   Code   RO         1334    i.link_TxUsed       link.o
-    0x0800ca40   0x0800ca40   0x0000035c   Code   RO         2256    i.log               m_ws.l(log.o)
-    0x0800cd9c   0x0800cd9c   0x0000008c   Code   RO            7    i.main              main.o
-    0x0800ce28   0x0800ce28   0x00000003   Data   RO          940    .constdata          flash.o
-    0x0800ce2b   0x0800ce2b   0x00000001   PAD
-    0x0800ce2c   0x0800ce2c   0x00000020   Data   RO         1336    .constdata          link.o
-    0x0800ce4c   0x0800ce4c   0x00004f2a   Data   RO         1612    .constdata          speedtable.o
-    0x08011d76   0x08011d76   0x00000002   PAD
-    0x08011d78   0x08011d78   0x000001e0   Data   RO         1662    .constdata          motion.o
-    0x08011f58   0x08011f58   0x00000058   Data   RO         2247    .constdata          m_ws.l(exp.o)
-    0x08011fb0   0x08011fb0   0x00000038   Data   RO         2257    .constdata          m_ws.l(log.o)
-    0x08011fe8   0x08011fe8   0x00000008   Data   RO         2591    .constdata          m_ws.l(qnan.o)
-    0x08011ff0   0x08011ff0   0x00000020   Data   RO         2634    Region$$Table       anon$$obj.o
+    0x08002528   0x08002528   0x000000b0   Code   RO          694    i.IR_CheckValue     irs.o
+    0x080025d8   0x080025d8   0x00000080   Code   RO          695    i.IR_CurveFit       irs.o
+    0x08002658   0x08002658   0x000000a4   Code   RO          696    i.IR_FindDis        irs.o
+    0x080026fc   0x080026fc   0x00000608   Code   RO          697    i.IR_GetDistance    irs.o
+    0x08002d04   0x08002d04   0x00000064   Code   RO          699    i.IR_InfCorrect     irs.o
+    0x08002d68   0x08002d68   0x000000bc   Code   RO          700    i.IR_Init           irs.o
+    0x08002e24   0x08002e24   0x00000098   Code   RO         1014    i.ISR_Init          isr.o
+    0x08002ebc   0x08002ebc   0x00000080   Code   RO          850    i.LED_Init          led.o
+    0x08002f3c   0x08002f3c   0x000000a4   Code   RO          851    i.LED_Off           led.o
+    0x08002fe0   0x08002fe0   0x000000a4   Code   RO          852    i.LED_On            led.o
+    0x08003084   0x08003084   0x000002a8   Code   RO          380    i.LESSON_Blind8     lesson.o
+    0x0800332c   0x0800332c   0x00000300   Code   RO          383    i.LESSON_ISR        lesson.o
+    0x0800362c   0x0800362c   0x00000048   Code   RO         1253    i.LINK_EStopTrip    link.o
+    0x08003674   0x08003674   0x00000194   Code   RO         1254    i.LINK_Init         link.o
+    0x08003808   0x08003808   0x0000000c   Code   RO         1255    i.LINK_MazeAbortRequested  link.o
+    0x08003814   0x08003814   0x0000000c   Code   RO         1256    i.LINK_MazeFinished  link.o
+    0x08003820   0x08003820   0x0000000c   Code   RO         1257    i.LINK_MazeRequested  link.o
+    0x0800382c   0x0800382c   0x00000018   Code   RO         1258    i.LINK_MazeStarted  link.o
+    0x08003844   0x08003844   0x0000000c   Code   RO         1259    i.LINK_MazeTarget   link.o
+    0x08003850   0x08003850   0x000000f0   Code   RO         1261    i.LINK_Tick         link.o
+    0x08003940   0x08003940   0x00000028   Code   RO         1977    i.MAZE_BreakOrNot   maze.o
+    0x08003968   0x08003968   0x00000054   Code   RO         1978    i.MAZE_CoorUpdate   maze.o
+    0x080039bc   0x080039bc   0x00000060   Code   RO         1980    i.MAZE_Init         maze.o
+    0x08003a1c   0x08003a1c   0x000000a0   Code   RO         1981    i.MAZE_NeighborCoor  maze.o
+    0x08003abc   0x08003abc   0x0000002c   Code   RO         1983    i.MAZE_VisitedDataGet  maze.o
+    0x08003ae8   0x08003ae8   0x0000025c   Code   RO         1984    i.MAZE_WallCheck    maze.o
+    0x08003d44   0x08003d44   0x00000068   Code   RO         1621    i.MOTION_Acc        motion.o
+    0x08003dac   0x08003dac   0x000001b0   Code   RO         1622    i.MOTION_After180Turn  motion.o
+    0x08003f5c   0x08003f5c   0x000000d8   Code   RO         1623    i.MOTION_Before180Turn  motion.o
+    0x08004034   0x08004034   0x00000164   Code   RO         1624    i.MOTION_Before90Turn  motion.o
+    0x08004198   0x08004198   0x00000024   Code   RO         1626    i.MOTION_GoStraight  motion.o
+    0x080041bc   0x080041bc   0x000000a8   Code   RO         1627    i.MOTION_MouseGoahead  motion.o
+    0x08004264   0x08004264   0x0000005c   Code   RO         1629    i.MOTION_MouseTurnBack  motion.o
+    0x080042c0   0x080042c0   0x00000038   Code   RO         1630    i.MOTION_MouseTurnBackSpecial  motion.o
+    0x080042f8   0x080042f8   0x0000010c   Code   RO         1631    i.MOTION_MouseTurnLeft  motion.o
+    0x08004404   0x08004404   0x0000010c   Code   RO         1632    i.MOTION_MouseTurnRight  motion.o
+    0x08004510   0x08004510   0x0000007c   Code   RO         1633    i.MOTION_PointTurnExec  motion.o
+    0x0800458c   0x0800458c   0x0000000a   Code   RO         1634    i.MOTION_PointTurnLeft  motion.o
+    0x08004596   0x08004596   0x0000000a   Code   RO         1635    i.MOTION_PointTurnRight  motion.o
+    0x080045a0   0x080045a0   0x00000028   Code   RO         1636    i.MOTION_SetAngle   motion.o
+    0x080045c8   0x080045c8   0x00000014   Code   RO         1637    i.MOTION_SetTrack   motion.o
+    0x080045dc   0x080045dc   0x00000078   Code   RO         1640    i.MOTION_Stop       motion.o
+    0x08004654   0x08004654   0x000000a8   Code   RO         1642    i.MOTION_Straight90  motion.o
+    0x080046fc   0x080046fc   0x00000370   Code   RO         1643    i.MOTION_Straight90CalcSpeed  motion.o
+    0x08004a6c   0x08004a6c   0x0000018c   Code   RO         1644    i.MOTION_Straight90SetGainAndParam  motion.o
+    0x08004bf8   0x08004bf8   0x000000a8   Code   RO         1645    i.MOTION_Turn       motion.o
+    0x08004ca0   0x08004ca0   0x0000005c   Code   RO         1646    i.MOTION_TurnAround  motion.o
+    0x08004cfc   0x08004cfc   0x000000d0   Code   RO          766    i.MOTOR_EncLeftInit  motor.o
+    0x08004dcc   0x08004dcc   0x000000bc   Code   RO          767    i.MOTOR_EncRightInit  motor.o
+    0x08004e88   0x08004e88   0x00000198   Code   RO          768    i.MOTOR_EncSample   motor.o
+    0x08005020   0x08005020   0x0000006c   Code   RO          769    i.MOTOR_LeftPwm     motor.o
+    0x0800508c   0x0800508c   0x00000124   Code   RO          770    i.MOTOR_LoopControl  motor.o
+    0x080051b0   0x080051b0   0x0000006c   Code   RO          771    i.MOTOR_PidCalcOut  motor.o
+    0x0800521c   0x0800521c   0x00000032   Code   RO          773    i.MOTOR_PidUpdateErr  motor.o
+    0x0800524e   0x0800524e   0x00000002   PAD
+    0x08005250   0x08005250   0x00000118   Code   RO          774    i.MOTOR_PwmInit     motor.o
+    0x08005368   0x08005368   0x0000006c   Code   RO          775    i.MOTOR_RightPwm    motor.o
+    0x080053d4   0x080053d4   0x00000014   Code   RO            5    i.MOUSE_Init        main.o
+    0x080053e8   0x080053e8   0x00000064   Code   RO          503    i.MYRCC_DeInit      sys.o
+    0x0800544c   0x0800544c   0x0000009c   Code   RO          504    i.MY_NVIC_Init      sys.o
+    0x080054e8   0x080054e8   0x00000028   Code   RO          505    i.MY_NVIC_PriorityGroupConfig  sys.o
+    0x08005510   0x08005510   0x00000014   Code   RO          506    i.MY_NVIC_SetVectorTable  sys.o
+    0x08005524   0x08005524   0x00000340   Code   RO         1204    i.ODOM_Sample       odom.o
+    0x08005864   0x08005864   0x00000588   Code   RO         2097    i.PATH_Fastway4Dir  path.o
+    0x08005dec   0x08005dec   0x0000028c   Code   RO         1228    i.SAFETY_Monitor    safety.o
+    0x08006078   0x08006078   0x000000b8   Code   RO         1799    i.SEARCH_HasWall    search.o
+    0x08006130   0x08006130   0x0000002c   Code   RO         1800    i.SEARCH_Init       search.o
+    0x0800615c   0x0800615c   0x000000cc   Code   RO         1801    i.SEARCH_NoWall     search.o
+    0x08006228   0x08006228   0x000000b0   Code   RO         1802    i.SEARCH_Search     search.o
+    0x080062d8   0x080062d8   0x0000027c   Code   RO         1848    i.SPURT_Action90    spurt.o
+    0x08006554   0x08006554   0x000002d0   Code   RO         1850    i.SPURT_ActionGenerate90  spurt.o
+    0x08006824   0x08006824   0x00000038   Code   RO         1852    i.SPURT_BeforeTurnL  spurt.o
+    0x0800685c   0x0800685c   0x00000038   Code   RO         1853    i.SPURT_BeforeTurnR  spurt.o
+    0x08006894   0x08006894   0x00000070   Code   RO         1855    i.SPURT_GainSet90   spurt.o
+    0x08006904   0x08006904   0x00000054   Code   RO         1859    i.SPURT_Init        spurt.o
+    0x08006958   0x08006958   0x0000018c   Code   RO         1861    i.SPURT_ObjectGoTo  spurt.o
+    0x08006ae4   0x08006ae4   0x000000c0   Code   RO         1862    i.SPURT_TurnLeft    spurt.o
+    0x08006ba4   0x08006ba4   0x000000c0   Code   RO         1863    i.SPURT_TurnRight   spurt.o
+    0x08006c64   0x08006c64   0x00000002   Code   RO          192    i.STATE_DetermineGoaheadNum  state.o
+    0x08006c66   0x08006c66   0x00000002   PAD
+    0x08006c68   0x08006c68   0x00000160   Code   RO          194    i.STATE_LoadMapAndSelectSpeed  state.o
+    0x08006dc8   0x08006dc8   0x000005d0   Code   RO          196    i.STATE_MazeSearch  state.o
+    0x08007398   0x08007398   0x000004dc   Code   RO          197    i.STATE_ReturnSearch  state.o
+    0x08007874   0x08007874   0x00000088   Code   RO          507    i.SYS_ClockInit     sys.o
+    0x080078fc   0x080078fc   0x00000180   Code   RO         1015    i.SysTick_Handler   isr.o
+    0x08007a7c   0x08007a7c   0x00000010   Code   RO          508    i.Sys_Soft_Reset    sys.o
+    0x08007a8c   0x08007a8c   0x00000018   Code   RO            6    i.TASK_Init         main.o
+    0x08007aa4   0x08007aa4   0x00000084   Code   RO          579    i.USART1_IRQHandler  usart.o
+    0x08007b28   0x08007b28   0x0000008c   Code   RO          580    i.USART_Init        usart.o
+    0x08007bb4   0x08007bb4   0x00000028   Code   RO         2572    i.__ARM_fpclassify  m_ws.l(fpclassify.o)
+    0x08007bdc   0x08007bdc   0x000000aa   Code   RO         2574    i.__kernel_poly     m_ws.l(poly.o)
+    0x08007c86   0x08007c86   0x00000002   PAD
+    0x08007c88   0x08007c88   0x00000010   Code   RO         2558    i.__mathlib_dbl_divzero  m_ws.l(dunder.o)
+    0x08007c98   0x08007c98   0x00000006   Code   RO         2559    i.__mathlib_dbl_infnan  m_ws.l(dunder.o)
+    0x08007c9e   0x08007c9e   0x0000000c   Code   RO         2561    i.__mathlib_dbl_invalid  m_ws.l(dunder.o)
+    0x08007caa   0x08007caa   0x0000000e   Code   RO         2562    i.__mathlib_dbl_overflow  m_ws.l(dunder.o)
+    0x08007cb8   0x08007cb8   0x00000010   Code   RO         2564    i.__mathlib_dbl_underflow  m_ws.l(dunder.o)
+    0x08007cc8   0x08007cc8   0x0000000e   Code   RO         2621    i.__scatterload_copy  mc_w.l(handlers.o)
+    0x08007cd6   0x08007cd6   0x00000002   Code   RO         2622    i.__scatterload_null  mc_w.l(handlers.o)
+    0x08007cd8   0x08007cd8   0x0000000e   Code   RO         2623    i.__scatterload_zeroinit  mc_w.l(handlers.o)
+    0x08007ce6   0x08007ce6   0x00000002   PAD
+    0x08007ce8   0x08007ce8   0x0000000c   Code   RO         2603    i.__set_errno       mc_w.l(errno.o)
+    0x08007cf4   0x08007cf4   0x0000000e   Code   RO         1016    i.abovezero         isr.o
+    0x08007d02   0x08007d02   0x0000000e   Code   RO          701    i.adcAboveZero      irs.o
+    0x08007d10   0x08007d10   0x00000124   Code   RO         1017    i.doTaskAcc         isr.o
+    0x08007e34   0x08007e34   0x00000268   Code   RO         1018    i.doTaskBefore180Turn  isr.o
+    0x0800809c   0x0800809c   0x00000114   Code   RO         1019    i.doTaskBefore90Turn  isr.o
+    0x080081b0   0x080081b0   0x00000164   Code   RO         1020    i.doTaskForwardIrTest  isr.o
+    0x08008314   0x08008314   0x0000009c   Code   RO         1021    i.doTaskGoStraight  isr.o
+    0x080083b0   0x080083b0   0x00000174   Code   RO         1022    i.doTaskKeepWallDistance  isr.o
+    0x08008524   0x08008524   0x000001f0   Code   RO         1023    i.doTaskPointTurn90  isr.o
+    0x08008714   0x08008714   0x00000034   Code   RO         1024    i.doTaskSlowDown    isr.o
+    0x08008748   0x08008748   0x00000168   Code   RO         1025    i.doTaskSmartStraight  isr.o
+    0x080088b0   0x080088b0   0x00000410   Code   RO         1026    i.doTaskSmartStraightFast  isr.o
+    0x08008cc0   0x08008cc0   0x00000168   Code   RO         1027    i.doTaskSmartStraightSpurt  isr.o
+    0x08008e28   0x08008e28   0x00000168   Code   RO         1028    i.doTaskSmartStraightSpurtL  isr.o
+    0x08008f90   0x08008f90   0x00000034   Code   RO         1029    i.doTaskSpeedUp     isr.o
+    0x08008fc4   0x08008fc4   0x000000d0   Code   RO         1030    i.doTaskSpurt90Blind  isr.o
+    0x08009094   0x08009094   0x000002f8   Code   RO         1031    i.doTaskSpurt90Ir   isr.o
+    0x0800938c   0x0800938c   0x0000016c   Code   RO         1032    i.doTaskStop        isr.o
+    0x080094f8   0x080094f8   0x000002d4   Code   RO         1033    i.doTaskStraight45  isr.o
+    0x080097cc   0x080097cc   0x0000008c   Code   RO         1034    i.doTaskStraightEyeCloseCoorAdj  isr.o
+    0x08009858   0x08009858   0x00000088   Code   RO         1035    i.doTaskStraightPole  isr.o
+    0x080098e0   0x080098e0   0x0000012c   Code   RO         1036    i.doTaskTurn        isr.o
+    0x08009a0c   0x08009a0c   0x00000268   Code   RO         1037    i.doTaskTurnAround  isr.o
+    0x08009c74   0x08009c74   0x0000019c   Code   RO         1038    i.doWallDetect      isr.o
+    0x08009e10   0x08009e10   0x00000284   Code   RO         2231    i.exp               m_ws.l(exp.o)
+    0x0800a094   0x0800a094   0x00000058   Code   RO         1262    i.link_Ack          link.o
+    0x0800a0ec   0x0800a0ec   0x00000064   Code   RO         1263    i.link_AckI3        link.o
+    0x0800a150   0x0800a150   0x00000040   Code   RO         1264    i.link_AckU         link.o
+    0x0800a190   0x0800a190   0x0000003c   Code   RO         1265    i.link_CalAck       link.o
+    0x0800a1cc   0x0800a1cc   0x00000084   Code   RO         1266    i.link_CalItemToId  link.o
+    0x0800a250   0x0800a250   0x00000018   Code   RO         1267    i.link_CalibErase   link.o
+    0x0800a268   0x0800a268   0x00000144   Code   RO         1268    i.link_CalibLoad    link.o
+    0x0800a3ac   0x0800a3ac   0x00000140   Code   RO         1269    i.link_CalibSave    link.o
+    0x0800a4ec   0x0800a4ec   0x00000444   Code   RO         1270    i.link_CalibService  link.o
+    0x0800a930   0x0800a930   0x00000016   Code   RO         1271    i.link_ClampQ       link.o
+    0x0800a946   0x0800a946   0x00000026   Code   RO         1272    i.link_Crc16        link.o
+    0x0800a96c   0x0800a96c   0x00000024   Code   RO         1273    i.link_CrcByte      link.o
+    0x0800a990   0x0800a990   0x00000058   Code   RO         1274    i.link_D2Q          link.o
+    0x0800a9e8   0x0800a9e8   0x00000034   Code   RO         1275    i.link_DmaIdle      link.o
+    0x0800aa1c   0x0800aa1c   0x0000002c   Code   RO         1276    i.link_DmaInit      link.o
+    0x0800aa48   0x0800aa48   0x00000020   Code   RO         1277    i.link_DmaStart     link.o
+    0x0800aa68   0x0800aa68   0x00000080   Code   RO         1278    i.link_EncAccumulate  link.o
+    0x0800aae8   0x0800aae8   0x00000060   Code   RO         1279    i.link_EvLine       link.o
+    0x0800ab48   0x0800ab48   0x00000854   Code   RO         1280    i.link_ExecCmd      link.o
+    0x0800b39c   0x0800b39c   0x00000040   Code   RO         1281    i.link_F2Q          link.o
+    0x0800b3dc   0x0800b3dc   0x00000050   Code   RO         1282    i.link_Flags        link.o
+    0x0800b42c   0x0800b42c   0x000001d4   Code   RO         1283    i.link_HandleLine   link.o
+    0x0800b600   0x0800b600   0x00000120   Code   RO         1284    i.link_IrRebuild    link.o
+    0x0800b720   0x0800b720   0x0000002c   Code   RO         1285    i.link_MinIr        link.o
+    0x0800b74c   0x0800b74c   0x0000003c   Code   RO         1286    i.link_MotionBusy   link.o
+    0x0800b788   0x0800b788   0x00000074   Code   RO         1287    i.link_MoveFinishRun  link.o
+    0x0800b7fc   0x0800b7fc   0x0000010c   Code   RO         1288    i.link_MoveService  link.o
+    0x0800b908   0x0800b908   0x0000028c   Code   RO         1289    i.link_NameToId     link.o
+    0x0800bb94   0x0800bb94   0x000002c4   Code   RO         1290    i.link_ParamApplyOne  link.o
+    0x0800be58   0x0800be58   0x00000028   Code   RO         1291    i.link_ParamFind    link.o
+    0x0800be80   0x0800be80   0x000001d0   Code   RO         1292    i.link_ParamFromSys  link.o
+    0x0800c050   0x0800c050   0x00000030   Code   RO         1293    i.link_ParamSet     link.o
+    0x0800c080   0x0800c080   0x00000008   Code   RO         1294    i.link_Put16        link.o
+    0x0800c088   0x0800c088   0x00000016   Code   RO         1295    i.link_Q2F          link.o
+    0x0800c09e   0x0800c09e   0x00000018   Code   RO         1296    i.link_Q2I          link.o
+    0x0800c0b6   0x0800c0b6   0x00000002   PAD
+    0x0800c0b8   0x0800c0b8   0x0000003c   Code   RO         1297    i.link_ResetCauseName  link.o
+    0x0800c0f4   0x0800c0f4   0x00000020   Code   RO         1298    i.link_Sat16        link.o
+    0x0800c114   0x0800c114   0x000000b4   Code   RO         1299    i.link_SendFrame    link.o
+    0x0800c1c8   0x0800c1c8   0x000000a0   Code   RO         1300    i.link_SendMap      link.o
+    0x0800c268   0x0800c268   0x00000384   Code   RO         1301    i.link_SendUnified  link.o
+    0x0800c5ec   0x0800c5ec   0x0000018c   Code   RO         1302    i.link_ServoService  link.o
+    0x0800c778   0x0800c778   0x00000012   Code   RO         1303    i.link_SkipSp       link.o
+    0x0800c78a   0x0800c78a   0x00000002   PAD
+    0x0800c78c   0x0800c78c   0x00000054   Code   RO         1304    i.link_StopMotion   link.o
+    0x0800c7e0   0x0800c7e0   0x0000004a   Code   RO         1305    i.link_TokIs        link.o
+    0x0800c82a   0x0800c82a   0x00000050   Code   RO         1306    i.link_TokNum       link.o
+    0x0800c87a   0x0800c87a   0x000000c8   Code   RO         1307    i.link_TokQ16       link.o
+    0x0800c942   0x0800c942   0x00000042   Code   RO         1308    i.link_TokWord      link.o
+    0x0800c984   0x0800c984   0x00000040   Code   RO         1309    i.link_TxDrain      link.o
+    0x0800c9c4   0x0800c9c4   0x0000005a   Code   RO         1310    i.link_TxInt        link.o
+    0x0800ca1e   0x0800ca1e   0x00000002   PAD
+    0x0800ca20   0x0800ca20   0x00000030   Code   RO         1311    i.link_TxPut        link.o
+    0x0800ca50   0x0800ca50   0x0000000e   Code   RO         1312    i.link_TxSpace      link.o
+    0x0800ca5e   0x0800ca5e   0x00000016   Code   RO         1313    i.link_TxStr        link.o
+    0x0800ca74   0x0800ca74   0x00000018   Code   RO         1314    i.link_TxUsed       link.o
+    0x0800ca8c   0x0800ca8c   0x0000035c   Code   RO         2241    i.log               m_ws.l(log.o)
+    0x0800cde8   0x0800cde8   0x0000009c   Code   RO            7    i.main              main.o
+    0x0800ce84   0x0800ce84   0x00000003   Data   RO          919    .constdata          flash.o
+    0x0800ce87   0x0800ce87   0x00000001   PAD
+    0x0800ce88   0x0800ce88   0x00000020   Data   RO         1316    .constdata          link.o
+    0x0800cea8   0x0800cea8   0x00004f2a   Data   RO         1597    .constdata          speedtable.o
+    0x08011dd2   0x08011dd2   0x00000002   PAD
+    0x08011dd4   0x08011dd4   0x000001e0   Data   RO         1647    .constdata          motion.o
+    0x08011fb4   0x08011fb4   0x00000004   PAD
+    0x08011fb8   0x08011fb8   0x00000058   Data   RO         2232    .constdata          m_ws.l(exp.o)
+    0x08012010   0x08012010   0x00000038   Data   RO         2242    .constdata          m_ws.l(log.o)
+    0x08012048   0x08012048   0x00000008   Data   RO         2576    .constdata          m_ws.l(qnan.o)
+    0x08012050   0x08012050   0x00000020   Data   RO         2619    Region$$Table       anon$$obj.o
 
 
-    Execution Region RW_IRAM1 (Exec base: 0x20000000, Load base: 0x08012010, Size: 0x000041d0, Max: 0x00005000, ABSOLUTE, COMPRESSED[0x000005bc])
+    Execution Region RW_IRAM1 (Exec base: 0x20000000, Load base: 0x08012070, Size: 0x000041d0, Max: 0x00005000, ABSOLUTE, COMPRESSED[0x000005bc])
 
     Exec Addr    Load Addr    Size         Type   Attr      Idx    E Section Name        Object
 
     0x20000000   COMPRESSED   0x00000006   Data   RW            8    .data               main.o
     0x20000006   COMPRESSED   0x00000002   PAD
-    0x20000008   COMPRESSED   0x0000000d   Data   RW          207    .data               state.o
+    0x20000008   COMPRESSED   0x0000000d   Data   RW          204    .data               state.o
     0x20000015   COMPRESSED   0x00000003   PAD
-    0x20000018   COMPRESSED   0x00000005   Data   RW          605    .data               usart.o
+    0x20000018   COMPRESSED   0x00000005   Data   RW          584    .data               usart.o
     0x2000001d   COMPRESSED   0x00000001   PAD
-    0x2000001e   COMPRESSED   0x00000006   Data   RW          655    .data               core.o
+    0x2000001e   COMPRESSED   0x00000006   Data   RW          634    .data               core.o
     0x20000024   COMPRESSED   0x00000004   PAD
-    0x20000028   COMPRESSED   0x000007e0   Data   RW          724    .data               irs.o
-    0x20000808   COMPRESSED   0x00000001   Data   RW          876    .data               led.o
+    0x20000028   COMPRESSED   0x000007e0   Data   RW          703    .data               irs.o
+    0x20000808   COMPRESSED   0x00000001   Data   RW          855    .data               led.o
     0x20000809   COMPRESSED   0x00000003   PAD
-    0x2000080c   COMPRESSED   0x00000016   Data   RW         1061    .data               isr.o
-    0x20000822   COMPRESSED   0x00000001   Data   RW         1250    .data               safety.o
+    0x2000080c   COMPRESSED   0x00000016   Data   RW         1040    .data               isr.o
+    0x20000822   COMPRESSED   0x00000001   Data   RW         1229    .data               safety.o
     0x20000823   COMPRESSED   0x00000001   PAD
-    0x20000824   COMPRESSED   0x0000003c   Data   RW         1337    .data               link.o
-    0x20000860   COMPRESSED   0x00000006   Data   RW         1663    .data               motion.o
+    0x20000824   COMPRESSED   0x0000003c   Data   RW         1317    .data               link.o
+    0x20000860   COMPRESSED   0x00000006   Data   RW         1648    .data               motion.o
     0x20000866   COMPRESSED   0x00000002   PAD
-    0x20000868   COMPRESSED   0x00000004   Data   RW         2619    .data               mc_w.l(errno.o)
-    0x2000086c        -       0x00000009   Zero   RW          206    .bss                state.o
+    0x20000868   COMPRESSED   0x00000004   Data   RW         2604    .data               mc_w.l(errno.o)
+    0x2000086c        -       0x00000009   Zero   RW          203    .bss                state.o
     0x20000875   COMPRESSED   0x00000003   PAD
-    0x20000878        -       0x00000364   Zero   RW          393    .bss                lesson.o
-    0x20000bdc        -       0x00000040   Zero   RW          604    .bss                usart.o
+    0x20000878        -       0x00000364   Zero   RW          390    .bss                lesson.o
+    0x20000bdc        -       0x00000040   Zero   RW          583    .bss                usart.o
     0x20000c1c   COMPRESSED   0x00000004   PAD
-    0x20000c20        -       0x00000268   Zero   RW          654    .bss                core.o
-    0x20000e88        -       0x00000124   Zero   RW          723    .bss                irs.o
+    0x20000c20        -       0x00000268   Zero   RW          633    .bss                core.o
+    0x20000e88        -       0x00000124   Zero   RW          702    .bss                irs.o
     0x20000fac   COMPRESSED   0x00000004   PAD
-    0x20000fb0        -       0x000000a8   Zero   RW          797    .bss                motor.o
-    0x20001058        -       0x00002580   Zero   RW          939    .bss                flash.o
-    0x200035d8        -       0x00000048   Zero   RW         1060    .bss                isr.o
-    0x20003620        -       0x00000040   Zero   RW         1190    .bss                gyro.o
-    0x20003660        -       0x00000232   Zero   RW         1335    .bss                link.o
+    0x20000fb0        -       0x000000a8   Zero   RW          776    .bss                motor.o
+    0x20001058        -       0x00002580   Zero   RW          918    .bss                flash.o
+    0x200035d8        -       0x00000048   Zero   RW         1039    .bss                isr.o
+    0x20003620        -       0x00000040   Zero   RW         1169    .bss                gyro.o
+    0x20003660        -       0x00000232   Zero   RW         1315    .bss                link.o
     0x20003892   COMPRESSED   0x00000002   PAD
-    0x20003894        -       0x00000020   Zero   RW         1818    .bss                search.o
-    0x200038b4        -       0x000001dc   Zero   RW         1879    .bss                spurt.o
-    0x20003a90        -       0x00000540   Zero   RW         2001    .bss                maze.o
-    0x20003fd0        -       0x00000200   Zero   RW          185    STACK               stm32f10x.o
+    0x20003894        -       0x00000020   Zero   RW         1803    .bss                search.o
+    0x200038b4        -       0x000001dc   Zero   RW         1864    .bss                spurt.o
+    0x20003a90        -       0x00000540   Zero   RW         1986    .bss                maze.o
+    0x20003fd0        -       0x00000200   Zero   RW          182    STACK               stm32f10x.o
 
 
 ==============================================================================
@@ -2975,26 +2977,26 @@ Image component sizes
       8998        702          0         22         72      19521   isr.o
        456         66          0          1          0       1874   led.o
       1448         68          0          0        868       2413   lesson.o
-     11450       1562         32         60        562      44387   link.o
-       236         36          0          6          0     213974   main.o
+     11526       1588         32         60        562      44913   link.o
+       252         36          0          6          0     213902   main.o
       1028         32          0          0       1344       5931   maze.o
       4024        428        480          6          0      12841   motion.o
-      1750        146          0          0        168       6648   motor.o
+      1750        146          0          0        168       6640   motor.o
        832         20          0          0          0        850   odom.o
       1416         16          0          0          0       1411   path.o
        652         52          0          1          0       1013   safety.o
        608         84          0          0         32       3218   search.o
          0          0      20266          0          0       2759   speedtable.o
       2444        188          0          0        476       8266   spurt.o
-      3086        116          0         13          9       7053   state.o
+      3086        116          0         13          9       6965   state.o
         28          4        236          0        512        776   stm32f10x.o
        468         54          0          0          0       3426   sys.o
        272         28          0          5         64       2925   usart.o
 
     ----------------------------------------------------------------------
-     48404       4176      21052       2152      14692     383505   Object Totals
+     48496       4202      21056       2152      14692     383863   Object Totals
          0          0         32          0          0          0   (incl. Generated)
-        12          0          3         16         13          0   (incl. Padding)
+        12          0          7         16         13          0   (incl. Padding)
 
     ----------------------------------------------------------------------
 
@@ -3070,15 +3072,15 @@ Image component sizes
 
       Code (inc. data)   RO Data    RW Data    ZI Data      Debug   
 
-     52540       4350      21204       2156      14692     375037   Grand Totals
-     52540       4350      21204       1468      14692     375037   ELF Image Totals (compressed)
-     52540       4350      21204       1468          0          0   ROM Totals
+     52632       4376      21208       2156      14692     375343   Grand Totals
+     52632       4376      21208       1468      14692     375343   ELF Image Totals (compressed)
+     52632       4376      21208       1468          0          0   ROM Totals
 
 ==============================================================================
 
-    Total RO  Size (Code + RO Data)                73744 (  72.02kB)
+    Total RO  Size (Code + RO Data)                73840 (  72.11kB)
     Total RW  Size (RW Data + ZI Data)             16848 (  16.45kB)
-    Total ROM Size (Code + RO Data + RW Data)      75212 (  73.45kB)
+    Total ROM Size (Code + RO Data + RW Data)      75308 (  73.54kB)
 
 ==============================================================================
 

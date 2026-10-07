@@ -776,14 +776,9 @@ void SysTick_Handler() // 1ms Timer Interruption
 
 		doWallDetect();
 
-#ifdef MOUSE_TEST_MODE
-		/* ---- 测试模式: 运动状态机整体停用 ----
-		 * 不执行任何 doTask*(它们是唯一会设定速度目标的地方), 于是电机目标恒为 0;
-		 * 再叠加 motor.c 中 MOTOR_LoopControl() 的强制零输出, 双重保险。
-		 * 采集(陀螺/里程/墙检测)照常进行, 遥测与远程标定不受影响。
-		 * 电机实验模式(MOUSE_TEST_MOTOR_LAB)下唯一能改速度目标的是下行命令
-		 * `MOVE RUN`(自带时间 + 红外双护栏)与 `MOVE FWD/ROT`, 所以"不会自己跑起来"。 */
-#else
+		/* ---- 运动状态机 ----
+		 * 两个档位共用同一套 doTask*: 远程档靠"未发车时 freemode=1 ⇒ PWM 恒 0"保证车
+		 * 不会自己跑起来(MOVE RUN 另有时间 + 红外双护栏), 而不是靠不编译状态机。 */
 		switch (motionCtrl.task)
 		{
 		case MOTION_TASK_NULL:
@@ -878,7 +873,6 @@ void SysTick_Handler() // 1ms Timer Interruption
 			LED_On(0);
 			break;
 		}
-#endif /* MOUSE_TEST_MODE */
 
 		if (emergMon.active == 1) // 急停触发: 停车并延时进入睡眠
 		{
@@ -887,22 +881,20 @@ void SysTick_Handler() // 1ms Timer Interruption
 			motionCtrl.task = MOTION_TASK_NULL;
 			speedSt.speedTargetL = 0;
 			speedSt.speedTargetR = 0;
-#ifndef MOUSE_ESTOP_RECOVERABLE
-			/* 只有比赛固件才在急停后进入休眠(见 main.h 的 MOUSE_ESTOP_RECOVERABLE)。
-			 * 实验/采集档休眠会跳过下面全部采样与 SAFETY_Monitor, 而上位机侧
+#ifndef MOUSE_REMOTE
+			/* 只有按键比赛档才在急停后进入休眠(见 main.h 的说明)。
+			 * 远程档休眠会跳过下面全部采样与 SAFETY_Monitor, 而上位机侧
 			 * LINK_Tick() 仍在门外照发帧 —— 表现为"链路活着但数据冻结"
 			 * (upMs 在涨, cpu/adcBatt/battMv 逐字节不变), 且现场很难察觉。
-			 * 实验/标定/采集阶段恰恰需要"急停之后仍然看得见", 故不睡眠。 */
+			 * 远程阶段恰恰需要"急停之后仍然看得见", 故不睡眠。 */
 			emergMon.delay++;
 			if (emergMon.delay == 200)
 				speedSt.sleepmode = 1;
 #endif
 			LINK_EStopTrip(); /* 通知链路层: 置急停锁存, 上位机据此显示并可回传现场日志 */
 		}
-#ifndef MOUSE_TEST_MODE
 		// 课程使用代码
 		LESSON_ISR();
-#endif
 		// 电机速度闭环控制(编码器采样+测速+PID+PWM, 见 motor.c)
 		MOTOR_EncSample();
 		MOTOR_LoopControl();

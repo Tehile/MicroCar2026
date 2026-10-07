@@ -10,10 +10,10 @@
     ARM           写: 仅 linkArmed/linkArmMs/基准灯 LED4          —— **不碰 speedSt/motionCtrl/motor**
     GET ALL       读: 24 项生产参数                                —— 无副作用
     GET <name>    读: 单个参数                                     —— 无副作用
-    LESSON STATUS 读: 档位指纹(非 [3] 档回 ERR_VALUE)              —— 无副作用
+    (v2.4 起档位只剩 2 档, 且**没有**只读命令能区分它们 —— 见下面 [4])
     MAP DUMP      读: 98 B 墙图突发                                —— 无副作用
     STREAM ON/OFF 开关遥测流(本次要定位的对象)                    —— 不驱动电机
-    --- 以下**一律禁止**: MOVE * / MAZE RUN / LESSON START / CAL * ---
+    --- 以下**一律禁止**: MOVE * / MAZE RUN / MCU RESET / CAL * ---
 
 用法: python host/real_discriminate.py COM7
 """
@@ -33,7 +33,7 @@ from host.protocol.codec import crc16_modbus  # noqa: E402
 MOTOR_CMDS = (
     "MOVE",
     "MAZE RUN",
-    "LESSON START",
+    "MCU RESET",  # 整机软复位: 会把设备打回空闲, 同样不属于"无副作用"
     "CAL",
     "TARE",
 )
@@ -121,9 +121,10 @@ def main() -> int:
     print("\n[3] GET ALL —— 24 项生产参数(验证多行文本)")
     step("GET ALL", 4.0)
 
-    print("\n[4] LESSON STATUS —— 档位指纹(非 [3] 档应回 ERR_VALUE; 无副作用)")
-    step("LESSON STATUS", 2.5)
-    print("     (注: [4] 档无法在不触发自走的前提下探明, 故本脚本不测)")
+    print("\n[4] 档位指纹 —— v2.4 起**故意不探**")
+    print("     仅两档(远程 / 按键比赛), 两档报告同一个 PONG 版本号;")
+    print("     唯一能区分它们的是 `MCU RESET`(只有远程档认), 而它会复位整机,")
+    print("     不属本脚本的\"无副作用\"约束, 故跳过。要判档请直接读 PONG 的 proto/fw。")
 
     print("\n[5] MAP DUMP —— 120 B 突发(验证链路突发能力)")
     step("MAP DUMP", 4.0)

@@ -188,8 +188,13 @@ class MazeAPI:
 
     # ------------------------------------------------------------ 发车
 
-    def run(self, timeout: float = 3.0):
-        """远程发车跑无记忆走迷宫(仅 `MOUSE_DATA_LOG` 档; 其余固件回 ERR_VALUE)。
+    def run(self, target: str = "BLIND", timeout: float = 3.0):
+        """远程发车(仅**远程档** `MOUSE_REMOTE`; 比赛固件回 ERR_VALUE)。
+
+        `target` 决定发车后跑哪套剖面:
+
+          · `"BLIND"`(默认) —— 无记忆走迷宫(实验八的 `LESSON_Blind8()`)
+          · `"RACE"`  —— 正式比赛代码: 先读图选档/定冲刺, 再进主循环
 
         ⚠️ **发车前有现场安全检查**, 在登记表层(`registry._precheck_maze_run`),
         任何走 `send_cmd` 的路径都绕不开:
@@ -201,13 +206,17 @@ class MazeAPI:
             动作**, 所以这道闸只能由上位机把。
           · 确需强行发车(台架调试)走逃生舱: `mc.send_raw("MAZE RUN")`。
 
-        ⚠️ 另一条不变量: **发车前电脑鼠必须物理摆在起点角**。`[4]` 档的探索假设
+        ⚠️ 另一条不变量: **发车前电脑鼠必须物理摆在起点角**。远程档的探索假设
         "我在 (0,0)", 内部位姿/地图与物理位置不一致时会按错图行驶(不认路也不认墙)。
         复位(软复位/断电)只复位固件、不复位物理位置。
+
+        RACE 目标下还会重跑 `STATE_LoadMapAndSelectSpeed()` / `STATE_DetermineGoaheadNum()`,
+        也就是**读 Flash 地图** —— 没有有效地图时固件会退化到默认图(起点格 0x11),
+        两个分支都不进 ⇒ 车不动。所以 RACE 前请先确认设备里有一张好图。
         """
         mc = self._mc
         mc._check_reentrancy("maze.run()")
-        return mc.send_cmd("maze.run", timeout=timeout)
+        return mc.send_cmd("maze.run", target=str(target or "BLIND").upper(), timeout=timeout)
 
     def stop(self, timeout: float = 3.0):
         """把电脑鼠**带出迷宫**, 复位发车状态并解锁急停（`MAZE STOP`）。

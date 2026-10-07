@@ -51,7 +51,7 @@ import time
 sys.path.insert(0, ".")
 
 #: 会驱动电机的命令 —— 未经 --launch / --cycle 一律不发
-MOTOR_CMDS = ("MOVE", "MAZE RUN", "LESSON START", "CAL", "TARE", "ARM")
+MOTOR_CMDS = ("MOVE", "MAZE RUN", "MCU RESET", "CAL", "TARE", "ARM")
 
 #: 固件源码里的生产参数默认值(见 ISR_Init / mouse_sim.PARAM_DEFAULTS)。
 #: 读到的值与这些**完全相同** => 板上没有有效标定, 回落到了默认值。

@@ -35,8 +35,7 @@ class Event(str, Enum):
     MOVE = "move"  # 运动任务结束            data: {kind, fields, raw}
     #                kind="done"(线路终止/正常跑完) / "stopped"(统一帧时代的 STOPPED)
     ESTOP = "estop"  # 设备侧急停触发          data: {kind, fields, raw}
-    LESSON = "lesson"  # 课程实验异步消息       data: {kind, fields, raw}
-    #                    kind="DONE"(实验结束) / "STATUS"(状态查询回话)
+    #                 v2.4 已删除 LESSON(课程实验异步消息) —— 课程层整体移除
     EVENT = "event"  # 统一上行事件行          data: {event, reason, seq, text, raw}
     #                 v2.0: 只剩 `STOPPED <reason> #n` / `ESTOP TRIP #n`
     TIMESYNC = "timesync"  # 时间同步异步消息    data: {kind, fields, raw}

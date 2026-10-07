@@ -27,7 +27,7 @@ import serial  # noqa: E402
 
 from host.protocol.codec import crc16_modbus  # noqa: E402
 
-MOTOR_CMDS = ("MOVE", "MAZE RUN", "LESSON START", "CAL", "TARE")
+MOTOR_CMDS = ("MOVE", "MAZE RUN", "MCU RESET", "CAL", "TARE")
 
 
 def assert_safe(text: str) -> None:

@@ -17,6 +17,11 @@
 v2.0(2026-10-05): 命令集由 41 条精简到 18 条, 帧由 9 种精简到 2 种。
     删除: SNAP(全部域) / SCOPE(3 条) / RATE / VER / MAZE EV / MAZE RST。
     理由见《传输模式重构设计方案》§7.2 / §8.4。
+
+v2.4: 删除课程调参实验整层 —— `lesson.start` / `lesson.stop` / `lesson.status`
+    三条命令退出登记表(固件侧 `APP/lesson_lab.c` 已随课时层一并删除)。
+    同时 `maze.run` 增加可选目标词 `BLIND|RACE`(默认 BLIND, 省略)。
+    现役命令 21 条。
 """
 
 from __future__ import annotations
@@ -32,7 +37,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.3.0"
+API_VERSION = "2.4.0"
 
 
 # ---------------------------------------------------------------- 命令表
@@ -69,16 +74,14 @@ def _cal(item: str, act: Any = "START") -> str:
     return f"CAL {str(item).upper()} {act}"
 
 
-def _lesson_start(exp: int, a: int = 0, b: int = 0, c: int = 0, d: int = 0) -> str:
-    """`LESSON START <exp> [a] [b] [c] [d]` —— 尾部为 0 的参数省略。
+def _maze_run(target: str = "BLIND") -> str:
+    """`MAZE RUN [BLIND|RACE]` —— 默认 BLIND 时**省略目标词**。
 
-    固件用同一个整数解析器逐项取参, 取不到就按 0 处理, 因此"少写尾部 0"是安全的。
-    参数含义随实验而定(见 host/host/api/lesson.py 的 LESSON_EXPS)。
+    BLIND = 无记忆走迷宫(实验八的剖面); RACE = 正式比赛代码(先读图选档再发车)。
+    只发 `MAZE RUN` 就等价于 BLIND, 这样 v2.3 时代的调用点与日志格式原样保留。
     """
-    vals = [int(a), int(b), int(c), int(d)]
-    while vals and vals[-1] == 0:
-        vals.pop()
-    return " ".join([f"LESSON START {int(exp)}"] + [str(v) for v in vals])
+    t = str(target or "BLIND").strip().upper()
+    return "MAZE RUN" + (f" {t}" if t and t != "BLIND" else "")
 
 
 @dataclass(frozen=True)
@@ -194,14 +197,14 @@ COMMANDS: Dict[str, CommandSpec] = {
             "于是程序卡在函数内部、连 `MAZE STOP` 的退出检查都轮不到(真机实测)。 "
             "⚠️ 与 `params.reset` (发的是 `RESET`, 只擦参数不重启) **不是一回事**。 "
             "ACK 先回, 约 150ms 后才真正复位; 成功判据是**复位后 PING 报 `rst=SW`**。 "
-            "仅 [1][2][3][4] 档支持(比赛固件回 ERR_VALUE), 且会打断任何进行中的运动"
+            "仅**远程档**(MOUSE_REMOTE)支持, 比赛固件回 ERR_VALUE, 且会打断任何进行中的运动"
         ),
     ),
     # ---- 运动控制 ----
     "tare": CommandSpec("tare", lambda: "TARE", note="陀螺角累加器与里程基准清零"),
     "stop": CommandSpec(
         "stop", lambda: "STOP",
-        note="正常停车 + **解急停锁存**(测试/采集档); 这是重新获得控制权的唯一入口",
+        note="正常停车 + **解急停锁存**(远程档); 这是重新获得控制权的唯一入口",
     ),
     "estop.clear": CommandSpec(
         "estop.clear", lambda: "STOP", urgent=True,
@@ -250,40 +253,28 @@ COMMANDS: Dict[str, CommandSpec] = {
         ),
     ),
     "maze.run": CommandSpec(
-        "maze.run", lambda: "MAZE RUN", urgent=True,
+        "maze.run", _maze_run, ("target",), urgent=True,
         precheck=_precheck_maze_run,
         note=(
-            "远程发车跑无记忆走迷宫(**仅 MOUSE_DATA_LOG 档**; 其余固件回 ERR_VALUE)。 "
+            "远程发车(**仅远程档 MOUSE_REMOTE**; 比赛固件回 ERR_VALUE)。 "
+            "target ∈ {BLIND, RACE}: BLIND=无记忆走迷宫(实验八剖面, 默认), "
+            "RACE=正式比赛代码(先读图选档再发车)。 "
             "固件只置请求位, 真正的 while(1) 迷宫由主循环执行 —— "
             "所以下达后命令通道与遥测都不会被阻塞。 "
             "⚠️ 已在跑时回 `ERR_BUSY`, 急停锁存中回 `ERR_ESTOP`; "
-            "收车用 `maze.stop`(或 `STOP`), 之后才能再次发车"
+            "收车用 `maze.stop`(或 `system.reset`), 之后才能再次发车"
         ),
     ),
     "maze.stop": CommandSpec(
         "maze.stop", lambda: "MAZE STOP", urgent=True,
         note=(
             "**把电脑鼠带出迷宫**: 停车 + 复位发车状态 + 解锁急停"
-            "(**仅 MOUSE_DATA_LOG 档**; 其余固件回 ERR_VALUE)。 "
+            "(**仅远程档 MOUSE_REMOTE**; 比赛固件回 ERR_VALUE)。 "
             "发车后固件主循环停在 LESSON_Blind8() 的 while(1) 里, "
-            "光靠 ESTOP/STOP 停不掉那个循环、发车状态无法复位 —— "
-            "本命令让主循环回到等待态, 于是**不必断电就能重新发车**"
+            "光靠 ESTOP/STOP 停不掉那个循环、发车状态无法复位。 "
+            "⚠️ 主循环里有大量**非协作式阻塞等待**, 标志位常常轮不到 ⇒ 现场"
+            "常见现象是回 OK 但 task 仍在 SEARCH; 真正可靠的收车是 `system.reset`"
         ),
-    ),
-    # ---- 课程调参实验(仅 MOUSE_LESSON_LAB 固件; 生产固件回 ERR_VALUE) ----
-    "lesson.start": CommandSpec(
-        "lesson.start", _lesson_start, ("exp", "a", "b", "c", "d"),
-        note=(
-            "启动课程实验并自带时间护栏。exp: 2=编码器测距 3=匀变速直行 "
-            "5=陀螺标定 6=多传感器直行; 结束时固件上行 `LESSON DONE ...`"
-        ),
-    ),
-    "lesson.stop": CommandSpec(
-        "lesson.stop", lambda: "LESSON STOP", note="中止课程实验(停车并回 LESSON DONE ... STOP)",
-    ),
-    "lesson.status": CommandSpec(
-        "lesson.status", lambda: "LESSON STATUS",
-        note="回一行 `LESSON STATUS <exp> <running>` 异步状态",
     ),
 }
 

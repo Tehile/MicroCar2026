@@ -58,8 +58,8 @@ void STATE_InitSearchSm(void)
  */
 void STATE_DetermineGoaheadNum(void)
 {
-#ifdef MOUSE_DATA_LOG
-	/* ============================ [4] 数据收集档: 整段跳过 ============================
+#ifdef MOUSE_REMOTE
+	/* ============================ 远程档: 整段跳过 ============================
 	 * ⚠️ 真机实测揪出的缺陷(2026-10-05) —— 这是"发车/急停后繁忙、什么指令都
 	 *    下不去、只能断电"的**真正根因**。
 	 *
@@ -72,11 +72,13 @@ void STATE_DetermineGoaheadNum(void)
 	 *     (卡住的不是迷宫循环, 是这里)。
 	 *
 	 * 为什么可以放心跳过: 本函数的唯一产物是 `taskSt.goaheadnum`, 而它的全部读取点
-	 * 都在 STATE_MainLoop 的**冲刺**流程里(state.c); 本档只跑 `LESSON_Blind8()`
+	 * 都在 STATE_MainLoop 的**冲刺**流程里(state.c); 远程档只跑 `LESSON_Blind8()`
 	 * (纯探索: WAIT → START → MAZESEARCH), **一个字节都不读它**(已逐项 grep 确认)。
 	 * 跳过同时也省掉了 1 秒的点灯延时。
 	 *
-	 * 其余档(尤其 [5] 比赛固件)走 #else 的原逻辑, 机器码一字未改。 */
+	 * 代价: 远程档**不产生冲刺前行格数**(保持初值) —— 冲刺激活后行为与真比赛不同。
+	 * 要真冲刺, 必须回到按键比赛档(不定义 MOUSE_REMOTE)走 #else 的原逻辑。
+	 * 比赛档的机器码因本 #ifdef 未命中而**一字未改**。 */
 	return;
 #else
 	if (mazeState.mouseTask != SPURT_45 && mazeState.mouseTask != SPURT_90)
@@ -151,8 +153,8 @@ void STATE_LoadMapAndSelectSpeed(void)
 		DELAY_Ms(120);
 		LED_Off(0);
 		DELAY_Ms(120);
-#ifdef MOUSE_DATA_LOG
-		/* ==================== [4] 数据收集档: 到此为止 ====================
+#ifdef MOUSE_REMOTE
+		/* ==================== 远程档: 到此为止 ====================
 		 * 到这里"地图墙图 + 起终点 + goalCorrectDir + spurtFlag"已经**全部载入
 		 * 完毕**(上面那段是纯 Flash 读取, 非阻塞) —— 这些是 LESSON_Blind8()
 		 * 探索真正需要的。
@@ -164,11 +166,13 @@ void STATE_LoadMapAndSelectSpeed(void)
 		 *  之后每次 `MAZE RUN` 都 `ERR_BUSY` 且 `STOP` 救不回)。
 		 *
 		 * 它的全部产物(`mazeState.mouseTask = SPURT_45/SPURT_90`、`spurtmode`、
-		 * `spurtSpd`、`goaheadnum`)只被 STATE_MainLoop 的冲刺流程读取; 本档只跑
+		 * `spurtSpd`、`goaheadnum`)只被 STATE_MainLoop 的冲刺流程读取; 远程档只跑
 		 * `LESSON_Blind8()`, **一个都不读**(已逐项 grep 确认, 且它进门就
 		 * `mazeState.mouseTask = WAIT;` 覆盖掉)。
 		 *
-		 * 其余档走原逻辑, 机器码一字未改。 */
+		 * 代价: 远程档跑 RACE 目标时**不会选出冲刺档**(`MAZE RUN RACE` 走到这里
+		 * 也只是"重载地图 + 直接返回")。要真冲刺选档, 必须回到按键比赛档。
+		 * 比赛档因本 #ifdef 未命中而走原逻辑, 机器码一字未改。 */
 		return;
 #endif
 		while (1)

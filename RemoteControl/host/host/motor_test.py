@@ -199,7 +199,8 @@ def cmd_run(mc, c: C, args) -> int:
 def _write_series_csv(arr, path: str) -> None:
     """把 `(t, motionTask, gyro, speedL, speedR)` 五元组落成 CSV。
 
-    `mc.lesson.run()` 本地捕获的统一帧序列正好是这个形状 —— 供课程实验复用。
+    这是 `TelemetryStore` 历史序列的"五列数组"形状 —— 与 `analyze.channels()`
+    的字段一一对应, 可以直接喂给 `mc.analyze.step()` / `straightness_metrics()`。
     """
     t, task, ang, sl, sr = arr
     with open(path, "w", newline="", encoding="utf-8") as f:

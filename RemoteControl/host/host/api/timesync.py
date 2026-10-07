@@ -343,9 +343,14 @@ class TimeSyncAPI:
                 self.armed = True
         return r
 
-    def maze_run(self, timeout: float = 3.0) -> Result:
-        """远程发车跑无记忆走迷宫(仅 `MOUSE_DATA_LOG` 档; 其余固件回 ERR_VALUE)。"""
-        return self._mc.send_cmd("maze.run", timeout=timeout)
+    def maze_run(self, target: str = "BLIND", timeout: float = 3.0) -> Result:
+        """远程发车(仅**远程档** `MOUSE_REMOTE`; 比赛固件回 ERR_VALUE)。
+
+        `target` 与 `mc.maze.run()` 同义: `"BLIND"`(默认) 无记忆走迷宫,
+        `"RACE"` 走正式比赛入口序列。数据收集台通常只用 BLIND。
+        """
+        return self._mc.send_cmd("maze.run", target=str(target or "BLIND").upper(),
+                                 timeout=timeout)
 
     def wait_sync(self, samples: int = 2, timeout: float = 5.0) -> bool:
         """等至少 `samples` 个可用帧到达(建立可用映射)。返回是否达到。"""

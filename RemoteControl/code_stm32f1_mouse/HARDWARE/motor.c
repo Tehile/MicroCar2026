@@ -21,29 +21,11 @@ PidStruct motorPidR; /* 右轮速度PID */
 /**
  * @brief 电机 PWM 初始化(TIM4, PB6-9 复用推挽输出)
  * @param none
- * @note 安全测试模式(MOUSE_TEST_NO_MOTOR)下不启用 TIM4, 只把 PB6-9 拉成推挽低电平。
- *       电机实验模式(MOUSE_TEST_MOTOR_LAB)下走正常 PWM 初始化 —— 该模式不再定义
- *       MOUSE_TEST_NO_MOTOR, 因此本函数自动落到 #else 分支, 无需改动。
+ * @note 两个档位都是正常 PWM 初始化 —— 没有"电机物理禁用"的固件形态了(见 main.h)。
+ *       远程档靠"未发车时 freemode=1 ⇒ 输出恒 0"保证不动, 而非靠不初始化 PWM。
  */
 void MOTOR_PwmInit(void)
 {
-#ifdef MOUSE_TEST_NO_MOTOR
-	/* ---- 安全测试模式 ----
-	 * 这里**刻意不启用 TIM4 的 PWM 输出**: 只把 PB6..PB9 配成普通推挽输出并拉到低电平,
-	 * 且不配置 CCMR/CCER/CR1 —— 所以任何对 TIM4->CCRx 的写入都不会在引脚上产生电平跳变。
-	 * 保留 TIM4 时钟使能只是为了"写 CCR 时有合法外设可写", 避免时钟未开时访问寄存器。
-	 * 代价: 无法用 PWM 驱动电机 —— 这正是本阶段要的。 */
-	RCC->APB1ENR |= 1 << 2; // TIM4 Clock Enable(仅为寄存器写入合法, 不使能 PWM)
-	RCC->APB2ENR |= 1 << 3; // GPIOB Clock Enable
-
-	GPIOB->CRL &= 0X00FFFFFF;
-	GPIOB->CRL |= 0X33000000; // PB6 7 通用推挽输出 50MHz
-	GPIOB->CRH &= 0XFFFFFF00;
-	GPIOB->CRH |= 0X00000033; // PB8 9 通用推挽输出 50MHz
-
-	GPIOB->BRR = (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9); // 四路全部输出低电平(电机停)
-	return;
-#else
 	// 主电机
 	RCC->APB1ENR |= 1 << 2; // TIM4 Clock Enable
 	RCC->APB2ENR |= 1 << 3; // GPIOB Clock Enable
@@ -76,7 +58,6 @@ void MOTOR_PwmInit(void)
 
 	TIM4->CR1 |= 1 << 7; // Auto-reload Preload Enable
 	TIM4->CR1 |= 1 << 0; // TIM4 Enable
-#endif /* MOUSE_TEST_NO_MOTOR */
 }
 
 /**
@@ -261,38 +242,12 @@ void MOTOR_RightPwm(double pwm)
 /**
  * @brief 速度闭环控制: PID输出 -> 限幅 -> PWM方向输出
  * @param none
- * @note freemode!=0 时输出清零(自由模式/急停); 增益为整定常量
- * @note 安全测试模式(MOUSE_TEST_NO_MOTOR)下恒输出 0 并直接返回 —— 电机绝不动。
- *       编码器采样与测速仍在 MOTOR_EncSample() 中照常进行, 遥测数据不受影响。
+ * @note freemode!=0 时输出清零(自由模式/急停); 增益为整定常量(红线, 不可改)
  */
 void MOTOR_LoopControl(void)
 {
-#ifdef MOUSE_TEST_NO_MOTOR
-	/* ---- 安全测试模式: 电机恒停 ---- */
-	speedSt.pwmMotorL = 0;
-	speedSt.pwmMotorR = 0;
-	MOTOR_LeftPwm(0);
-	MOTOR_RightPwm(0);
-	return;
-#else
 	if (speedSt.freemode == 0)
 	{ // 30-1-2
-#ifdef MOUSE_LESSON_LAB
-		/* ---- 课程调参模式: 六增益改为"运行时可改" ----
-		 * 红线#6 说的是**数值**不可改, 这里没有改任何数值: 初值仍由 LESSONLAB_Init()
-		 * 从 MOTOR_KP_L 等同一个宏赋入, 只是允许上位机在实验中临时覆盖。
-		 * 非本模式时走下面 #else 分支, 与原文逐字一致。 */
-		motorPidL.kp = lessonGain.kpL;
-		motorPidL.ki = lessonGain.kiL;
-		motorPidL.kd = lessonGain.kdL;
-		MOTOR_PidCalcOut(&motorPidL);
-		speedSt.pwmMotorL = motorPidL.out;
-		motorPidR.kp = lessonGain.kpR;
-		motorPidR.ki = lessonGain.kiR;
-		motorPidR.kd = lessonGain.kdR;
-		MOTOR_PidCalcOut(&motorPidR);
-		speedSt.pwmMotorR = motorPidR.out;
-#else
 		motorPidL.kp = MOTOR_KP_L;
 		motorPidL.ki = MOTOR_KI_L;
 		motorPidL.kd = MOTOR_KD_L; // 也可适当调大，太低了对应60+的搜索速度会抽风， 11.21-11.20对应低电量跑的还行
@@ -303,7 +258,6 @@ void MOTOR_LoopControl(void)
 		motorPidR.kd = MOTOR_KD_R;
 		MOTOR_PidCalcOut(&motorPidR);
 		speedSt.pwmMotorR = motorPidR.out;
-#endif
 	}
 	else
 	{
@@ -322,5 +276,4 @@ void MOTOR_LoopControl(void)
 	if (speedSt.pwmMotorR < -MOTOR_PWM_LIMIT)
 		speedSt.pwmMotorR = -MOTOR_PWM_LIMIT;
 	MOTOR_RightPwm(speedSt.pwmMotorR);
-#endif /* MOUSE_TEST_NO_MOTOR */
 }

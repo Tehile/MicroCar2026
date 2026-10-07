@@ -27,18 +27,11 @@
 """
 
 from .analyze import AnalyzeAPI
-from .calib import CalibAPI
-from .client import MouseClient, coerce_target
-from .conn import ConnAPI
-from .errors import ReentrancyError, Result, clamp_timeout
-from .events import Event, EventBus, EventMsg
-from .lab import MotorLabAPI, RunResult
-from .lesson import (
-    LESSON_EXPS,
-    LessonAPI,
-    LessonResult,
+from .calc import (
+    IrErrorStats,
     StepMetrics,
     StraightMetrics,
+    error_ratio,
     ir_error_stats,
     pick_best_position,
     solve_ratio,
@@ -47,6 +40,12 @@ from .lesson import (
     theory_gyro_ratio,
     theory_track_ratio,
 )
+from .calib import CalibAPI
+from .client import MouseClient, coerce_target
+from .conn import ConnAPI
+from .errors import ReentrancyError, Result, clamp_timeout
+from .events import Event, EventBus, EventMsg
+from .lab import MotorLabAPI, RunResult
 from .maze import MazeAPI
 from .move import MoveAPI
 from .params import ParamsAPI
@@ -77,16 +76,16 @@ __all__ = [
     "MazeAPI",
     "MotorLabAPI",
     "RunResult",
-    "LessonAPI",
-    "LessonResult",
-    "LESSON_EXPS",
+    # 标定算参(纯函数, 见 api/calc.py)
     "StepMetrics",
     "StraightMetrics",
+    "IrErrorStats",
     "step_metrics",
     "straightness_metrics",
     "ir_error_stats",
     "pick_best_position",
     "solve_ratio",
+    "error_ratio",
     "theory_track_ratio",
     "theory_gyro_ratio",
     "MoveAPI",

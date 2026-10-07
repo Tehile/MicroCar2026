@@ -1,15 +1,19 @@
-"""按五个档位逐个重编固件, 并记录真实的 ROM/RAM 与 Error/Warning 数。
+"""按两个档位逐个重编固件, 并记录真实的 ROM/RAM 与 Error/Warning 数。
 
-为什么需要它: 五档互斥宏写在 `USER/main.h` 里, 手改宏 + 手敲 UV4 命令行 + 抄链接器
-输出, 重复五次极易出错(本项目就曾出现过"最后一次编译停在别的档位, 但 Mouse.hex
+为什么需要它: 档位宏写在 `USER/main.h` 里, 手改宏 + 手敲 UV4 命令行 + 抄链接器
+输出, 重复两次仍然容易出错(本项目就曾出现过"最后一次编译停在别的档位, 但 Mouse.hex
 被当成目标档"的事故)。所以做成脚本: 改宏 -> 编译 -> 解析 -> 复原。
 
-⚠️ 改写 main.h 时**必须保留每行尾部的说明注释**(`/* [1] 安全测试模式… */`),
+两个档位(v2.4 起的双档简化方案, 见 docs/双档简化设计方案.md):
+    R  远程档    `#define MOUSE_REMOTE 1`  —— 上位机接管(监视 + 参数 + 手动运动 + 远程发车)
+    C  按键比赛档 不定义任何宏            —— 与原比赛固件逐字节一致, 命令只在板上按键
+
+⚠️ 改写 main.h 时**必须保留该行尾部的说明注释**(`/* 远程档(...) */`),
 那是读代码的人唯一的档位索引; 脚本按"宏名 -> 注释"配对保留原样回写。
 
 用法(仓库根目录):
-    python build_all_modes.py                 # 编译五档并打印, 结束恢复到 [4]
-    python build_all_modes.py --keep-last 4   # 指定结束时恢复到哪一档
+    python build_all_modes.py                 # 编译两档并打印, 结束恢复到 R(远程档)
+    python build_all_modes.py --keep-last C   # 指定结束时恢复到哪一档(R / C)
 """
 
 from __future__ import annotations
@@ -26,15 +30,12 @@ MAIN_H = os.path.join(FW, "USER", "main.h")
 UV4 = r"C:\Keil_v5\UV4\UV4.exe"
 PROJ = os.path.join(FW, "USER", "Mouse.uvprojx")
 
-#: (档位号, 宏名(None = 该档全不定义), 说明) —— 顺序即 main.h 里的顺序
+#: (档位标签, 宏名(None = 全不定义), 说明) —— 顺序即 main.h 里的顺序
 MODES: "list[tuple[str, str | None, str]]" = [
-    ("1", "MOUSE_TEST_NO_MOTOR", "安全测试(电机禁用)"),
-    ("2", "MOUSE_TEST_MOTOR_LAB", "电机远程控制"),
-    ("3", "MOUSE_LESSON_LAB", "课程调参"),
-    ("4", "MOUSE_DATA_LOG", "数据收集"),
-    ("5", None, "比赛固件(全不定义)"),
+    ("R", "MOUSE_REMOTE", "远程档"),
+    ("C", None, "按键比赛档(全不定义)"),
 ]
-_NAMES = ["MOUSE_TEST_NO_MOTOR", "MOUSE_TEST_MOTOR_LAB", "MOUSE_LESSON_LAB", "MOUSE_DATA_LOG"]
+_NAMES = ["MOUSE_REMOTE"]
 
 #: 识别一行的形态: 可选注释前缀 + #define <宏> 1 + 尾部说明注释
 _ROW_RE = re.compile(
@@ -43,7 +44,7 @@ _ROW_RE = re.compile(
 
 
 def _read_rows() -> "dict[str, str]":
-    """返回 {宏名: 尾部说明注释} —— 同时校验四行都在。"""
+    """返回 {宏名: 尾部说明注释} —— 同时校验这一行在。"""
     found = {}
     for ln in open(MAIN_H, encoding="utf-8").read().splitlines():
         m = _ROW_RE.match(ln)
@@ -56,7 +57,7 @@ def _read_rows() -> "dict[str, str]":
 
 
 def set_mode(macro: str | None) -> None:
-    """把 main.h 设成"只有 macro 生效"(macro=None 表示四个全注释 = [5] 比赛固件)。"""
+    """把 main.h 设成"只有 macro 生效"(macro=None 表示该宏注释掉 = 按键比赛档)。"""
     notes = _read_rows()
     lines = open(MAIN_H, encoding="utf-8").read().splitlines(keepends=True)
     out = []
@@ -81,9 +82,8 @@ def set_mode(macro: str | None) -> None:
 
 
 def build(tag: str) -> dict:
-    # ⚠️ 日志落到系统临时目录, **不要写在仓库根** —— 五档跑一遍就是 5 个文件,
-    # 反复跑会在根目录越积越多(曾经积了 build_1..5.log 共 5 MB)。内容已经
-    # 解析进返回值与下方汇总表, 没有留在仓库里的必要。
+    # ⚠️ 日志落到系统临时目录, **不要写在仓库根** —— 反复跑会在根目录越积越多。
+    # 内容已经解析进返回值与下方汇总表, 没有留在仓库里的必要。
     log = os.path.join(tempfile.gettempdir(), f"mouse_build_{tag}.log")
     proc = subprocess.run([UV4, "-b", PROJ, "-o", log], capture_output=True, text=True)
     text = open(log, encoding="utf-8", errors="replace").read() if os.path.exists(log) else ""
@@ -99,9 +99,11 @@ def build(tag: str) -> dict:
 
 
 def main() -> int:
-    keep = "4"
+    keep = "R"
     if "--keep-last" in sys.argv:
         keep = sys.argv[sys.argv.index("--keep-last") + 1]
+    if keep not in dict((t, 1) for t, _, _ in MODES):
+        raise SystemExit(f"--keep-last 只能是 {[t for t, _, _ in MODES]}")
 
     rows = []
     for tag, macro, desc in MODES:
@@ -131,7 +133,7 @@ def main() -> int:
         if r["err"] != 0:
             bad += 1
     print("=" * 78)
-    print("结论: 五档全部 0 Error" if bad == 0 else f"结论: {bad} 个档位有错误!")
+    print("结论: 两档全部 0 Error" if bad == 0 else f"结论: {bad} 个档位有错误!")
     return 1 if bad else 0
 
 

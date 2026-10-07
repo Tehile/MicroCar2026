@@ -160,7 +160,6 @@ def build() -> str:
             "calib": "标定消息 {kind, fields, raw}(v2.0 起 CAL 为请求-响应, 一般经 ACK 返回)",
             "move": "运动结束消息 {kind, fields, raw}(v2.0 起经 EVENT 派发 `STOPPED`)",
             "estop": "急停触发 {kind, fields, raw}",
-            "lesson": "课程实验异步消息 {kind, fields, raw} (kind=DONE/STATUS)",
             "event": "统一上行事件 {event, reason, seq, text, raw} (STOPPED / ESTOP TRIP)",
             "timesync": "时间同步消息 {kind, fields, raw} (kind=anchor/armed/lost)",
             "map": "墙图 {mazetype, posX, posY, ...}",
@@ -187,7 +186,6 @@ def build() -> str:
         ("calib", "标定"),
         ("move", "开环移动"),
         ("lab", "电机实验(远程运动)"),
-        ("lesson", "课程调参实验"),
         ("timesync", "时间同步 / 数据收集"),
         ("maze", "迷宫"),
         ("analyze", "离线分析"),
@@ -205,6 +203,26 @@ def build() -> str:
         for mname, sig, note in methods:
             L.append(f"| `{mname}` | `{sig}` | {note} |")
         L.append("")
+
+    L.append("### 7.%d `host.api.calc` — 标定算参(纯函数)" % (len(subapis) + 2))
+    L.append("")
+    L.append("不碰设备、不作副作用, 可脱离硬件单测; 也可用于离线回放。")
+    L.append("v2.4 从课程层迁出后独立成模块 —— **能力保留, 与课程无关**。")
+    L.append("")
+    L.append("| 函数 / 类型 | 作用 |")
+    L.append("|---|---|")
+    for line in [
+        "`theory_track_ratio(...) -> float` | 里程系数理论值(由机械参数算, 默认 ≈62.24)",
+        "`theory_gyro_ratio(...) -> float` | 陀螺角速率系数理论值(由 ADC 刻度算, 默认 ≈415.8)",
+        "`solve_ratio(cur, reading, truth) -> float` | 线性标定: 新系数 = 旧系数 × 读数 / 真值",
+        "`error_ratio(reading, truth) -> float` | 相对误差(%), 用于「误差 ≤3%」验收线",
+        "`StepMetrics` / `step_metrics(t_ms, y, ...)` | 阶跃响应 σ% / ts / tp / rise",
+        "`StraightMetrics` / `straightness_metrics(t, sl, sr, gy)` | 直行质量: 航向漂移 + 左右轮不对称",
+        "`IrErrorStats` / `ir_error_stats(measured, truth)` | 红外标定误差: max/mean/RMS/最差点",
+        "`pick_best_position(stats_by_pos)` | 在若干标定位置里选平均误差最小的",
+    ]:
+        L.append(f"| {line} |")
+    L.append("")
 
     L.append("## 8. 命令行工具")
     L.append("")
@@ -257,13 +275,13 @@ def _monitor_options():
 
 def _class_of(attr: str):
     from host.api import (
-        AnalyzeAPI, CalibAPI, ConnAPI, LessonAPI, MazeAPI, MotorLabAPI, MoveAPI,
+        AnalyzeAPI, CalibAPI, ConnAPI, MazeAPI, MotorLabAPI, MoveAPI,
         ParamsAPI, SessionAPI, StreamAPI, TelemetryAPI, TimeSyncAPI,
     )
     return {
         "conn": ConnAPI, "params": ParamsAPI, "telemetry": TelemetryAPI,
         "stream": StreamAPI, "calib": CalibAPI, "move": MoveAPI,
-        "lab": MotorLabAPI, "lesson": LessonAPI, "timesync": TimeSyncAPI,
+        "lab": MotorLabAPI, "timesync": TimeSyncAPI,
         "maze": MazeAPI, "analyze": AnalyzeAPI,
         "session": SessionAPI,
     }[attr]
