@@ -30,13 +30,26 @@
 #define MOTOR_PWM_MAX 1500  /* TIM4 ARR 周期值 */
 #define MOTOR_PWM_LIMIT 350 /* 安全限幅, 禁止超过 */
 
-/* ---- 速度环PID增益(红线#6: 赛场整定值, freemode=0 时每周期设置) ---- */
+/* ---- 速度环PID增益(红线#6: 赛场整定值, freemode=0 时每周期设置) ----
+ * v2.5: 远程档改读链路参数表宿主变量(初值==原常量, LINK_Init 按参数表覆写,
+ *       SETQ 可在线调); 比赛档保持编译期常量(产物逐字节不变)。 */
+#ifdef MOUSE_REMOTE
+extern double linkMtrKpL, linkMtrKiL, linkMtrKdL; /* 定义于 link.c, 见 link.h id 50-52 */
+extern double linkMtrKpR, linkMtrKiR, linkMtrKdR; /* id 53-55 */
+#define MOTOR_KP_L (linkMtrKpL)
+#define MOTOR_KI_L (linkMtrKiL)
+#define MOTOR_KD_L (linkMtrKdL)
+#define MOTOR_KP_R (linkMtrKpR)
+#define MOTOR_KI_R (linkMtrKiR)
+#define MOTOR_KD_R (linkMtrKdR)
+#else
 #define MOTOR_KP_L 10.75       /* 左轮比例(太低对应60+搜索速度会抽风) */
 #define MOTOR_KI_L 0.55        /* 左轮积分 */
 #define MOTOR_KD_L 0.55        /* 左轮微分 */
 #define MOTOR_KP_R 10.20       /* 右轮比例 */
 #define MOTOR_KI_R 0.5         /* 右轮积分 */
 #define MOTOR_KD_R 0.5         /* 右轮微分 */
+#endif
 #define MOTOR_INTEG_LIMIT 1200 /* 积分限幅(anti-windup) */
 
 /* ---- PWM 输出死区(红线: 左右不对称为赛场现状, 不可擅自统一) ---- */

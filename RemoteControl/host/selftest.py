@@ -265,9 +265,10 @@ def test_e2e(port: int = 5555, auto_spawn: bool = True) -> None:
               link.stats()["unified"] > n_before, str(link.stats()["unified"]))
 
         client.get_all()
-        # `GET ALL` 遍历固件 `linkParam[LINK_P_NUM]`: 标定 1..7 + 红外/电源 22..38 = 24 项。
-        # v2.4 起课程参数(8..21)已删除, 这就是全部参数。
-        check("GET ALL 回读 24 项生产参数", len(client.params) == 24,
+        # `GET ALL` 遍历固件 `linkParam[LINK_P_NUM]`: 标定 1..7 + 红外/电源 22..38 + 运动 39..55 = 41 项。
+        # v2.4 起课程参数(8..21)已删除; v2.5 起运动控制段入表, 这就是全部参数。
+        from host.protocol.commands import PARAM_IDS as _PID
+        check(f"GET ALL 回读 {len(_PID)} 项生产参数", len(client.params) == len(_PID),
               str(sorted(client.params)))
 
         # SETQ + 回读校验(L4)

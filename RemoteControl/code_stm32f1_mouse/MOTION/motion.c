@@ -569,7 +569,7 @@ void MOTION_BeforeMouseTurn(u8 pattern)
 			if (wallSns.leftPrev == 1 && wallSns.left == 0)
 				break;
 		}
-		wallSns.wallThresh = 160;
+		wallSns.wallThresh = LINK_WALLTHR_DEFAULT(); /* v2.5: 恢复值读参数表 IRTHRWALL(比赛档=160 字面量) */
 		MOTION_SetTrack(0);
 		while (odomStr.cellOdom < beforeturntrack)
 			motionCtrl.task = SMARTSTRAIGHTSPURTL;
@@ -581,7 +581,7 @@ void MOTION_BeforeMouseTurn(u8 pattern)
 			if (wallSns.rightPrev == 1 && wallSns.right == 0)
 				break;
 		}
-		wallSns.wallThresh = 160;
+		wallSns.wallThresh = LINK_WALLTHR_DEFAULT(); /* v2.5: 恢复值读参数表 IRTHRWALL(比赛档=160 字面量) */
 		MOTION_SetTrack(0);
 		while (odomStr.cellOdom < beforeturntrack)
 			motionCtrl.task = SMARTSTRAIGHTSPURTL;

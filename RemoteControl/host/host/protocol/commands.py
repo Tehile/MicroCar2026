@@ -57,9 +57,38 @@ PARAM_IDS_MEAS: Dict[str, int] = {
     "BATTMINPCT": 38,  # 档位下限
 }
 
-#: 名字 <-> id 的唯一来源。**v2.4 起只剩生产命名空间** —— 课程调参量(8..21)已随
-#: 课程层一并删除, 因此这里的条目数与固件 `LINK_P_NUM`(=24)严格相等。
-PARAM_IDS: Dict[str, int] = {**PARAM_IDS_BASE, **PARAM_IDS_MEAS}
+# ---- 运动/控制参数(39-55): 课件《电脑鼠参数调整表》全量入表(v2.5) ----
+# 与固件 HARDWARE/link.h 的 LINK_P_TRACKCOORD..LINK_P_MKDR **必须逐项一致**。
+# ⚠️ 仅远程档消费: 比赛档(按键档)的固件里这些 id 存在于参数表, 但运动代码
+# 不读它们(保持编译期常量) —— 赛前调参闭环只对远程档成立。
+# 默认值 = 各编译期常量(见 PARAM_META 说明), 未 SETQ 时行为逐位不变。
+PARAM_IDS_MOTION: Dict[str, int] = {
+    "TRACKCOORD": 39,  # 纵向矫正灵敏度(格) —— sysCfg.trackCoord, 默认 145
+    "TURNDELAY": 40,  # 转弯延迟格数 —— turnDelay, 默认 16.5
+    "SPDSEARCH": 41,  # 搜索直线速度 —— speedCfg.search, 默认 95
+    "SPDTURN": 42,  # 转弯速度 —— speedCfg.turn, 默认 60
+    "DISF60": 43,  # 180°前对正阈值 mm —— 原 isr.c 字面量 60
+    "GSKP": 44,  # 盲走直行P增益 —— pidGain.goStraight, 默认 0.4
+    "TURNP": 45,  # 转弯P增益 —— pidGain.turnP, 默认 5.0
+    "TURND": 46,  # 转弯D增益 —— pidGain.turnD, 默认 4.5
+    "PTKP": 47,  # 原地转P增益 —— 原 TURN_PID_KP 2.5
+    "PTKI": 48,  # 原地转I增益 —— 原 TURN_PID_KI 0.01
+    "PTKD": 49,  # 原地转D增益 —— 原 TURN_PID_KD 0.1
+    "MKPL": 50,  # 左轮电机P —— 原 MOTOR_KP_L 10.75
+    "MKIL": 51,  # 左轮电机I —— 原 MOTOR_KI_L 0.55
+    "MKDL": 52,  # 左轮电机D —— 原 MOTOR_KD_L 0.55
+    "MKPR": 53,  # 右轮电机P —— 原 MOTOR_KP_R 10.20
+    "MKIR": 54,  # 右轮电机I —— 原 MOTOR_KI_R 0.5
+    "MKDR": 55,  # 右轮电机D —— 原 MOTOR_KD_R 0.5
+}
+
+#: 名字 <-> id 的唯一来源。**v2.5 起含运动控制段** —— 条目数与远程档固件
+#: `LINK_P_NUM`(=41)严格相等; 比赛档固件仍是 24(新参数只在远程档生效)。
+PARAM_IDS: Dict[str, int] = {
+    **PARAM_IDS_BASE,
+    **PARAM_IDS_MEAS,
+    **PARAM_IDS_MOTION,
+}
 PARAM_NAMES: Dict[int, str] = {v: k for k, v in PARAM_IDS.items()}
 
 #: 生产命名空间(任何固件都有, 落 Flash page115) —— **`GET ALL` 只回这些**。
@@ -72,6 +101,7 @@ PARAM_GROUPS: Dict[str, str] = {
     **{n: "生产标定" for n in PARAM_IDS_BASE},
     **{n: "红外测量" for n in PARAM_IDS_MEAS if n.startswith("IR")},
     **{n: "电源监控" for n in PARAM_IDS_MEAS if n.startswith("BATT")},
+    **{n: "运动控制" for n in PARAM_IDS_MOTION},
 }
 
 #: 枚举型参数的取值含义(0/1 类开关、模式号)。CLI/文档用来把数字翻成人话。
@@ -108,6 +138,24 @@ PARAM_META: Dict[str, Tuple[str, int, str]] = {
     "BATTALPHA": ("1e-3", 0, "电压一阶 IIR 系数 ×1000; 0=不滤波, 1000=完全跟随; 默认 100"),
     "BATTMAXPCT": ("1-8", 0, "电量档上限; 默认 8"),
     "BATTMINPCT": ("0-8", 0, "电量档下限; 默认 1"),
+    # ---- 运动/控制参数(39-55, v2.5) —— 仅远程档生效 ----
+    "TRACKCOORD": ("格", 0, "纵向矫正灵敏度(有墙->无墙时重置格内里程); 默认 145"),
+    "TURNDELAY": ("格", 1, "转弯延迟格数(浮点); ⚠️ 转弯后回落点固定 70 与冲刺路径会覆写, 见调整表"),
+    "SPDSEARCH": ("cm/s", 0, "搜索直线速度初值; ⚠️ 转弯后回落固定 70、运动中按工况重算"),
+    "SPDTURN": ("cm/s", 0, "转弯速度; 冲刺路径会覆写为 80(远程档不进冲刺)"),
+    "DISF60": ("mm", 0, "180°前对正判据阈值(前墙距离>此值才对正); 默认 60"),
+    "GSKP": ("", 3, "盲走直行P增益; 默认 0.4"),
+    "TURNP": ("", 3, "转弯P增益; ⚠️ 冲刺路径会覆写(8/10/4)且不恢复, 远程档不进冲刺"),
+    "TURND": ("", 3, "转弯D增益; ⚠️ 同 TURNP"),
+    "PTKP": ("", 3, "原地转P增益(POINTTURN90/TURNAROUND); 默认 2.5"),
+    "PTKI": ("", 3, "原地转I增益(仅 POINTTURN90); 默认 0.01"),
+    "PTKD": ("", 3, "原地转D增益; 默认 0.1"),
+    "MKPL": ("", 3, "左轮电机P(freemode=0 每周期生效); 默认 10.75"),
+    "MKIL": ("", 3, "左轮电机I; 默认 0.55"),
+    "MKDL": ("", 3, "左轮电机D; 默认 0.55"),
+    "MKPR": ("", 3, "右轮电机P; 默认 10.20"),
+    "MKIR": ("", 3, "右轮电机I; 默认 0.5"),
+    "MKDR": ("", 3, "右轮电机D; 默认 0.5"),
 }
 
 # 标定项名 -> 固件 CAL 子命令名

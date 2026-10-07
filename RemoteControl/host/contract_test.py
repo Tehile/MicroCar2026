@@ -327,16 +327,26 @@ def _test_firmware_mode_gates() -> None:
           not [n for n in COMMANDS if n.startswith("lesson.")],
           str(sorted(n for n in COMMANDS if n.startswith("lesson."))))
 
-    # S8d: 生产参数表条目数**必须**等于固件 LINK_P_NUM。
+    # S8d: 生产参数表条目数**必须**等于固件 LINK_P_NUM(远程档语义)。
     #      为什么钉死: `link_CalibLoad()` 判 `cnt != LINK_P_NUM` 即认为整页无效 ——
     #      上位机若与固件条目数不一致, 参数页会**静默作废**, 标定回落默认值。
+    #      v2.5: LINK_P_NUM/PROTO_VER/FW_VER 三宏按 MOUSE_REMOTE 门控(两档编译
+    #      同一份 link.c) —— 解析规则 = **`#ifdef MOUSE_REMOTE` 分支内的第一个值**;
+    #      并断言"远程分支在前"(front_check/pull_smoke 的"首个匹配"解析依赖此顺序)。
+    i_ifdef = link_h.find("#ifdef MOUSE_REMOTE")
+    i_pn = link_h.find("#define LINK_P_NUM")
+    check("link.h: LINK_P_NUM 在 #ifdef MOUSE_REMOTE 之后(远程分支在前, 解析约定)",
+          0 <= i_ifdef < i_pn, f"ifdef@{i_ifdef} pnum@{i_pn}")
     m_pn = re.search(r"#define\s+LINK_P_NUM\s+(\d+)", link_h)
-    check("link.h: 找到 LINK_P_NUM", bool(m_pn))
-    if m_pn:
-        n_fw = int(m_pn.group(1))
-        check(f"LINK_P_NUM({n_fw}) == 24(生产表: 1-7 + 22-38, v2.4 起无课程表)",
-              n_fw == 24, str(n_fw))
-        check(f"主机 PARAM_IDS 项数({len(PARAM_IDS)}) == 固件 LINK_P_NUM({n_fw})",
+    m_pn_c = re.search(r"#else[^\n]*\n\s*#define\s+LINK_P_NUM\s+(\d+)", link_h)
+    check("link.h: 找到 LINK_P_NUM(远程 41 / 比赛 24 双值)", bool(m_pn) and bool(m_pn_c))
+    if m_pn and m_pn_c:
+        n_fw, n_fw_c = int(m_pn.group(1)), int(m_pn_c.group(1))
+        check(f"远程档 LINK_P_NUM({n_fw}) == 41(生产表: 1-7 + 22-38 + 39-55)",
+              n_fw == 41, str(n_fw))
+        check(f"比赛档 LINK_P_NUM({n_fw_c}) == 24(v2.4 表, 产物逐字节不变)",
+              n_fw_c == 24, str(n_fw_c))
+        check(f"主机 PARAM_IDS 项数({len(PARAM_IDS)}) == 远程档 LINK_P_NUM({n_fw})",
               len(PARAM_IDS) == n_fw, f"{len(PARAM_IDS)} vs {n_fw}")
 
     # S8e: 标定算参能力**必须保留**(用户明确要求: 课程层可以删, 算参函数不行)。

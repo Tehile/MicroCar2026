@@ -232,17 +232,17 @@ static void doTaskBefore90Turn(void)
  */
 static void doTaskBefore180Turn(void)
 {
-	if (wallSns.right == 1 && wallSns.left == 0 && irDist.f > 60) // 仅右侧有墙
+	if (wallSns.right == 1 && wallSns.left == 0 && irDist.f > LINK_DISF60) // 仅右侧有墙
 	{
 		speedSt.speedTargetL = speedCfg.turn + (irDist.r - sysCfg.distToWall);
 		speedSt.speedTargetR = speedCfg.turn - (irDist.r - sysCfg.distToWall);
 	}
-	else if (wallSns.right == 0 && wallSns.left == 1 && irDist.f > 60) // 仅左侧有墙
+	else if (wallSns.right == 0 && wallSns.left == 1 && irDist.f > LINK_DISF60) // 仅左侧有墙
 	{
 		speedSt.speedTargetL = speedCfg.turn - (irDist.l - sysCfg.distToWall);
 		speedSt.speedTargetR = speedCfg.turn + (irDist.l - sysCfg.distToWall);
 	}
-	else if (wallSns.right == 1 && wallSns.left == 1 && irDist.f > 60) // 两侧都有墙: 取左右差
+	else if (wallSns.right == 1 && wallSns.left == 1 && irDist.f > LINK_DISF60) // 两侧都有墙: 取左右差
 	{
 		speedSt.speedTargetL = speedCfg.turn + (irDist.r - irDist.l);
 		speedSt.speedTargetR = speedCfg.turn - (irDist.r - irDist.l);

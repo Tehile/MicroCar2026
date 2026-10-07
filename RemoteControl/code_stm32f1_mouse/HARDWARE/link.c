@@ -112,6 +112,16 @@ static LinkServoState linkSrv;
 static LinkCalState linkCal;
 static LinkParam linkParam[LINK_P_NUM];
 
+#ifdef MOUSE_REMOTE
+/* ---- v2.5: id 39-55 新参数的宿主变量 ----
+ * 静态初值必须 == 各编译期常量: LINK_Init 之前 ISR 就可能引用
+ * (电机环每周期读 MOTOR_KP_*, 原地转读 TURN_PID_*), 不能暴露未初始化值。 */
+double linkPtKp = 2.5, linkPtKi = 0.01, linkPtKd = 0.1;       /* == TURN_PID_KP/KI/KD */
+double linkMtrKpL = 10.75, linkMtrKiL = 0.55, linkMtrKdL = 0.55; /* == MOTOR_KP/KI/KD_L */
+double linkMtrKpR = 10.20, linkMtrKiR = 0.5, linkMtrKdR = 0.5;   /* == MOTOR_KP/KI/KD_R */
+u8 linkDisF60 = 60;                                            /* == isr.c 原字面量 */
+#endif
+
 static u16 linkTick;
 static u8 linkSeq;
 static u16 linkDrop;
@@ -571,6 +581,50 @@ static void link_ParamFromSys(void)
 	linkParam[22].q = (s32)powerCfg.battMaxPct << 16;
 	linkParam[23].id = LINK_P_BATTMINPCT;
 	linkParam[23].q = (s32)powerCfg.battMinPct << 16;
+
+#ifdef MOUSE_REMOTE
+	/* ---- 运动/控制参数(39-55): 初值取自 ISR_Init/CORE_Init 设好的变量与编译期常量 ----
+	 * 本函数在 LINK_Init 内调用, 晚于 CORE_Init/ISR_Init(main.c: 64/65 vs 81), 变量已就位。 */
+	{
+		extern float turnDelay; /* motion.c; 转弯后回落点(motion.c:601=70)与冲刺路径
+		                         * (spurt.c GainSet90=14)会覆写, 见参数调整表文档 */
+
+		linkParam[24].id = LINK_P_TRACKCOORD;
+		linkParam[24].q = (s32)sysCfg.trackCoord << 16;
+		linkParam[25].id = LINK_P_TURNDELAY;
+		linkParam[25].q = link_F2Q(turnDelay);
+		linkParam[26].id = LINK_P_SPDSEARCH;
+		linkParam[26].q = (s32)speedCfg.search << 16;
+		linkParam[27].id = LINK_P_SPDTURN;
+		linkParam[27].q = (s32)speedCfg.turn << 16;
+		linkParam[28].id = LINK_P_DISF60;
+		linkParam[28].q = (s32)linkDisF60 << 16;
+		linkParam[29].id = LINK_P_GSKP;
+		linkParam[29].q = link_D2Q(pidGain.goStraight);
+		linkParam[30].id = LINK_P_TURNP;
+		linkParam[30].q = link_D2Q(pidGain.turnP);
+		linkParam[31].id = LINK_P_TURND;
+		linkParam[31].q = link_D2Q(pidGain.turnD);
+		linkParam[32].id = LINK_P_PTKP;
+		linkParam[32].q = link_D2Q(linkPtKp);
+		linkParam[33].id = LINK_P_PTKI;
+		linkParam[33].q = link_D2Q(linkPtKi);
+		linkParam[34].id = LINK_P_PTKD;
+		linkParam[34].q = link_D2Q(linkPtKd);
+		linkParam[35].id = LINK_P_MKPL;
+		linkParam[35].q = link_D2Q(linkMtrKpL);
+		linkParam[36].id = LINK_P_MKIL;
+		linkParam[36].q = link_D2Q(linkMtrKiL);
+		linkParam[37].id = LINK_P_MKDL;
+		linkParam[37].q = link_D2Q(linkMtrKdL);
+		linkParam[38].id = LINK_P_MKPR;
+		linkParam[38].q = link_D2Q(linkMtrKpR);
+		linkParam[39].id = LINK_P_MKIR;
+		linkParam[39].q = link_D2Q(linkMtrKiR);
+		linkParam[40].id = LINK_P_MKDR;
+		linkParam[40].q = link_D2Q(linkMtrKdR);
+	}
+#endif
 }
 
 /** @brief 把 s32 参数值限制在 [lo, hi](link_ParamApplyOne 用, 防止写进离谱值) */
@@ -678,6 +732,66 @@ static u8 link_ParamApplyOne(u16 id, s32 q)
 	case LINK_P_BATTMINPCT:
 		powerCfg.battMinPct = (u8)link_ClampQ(link_Q2I(q), 0, 100);
 		break;
+
+#ifdef MOUSE_REMOTE
+	/* ---- 运动/控制参数(39-55): 宿主即运行时配置本体 ----
+	 * 增益类统一钳制 [0, 100.0]; TURNDELAY 钳制 [1.0, 200.0] 格;
+	 * 速度/阈值类钳制到整数语义域。 */
+	case LINK_P_TRACKCOORD:
+		sysCfg.trackCoord = (u8)link_ClampQ(link_Q2I(q), 0, 255);
+		break;
+	case LINK_P_TURNDELAY:
+	{
+		extern float turnDelay; /* motion.c */
+		turnDelay = link_Q2F(link_ClampQ(q, 65536, 13107200));
+	}
+	break;
+	case LINK_P_SPDSEARCH:
+		speedCfg.search = (u16)link_ClampQ(link_Q2I(q), 0, 1000);
+		break;
+	case LINK_P_SPDTURN:
+		speedCfg.turn = (u16)link_ClampQ(link_Q2I(q), 0, 1000);
+		break;
+	case LINK_P_DISF60:
+		linkDisF60 = (u8)link_ClampQ(link_Q2I(q), 0, 255);
+		break;
+	case LINK_P_GSKP:
+		pidGain.goStraight = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_TURNP:
+		pidGain.turnP = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_TURND:
+		pidGain.turnD = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_PTKP:
+		linkPtKp = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_PTKI:
+		linkPtKi = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_PTKD:
+		linkPtKd = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_MKPL:
+		linkMtrKpL = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_MKIL:
+		linkMtrKiL = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_MKDL:
+		linkMtrKdL = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_MKPR:
+		linkMtrKpR = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_MKIR:
+		linkMtrKiR = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+	case LINK_P_MKDR:
+		linkMtrKdR = link_Q2F(link_ClampQ(q, 0, 6553600));
+		break;
+#endif
 	default:
 		return 0;
 	}
@@ -706,6 +820,24 @@ static u8 link_ParamSet(u16 id, s32 q)
 	linkParam[i].q = q;
 	return link_ParamApplyOne(id, q);
 }
+
+#ifdef MOUSE_REMOTE
+/**
+ * @brief  IRTHRWALL 覆写分支结束后的"恢复值"(motion.c 智能冲刺路径 ×2)
+ * @return 参数表当前 IRTHRWALL 值(钳制 1-255, 与 link_ParamApplyOne 同界)
+ * @note   原代码此处硬编码 160 —— SETQ 改 IRTHRWALL 后, 只要跑过一次 45° 弯/
+ *         智能冲刺就会被改回 160(覆写点 motion.c:418/436 -> 110, 恢复点 -> 160)。
+ *         v2.5 起恢复点改读参数表: SETQ 的值不再被吃掉; 覆写点(45° 弯收紧到 110)
+ *         保留 —— 那是功能行为不是漂移。比赛档不调用本函数(宏展开回字面量 160)。
+ */
+u8 LINK_WallThrDefault(void)
+{
+	u16 idx;
+	if (link_ParamFind(LINK_P_IRTHRWALL, &idx))
+		return (u8)link_ClampQ(link_Q2I(linkParam[idx].q), 1, 255);
+	return 160; /* 表项缺失的兜底(理论上不可达) */
+}
+#endif
 
 static u8 link_NameToId(const char *s, u16 *id)
 {
@@ -759,6 +891,42 @@ static u8 link_NameToId(const char *s, u16 *id)
 		*id = LINK_P_BATTMAXPCT;
 	else if (!strcmp(s, "BATTMINPCT"))
 		*id = LINK_P_BATTMINPCT;
+#ifdef MOUSE_REMOTE
+	else if (!strcmp(s, "TRACKCOORD"))
+		*id = LINK_P_TRACKCOORD;
+	else if (!strcmp(s, "TURNDELAY"))
+		*id = LINK_P_TURNDELAY;
+	else if (!strcmp(s, "SPDSEARCH"))
+		*id = LINK_P_SPDSEARCH;
+	else if (!strcmp(s, "SPDTURN"))
+		*id = LINK_P_SPDTURN;
+	else if (!strcmp(s, "DISF60"))
+		*id = LINK_P_DISF60;
+	else if (!strcmp(s, "GSKP"))
+		*id = LINK_P_GSKP;
+	else if (!strcmp(s, "TURNP"))
+		*id = LINK_P_TURNP;
+	else if (!strcmp(s, "TURND"))
+		*id = LINK_P_TURND;
+	else if (!strcmp(s, "PTKP"))
+		*id = LINK_P_PTKP;
+	else if (!strcmp(s, "PTKI"))
+		*id = LINK_P_PTKI;
+	else if (!strcmp(s, "PTKD"))
+		*id = LINK_P_PTKD;
+	else if (!strcmp(s, "MKPL"))
+		*id = LINK_P_MKPL;
+	else if (!strcmp(s, "MKIL"))
+		*id = LINK_P_MKIL;
+	else if (!strcmp(s, "MKDL"))
+		*id = LINK_P_MKDL;
+	else if (!strcmp(s, "MKPR"))
+		*id = LINK_P_MKPR;
+	else if (!strcmp(s, "MKIR"))
+		*id = LINK_P_MKIR;
+	else if (!strcmp(s, "MKDR"))
+		*id = LINK_P_MKDR;
+#endif
 	else
 		return 0;
 	return 1;

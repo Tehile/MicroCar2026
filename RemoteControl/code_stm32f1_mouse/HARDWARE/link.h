@@ -39,22 +39,27 @@
 
 /*---------------------------------------  D E F I N I T I O N  ---------------------------------------*/
 
-/* ---- 协议版本 ---- */
-#define LINK_PROTO_VER 5 /* v2.4: **命令集扩展** —— `MAZE RUN` 增加可选目标词 BLIND|RACE。
-                          *        线格式(帧结构/CRC/字段)一字未变, 但"同一串命令文本在
-                          *        新旧固件上含义不同", 故协议号进一位, 让上位机能用
-                          *        `device.proto >= 5` 判断"该固件是否支持 RACE 目标"。
-                          *        (v2.3 是帧长变化: 45 -> 49 B。)
-                          *        v2.1 是命令集变化(STREAM ON/OFF -> TELEM)。 */
-#define LINK_FW_VER 216  /* 2.16 —— v2.4.0: 档位开关由五档压成两档(见 USER/main.h)。
-                          *        · 远程档 `MOUSE_REMOTE`: 合并原 [2] 的远程运动、[3] 的
-                          *          参数读写、[4] 的远程发车与监视; 去掉课程实验层
-                          *          (APP/lesson_lab.c 整层删除, 含 page116 与 LESSON 命令)。
-                          *        · 不定义 = 按键比赛档: **编译产物与 v2.3.0 逐字节一致**。
-                          *        另: `LINK_P_NUM` 仍为 24(生产表未动), 但课程表(8-21)
-                          *        连同 page116 一并消失 ⇒ 旧固件存的课程参数不再被读取。
-                          *        215 = v2.3.0: 前墙拆"近端/远端"两档 + 比赛状态量回传。
-                          *        214 = v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。 */
+/* ---- 协议版本(v2.5 起按档位取值) ----
+ * ⚠️ 两档编译**同一份** link.c/link.h: 共享宏不门控必改比赛档产物。
+ *     故 P_NUM/PROTO_VER/FW_VER 三个宏都按 MOUSE_REMOTE 取值 ——
+ *     比赛档保持 v2.4 语义与**逐字节不变**的产物, 远程档承载新协议。 */
+#ifdef MOUSE_REMOTE
+#define LINK_PROTO_VER 6 /* v2.5: 参数表 24->41 项(课件 29 项中除速度表外全量入表, id 39-55)。
+                          *        表容量变化影响 GET ALL/SAVE 载荷 ⇒ 协议号进位, 旧上位机据此拒配。 */
+#define LINK_FW_VER 217  /* 2.17 —— v2.5.0: 参数表扩容(id 39-55) + IRTHRWALL 覆写恢复点同步。 */
+#else
+#define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
+#define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(基线 hex sha256 f0a5f863...)。 */
+#endif
+/* 历史版本记录:
+ *  216 = v2.4.0: 档位开关由五档压成两档(见 USER/main.h)。
+ *        · 远程档 `MOUSE_REMOTE`: 合并原 [2] 的远程运动、[3] 的参数读写、[4] 的远程发车与监视;
+ *          去掉课程实验层(APP/lesson_lab.c 整层删除, 含 page116 与 LESSON 命令)。
+ *        · 不定义 = 按键比赛档: **编译产物与 v2.3.0 逐字节一致**。
+ *        另: `LINK_P_NUM` 仍为 24(生产表未动), 但课程表(8-21)连同 page116 一并消失。
+ *  215 = v2.3.0: 前墙拆"近端/远端"两档 + 比赛状态量回传。
+ *  214 = v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。
+ *  协议号: 5 = v2.4 `MAZE RUN` 可选目标词 BLIND|RACE; 4 = v2.3 统一帧 45->49B; 3 = v2.1 TELEM。 */
 
 /* ---- 帧同步头与开销 ----
  * 布局: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(LEN) | CRC16(2,LE)
@@ -202,7 +207,10 @@
  * ⚠️ PONG 的第 4 个字段就是本值 ⇒ 远程档指纹变为 `PONG 5 216 7 512 <rst>`
  *    (这反而有用: 一眼能看出板上烧的是不是带本次修复的固件)。 */
 #ifdef MOUSE_REMOTE
-#define LINK_TX_BUF_SIZE 512 /* TX 环形缓冲(必须是 2 的幂) */
+#define LINK_TX_BUF_SIZE 1024 /* TX 环形缓冲(必须是 2 的幂)。
+                               * v2.5: 参数表 41 项 ⇒ GET ALL 41 行 ≈ 700B, 512B 已不够
+                               * (会触发"环满丢弃"兜底丢行), 故扩到 1024。
+                               * RAM 核对: 远程档 17.6KB/20KB(F103RB), 余量健康。 */
 #else
 #define LINK_TX_BUF_SIZE 256 /* TX 环形缓冲(必须是 2 的幂) */
 #endif
@@ -270,7 +278,35 @@
 #define LINK_P_BATTMAXPCT 37 /* powerCfg.battMaxPct 档位上限         */
 #define LINK_P_BATTMINPCT 38 /* powerCfg.battMinPct 档位下限         */
 
-#define LINK_P_NUM 24 /* 生产表条目数 = 1-7 + 22-38 (v2.4 起不再有课程表) */
+/* ---- 运动/控制参数(39-55): 课件《电脑鼠参数调整表》全量入表(v2.5) ----
+ * 宿主变量即运行时配置本体: 远程档经 link_ParamApplyOne 写入,
+ * 比赛档不用这些 id(保持编译期常量初始化, 产物逐字节不变)。
+ * 默认值全部 == 各编译期常量(下表注释), 因此"未 SETQ 时行为逐位不变"。 */
+#define LINK_P_TRACKCOORD 39 /* sysCfg.trackCoord   纵向矫正灵敏度(格)   默认 145  */
+#define LINK_P_TURNDELAY 40  /* turnDelay(motion.c) 转弯延迟格数(float)   默认 16.5 */
+#define LINK_P_SPDSEARCH 41  /* speedCfg.search     搜索直线速度          默认 95   */
+#define LINK_P_SPDTURN 42    /* speedCfg.turn       转弯速度              默认 60   */
+#define LINK_P_DISF60 43     /* linkDisF60          180°前对正阈值 mm     默认 60   */
+#define LINK_P_GSKP 44       /* pidGain.goStraight  盲走直行P增益         默认 0.4  */
+#define LINK_P_TURNP 45      /* pidGain.turnP       转弯P增益             默认 5.0  */
+#define LINK_P_TURND 46      /* pidGain.turnD       转弯D增益             默认 4.5  */
+#define LINK_P_PTKP 47       /* linkPtKp            原地转P增益           默认 2.5  */
+#define LINK_P_PTKI 48       /* linkPtKi            原地转I增益           默认 0.01 */
+#define LINK_P_PTKD 49       /* linkPtKd            原地转D增益           默认 0.1  */
+#define LINK_P_MKPL 50       /* linkMtrKpL          左轮电机P             默认 10.75 */
+#define LINK_P_MKIL 51       /* linkMtrKiL          左轮电机I             默认 0.55 */
+#define LINK_P_MKDL 52       /* linkMtrKdL          左轮电机D             默认 0.55 */
+#define LINK_P_MKPR 53       /* linkMtrKpR          右轮电机P             默认 10.20 */
+#define LINK_P_MKIR 54       /* linkMtrKiR          右轮电机I             默认 0.5  */
+#define LINK_P_MKDR 55       /* linkMtrKdR          右轮电机D             默认 0.5  */
+
+#ifdef MOUSE_REMOTE
+#define LINK_P_NUM 41 /* 远程档生产表条目数 = 1-7 + 22-38 + 39-55 */
+#else
+#define LINK_P_NUM 24 /* 比赛档保持 v2.4 表容量(产物逐字节不变) */
+#endif
+/* (39-55 的宿主变量 extern 与消费侧门控宏放 core.h/motor.h ——
+ *  isr.c/motion.c/motor.c 的 include 链只达 core.h/motor.h, 不达本文件。) */
 
 /* 参数值域钳制(link_ParamApplyOne 用): 防止写进离谱值把判定打穿 */
 #define LINK_IR_THR_MAX 1000u /* 红外阈值上限 mm(>表长即等价关闭) */

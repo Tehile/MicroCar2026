@@ -58,8 +58,8 @@ from ..protocol.codec import (
 )
 
 MAZETYPE = 7
-PROTO_VER = 5
-FW_VER = 216
+PROTO_VER = 6  # v2.5: 参数表 24->41 项(运动控制段 39-55 入表)
+FW_VER = 217  # v2.5.0
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {
@@ -90,6 +90,24 @@ PARAM_DEFAULTS: Dict[int, float] = {
     36: 100.0,  # BATTALPHA   (0.100 ×1000)
     37: 8.0,    # BATTMAXPCT
     38: 1.0,    # BATTMINPCT
+    # ---- 运动/控制参数(39-55, v2.5; 默认值 = 各编译期常量) ----
+    39: 145.0,  # TRACKCOORD (sysCfg.trackCoord)
+    40: 16.5,  # TURNDELAY  (turnDelay)
+    41: 95.0,  # SPDSEARCH  (speedCfg.search)
+    42: 60.0,  # SPDTURN    (speedCfg.turn)
+    43: 60.0,  # DISF60     (原 isr.c 字面量 60)
+    44: 0.4,   # GSKP       (pidGain.goStraight)
+    45: 5.0,   # TURNP      (pidGain.turnP)
+    46: 4.5,   # TURND      (pidGain.turnD)
+    47: 2.5,   # PTKP       (TURN_PID_KP)
+    48: 0.01,  # PTKI       (TURN_PID_KI)
+    49: 0.1,   # PTKD       (TURN_PID_KD)
+    50: 10.75,  # MKPL      (MOTOR_KP_L)
+    51: 0.55,  # MKIL       (MOTOR_KI_L)
+    52: 0.55,  # MKDL       (MOTOR_KD_L)
+    53: 10.20,  # MKPR      (MOTOR_KP_R)
+    54: 0.5,   # MKIR       (MOTOR_KI_R)
+    55: 0.5,   # MKDR       (MOTOR_KD_R)
 }
 PARAM_NAMES = {
     1: "TRACKL",
@@ -116,14 +134,32 @@ PARAM_NAMES = {
     36: "BATTALPHA",
     37: "BATTMAXPCT",
     38: "BATTMINPCT",
+    39: "TRACKCOORD",
+    40: "TURNDELAY",
+    41: "SPDSEARCH",
+    42: "SPDTURN",
+    43: "DISF60",
+    44: "GSKP",
+    45: "TURNP",
+    46: "TURND",
+    47: "PTKP",
+    48: "PTKI",
+    49: "PTKD",
+    50: "MKPL",
+    51: "MKIL",
+    52: "MKDL",
+    53: "MKPR",
+    54: "MKIR",
+    55: "MKDR",
 }
 NAME_IDS = {v: k for k, v in PARAM_NAMES.items()}
 
-#: **全部参数** —— 与固件 `linkParam[LINK_P_NUM]`(=24)一一对应。
+#: **全部参数** —— 与固件 `linkParam[LINK_P_NUM]`(远程档=41)一一对应。
 #: ⚠️ 这不是"随便挑一段": 固件的 `GET ALL` 只遍历这张表, `GET <name>` 也只查它。
-#: v2.4: 课程参数(8..21)随课程层删除, 于是**任何固件都是同一张 24 项表**,
-#: 不再有"写侧能写、读侧读不回"的不对称。
-PRODUCTION_IDS: Tuple[int, ...] = tuple(range(1, 8)) + tuple(range(22, 39))
+#: v2.4: 课程参数(8..21)随课程层删除; v2.5: 运动控制段(39..55)入表。
+PRODUCTION_IDS: Tuple[int, ...] = (
+    tuple(range(1, 8)) + tuple(range(22, 39)) + tuple(range(39, 56))
+)
 
 UP, RIGHT, DOWN, LEFT = 0, 1, 2, 3
 DIR_DELTA = {UP: (0, 1), RIGHT: (1, 0), DOWN: (0, -1), LEFT: (-1, 0)}
@@ -268,7 +304,7 @@ class MouseSim:
         #: TELEM 的二进制帧旁路(与 map_reply 同构): 主循环会先发它再发文本 ACK。
         self.telem_reply: bytes | None = None
         self.tick = 0
-        self.txbuf = 256
+        self.txbuf = 1024  # v2.5: 41 项参数的 GET ALL ≈ 700B, 512 已不够(与固件远程档同步)
 
         #: 上行序号 —— **帧与事件共用**(与固件 linkSeq 同语义), 1 字节循环。
         #: 主机比较相邻两条上行消息的序号差即可检测丢失; 不做 ACK、不重发。
@@ -789,8 +825,8 @@ class MouseSim:
             ]
         if c == "GET":
             if len(t) >= 2 and t[1].upper() == "ALL":
-                # 只回 `linkParam[LINK_P_NUM]` 那张表(= 24 项, 与固件 `GET ALL` 同构)。
-                # v2.4: 课程参数随课程层删除, 于是这张表就是**全部**参数, 没有第二张。
+                # 只回 `linkParam[LINK_P_NUM]` 那张表(远程档 = 41 项, 与固件 `GET ALL` 同构)。
+                # v2.4: 课程参数随课程层删除; v2.5: 运动控制段(39-55)入表, 这张表就是**全部**。
                 lines = [f"P {i} {_q(self.params[i])}\r\n" for i in PRODUCTION_IDS]
                 return lines + [ack("OK")]
             if len(t) >= 2 and t[1].upper() in NAME_IDS:

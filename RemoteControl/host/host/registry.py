@@ -37,7 +37,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.4.0"
+API_VERSION = "2.5.0"  # v2.5: 参数表扩容 24->41(运动控制段 39-55), proto 5->6 / fw 216->217
 
 
 # ---------------------------------------------------------------- 命令表

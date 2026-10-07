@@ -9,6 +9,61 @@
 
 ---
 
+## [2.5.0] — 2026-10-08
+
+### 主题：参数表 **24 → 41**（课件《电脑鼠参数调整表》除速度表外全量入表）
+
+依据 `课件/电脑鼠参数调整表.pdf`（29 项）盘点的结论：8 项已在表（1-7+22 标定类）、
+8 项是速度表（11-18，**用户决定保留现状**——手工整定表，无生成器，见
+`docs/参数名称-功能-调整表.md` §三）、keep_dis（21 号）无代码对应物跳过，
+其余 **17 项全部入表**（id 39-55）：
+
+```
+TRACKCOORD/TURNDELAY/SPDSEARCH/SPDTURN/DISF60/GSKP/TURNP/TURND
+PTKP/PTKI/PTKD  MKPL/MKIL/MKDL/MKPR/MKIR/MKDR
+```
+
+新表文档：**`docs/参数名称-功能-调整表.md`**（仿课件三列结构 + 链路 id/默认值/覆写警示列）。
+
+### 关键决策与实现
+
+1. **两档分治（用户决定）**：新参数只服务**远程档**；比赛档保持编译期常量，
+   `.hex` **逐字节不变**（重编实测 `f0a5f863…` 基线依旧）。赛前调参闭环仅对远程档成立。
+2. **三宏门控**：`LINK_P_NUM`(41/24)、`LINK_PROTO_VER`(6/5)、`LINK_FW_VER`(217/216)
+   均按 `#ifdef MOUSE_REMOTE` 取值——两档编译同一份 link.c，共享宏不门控必改比赛档产物
+   （这也是 v2.4 的 SAVE 修复没 bump 版本号的同款约束）。
+3. **消费点改造**（全部门控，比赛档产物中性）：
+   - `core.h`：`TURN_PID_KP/KI/KD` 门控改读 `linkPtKp/Ki/Kd`（isr.c 使用点文本未动）；
+     新增 `LINK_DISF60`（isr.c 三处字面量 `> 60` 参数化）、`LINK_WALLTHR_DEFAULT()`。
+   - `motor.h`：`MOTOR_KP/KI/KD_L/R` 门控改读 `linkMtrKpL/...`（motor.c 未动）。
+   - `motion.c`：智能冲刺路径 `wallSns.wallThresh = 160` 恢复点 ×2 改读参数表 IRTHRWALL
+     —— **修复"SETQ 改完被覆写-恢复链吃掉"**（覆写点 45°→110 是功能行为，保留）。
+   - `link.c`：`link_ParamFromSys/ApplyOne/NameToId` 各追加 17 项（门控）；
+     新增宿主变量（静态初值==原常量，LINK_Init 前被 ISR 引用也安全）。
+4. **TX 环 512→1024**（远程档）：41 项 `GET ALL` ≈700B 已超 512B，会触发环满丢弃。
+   远程档 RAM 17832/20480（余量 2648B）。PONG 指纹变为 `PONG 6 217 7 1024 <rst>`。
+5. **覆写语义（用户决定：允许覆写+文档警示）**：TURNP/TURND/TURNDELAY/SPDTURN 的
+   覆写都在冲刺路径（远程档不进冲刺）；SPDSEARCH 只参数化初值，转弯后回落固定 70
+   （初值/回落本是两个调校点，不绑定）。grep 证伪两条旧结论：turnP/turnD 无 v2.4 前
+   所说的"SPURT 每次覆写后影响远程档"问题、turnDelay 无"冲刺改 14 之外的写点"。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 比赛档编译 | 0 Error/58 Warn，hex `f0a5f8637d96b61def2d…` **逐字节不变** ✅ |
+| 远程档编译 | 0 Error/58 Warn，ROM 76028→**77628**、RAM 17104→**17832** |
+| 契约测试 | **253 项全绿**（S8d 改双值断言 41/24 + 防重排断言；每参数读写断言随表扩容 +17×2） |
+| 八套件 | 45+253+46+48+32+42+52+38 = **556 项 0 失败**（`front_check` 需真机另测） |
+| 真机 | ⏳ 待重烧远程档后验收：41 项 SETQ/GET/RESET 往返 + IRTHRWALL 覆写恢复同步 + 新指纹 |
+
+上位机：`API_VERSION` 2.4.0→**2.5.0**；`PARAM_IDS` +17（`PARAM_IDS_MOTION`，
+分组"运动控制"）；`sim/mouse_sim.py` 同步 41 项表与 6/217/1024；
+`front_check.py`/`pull_smoke.py` 的"首个 #define 匹配"解析自动命中远程分支（`#ifdef MOUSE_REMOTE` 在前），
+并在契约 S8d 加了**防重排断言**钉住这一文件组织约定。
+
+---
+
 ## [2.4.0] — 2026-10-07
 
 ### 主题：编译档位 **5 → 2**，删除整层课程调参实验

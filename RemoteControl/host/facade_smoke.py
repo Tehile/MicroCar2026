@@ -58,6 +58,7 @@ def test_n1_headless() -> None:
 
 def _run_impl(port: int) -> None:
     from host.api import Event, MouseClient
+    from host.protocol.commands import PARAM_IDS
 
     # ------------------------------------------------------------ 连接(A)
     print("\n[A] 连接管理 + 遥测(B)")
@@ -91,10 +92,10 @@ def _run_impl(port: int) -> None:
         # ------------------------------------------------------------ 参数(E/D)
         print("\n[E] 参数 + [D] 可靠传输(回读校验)")
         got = mc.params.get_all()
-        # 7 项生产标定 + 17 项红外/电源 = 24 项。v2.4 起课程命名空间已删除,
-        # 这就是固件 `linkParam[LINK_P_NUM]` 的全部内容, 也是 `GET ALL` 的全部输出。
-        check("GET ALL 回读 24 项生产参数", len(got) == 24, str(len(got)))
-        check("生产命名空间 24 项齐备", set(mc.params.production_names()) <= set(got),
+        # 7 标定 + 17 红外/电源 + 17 运动控制 = 41 项(v2.5)。课程命名空间已删除,
+        # 这就是远程档固件 `linkParam[LINK_P_NUM]` 的全部内容, 也是 `GET ALL` 的全部输出。
+        check("GET ALL 回读 {} 项生产参数".format(len(PARAM_IDS)), len(got) == len(PARAM_IDS), str(len(got)))
+        check("生产命名空间 {} 项齐备".format(len(PARAM_IDS)), set(mc.params.production_names()) <= set(got),
               str(sorted(set(mc.params.production_names()) - set(got))))
         r = mc.params.set("TRACKL", 53.2015)
         check("set() ACK+回读校验通过", r.ok, r.status)

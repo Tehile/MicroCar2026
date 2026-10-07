@@ -31,10 +31,34 @@
 #define MOTOR_PID_KI_R 1.0   /* 右轮积分增益 */
 #define MOTOR_PID_KD_R 0.75  /* 右轮微分增益 */
 
-/* 姿态/转弯PD增益(角度误差闭环) */
+/* 姿态/转弯PD增益(角度误差闭环)
+ * v2.5: 远程档改读链路参数表宿主变量(初值==原常量, LINK_Init 按参数表覆写,
+ *       SETQ 可在线调); 比赛档保持编译期常量(产物逐字节不变)。 */
+#ifdef MOUSE_REMOTE
+extern double linkPtKp, linkPtKi, linkPtKd; /* 定义于 link.c, 见 link.h id 47-49 */
+#define TURN_PID_KP (linkPtKp)
+#define TURN_PID_KI (linkPtKi)
+#define TURN_PID_KD (linkPtKd)
+#else
 #define TURN_PID_KP 2.5        /* 转弯比例增益(TURNAROUND/POINTTURN90共用) */
 #define TURN_PID_KD 0.1        /* 转弯微分增益 */
 #define TURN_PID_KI 0.01       /* 转弯积分增益(仅POINTTURN90用) */
+#endif
+
+/* ---- v2.5: 180°前对正阈值 + IRTHRWALL 覆写恢复值(均门控, 语义同上) ----
+ * DISF60: 原为 isr.c 三处字面量 `irDist.f > 60`; 远程档读 linkDisF60(id 43)。
+ * WALLTHR: 智能冲刺路径把 wallSns.wallThresh 收紧到 110 后的"恢复值",
+ *          原硬编码 160(motion.c ×2); 远程档改读参数表 IRTHRWALL(id 22),
+ *          使 SETQ 的值不被覆写-恢复链吃掉; 比赛档宏展开回 160, 产物不变。 */
+#ifdef MOUSE_REMOTE
+extern u8 linkDisF60; /* 定义于 link.c */
+u8 LINK_WallThrDefault(void);
+#define LINK_DISF60 ((double)linkDisF60)
+#define LINK_WALLTHR_DEFAULT() LINK_WallThrDefault()
+#else
+#define LINK_DISF60 60
+#define LINK_WALLTHR_DEFAULT() 160
+#endif
 #define ACC_PID_KP 2.5         /* 加速/停止比例增益(ACC/STOP状态用) */
 #define ACC_PID_KD 1.6         /* 加速/停止微分增益(ACC/STOP状态用) */
 #define STRAIGHT45_PID_KP 0.12 /* 45度直行比例增益 */
