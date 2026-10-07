@@ -97,7 +97,7 @@ class CameraAdapter:
         mod, err = probe_module("hostlink", paths)
         if err:
             self._import_error = err
-            self.bus.log("warn", f"相机模块不可用：{err.splitlines()[0]}")
+            self.bus.log("warn", f"相机模块不可用：{err.splitlines()[0]}", source='camera')
             return
         try:
             from hostlink import HostLink, HostLinkError       # noqa: F401
@@ -212,7 +212,7 @@ class CameraAdapter:
             self.bus.log("warn",
                          f"plan.interval_ms={plan.get('interval_ms')} ≠ 0："
                          f"此为抽帧，`every_frame` 将变为 false，"
-                         f"账本中 frames_expected 的含义随之改变（并非每帧都留存）")
+                         f"账本中 frames_expected 的含义随之改变（并非每帧都留存）", source='camera')
         return self._call("start 采集", lambda h: h.start(
             session_id=session_id, device_serial=device_serial, plan=plan,
             capture_mode=capture_mode or ""))
@@ -228,7 +228,7 @@ class CameraAdapter:
         except Exception as e:                                  # noqa: BLE001
             msg = self._explain(what, e)
             if log:
-                self.bus.log("warn", msg)
+                self.bus.log("warn", msg, source='camera')
             raise CameraError(msg) from e
 
     #: 认得出"压根没谈上话"的几种说法。**越宽越好**，因为反例的代价是
@@ -281,7 +281,7 @@ class CameraAdapter:
         """消费 `hostlink.events()`。断线自动重连由上游负责，我们负责**重对齐**。
 
         日志纪律（踩过）：相机没在跑是**常态**，而这一层是 2 s 一轮的重试。
-        如果每轮都 `bus.log("warn", ...)`，800 行的日志环会在半小时内被同一条刷满，
+        如果每轮都 `bus.log("warn", ..., source='camera')`，800 行的日志环会在半小时内被同一条刷满，
         真正的现场事件全被挤出去 —— 对一个"靠日志排查"的工具来说等于没有日志。
         所以：只报**这一次故障的第一条**，之后每退避到第 N 次报一条心跳，恢复时再报一条。
         """
@@ -294,7 +294,7 @@ class CameraAdapter:
                     if self._stop.is_set():
                         return
                     if fails:
-                        self.bus.log("info", f"相机事件订阅恢复（此前连续失败 {fails} 次）")
+                        self.bus.log("info", f"相机事件订阅恢复（此前连续失败 {fails} 次）", source='camera')
                         fails = 0
                     self._handle_event(ev)
             except Exception as e:                              # noqa: BLE001
@@ -305,10 +305,10 @@ class CameraAdapter:
                 if fails == 1:
                     t_first = time.time()
                     self.bus.log("warn", f"相机事件订阅断了：{type(e).__name__}: {e}"
-                                         f"；改为退避重试（2→4→8→15 s 封顶），恢复时另报一条")
+                                         f"；改为退避重试（2→4→8→15 s 封顶），恢复时另报一条", source='camera')
                 elif fails % 15 == 0:
                     self.bus.log("warn", f"相机事件订阅仍连不上（已失败 {fails} 次，"
-                                         f"约 {time.time() - t_first:.0f} s）")
+                                         f"约 {time.time() - t_first:.0f} s）", source='camera')
                 # 退避：2 / 4 / 8 / 15 封顶。固定 2 s 会在服务真的没起时把机器烧得没必要。
                 self._stop.wait(min(15.0, 2.0 * (2 ** min(fails - 1, 3))))
 
@@ -325,7 +325,7 @@ class CameraAdapter:
             # ⚠️ 这里**不能**再同步调 status()：那样会把事件线程按在 HTTP 上（本机一次
             # 失败探测 2 s），断线时反而更卡、更容易堆积。改成：① 立刻作废快照并踢一次
             # 重探；② 用现有快照发一条把 reconnected 标出来的事件。
-            self.bus.log("info", "相机事件流重连 —— 作废快照并主动重探，通知客户端重新对齐")
+            self.bus.log("info", "相机事件流重连 —— 作废快照并主动重探，通知客户端重新对齐", source='camera')
             self.kick_probe()
             self.bus.publish("camera.status", {"reconnected": True, "health": self.health()})
             self._reached(True)
@@ -387,7 +387,7 @@ class CameraAdapter:
             try:
                 cb(ev, path)
             except Exception as e:                              # noqa: BLE001
-                self.bus.log("warn", f"帧监听者抛异常（已隔离）：{type(e).__name__}: {e}")
+                self.bus.log("warn", f"帧监听者抛异常（已隔离）：{type(e).__name__}: {e}", source='camera')
         last = self._throttle.get("frame_verified_ui", 0.0)
         if time.time() - last >= THROTTLE_S:
             self._throttle["frame_verified_ui"] = time.time()
@@ -499,7 +499,7 @@ class CameraAdapter:
         self._data_dir_cache = None                 # 缓存失效：根目录变了
         self.kick_probe()                           # 进离线 ⇒ 快照立刻翻成「离线可达」
         self.bus.log("info", f"已导入本地相机会话 {session_id}："
-                             f"{len(self._offline_frames)} 帧（离线模式，不连服务）")
+                             f"{len(self._offline_frames)} 帧（离线模式，不连服务）", source='camera')
         if replay:
             self.start_offline_replay(session_id, rate_hz=rate_hz)
         return {"session_id": session_id, "root": str(base),
@@ -665,7 +665,7 @@ class CameraAdapter:
         else:
             note = "判不了"
         self.bus.log("info", f"相机已连接 {self.base}"
-                             f"（{st.get('server_version') or '版本未知'}）；{note}")
+                             f"（{st.get('server_version') or '版本未知'}）；{note}", source='camera')
         self.store.mark("camera", "camera.connect", str(self.base), note)
         return {"ok": True, "base": self.base, "reachable": True,
                 "server_version": st.get("server_version"),
@@ -802,7 +802,7 @@ class CameraAdapter:
         self._probe_prev = reachable
         if prev is None or prev == reachable:
             return
-        self.bus.log("info", f"相机可达性变为 {'可达' if reachable else '不可达'}")
+        self.bus.log("info", f"相机可达性变为 {'可达' if reachable else '不可达'}", source='camera')
         self.bus.publish("camera.status", {"reachable": reachable, "flipped": True,
                                            "health": self.health()})
 

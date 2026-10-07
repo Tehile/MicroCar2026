@@ -344,7 +344,7 @@
     /* 【复位】只在**已连接**时可点：整机软复位走的还是同一条命令通道，
        断开时它做不了任何事（点了只会吃一个 409，还让人以为"复位也不好使"）。 */
     C.gate(document.getElementById('dm-rescue'),
-           m.connected ? '' : '先连接电脑鼠（复位命令要走同一条链路的命令通道）');
+           m.connected ? '' : '先连接电脑鼠');
   }
 
   function renderDevCamera() {
@@ -694,13 +694,15 @@
         break;
       case 'mouse.telemetry':
         S.telemetry = m;
-        renderReadouts();
         break;
       case 'mouse.text':
-        pushConsole((m.direction === '<-' ? 'rx' : 'tx'), '[' + Math.round(m.t_pc_ms % 1e6) + '] ' + m.line);
+        /* 设备文本流进底栏 = **鼠**来源；方向只体现在正文的箭头里。 */
+        pushConsole('', m.line, { type: 'mouse.text', level: 'info',
+                                  source: 'mouse', direction: m.direction,
+                                  line: m.line, t_pc_ms: m.t_pc_ms });
         break;
       case 'log':
-        pushConsole(m.level === 'warn' ? 'warn' : '', m.text);
+        pushConsole('', m.text, m);
         S.serviceLog.push(m);
         break;
       case 'session.phase':
@@ -841,38 +843,200 @@
     }
   }
 
-  /* 底栏读数条：只挑**一眼有用的几个量**，全部取自那**唯一一条统一帧**
-     （上游 2.0.0 没有 fast/mid/slow 之分，`telemetry.unified` 就是全量）。
-     顺序 = 读的顺序：速 → 里程 → 四路红外 → 电池。 */
-  const READOUT_KEYS = ['speedL', 'speedR', 'trackL', 'trackR',
-                        'irF1', 'irF2', 'irL', 'irR', 'battMv'];
+  /* ------------------------------------------------------------ 底部信息集成栏
+     底栏**只放信息输出**（原来的"实时读数"条已删 —— 那些量在「实时状态与参数设定」
+     页里本来就有，底栏不该再抄一份）。两条筛选维度：
 
-  function renderReadouts() {
-    const t = S.telemetry;
-    if (!t) return;
-    const u = t.unified || {};
-    const parts = READOUT_KEYS.filter(function (k) { return u[k] !== undefined; })
-      .map(function (k) { return k + '=' + C.util.fmt(u[k], 2); });
-    const hz = ((t.rate || {}).unified || {}).hz;
-    parts.push('帧率=' + (hz == null ? '—' : (C.util.fmt(hz, 1) + 'Hz')));
-    parts.push('bps=' + C.util.fmt(t.bps, 1));
-    document.getElementById('readouts').innerHTML =
-      '<b>' + (t.streaming ? '流运行' : '流停止') + '</b>  ' + C.util.esc(parts.join('  '));
+       · **来源**：这条信息是从哪来的 —— 电脑鼠 / 相机 / 场地定位 / 本层。
+         后端 `bus.log(level, text, source=...)` 给的就是这个（唯一真相在 `bus.SOURCES`）。
+       · **级别**：info / warn / error（`log` 事件带的 `level`）。
+
+     两维都是"多选 + 全部"：默认**全部来源、只看 warn 及以上？** 不 —— 默认全看，
+     因为现场第一眼要的是"现在到底在发生什么"，筛是去噪手段不是默认。
+     计数写在工具条上（"显示 N / 共 M"），**筛掉了多少要看得见**，否则会以为丢了信息。 */
+  const SRC_DEF = [
+    { id: 'mouse',   name: '电脑鼠' },
+    { id: 'camera',  name: '相机' },
+    { id: 'locate',  name: '场地定位' },
+    { id: 'control', name: '本层' }
+  ];
+  const LVL_DEF = [
+    { id: 'info',  name: '普通' },
+    { id: 'warn',  name: '警告' },
+    { id: 'error', name: '错误' }
+  ];
+  const SRC_NAME = {};
+  SRC_DEF.forEach(function (s) { SRC_NAME[s.id] = s.name; });
+  /* 筛选状态：`null` = 全部。用 Set 存选中的 id。 */
+  let infoFilterSrc = null;              // null = 全部来源
+  let infoFilterLvl = null;              // null = 全部级别
+  const INFO_CAP = 400;                  // DOM 里最多留这么多行（环形）
+
+  /* 一条信息**从哪来**：优先看后端给的 `source`；老后端没给就按类型兜底
+     （`mouse.text` 一定是鼠、其余归本层）—— **不猜文案**。 */
+  function infoSourceOf(m) {
+    const s = m && m.source;
+    if (s && SRC_NAME[s]) return s;
+    if (m && m.type === 'mouse.text') return 'mouse';
+    return 'control';
   }
 
-  const consoleLines = [];
-  function pushConsole(kind, line) {
-    S.textLines.push({ kind: kind, line: line, t: Date.now() });
-    if (S.textLines.length > 2000) S.textLines.splice(0, 500);
-    const el = document.getElementById('console-line');
+  function infoLevelOf(m) {
+    const l = (m && m.level) || 'info';
+    return (l === 'warn' || l === 'error') ? l : 'info';
+  }
+
+  function infoLineText(m) {
+    if (m.type === 'mouse.text') {
+      const arrow = m.direction === '<-' ? '← ' : '→ ';
+      return arrow + (m.line || '');
+    }
+    return m.text || '';
+  }
+
+  function infoPass(m) {
+    if (infoFilterSrc && !infoFilterSrc.has(infoSourceOf(m))) return false;
+    if (infoFilterLvl && !infoFilterLvl.has(infoLevelOf(m))) return false;
+    return true;
+  }
+
+  function fmtClock(ms) {
+    const d = new Date(ms);
+    const p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  function infoRow(m) {
+    const src = infoSourceOf(m), lvl = infoLevelOf(m);
     const div = document.createElement('div');
-    div.className = kind === 'rx' ? 'rx' : (kind === 'tx' ? 'tx' : '');
-    div.textContent = (kind === 'rx' ? '← ' : kind === 'tx' ? '→ ' : '· ') + line;
-    el.appendChild(div);
-    while (el.childNodes.length > 120) el.removeChild(el.firstChild);
-    el.scrollTop = el.scrollHeight;
+    div.className = 'il ' + lvl;
+    const t = document.createElement('span');
+    t.className = 't';
+    t.textContent = fmtClock(m.t_pc_ms || Date.now());
+    const s = document.createElement('span');
+    s.className = 's src-' + src;
+    s.textContent = '[' + SRC_NAME[src] + ']';
+    const txt = document.createElement('span');
+    txt.className = 'm';
+    txt.textContent = infoLineText(m);
+    div.appendChild(t); div.appendChild(s); div.appendChild(txt);
+    return div;
+  }
+
+  function renderInfoCount() {
+    const el = document.getElementById('ib-count');
+    if (!el) return;
+    const shown = S.textLines.filter(infoPass).length;
+    const total = S.textLines.length;
+    el.textContent = shown === total
+      ? (total + ' 条')
+      : ('显示 ' + shown + ' / 共 ' + total);
+  }
+
+  /* 全量重画（改筛选时用）—— 日志量有上限，重画比"增量 + 回滚"简单且不会漏。 */
+  function renderInfoLog() {
+    const box = document.getElementById('info-log');
+    if (!box) return;
+    box.innerHTML = '';
+    const rows = S.textLines.filter(infoPass).slice(-INFO_CAP);
+    rows.forEach(function (m) { box.appendChild(infoRow(m)); });
+    box.scrollTop = box.scrollHeight;
+    renderInfoCount();
+  }
+
+  /* 追加一条（新信息到达时用）—— 只有过筛选才进 DOM（省开销、也顺手守住筛选）。 */
+  function pushConsole(kind, line, m) {
+    const rec = m || { type: 'console', level: kind === 'warn' ? 'warn' : 'info', text: line };
+    S.textLines.push(rec);
+    if (S.textLines.length > 2000) S.textLines.splice(0, 500);
+    const box = document.getElementById('info-log');
+    if (!box) return;
+    if (!infoPass(rec)) { renderInfoCount(); return; }
+    box.appendChild(infoRow(rec));
+    while (box.childNodes.length > INFO_CAP) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+    renderInfoCount();
   }
   C.pushConsole = pushConsole;
+  /* 全量重画底栏 —— 给自动化用（喂过假信息后把环清干净再看）。 */
+  C.renderInfoLog = renderInfoLog;
+  /* 自动化清理：把带指定前缀的假信息从环里拿掉（browser_check 喂完要收干净，
+     又不该用【清空】把真日志一起抹了 —— 那会让后面的判据失去"WS 真在推"的证据）。 */
+  C.infoDropPrefix = function (prefix) {
+    S.textLines = (S.textLines || []).filter(function (m) {
+      return !(m && m.text && String(m.text).indexOf(prefix) === 0);
+    });
+    renderInfoLog();
+  };
+
+  function buildInfoBar() {
+    const srcBox = document.getElementById('ib-src');
+    const lvlBox = document.getElementById('ib-lvl');
+    if (!srcBox || !lvlBox) return;
+    const all = document.createElement('button');
+    all.textContent = '全部';
+    all.dataset.all = '1';
+    srcBox.appendChild(all);
+    SRC_DEF.forEach(function (s) {
+      const b = document.createElement('button');
+      b.textContent = s.name; b.dataset.src = s.id;
+      srcBox.appendChild(b);
+    });
+    const allL = document.createElement('button');
+    allL.textContent = '全部'; allL.dataset.all = '1';
+    lvlBox.appendChild(allL);
+    LVL_DEF.forEach(function (s) {
+      const b = document.createElement('button');
+      b.textContent = s.name; b.dataset.lvl = s.id;
+      lvlBox.appendChild(b);
+    });
+    /* 单选式切换：点"全部"=清成 null；点某个源 = 只留它（再点一次回到全部）。
+       设成"多选"会让工具条有 2^4 种状态，现场反而不知道自己在看什么。 */
+    const wire = function (box2, getSet, setSet) {
+      box2.querySelectorAll('button').forEach(function (b) {
+        b.onclick = function () {
+          if (b.dataset.all) { setSet(null); }
+          else {
+            const id = b.dataset.src || b.dataset.lvl;
+            const cur = getSet();
+            if (cur && cur.size === 1 && cur.has(id)) setSet(null);  // 再点回到全部
+            else setSet(new Set([id]));
+          }
+          paintInfoBar();
+          renderInfoLog();
+        };
+      });
+    };
+    wire(srcBox, function () { return infoFilterSrc; },
+         function (v) { infoFilterSrc = v; });
+    wire(lvlBox, function () { return infoFilterLvl; },
+         function (v) { infoFilterLvl = v; });
+    const clr = document.getElementById('ib-clear');
+    if (clr) clr.onclick = function () {
+      S.textLines.length = 0;
+      renderInfoLog();
+    };
+    paintInfoBar();
+  }
+
+  function paintInfoBar() {
+    const srcBox = document.getElementById('ib-src');
+    const lvlBox = document.getElementById('ib-lvl');
+    if (srcBox) {
+      srcBox.querySelectorAll('button').forEach(function (b) {
+        const on = b.dataset.all ? (infoFilterSrc === null)
+                                 : (infoFilterSrc && infoFilterSrc.has(b.dataset.src));
+        b.classList.toggle('on', !!on);
+      });
+    }
+    if (lvlBox) {
+      lvlBox.querySelectorAll('button').forEach(function (b) {
+        const on = b.dataset.all ? (infoFilterLvl === null)
+                                 : (infoFilterLvl && infoFilterLvl.has(b.dataset.lvl));
+        b.classList.toggle('on', !!on);
+      });
+    }
+  }
 
   /* ------------------------------------------------------------ 底部整合栏 */
   function toggleDock(on, silent) {
@@ -1217,8 +1381,7 @@
         if (d.verified) {
           C.toast('复位成功：设备已整机复位（rst=' + d.rst + '，等了 ' +
                   C.util.fmt(d.elapsed_s, 1) + ' s）' +
-                  '\n复位不复位物理位置，车还在原处。' +
-                  '\n⇒ 发车前必须把电脑鼠放回起点角，否则它会按一张错的地图走。', 'ok', 30000);
+                  '\n⇒ 发车前把电脑鼠放回起点角。', 'ok', 30000);
         } else {
           C.toast('复位没有复核到复位：rst=' + (d.rst || '—') + '\n' + (d.note || ''), 'warn', 30000);
         }
@@ -1478,6 +1641,9 @@
       S.tabs = { cam: 'arena', mouse: 'params', dock: '' };
       bindTop();
       bindDev();
+      /* 底部信息栏（来源/级别筛选）**不依赖任何网络**，绑上就能用；
+         后到的 WS 日志走 `pushConsole` 追加。 */
+      buildInfoBar();
       /* ⚠️ **心跳必须第一个装上**，排在所有 await 之前。
          这一行以前写在启动链的**最后**（`mountViews()` 和 `/caps` 之后），
          当时的想法是"先拿 health 再挂载"，但它顺带把心跳也变成了

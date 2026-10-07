@@ -160,7 +160,6 @@ C.mods.mod_maze8 = (function () {
             <span class="hint" id="m8-rep-t"></span>
             <button class="mini" id="m8-rep-exit" style="margin-left:auto">退出回放</button>
           </div>
-          <div class="hint" id="m8-tlhint">决策按时间排列（点进度条或某一条可跳到那一刻）。</div>
           <div class="scroll" id="m8-tl"
             style="max-height:300px;font-family:var(--mono);font-size:11px"></div>
         </div>
@@ -448,8 +447,7 @@ C.mods.mod_maze8 = (function () {
       cv.width = w; cv.height = H; cv.style.height = H + 'px';
       g.clearRect(0, 0, w, H);
       g.fillStyle = '#5e6675'; g.font = '12px Consolas,monospace';
-      g.fillText(rep ? '这份记录没有墙图数据'
-                     : '还没有重建数据（先连接；发车后随帧累积）', 8, 24);
+      g.fillText(rep ? '这份记录没有墙图数据' : '还没有重建数据', 8, 24);
       const wi = el.querySelector('#m8-winfo');
       if (wi) wi.textContent = '';
       const kv = el.querySelector('#m8-wkv');
@@ -660,8 +658,7 @@ C.mods.mod_maze8 = (function () {
     }
     if (!rows.length) {
       box.innerHTML = '<span class="hint">' +
-        (rep ? '这一段没有决策（帧太少，或它一直待命没动）'
-             : '还没有决策（发车后开始记）') + '</span>';
+        (rep ? '这一段没有决策' : '还没有决策') + '</span>';
       return;
     }
     /* 当前时刻：回放看游标，实时看最新。
@@ -719,7 +716,7 @@ C.mods.mod_maze8 = (function () {
     if (!d) return;
     const m = el.querySelector('#m8-msg');
     if (m) m.textContent = d.note || '已清空决策历程';
-    C.toast('决策历程已清空 —— 下一段从零开始\n（正在记录的那一段不受影响）', 'ok', 9000);
+    C.toast('决策历程已清空', 'ok', 9000);
     // 本地缓存也要跟着作废，否则下一次 render 还会画旧的那一份。
     live = null;
     tlAnchor = -1;                  // 让新一段的第一条能重新滚进视野
@@ -885,18 +882,16 @@ C.mods.mod_maze8 = (function () {
        后端已经替我们等过一帧（旧帧会把成功报成失败，见适配器 `_wait_fresh_frame`），
        但它等不到时如实返回 null。 */
     if (d.reliable === true) {
-      if (m) m.textContent = '已收车，任务 ' + (st.taskName || '?') + '（车已带出迷宫）';
+      if (m) m.textContent = '已收车，任务 ' + (st.taskName || '?');
       C.toast('已收车：任务回到 ' + (st.taskName || '?'), 'ok', 12000);
     } else if (d.reliable === false) {
       /* **这是本按钮最要紧的一句话**：`OK` 只说明命令被接受，
          收住没有要看任务机。车在运动时它多半收不住 ⇒ 直接给下一步。 */
       if (m) {
-        m.textContent = 'MAZE STOP 回 OK，但任务仍是 ' + (st.taskName || '?') +
-          '（车还在动，此命令此时收不住）';
+        m.textContent = 'MAZE STOP 回 OK，但任务仍是 ' + (st.taskName || '?') + '（没收住）';
       }
       C.toast('收车没生效：任务仍是 ' + (st.taskName || '?') +
-              '\nMAZE STOP 只置"请退出"标志，车在运动时轮不到检查。' +
-              '\n⇒ 请点【复位】（整机软复位），那是可靠手段。', 'warn', 26000);
+              '\n⇒ 请点【复位】。', 'warn', 26000);
     } else {
       if (m) m.textContent = '已发收车命令，但还没等到新帧，暂时判不了收住没有';
       C.toast('收车命令已发出，但没等到新遥测帧' +
@@ -920,9 +915,8 @@ C.mods.mod_maze8 = (function () {
            ② 复位后约 3 s 才有新帧，马上读状态会拿到旧帧；
            ③ 复位后不会自动恢复跑。 */
       C.toast('复位成功（rst=' + d.rst + '）' +
-              '\n车的位置假设已被清零，但车还在原处。' +
-              '\n⇒ 发车前必须把电脑鼠放回起点角，否则它会按一张错的地图走。' +
-              '\n⇒ 复位后约 3 s 才有新遥测帧，别急着判读状态。', 'ok', 30000);
+              '\n⇒ 发车前把电脑鼠放回起点角。' +
+              '\n⇒ 约 3 s 后才有新遥测帧。', 'ok', 30000);
     } else {
       if (m) m.textContent = '复位未复核通过：rst=' + (d.rst || '—');
       C.toast('复位没有复核到复位\n' + (d.note || ''), 'warn', 30000);
@@ -1145,12 +1139,6 @@ C.mods.mod_maze8 = (function () {
     if (be) be.style.display = rep ? 'none' : '';
     const ctl = el.querySelector('#m8-repctl');
     if (ctl) ctl.style.display = rep ? '' : 'none';
-    const hint = el.querySelector('#m8-tlhint');
-    if (hint) {
-      hint.textContent = rep
-        ? '回放中：拖上面的进度条改时间点，左中右三栏一起走；点某一条跳到那一刻。'
-        : '决策按时间排列（拖动进度条可回看刚才那一刻）。';
-    }
     const sld = el.querySelector('#m8-tlsld');
     const when = el.querySelector('#m8-tlwhen');
     if (sld) {
@@ -1259,8 +1247,7 @@ C.mods.mod_maze8 = (function () {
        再往回拖。若调用方是拖进度条进来的，随后会 `seekRepTime()` 覆盖它。 */
     renderTlBar();
     renderAll();
-    C.toast('进入回放：' + rep.name +
-            (asLive ? '（实时快照，之后的新帧不会进来）' : ''), 'ok', 9000);
+    C.toast('进入回放：' + rep.name, 'ok', 9000);
     return rep;
   }
 
@@ -1334,11 +1321,9 @@ C.mods.mod_maze8 = (function () {
          不是"现在"的 —— 拿现在的完整性去解释过去的一段数据是错的。 */
       const it = (rep.doc && rep.doc.integrity) || {};
       if (!it.evq_seen && !it.drop_seen) { f2.textContent = ''; return; }
-      f2.textContent = '这段记录本身不完整：'
+      f2.textContent = '这段记录不完整：'
         + (it.evq_seen ? '设备侧丢过事件行（EVQ）' : '')
-        + (it.drop_seen ? ((it.evq_seen ? '；' : '') + '丢过帧（dropCnt 非 0）') : '')
-        + '\n· 复盘看到的是当时记下来的东西，缺的那部分补不回来'
-        + '\n· 位置与墙图仍可信（它们在帧里），只有事件与迁移可能缺条目';
+        + (it.drop_seen ? ((it.evq_seen ? '；' : '') + '丢过帧（dropCnt 非 0）') : '');
       return;
     }
     const t = C.state.telemetry || {};
@@ -1347,9 +1332,8 @@ C.mods.mod_maze8 = (function () {
       ((t.unified || {}).evq === true);
     if (!dropped) { f2.textContent = ''; return; }
     const lost = (ev.ev_lost == null) ? '—' : ev.ev_lost;
-    f2.textContent = '事件流不完整：设备侧有事件行被丢弃（EVQ），已丢 ' + lost + ' 条。'
-      + '\n· STOPPED 若被丢掉，就不知道这次运动是"时间到"还是"红外触发"停的'
-      + '\n· 通信拥塞或调试 printf 抢环时会这样；复位设备后重跑一次才能拿到完整过程';
+    f2.textContent = '事件流不完整（EVQ），已丢 ' + lost + ' 条。'
+      + '\n⇒ 复位设备后重跑一次，才能拿到完整过程';
   }
 
   /* ------------------------------------------------------------ 总入口 */

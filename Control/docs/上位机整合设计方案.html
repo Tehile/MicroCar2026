@@ -155,6 +155,7 @@ li{margin:.28em 0}
 <li><a href="#1115-230-240">11.15 上游 2.3.0 / 2.4.0 的跟进记录（"取消独立参数标定"与比赛发车）</a></li>
 <li><a href="#1116">11.16 前墙双档显示 + 起点角显示（改版十三）</a></li>
 <li><a href="#1117">11.17 无记忆走迷宫的五个现场小改（改版十四）</a></li>
+<li><a href="#1118">11.18 底栏信息集成栏 + 界面文字纪律收紧（改版十五）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -457,6 +458,30 @@ STOP 命令 / 任务跑完）<strong>推不出来</strong> —— 它在帧里�
 并<strong>不画</strong>位置/朝向/目标/轨迹（那些是实际坐标系里的量，换网格后画出来是错的），
 状态里另起一行注明"显示尺寸 n×n（模拟；实际 N×N）"。
 新增判据 <strong>B38</strong> 一次守这五条。</p>
+<p><strong>改版记录 2026-10-08（十五）</strong>：<strong>底栏重做 + 界面文字纪律收紧</strong>。
+模块划分、布局规则与各页结构<strong>全不变</strong>（底栏仍是"常驻的一条"）。</p>
+<p><strong>① 底栏只留信息输出，删掉"实时读数"条。</strong> 那条读数抄的是统一帧里的几个量
+（速 / 里程 / 红外 / 电池 / 帧率），而「实时状态与参数设定」页<strong>本来就逐项列着</strong>
+同一条帧的全量 ⇒ 一屏两份、两份还可能不同步（底栏靠 WS 推、页面按自己的刷新走）。
+⇒ <code>#readouts</code> 整块删除，<code>renderReadouts()</code> 一并删除。</p>
+<p><strong>② 服务信息按"来源"分类、按"级别"可筛。</strong> 原先底栏右侧是一列<strong>不分来路</strong>的
+日志流 —— "相机事件订阅断了"和"会话已建目录"混在一起，现场没法只看某一路。
+⇒ 后端 <code>bus.log()</code> 增加 <strong><code>source</code></strong> 参数（唯一真相 <code>bus.SOURCES</code>：
+<code>mouse</code> 电脑鼠 / <code>camera</code> 相机 / <code>locate</code> 场地定位 / <code>control</code> 本层），
+全部约 50 个调用点逐个归类（<strong>不按文案猜来源</strong>，在"取上游一个值"的地方显式声明）；
+前端底栏改为<strong>信息集成栏</strong>：来源一行筛选钮 + 级别一行筛选钮（普通 / 警告 / 错误），
+单选式（点"全部"回全量，再点一次同一项也回全量 —— 不做 2ⁿ 多选），
+计数写"显示 N / 共 M"（<strong>筛掉了多少要看得见</strong>，否则会以为丢了信息）。
+鼠的设备文本流（<code>mouse.text</code>）也进这条栏，来源归"电脑鼠"。</p>
+<p><strong>③ 界面文字纪律收紧：删解释性 / 补充性文字，只留状态。</strong> 用户点名的三处
+（"拖动进度条可回看刚才那一刻" / "发车后开始记" / "先连接；发车后逐帧积累"）
+之外，同类一起清：<code>#m8-tlhint</code>（整条提示就是解释）连元素带写入方一起删；
+收车 / 复位 / 清空等提示<strong>只留状态 + 可照做的下一步</strong>（"⇒ 请点【复位】"），
+机制解释（"MAZE STOP 只置请退出标志"）删掉 —— 那些在 docs 里；
+「比赛」页标题下整段"两种发车的区别"说明删除（<code>#rc-hint</code> 连读写方一起删）；
+EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 怎么做"）保留</strong> ——
+删的是"为什么 / 是什么"，不是"下一步点哪"。
+新增判据 <strong>B39</strong> 守底栏（① + ②），B36/B38 等既有判据<strong>核对过未依赖被删文案</strong>。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -4878,6 +4903,129 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <tr>
 <td><code>control/static/views/mod_maze8.js</code></td>
 <td>改名「复位」；<code>stopRec()</code> 写路径；<code>#m8-dec-clear</code> + <code>clearDecisions()</code>；<code>stopReasonText()</code> + 胶囊拼原因；<code>#m8-msize</code> + <code>resizeRows()</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1118">11.18 底栏信息集成栏 + 界面文字纪律收紧（改版十五）</h3>
+<h4 id="_45">一、底栏的两条筛选维度</h4>
+<pre><code>┌ 底栏 ────────────────────────────────────────────────────────┐
+│ 来源 [全部][电脑鼠][相机][场地定位][本层]                       │
+│ 级别 [全部][普通][警告][错误]        显示 N / 共 M      [清空] │
+├──────────────────────────────────────────────────────────────┤
+│ 12:03:45 [相机]   相机事件订阅断了：ConnectionRefusedError…    │
+│ 12:03:52 [电脑鼠] → PING            （设备文本流也进这条栏）    │
+│ 12:03:53 [本层]   会话 2026-10-08_xxxx 已建目录：…             │
+└──────────────────────────────────────────────────────────────┘
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>值</th>
+<th>唯一真相</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>来源</td>
+<td><code>mouse</code> 电脑鼠 / <code>camera</code> 相机 / <code>locate</code> 场地定位 / <code>control</code> 本层</td>
+<td><code>control/bus.py</code> 的 <code>SOURCES</code>（后端）；前端 <code>SRC_DEF</code> 只放<strong>显示名</strong></td>
+</tr>
+<tr>
+<td>级别</td>
+<td><code>info</code> 普通 / <code>warn</code> 警告 / <code>error</code> 错误</td>
+<td><code>bus.log()</code> 的 <code>level</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>来源必须显式声明，不许按文案猜。</strong> "取上游一个值"的地方（适配器 / MJPEG 转发 /
+代启器）写 <code>source=</code>；本层自己的调度、会话、配置走默认 <code>control</code>。
+猜错的代价是具体的：现场按"相机"去查，结果问题出在鼠的链路上。</p>
+<h4 id="_46">二、交互约定（为什么是单选而不是多选）</h4>
+<ul>
+<li><strong>单选 + 全部</strong>：点"全部"回全量；再点一次已选中的项也回全量。
+  多选有 2⁴ × 2³ 种组合，现场反而说不清"我现在到底在看什么"。</li>
+<li><strong>计数写"显示 N / 共 M"</strong>：筛选生效时必须看得见"还有 M−N 条被筛掉了" ——
+  只写一个变短的列表，会被当成"信息丢了"。</li>
+<li><strong>环上限</strong>：内存 2000 条、DOM 400 行（超出丢最旧）；筛选是<strong>视图</strong>不是删除，
+  "清空"按钮才真的清。</li>
+</ul>
+<h4 id="_47">三、"删解释文字"的边界（什么删、什么留）</h4>
+<table>
+<thead>
+<tr>
+<th>留</th>
+<th>删</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>状态 / 数值 / 控件 / 门控条件</td>
+<td>机制解释（"MAZE STOP 只置请退出标志，车在运动时轮不到检查"）</td>
+</tr>
+<tr>
+<td><strong>可照做的下一步</strong>（"⇒ 请点【复位】""⇒ 发车前把电脑鼠放回起点角"）</td>
+<td>背景说明（"…那是可靠手段""…否则它会按一张错的地图走"）</td>
+</tr>
+<tr>
+<td>数值的限定词（"N 帧""（在途 3 条）""（起点角）"）</td>
+<td>教程句（"拖动进度条可回看刚才那一刻""发车后开始记"）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>判据 <strong>B13 / B23</strong> 守"不出现解释性标记与口语词"，但它们<strong>只红不指路</strong>——
+这一轮是按这条纪律做<strong>正向清扫</strong>：凡是"为什么"进 docs、"怎么做"留在界面。</p>
+</blockquote>
+<h4 id="_48">四、同批改动表</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/bus.py</code></td>
+<td><code>log()</code> 加 <code>source</code> 参数（默认 <code>control</code>，白名单校验，非法值<strong>归 control 不报错</strong>）；新增 <code>SOURCES</code> 常量</td>
+</tr>
+<tr>
+<td>全部 ~50 个 <code>bus.log</code> 调用点</td>
+<td>逐个归类：<code>mouse.py</code>→mouse、<code>camera.py</code>→camera、<code>locator.py</code>→locate、<code>launcher.py</code>→camera、MJPEG 三条→camera、ctx 的鼠/相机/定位三条→各源、其余默认 control</td>
+</tr>
+<tr>
+<td><code>control/static/index.html</code></td>
+<td>底栏 <code>#readouts</code> 删除；换 <code>#info-bar</code>（两组筛选钮 + 计数 + 清空）+ <code>#info-log</code></td>
+</tr>
+<tr>
+<td><code>control/static/app.js</code></td>
+<td><code>renderReadouts()</code> 删除；底栏重写（<code>SRC_DEF</code>/筛选/计数/环上限）；<code>mouse.text</code> 进底栏归"电脑鼠"；<code>C.renderInfoLog</code> 暴露给自动化；复位/门控等提示精简</td>
+</tr>
+<tr>
+<td><code>control/static/style.css</code></td>
+<td><code>#bottom</code> 改纵向布局；<code>.il</code> 行样式（来源着色 / 级别着色）</td>
+</tr>
+<tr>
+<td><code>control/static/views/console.js</code></td>
+<td>调试台"服务日志"尾也带 <code>[level][source]</code> 前缀</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_maze8.js</code></td>
+<td><code>#m8-tlhint</code> 删除（元素+写入方）；清空/收车/复位/进入回放提示精简；画布空态文案删括号说明</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_race.js</code></td>
+<td><code>#rc-hint</code> 删除（元素+<code>renderHint</code>+调用方）；记录中/冲刺不可读文案精简</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_params.js</code> / <code>exp.js</code></td>
+<td>拉取停滞/EVQ/课程删除提示保留"可照做"删"背景"</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code></td>
+<td><strong>B39 新增</strong>（守底栏：读数条已删 + 两组筛选钮齐 + 喂三条不同来源信息各带标签 + 来源/级别筛选都筛得动 + 计数写"显示 N / 共 M"）；B13/B23 扫描选择器 <code>#readouts</code> → <code>#info-bar</code>/<code>#info-log</code></td>
 </tr>
 </tbody>
 </table>

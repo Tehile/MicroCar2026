@@ -1058,7 +1058,7 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
             ctx.store.mark("mouse", "maze.record.start", "", "why=maze_run")
     except Exception as e:                                    # noqa: BLE001
         rec_note = f"（记录未能开始：{type(e).__name__}）"
-        ctx.bus.log("warn", f"实验 8 记录没能开始：{type(e).__name__}: {e}")
+        ctx.bus.log("warn", f"实验 8 记录没能开始：{type(e).__name__}: {e}", source="mouse")
     try:
         res = await loop.run_in_executor(None, lambda: ctx.mouse.maze_run(target))
     except Exception:
@@ -1441,7 +1441,7 @@ async def _cam_mjpeg(request: web.Request) -> web.StreamResponse:
         upstream = await session.get(
             url, timeout=aiohttp.ClientTimeout(total=None, sock_read=30))
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        ctx.bus.log("warn", f"MJPEG 连不上上游：{type(e).__name__}: {e}")
+        ctx.bus.log("warn", f"MJPEG 连不上上游：{type(e).__name__}: {e}", source="camera")
         raise ApiError(502, f"连不上相机服务 {url.split('?')[0]}：{type(e).__name__}") from e
 
     async with upstream:
@@ -1462,7 +1462,7 @@ async def _cam_mjpeg(request: web.Request) -> web.StreamResponse:
                     chunk = await upstream.content.readany()
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                     # 读**上游**失败 = 真故障，值得记一条
-                    ctx.bus.log("warn", f"MJPEG 上游读取中断：{type(e).__name__}: {e}")
+                    ctx.bus.log("warn", f"MJPEG 上游读取中断：{type(e).__name__}: {e}", source="camera")
                     break
                 if not chunk:
                     break
@@ -1473,7 +1473,7 @@ async def _cam_mjpeg(request: web.Request) -> web.StreamResponse:
                     # 写**浏览器**失败 = 它把这一路关了（切页 / 刷新 / 停止预览）。
                     # **这是正常事件**，不能记 warn：现场切一次页面就多一条"故障"，
                     # 真故障会被自己的噪声淹掉（原先就是这行把日志刷成了两条 warn）。
-                    ctx.bus.log("info", f"MJPEG 订阅者断开（{type(e).__name__}）")
+                    ctx.bus.log("info", f"MJPEG 订阅者断开（{type(e).__name__}）", source="camera")
                     break
         except asyncio.CancelledError:
             raise

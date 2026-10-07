@@ -262,11 +262,11 @@ C.mods.mod_params = (function () {
       const inflight = ((r.pull || {}).inflight);
       const detail = (inflight == null) ? '' : ('（在途 ' + inflight + ' 条）');
       lag.textContent = '没有数据在来' + detail + ' ⇒ 先确认已连接，'
-        + '再看顶栏【电脑鼠】窗口里的遥测开关是不是开着的（关掉它就没有请求发出去）。';
+        + '再看顶栏【电脑鼠】窗口里的遥测开关是否打开。';
     } else if (r.age_ms != null && r.age_ms > 1500) {
       lag.textContent = '最新一帧已是 ' + C.util.fmt(r.age_ms / 1000, 1)
-        + ' s 前 ⇒ 拉取停了。常见原因：USB 线松了、上游 run_host.py 抢了串口、'
-        + '或蓝牙模块被上一轮灌满（关掉遥测开关停一会儿让它排空即可，不用断电）。';
+        + ' s 前 ⇒ 拉取停了。'
+        + '⇒ 查 USB 线与串口占用；或把遥测开关关片刻再开（排空蓝牙缓冲，不用断电）。';
     } else {
       lag.textContent = '';
     }
@@ -283,10 +283,9 @@ C.mods.mod_params = (function () {
     const bad = (ev.incomplete === true) || rec.evq === true;
     if (!bad) { f.textContent = ''; return; }
     const lost = (ev.ev_lost == null) ? '—' : ev.ev_lost;
-    f.textContent = '事件流不完整：设备侧有事件行被丢弃（EVQ）。'
-      + ' 已丢 ' + lost + ' 条 · 累计缺口 ' + ((ev.ev_gaps == null) ? '—' : ev.ev_gaps)
-      + '\n· 事件行与遥测帧共用一个序号；缺口只说明"丢过"，不说明丢的是哪一条'
-      + '\n· 想拿到完整过程请复位设备后重跑（丢了就补不回来）';
+    f.textContent = '事件流不完整（EVQ）：已丢 ' + lost + ' 条 · 累计缺口 '
+      + ((ev.ev_gaps == null) ? '—' : ev.ev_gaps)
+      + '\n⇒ 复位设备后重跑一次，才能拿到完整过程';
   }
 
   /* 参数表**不是**自动刷新的：只在点【读取全部】时读一次。

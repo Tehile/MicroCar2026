@@ -143,8 +143,17 @@
 </div><!-- /#sys -->
 
 <footer id="bottom">
-  <div id="readouts">实时读数 —</div>
-  <div id="console-line" class="console" data-log="1"></div>
+  <div id="info-bar">
+    <span class="ib-label">来源</span>
+    <span id="ib-src" class="seg"></span>
+    <span class="ib-label">级别</span>
+    <span id="ib-lvl" class="seg"></span>
+    <span class="ib-count" id="ib-count"></span>
+    <span style="margin-left:auto">
+      <button class="mini" id="ib-clear">清空</button>
+    </span>
+  </div>
+  <div id="info-log" data-log="1"></div>
 </footer>
 
 <!-- 设备窗口：四个面板共用一层遮罩，点顶栏标签切到对应面板。

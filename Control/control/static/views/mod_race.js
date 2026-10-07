@@ -64,7 +64,6 @@ C.mods.mod_race = (function () {
       <div class="pane">
         <h4>比赛发车 <span class="hint" id="rc-msg"></span>
           <span><button class="mini primary" id="rc-run">比赛发车</button></span></h4>
-        <div class="hint" id="rc-hint"></div>
         <div class="row wrap">
           <button class="mini" id="rc-mstop">收车</button>
           <button class="mini danger" id="rc-rescue">复位</button>
@@ -182,9 +181,7 @@ C.mods.mod_race = (function () {
        把 null 画成"未选"是最坏的一种错 —— 那是**在替固件宣布"它没在冲刺"**。 */
     if (!sp) {
       if (!st) { box.innerHTML = '<span class="hint">未连接电脑鼠</span>'; return; }
-      box.innerHTML = '<div class="hint">这台设备读不到比赛冲刺状态：' +
-        '冲刺量（`spurtMode` 等）是 RemoteControl <b>2.3.0</b> 起才进帧的。' +
-        '当前上游没有这个量，升级上游后这里才会有读数。</div>';
+      box.innerHTML = '<span class="hint">读不到比赛冲刺状态（上游 2.3.0 起才有）</span>';
       return;
     }
     const modes = meta && meta.modes;
@@ -240,7 +237,7 @@ C.mods.mod_race = (function () {
     if (!rec) { box.textContent = ''; return; }
     if (rec.recording) {
       box.textContent = '● 记录中 ' + rec.frames + ' 帧 · 已 ' +
-        C.util.fmt((rec.duration_ms || 0) / 1000, 1) + ' s（发车自动开始记录，去「无记忆走迷宫」页可复盘）';
+        C.util.fmt((rec.duration_ms || 0) / 1000, 1) + ' s';
       return;
     }
     const last = rec.last;
@@ -251,15 +248,6 @@ C.mods.mod_race = (function () {
     }
     box.textContent = '上次保存 ' + (last.name || '(未知文件名)') + ' · ' +
       (last.frames == null ? '?' : last.frames) + ' 帧';
-  }
-
-  function renderHint() {
-    const h = el.querySelector('#rc-hint');
-    if (!h) return;
-    /* 这场比赛发车与【无记忆走迷宫】页的区别，必须在按钮旁边说清 ——
-       只说"发车"会让现场以为两边一样（一个读地图冲、一个从零趟）。 */
-    h.textContent = '比赛发车 = MAZE RUN RACE：固件先读 Flash 地图（终点 + 快路），'
-      + '自己选冲刺档再跑。区别：走迷宫页是 MAZE RUN BLIND，从零无记忆趟一遍。';
   }
 
   function render() {
@@ -355,7 +343,6 @@ C.mods.mod_race = (function () {
       });
       /* 复位**不门控**：恰恰是连不上、卡死的时候最需要它（与顶栏急停一致）。 */
       if (why) { st = null; sp = null; rec = null; render(); }
-      renderHint();
     },
   };
 })();

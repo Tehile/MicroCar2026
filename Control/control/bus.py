@@ -23,6 +23,11 @@ from typing import Any, Deque, Dict, Iterable, List, Optional, Set, Tuple
 #: JSON 帧的载荷上限。超过就必须走二进制（判据 I10 的阈值）。
 JSON_PAYLOAD_LIMIT = 64 * 1024
 
+#: 日志来源（**唯一真相**）—— 前端底栏按它分类，不许在别处另写一份。
+#: 顺序 = 界面上显示的先后（与子系统顺序一致：鼠 / 相机 / 定位 / 本层）。
+SOURCES = ("mouse", "camera", "locate", "control")
+_SOURCES = set(SOURCES)
+
 
 class Bus:
     """事件广播中枢。"""
@@ -55,9 +60,23 @@ class Bus:
         self._bin_subs.discard(q)
 
     # ------------------------------------------------------------ 发布
-    def log(self, level: str, text: str, **extra: Any) -> None:
-        """写一条服务日志（进环形缓冲，并可被前端拉取）。同时广播为 `log` 事件。"""
-        rec = {"type": "log", "level": level, "text": text, "t_pc_ms": _now_ms(), **extra}
+    def log(self, level: str, text: str, source: str = "control", **extra: Any) -> None:
+        """写一条服务日志（进环形缓冲，并可被前端拉取）。同时广播为 `log` 事件。
+
+        `source`：这条信息**是从哪来的** —— 前端底栏按它分类（见 `SOURCES`）。
+        取值只能是四个之一：
+          · `"mouse"`   电脑鼠（RemoteControl，含那条串口/TCP 链路）
+          · `"camera"`  相机（PhoneCamera，含 8765 上的服务与手机上行）
+          · `"locate"`  场地定位（Auto Locate）
+          · `"control"` 本层（整合层自己的调度、配置、会话、收尾）
+        默认 `"control"`：**本层自己的调度信息**是多数（其余三类都发生在
+        "取上游一个值"的地方，那些地方要**显式**声明来源）。
+        ⚠️ 不许在这里猜来源（比如按文案里有"相机"就归相机）——
+        猜错会让现场"照着分类去找"时找错地方；不确定就归 `control` 并如实写清。
+        """
+        src = source if source in _SOURCES else "control"
+        rec = {"type": "log", "level": level, "text": text,
+               "source": src, "t_pc_ms": _now_ms(), **extra}
         with self._lock:
             self._log.append(rec)
         self.publish("log", rec, log=False)

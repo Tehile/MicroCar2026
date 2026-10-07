@@ -949,8 +949,7 @@ class MazeRecorder:
         with self._lock:
             self._reset_epoch("manual", stash=False)
             return {"ok": True, "t0_kind": self._dec_t0_kind,
-                    "note": "已清空决策历程（本层常驻环）—— 下一段从零开始；"
-                            "正在记录的那一段不受影响"}
+                    "note": "已清空决策历程"}
 
     @staticmethod
     def _num(v: Any) -> Any:

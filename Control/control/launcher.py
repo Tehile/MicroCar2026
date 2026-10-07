@@ -140,7 +140,7 @@ class ServiceLauncher:
         """本次运行内暂停 / 恢复代启。**不改进 config.yaml** —— 它是临时状态。"""
         self._paused = bool(on)
         self.bus.log("info", f"上游相机程序的代启已{'暂停' if self._paused else '恢复'}"
-                             f"（本次运行内，未改设置）")
+                             f"（本次运行内，未改设置）", source='camera')
         return {"paused": self._paused}
 
     # ------------------------------------------------------------ 规格
@@ -325,7 +325,7 @@ class ServiceLauncher:
                          f"{self.cfg.get('camera.base')} 一致\n"
                          f"  · 端口被别人先占了也会这样：先关掉占用者再试")
             self._start_error = msg + (f"\n{tail}" if tail else extra)
-            self.bus.log("warn", msg)
+            self.bus.log("warn", msg, source='camera')
             return {"ok": False, "started": spawned, "pid": pid, "reason": why,
                     "waited_ms": waited, "log": log, "port": self._spec["port"],
                     "tail": tail,
@@ -334,7 +334,7 @@ class ServiceLauncher:
                                  else f"  · 看日志：{log}\n")}
         self._start_error = ""
         note = (f"PID {pid} · 端口 {self._spec['port']} · {waited} ms 就绪")
-        self.bus.log("info", f"已代启上游相机服务（{note}）")
+        self.bus.log("info", f"已代启上游相机服务（{note}）", source='camera')
         self.store.mark("camera", "camera.service.start", str(self._spec["port"]), note)
         return {"ok": True, "started": spawned, "pid": pid,
                 "reason": "已启动" if spawned else "已在启动中（本次等到就绪）",
@@ -377,7 +377,7 @@ class ServiceLauncher:
 
     def _fail(self, msg: str, spec: dict) -> dict:
         self._start_error = msg
-        self.bus.log("warn", f"代启上游相机服务未成：{msg.splitlines()[0]}")
+        self.bus.log("warn", f"代启上游相机服务未成：{msg.splitlines()[0]}", source='camera')
         return {"ok": False, "started": False, "pid": None, "reason": msg.splitlines()[0],
                 "detail": msg, "waited_ms": 0, "log": spec["log"], "port": spec["port"]}
 
@@ -410,7 +410,7 @@ class ServiceLauncher:
                         "detail": f"请用任务管理器结束 PID {pid}。"}
             self._proc = None
             self._started_ms = None
-            self.bus.log("info", f"已停止上游相机服务（PID {pid}）")
+            self.bus.log("info", f"已停止上游相机服务（PID {pid}）", source='camera')
             self.store.mark("camera", "camera.service.stop", str(pid), "ok")
             return {"ok": True, "stopped": True, "pid": pid, "reason": "已停止"}
 
@@ -437,14 +437,14 @@ class ServiceLauncher:
             r = self.stop()
             if r.get("ok"):
                 self.bus.log("info", f"收尾：已按设置停掉本层代启的上游服务"
-                                     f"（PID {r.get('pid')}，stop_on_exit=true）")
+                                     f"（PID {r.get('pid')}，stop_on_exit=true）", source='camera')
             return {"stopped": bool(r.get("ok")), "pid": r.get("pid"),
                     "by_setting": True, "detail": r}
         self.bus.log("info",
                      f"上游相机服务仍在运行（PID {p.pid}，由 Control 代启）—— "
                      f"手机还连着它，所以默认不停。要停：点相机窗口的【停止】"
                      f"（或结束该 PID）；想让它随 Control 一起停，把 "
-                     f"camera.launcher.stop_on_exit 设为 true。")
+                     f"camera.launcher.stop_on_exit 设为 true。", source='camera')
         return {"stopped": False, "pid": p.pid, "by_setting": False}
 
 

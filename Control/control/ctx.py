@@ -157,7 +157,7 @@ class Ctx:
                 try:
                     self.trigger_batch(sid)
                 except (CameraError, LocatorError) as e:
-                    self.bus.log("warn", f"自动赛后复算没能启动：{e}")
+                    self.bus.log("warn", f"自动赛后复算没能启动：{e}", source="locate")
         except asyncio.CancelledError:
             raise
         finally:
@@ -383,7 +383,7 @@ class Ctx:
                     # 鼠没连上不该阻断整场记录：场地/采集/定位都是独立有用的。
                     s.phase["mouse"] = "failed"
                     s.detail["mouse"] = str(e)
-                    self.bus.log("warn", f"鼠会话没开成（不阻断其余两路）：{e}")
+                    self.bus.log("warn", f"鼠会话没开成（不阻断其余两路）：{e}", source="mouse")
             else:
                 s.phase["mouse"] = "failed"
                 s.detail["mouse"] = self.mouse.import_error or "模块不可用"
@@ -415,7 +415,7 @@ class Ctx:
                         self.bus.log("warn",
                                      "采集 start 已发出但无手机接收（sent_to=0）："
                                      "手机会话为空。请检查手机 App 是否在线、"
-                                     "配对网址与 token 是否一致")
+                                     "配对网址与 token 是否一致", source="camera")
                     self.store.set_camera_ref({
                         "session_id": sid_cam, "data_dir": str(self.camera.data_dir() or ""),
                         "plan": res.get("plan"), "sent_to": res.get("sent_to"),
@@ -452,7 +452,7 @@ class Ctx:
                     rolled.append("camera")
                 except CameraError:
                     self.bus.log("warn", "回滚时停采集失败 —— 手机侧可能还在录，"
-                                         "请手动在【采集】页点停止")
+                                         "请手动在【采集】页点停止", source="camera")
             if "mouse" in done:
                 try:
                     self.mouse.close_session({"rolled_back": True})

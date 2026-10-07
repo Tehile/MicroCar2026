@@ -213,7 +213,7 @@ class MouseAdapter:
         mod, err = probe_module("host.api", paths)
         if err:
             self._import_error = err
-            self.bus.log("warn", f"鼠模块不可用：{err.splitlines()[0]}")
+            self.bus.log("warn", f"鼠模块不可用：{err.splitlines()[0]}", source='mouse')
             return
         try:
             from host.api import MouseClient, Event, StreamAPI   # noqa: F401
@@ -255,7 +255,7 @@ class MouseAdapter:
             try:
                 rec.set_codes(self.maze_codes())
             except Exception as e:                            # noqa: BLE001
-                self.bus.log("warn", f"实验 8 决策码表注入失败：{type(e).__name__}: {e}")
+                self.bus.log("warn", f"实验 8 决策码表注入失败：{type(e).__name__}: {e}", source='mouse')
 
     def _probe_features(self) -> None:
         """能力探测。**不读版本号** —— `host.__version__` 停在 1.1.0 而 CHANGELOG 到 1.4.0。
@@ -459,7 +459,7 @@ class MouseAdapter:
         self._features = f
         missing = sorted(k for k, v in f.items() if not v)
         if missing:
-            self.bus.log("warn", f"上游缺少这些能力（按缺失项禁用对应功能）：{missing}")
+            self.bus.log("warn", f"上游缺少这些能力（按缺失项禁用对应功能）：{missing}", source='mouse')
 
     @property
     def available(self) -> bool:
@@ -640,7 +640,7 @@ class MouseAdapter:
                     self._rec_feed_failed = True
                     self.bus.log("warn",
                                  f"实验 8 记录器拒收帧（后续同类不再重复报）："
-                                 f"{type(e).__name__}: {e}")
+                                 f"{type(e).__name__}: {e}", source='mouse')
 
         def on_estop(m) -> None:
             """急停锁存/触发。**必须进时间轴**：它解释了"为什么后面的命令全被拒"。"""
@@ -700,7 +700,7 @@ class MouseAdapter:
             try:
                 self._unsubs.append(mc.on(ev, cb))
             except Exception as e:                           # noqa: BLE001
-                self.bus.log("warn", f"订阅 {name} 事件失败（不影响其余）：{e}")
+                self.bus.log("warn", f"订阅 {name} 事件失败（不影响其余）：{e}", source='mouse')
         # ---- `TELEMETRY`（每帧一次）：只给实验 8 的记录器用。
         # 探不到就跳过（老上游也一直有它，但这里仍按"能力探测"的规矩写）。
         ev = getattr(Event, "TELEMETRY", None)
@@ -708,7 +708,7 @@ class MouseAdapter:
             try:
                 self._unsubs.append(mc.on(ev, on_telemetry))
             except Exception as e:                           # noqa: BLE001
-                self.bus.log("warn", f"订阅 TELEMETRY 事件失败（实验 8 记录会没有数据）：{e}")
+                self.bus.log("warn", f"订阅 TELEMETRY 事件失败（实验 8 记录会没有数据）：{e}", source='mouse')
 
     # ------------------------------------------------------------ 连接
     def ports(self) -> List[dict]:
@@ -2067,7 +2067,7 @@ class MouseAdapter:
             try:
                 arr = mc.telemetry.history_dict(seconds=win_s)
             except Exception as e:                           # noqa: BLE001
-                self.bus.log("warn", f"波形采样失败：{type(e).__name__}: {e}")
+                self.bus.log("warn", f"波形采样失败：{type(e).__name__}: {e}", source='mouse')
                 continue
             if not arr:
                 continue
@@ -2123,12 +2123,12 @@ class MouseAdapter:
         try:
             out = await loop.run_in_executor(None, lambda: rec.stop(why=why))
         except Exception as e:                                # noqa: BLE001
-            self.bus.log("warn", f"实验 8 自动收尾落盘失败：{type(e).__name__}: {e}")
+            self.bus.log("warn", f"实验 8 自动收尾落盘失败：{type(e).__name__}: {e}", source='mouse')
             return
         if out.get("ok"):
             self.bus.log("info", f"实验 8 记录已保存（{why}）：{out.get('name')} · "
                                  f"{out.get('frames')} 帧 / {out.get('duration_ms')} ms"
-                                 + ("　⚠️ 帧数偏少" if out.get("tiny") else ""))
+                                 + ("　⚠️ 帧数偏少" if out.get("tiny") else ""), source='mouse')
             self.store.mark("mouse", "maze.record.saved", str(out.get("name") or ""),
                             f"frames={out.get('frames')} why={why}")
 

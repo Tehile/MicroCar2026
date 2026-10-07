@@ -126,9 +126,8 @@ C.views.exp = (function () {
     gone.style.display = '';
     body.style.display = 'none';
     gone.textContent = note ||
-      '这台上游没有课程调参实验：RemoteControl 2.4.0 已把课程层整层删除'
-      + '（lesson_lab.c / lesson.start·stop·status / 课程 14 项参数 / Flash page 116）。'
-      + ' 台面动作只剩上面的电机实验；算参与写回仍在下面的「自动算参」里。';
+      '这台上游没有课程调参实验（2.4.0 已删除）。'
+      + '台面动作只剩电机实验；算参在下方「自动算参」。';
   }
 
   /* ------------------------------------------------------------ 状态 / 清单 */

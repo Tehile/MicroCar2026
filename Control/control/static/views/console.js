@@ -82,7 +82,8 @@ C.views.console = (function () {
     });
     service.innerHTML = '';
     (d || []).forEach(function (m) {
-      line(service, m.level === 'warn' ? '' : '', '[' + (m.level || 'info') + '] ' +
+      line(service, '', '[' + (m.level || 'info') + ']' +
+        (m.source ? ('[' + m.source + ']') : '') + ' ' +
         C.util.esc(m.text || JSON.stringify(m)));
     });
     if (!(d || []).length) line(service, '', '（无日志）');
@@ -108,7 +109,8 @@ C.views.console = (function () {
       } else if (m.type === 'mouse.error') {
         line(device, '', '[error] ' + m.kind + ': ' + m.msg);
       } else if (m.type === 'log') {
-        line(service, '', '[' + (m.level || 'info') + '] ' + m.text);
+        line(service, '', '[' + (m.level || 'info') + ']' +
+          (m.source ? ('[' + m.source + ']') : '') + ' ' + m.text);
       }
     },
     context: function (box) {

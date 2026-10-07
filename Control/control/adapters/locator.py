@@ -62,7 +62,7 @@ class LocatorAdapter:
         mod, err = probe_module("aruco_locator", paths)
         if err:
             self._import_error = err
-            self.bus.log("warn", f"定位模块不可用：{err.splitlines()[0]}")
+            self.bus.log("warn", f"定位模块不可用：{err.splitlines()[0]}", source='locate')
             return
         try:
             from aruco_locator import (create_locator, parameter_catalog,   # noqa: F401
@@ -108,7 +108,7 @@ class LocatorAdapter:
                     if prof and prof != "default":
                         self._apply_profile(self._loc, str(prof))
                 except Exception as e:                      # noqa: BLE001
-                    self.bus.log("warn", f"应用 profile {prof!r} 失败：{e}")
+                    self.bus.log("warn", f"应用 profile {prof!r} 失败：{e}", source='locate')
             return self._loc
 
     # ------------------------------------------------------------ 参数
@@ -202,7 +202,7 @@ class LocatorAdapter:
                 self.bus.log("warn",
                              f"在线定位积压：已丢 {self._dropped} 帧（queue_size={cap}）。"
                              f"有界队列满时丢弃最旧帧，避免阻塞事件消费。"
-                             f"全量数据改用赛后批量（逐帧覆盖）")
+                             f"全量数据改用赛后批量（逐帧覆盖）", source='locate')
 
     _offline_playback = False
 
@@ -231,7 +231,7 @@ class LocatorAdapter:
                                           t_pc_ms=ev.get("t_pc_ms"))
             except Exception as e:                          # noqa: BLE001
                 self.bus.log("warn", f"在线定位失败（已隔离，不中断）："
-                                     f"{type(e).__name__}: {e}")
+                                     f"{type(e).__name__}: {e}", source='locate')
                 continue
             lat = now_ms() - t0
             self._stats["processed"] += 1
@@ -254,7 +254,7 @@ class LocatorAdapter:
                             _brief_loc(loc_d))
             if lat > warn:
                 self.bus.log("warn", f"在线定位延迟 {lat} ms > 阈值 {warn:.0f} ms"
-                                     f"（链路或算力不足；仅影响在线段，赛后批量不受影响）")
+                                     f"（链路或算力不足；仅影响在线段，赛后批量不受影响）", source='locate')
 
     def _locate_file(self, path: Path, seq: Optional[int] = None,
                      t_pc_ms: Optional[int] = None) -> dict:
@@ -339,7 +339,7 @@ class LocatorAdapter:
             with open(out_dir / "results_online.jsonl", "a", encoding="utf-8") as f:
                 f.write(json.dumps(d, ensure_ascii=False, default=str) + "\n")
         except OSError as e:
-            self.bus.log("warn", f"在线结果落盘失败：{e}")
+            self.bus.log("warn", f"在线结果落盘失败：{e}", source='locate')
 
     # ------------------------------------------------------------ 赛后批量段（权威数据）
     def start_batch(self, frame_dir_or_session: str, out_dir: Optional[str] = None,
@@ -377,7 +377,7 @@ class LocatorAdapter:
         }
         threading.Thread(target=self._batch_loop, args=(rid, jps, out, skip_existing),
                          name=f"locate-{rid}", daemon=True).start()
-        self.bus.log("info", f"赛后批量定位已启动：{rid}，共 {len(jps)} 帧 → {out}")
+        self.bus.log("info", f"赛后批量定位已启动：{rid}，共 {len(jps)} 帧 → {out}", source='locate')
         return rid
 
     def _batch_loop(self, rid: str, jps: List[Path], out: Path, skip_existing: bool) -> None:
@@ -450,7 +450,7 @@ class LocatorAdapter:
         self.bus.log("info", f"赛后批量定位 {run['state']}：{rid} "
                              f"{run['done']}/{run['total']}（跳过已算 {run['skipped']}），"
                              f"文件内有效 {run['valid']}、无效 {run['invalid']}"
-                             f"（无效帧亦留档，带 reason）")
+                             f"（无效帧亦留档，带 reason）", source='locate')
 
     def _recount_from_file(self, jl: Path, run: dict) -> None:
         if not jl.is_file():
@@ -509,7 +509,7 @@ class LocatorAdapter:
             (out / "run_meta.json").write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         except OSError as e:
-            self.bus.log("warn", f"run_meta.json 写不出：{e}")
+            self.bus.log("warn", f"run_meta.json 写不出：{e}", source='locate')
 
     def _write_results_csv(self, out: Path) -> None:
         """从 jsonl 生成扁平 CSV（`to_row()` 的等价物：多值字段压成分号串）。"""
@@ -538,7 +538,7 @@ class LocatorAdapter:
                         row.append(v)
                     w.writerow(row)
         except OSError as e:
-            self.bus.log("warn", f"results.csv 写不出：{e}")
+            self.bus.log("warn", f"results.csv 写不出：{e}", source='locate')
 
     def run_status(self, rid: str) -> dict:
         run = self._runs.get(rid)

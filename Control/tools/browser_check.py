@@ -1663,6 +1663,122 @@ async def run(args) -> int:
                    if b38_ok else
                    f"**改版十四的界面不对**：{b38_bad[:4]}")
 
+            # ── B39：底栏信息集成栏（按来源分类 + 按级别筛选）──
+            # 守的是改版十五的两条用户要求：
+            #   ① 底栏**不再有"实时读数"条**（那些量在「实时状态与参数设定」页里有），
+            #      整条底栏留给信息输出；
+            #   ② 信息**按来源分类**（电脑鼠 / 相机 / 场地定位 / 本层）且**按级别可筛**
+            #      （普通 / 警告 / 错误）—— 不是一锅粥。
+            # 做法：直接从 `C.pushConsole` 喂三条**来源不同、级别不同**的假信息
+            #（不依赖真 WS / 真设备 —— 钉住数据再断言，同 B34/B37 的路数），
+            # 断言行上有来源标签、筛选后行数变少、计数写得出"筛掉了多少"。
+            head("2k. 底栏信息集成栏：来源分类 + 级别筛选")
+            b39_bad, b39_got = [], []
+            try:
+                bar = await cdp.eval(
+                    "(()=>{const rb=!!document.getElementById('readouts');"
+                    "const bar=!!document.getElementById('info-bar');"
+                    "const log=!!document.getElementById('info-log');"
+                    "const sb=Array.from((document.getElementById('ib-src')||{children:[]}).children)"
+                    ".map(function(b){return b.textContent;});"
+                    "const lb=Array.from((document.getElementById('ib-lvl')||{children:[]}).children)"
+                    ".map(function(b){return b.textContent;});"
+                    "return {rb:rb,bar:bar,log:log,sb:sb,lb:lb};})()")
+                if (bar or {}).get("rb"):
+                    b39_bad.append("底栏仍有 #readouts（实时读数条应已删除）")
+                if not (bar or {}).get("bar") or not (bar or {}).get("log"):
+                    b39_bad.append("底栏没有信息栏 #info-bar / #info-log")
+                sb = (bar or {}).get("sb") or []
+                lb = (bar or {}).get("lb") or []
+                b39_got.append("来源钮=" + "/".join(sb) + " 级别钮=" + "/".join(lb))
+                for need in ("全部", "电脑鼠", "相机", "场地定位", "本层"):
+                    if need not in sb:
+                        b39_bad.append(f"来源筛选缺「{need}」（有 {sb}）")
+                for need in ("全部", "普通", "警告", "错误"):
+                    if need not in lb:
+                        b39_bad.append(f"级别筛选缺「{need}」（有 {lb}）")
+                # 喂三条：相机+警告 / 鼠+普通（设备文本）/ 本层+普通。
+                await cdp.eval(
+                    "(()=>{window.__b39_push=C.pushConsole;"
+                    " C.pushConsole('', 'B39 相机警告样例', {type:'log', level:'warn',"
+                    "  source:'camera', text:'B39 相机警告样例', t_pc_ms:Date.now()});"
+                    " C.pushConsole('', '→ B39 鼠文本样例', {type:'mouse.text', level:'info',"
+                    "  source:'mouse', direction:'->', line:'B39 鼠文本样例', t_pc_ms:Date.now()});"
+                    " C.pushConsole('', 'B39 本层样例', {type:'log', level:'info',"
+                    "  source:'control', text:'B39 本层样例', t_pc_ms:Date.now()});"
+                    " return true;})()")
+                rows0 = await cdp.eval(
+                    "(()=>{const b=document.getElementById('info-log');"
+                    "const rows=Array.from((b||{children:[]}).children).map(function(r){"
+                    "return {cls:r.className, txt:r.textContent||''};});"
+                    "const cnt=(document.getElementById('ib-count')||{}).textContent||'';"
+                    "return {n:rows.length, rows:rows.slice(-3), cnt:cnt};})()")
+                b39_got.append("喂后行数=" + str((rows0 or {}).get("n")))
+                flat = "".join((r.get("txt") or "") for r in (rows0 or {}).get("rows") or [])
+                tagged = await cdp.eval(
+                    "(()=>{const b=document.getElementById('info-log');"
+                    "const all=Array.from((b||{children:[]}).children).map(function(r){return r.textContent;});"
+                    "return {cam:all.some(function(t){return t.indexOf('[相机]')>=0 && t.indexOf('B39 相机警告样例')>=0;}),"
+                    " mouse:all.some(function(t){return t.indexOf('[电脑鼠]')>=0 && t.indexOf('B39 鼠文本样例')>=0;}),"
+                    " ctl:all.some(function(t){return t.indexOf('[本层]')>=0 && t.indexOf('B39 本层样例')>=0;})};})()")
+                for k, nm in (("cam", "相机"), ("mouse", "电脑鼠"), ("ctl", "本层")):
+                    if not (tagged or {}).get(k):
+                        b39_bad.append(f"{nm}来源的信息没带来源标签或没显示：{tagged}")
+                # 筛选：只看「相机」⇒ 鼠/本层的样例必须消失，且计数写"显示 1 / 共 N"。
+                await cdp.eval(
+                    "(()=>{const bs=Array.from(document.getElementById('ib-src').children);"
+                    "const b=bs.find(function(x){return x.textContent==='相机';});"
+                    "if(b)b.click();return true;})()")
+                await asyncio.sleep(0.2)
+                rows1 = await cdp.eval(
+                    "(()=>{const b=document.getElementById('info-log');"
+                    "const all=Array.from((b||{children:[]}).children).map(function(r){return r.textContent||'';});"
+                    "return {n:all.length,"
+                    " cam:all.some(function(t){return t.indexOf('B39 相机警告样例')>=0;}),"
+                    " other:all.some(function(t){return t.indexOf('B39 鼠文本样例')>=0||t.indexOf('B39 本层样例')>=0;}),"
+                    " cnt:(document.getElementById('ib-count')||{}).textContent||''};})()")
+                if not (rows1 or {}).get("cam"):
+                    b39_bad.append(f"筛「相机」后相机样例不见了：{rows1}")
+                if (rows1 or {}).get("other"):
+                    b39_bad.append(f"筛「相机」后仍看得见别的来源（筛选没生效）：{rows1}")
+                if "显示" not in str((rows1 or {}).get("cnt")) or "/ 共" not in str((rows1 or {}).get("cnt")):
+                    b39_bad.append(f"筛选后的计数没写「显示 N / 共 M」：{(rows1 or {}).get('cnt')!r}")
+                b39_got.append("筛相机后计数=" + str((rows1 or {}).get("cnt")))
+                # 还原：点「全部」；级别筛选同理点一遍（负向：筛「错误」后警告样例也消失）。
+                await cdp.eval(
+                    "(()=>{const bs=Array.from(document.getElementById('ib-src').children);"
+                    "const b=bs.find(function(x){return x.textContent==='全部';});"
+                    "if(b)b.click();return true;})()")
+                await cdp.eval(
+                    "(()=>{const bs=Array.from(document.getElementById('ib-lvl').children);"
+                    "const b=bs.find(function(x){return x.textContent==='错误';});"
+                    "if(b)b.click();return true;})()")
+                await asyncio.sleep(0.2)
+                rows2 = await cdp.eval(
+                    "(()=>{const b=document.getElementById('info-log');"
+                    "const all=Array.from((b||{children:[]}).children).map(function(r){return r.textContent||'';});"
+                    "return {warn:all.some(function(t){return t.indexOf('B39 相机警告样例')>=0;}),"
+                    " n:all.length};})()")
+                if (rows2 or {}).get("warn"):
+                    b39_bad.append(f"筛「错误」后警告样例还在（级别筛选没生效）：{rows2}")
+                # 还原 + 只把喂进去的三条拿掉，别污染后面的判据
+                #（不点【清空】—— 真日志是 B9"WS 真在推"的证据，不能一起抹）
+                await cdp.eval(
+                    "(()=>{const bs=Array.from(document.getElementById('ib-lvl').children);"
+                    "const b=bs.find(function(x){return x.textContent==='全部';});"
+                    "if(b)b.click();"
+                    " if(C.infoDropPrefix)C.infoDropPrefix('B39 ');"
+                    " return true;})()")
+            except Exception as e:                            # noqa: BLE001
+                b39_bad.append(f"读取底栏信息栏时抛异常：{type(e).__name__}: {e}")
+            b39_ok = not b39_bad
+            record("B39", "PASS" if b39_ok else "FAIL",
+                   f"底栏=信息集成栏（实时读数已删）：来源/级别两组筛选都在，"
+                   f"喂三条不同来源的信息各带标签、按来源筛得动、计数写清筛掉了多少"
+                   f"（{'；'.join(b39_got)}）"
+                   if b39_ok else
+                   f"**底栏信息集成栏不对**：{b39_bad[:4]}")
+
             # 后面逐页断言打的是「综合运动」界面 —— 上面切到新模块后要**切回来**，
             # 否则 `#ws-all` 是 `display:none`，`innerText` 全空，后面每一条都会假红。
             await cdp.eval("C.openMod('all','@all')")
@@ -1692,7 +1808,7 @@ async def run(args) -> int:
                     info = await cdp.eval(
                         "(()=>{const v=document.querySelector('.view[data-tab=\"%s\"]');"
                         "const ctx=document.getElementById('%s');"
-                        "const rd=document.getElementById('readouts');"
+                        "const rd=document.getElementById('info-log');"
                         # 同 B0/B2：空盒子不算，设备窗口里的故障框也不算（它由 B29 判）
                         "const er=Array.from(document.querySelectorAll('.errbox'))"
                         ".filter(e=>!e.closest('#dev-modal')"
@@ -1702,7 +1818,7 @@ async def run(args) -> int:
                         " text:((v&&v.innerText)||'').length,"
                         " html:((v&&v.innerHTML)||'').length,"
                         " ctx:(ctx.innerText||'').length,"
-                        " readouts:(rd.innerText||'').length,"
+                        " info:(rd.innerText||'').length,"
                         " errbox:er,"
                         " toast:(toast.innerText||'').trim()};})()" % (tab, ctx_id))
                 except Exception as e:                        # noqa: BLE001
@@ -1752,7 +1868,7 @@ async def run(args) -> int:
                 "return {dot: w ? w.className : null,"
                 " lamp: (document.getElementById('lamp-mouse')||{}).className};})()")
             got_hello = await cdp.eval(
-                "(()=>{const cl=document.getElementById('console-line');"
+                "(()=>{const cl=document.getElementById('info-log');"
                 "return (cl.innerText||'').length;})()")
             dot_ok = "live" in str(ws_state.get("dot") or "")
             record("B9", "PASS" if dot_ok else "FAIL",
@@ -1872,7 +1988,7 @@ async def run(args) -> int:
                 "      if(c.hasAttribute('data-log')||c.hasAttribute('data-raw')) return;"
                 "      walk(c,tag);}});};"
                 "const SEL=['#top','#rail-cam','#rail-mouse','#quickbar',"
-                "'#dock','#readouts','#nav','#mod','.ctx'];"
+                "'#dock','#info-bar','#info-log','#nav','#mod','.ctx'];"
                 "SEL.forEach(function(s){document.querySelectorAll(s).forEach(function(e){"
                 " walk(e,s);});});"
                 "let txt=out.join('\\n');"
@@ -1915,7 +2031,7 @@ async def run(args) -> int:
                 "      if(c.hasAttribute('data-log')||c.hasAttribute('data-raw')) return;"
                 "      walk(c);}});};"
                 "document.querySelectorAll('#top,#rail-cam,#rail-mouse,#quickbar,"
-                "#dock,#readouts,#nav,#mod,.ctx,.modal-box').forEach(function(e){ walk(e); });"
+                "#dock,#info-bar,#info-log,#nav,#mod,.ctx,.modal-box').forEach(function(e){ walk(e); });"
                 "const lines=(out.join('\\n').split('\\n')||[])"
                 "  .map(function(s){return s.trim();}).filter(function(s){return s.length;});"
                 "const words=['咱们','我们','白等','白跑','刷屏','干等','搞定','弄好','顺手',"

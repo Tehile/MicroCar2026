@@ -283,12 +283,30 @@ tr:hover td{background:#1f2430}
 .bar{height:6px;background:#2a3040;border-radius:3px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--acc)}
 
-/* ---------- footer ---------- */
+/* ---------- footer：信息集成栏（按来源分类 + 按级别筛选） ---------- */
 #bottom{border-top:1px solid var(--line);background:var(--panel);
-  display:grid;grid-template-columns:1fr 420px;max-height:120px}
-#readouts{padding:5px 10px;font-family:var(--mono);font-size:11px;color:var(--dim);
-  overflow:auto;white-space:pre-wrap}
-#readouts b{color:var(--fg);font-weight:600}
+  display:flex;flex-direction:column;max-height:180px;min-height:0}
+#info-bar{display:flex;align-items:center;gap:6px;padding:4px 10px;
+  border-bottom:1px solid var(--line);flex:0 0 auto;font-size:11px}
+#info-bar .ib-label{color:var(--dim2);font-size:10.5px}
+#info-bar .ib-count{color:var(--dim2);font-size:10.5px;margin-left:4px}
+#info-bar .seg{display:inline-flex;gap:3px}
+#info-bar .seg button{font:inherit;font-size:10.5px;padding:1px 7px;cursor:pointer;
+  background:transparent;color:var(--dim);border:1px solid var(--line);border-radius:3px}
+#info-bar .seg button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+#info-bar .seg button:hover{border-color:var(--acc)}
+#info-log{flex:1 1 auto;min-height:0;padding:4px 10px;overflow:auto;
+  font-family:var(--mono);font-size:11px;white-space:pre-wrap;line-height:1.5}
+#info-log .il{display:flex;gap:7px;white-space:pre-wrap}
+#info-log .il .t{color:var(--dim2);flex:0 0 auto}
+#info-log .il .s{flex:0 0 auto;font-weight:600}
+#info-log .il .m{flex:1 1 auto;word-break:break-all}
+#info-log .il.warn .m{color:#e8b03c}
+#info-log .il.error .m{color:#ff7a5c}
+#info-log .il .s.src-mouse{color:#8fd1ff}
+#info-log .il .s.src-camera{color:#a7e3b6}
+#info-log .il .s.src-locate{color:#c9a3ff}
+#info-log .il .s.src-control{color:var(--dim)}
 .console{padding:5px 10px;font-family:var(--mono);font-size:11px;overflow:auto;
   border-left:1px solid var(--line);white-space:pre-wrap}
 .console .tx{color:#8fd1ff}
