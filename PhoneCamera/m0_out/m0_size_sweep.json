@@ -1,0 +1,198 @@
+{
+  "report_kind": "m0_size_sweep",
+  "generated_at_wall_ms": 1790265000045,
+  "app_version": "m0probe-1.8.2",
+  "capture_path_rev": 1,
+  "camera_id": "0",
+  "frames_per_trial": 45,
+  "warmup_frames": 5,
+  "width_ladder": [
+    1920,
+    2880,
+    4096
+  ],
+  "auto_pick_area_cap_px": 3145728,
+  "auto_pick_rule": "同纵横比、像素面积不超过 auto_pick_area_cap_px 中面积最大者",
+  "trials": [
+    {
+      "label": "4:3 阶梯（与活动阵列同纵横比）",
+      "target_width": 1920,
+      "forced_full_crop": false,
+      "requested_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "actual_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "target_fps": 30,
+      "crop_region": {
+        "left": 0,
+        "top": 0,
+        "width": 4096,
+        "height": 3072
+      },
+      "output_aspect": 1.3333333333333333,
+      "crop_shrunk_for_aspect": false,
+      "sensor_pixel_mode": 0,
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w5 #57a6ae4e",
+      "size_choice_note": "强制尺寸 1920x1440（⑤尺寸扫描 \/ 人工指定），非自动选档",
+      "actual_interval_ns": 3.3287996794871796E7,
+      "actual_fps": 30.0408584560443,
+      "frame_duration_ns": 33287995,
+      "rolling_shutter_skew_ns": 9212928,
+      "skew_per_output_row_ns": 6397.866666666667,
+      "skew_per_crop_row_ns": 2999,
+      "skew_readout_rows": 3072,
+      "skew_line_time_ns": 2999,
+      "valid_frames": 40,
+      "output_to_crop_scale_x": 0.46875,
+      "output_to_crop_scale_y": 0.46875
+    },
+    {
+      "label": "4:3 阶梯（与活动阵列同纵横比）",
+      "target_width": 2880,
+      "forced_full_crop": false,
+      "requested_size": {
+        "w": 2880,
+        "h": 2160
+      },
+      "actual_size": {
+        "w": 2880,
+        "h": 2160
+      },
+      "target_fps": 30,
+      "crop_region": {
+        "left": 0,
+        "top": 0,
+        "width": 4096,
+        "height": 3072
+      },
+      "output_aspect": 1.3333333333333333,
+      "crop_shrunk_for_aspect": false,
+      "sensor_pixel_mode": 0,
+      "config_fingerprint": "2880x2160|a4096x3072|c4096x3072@0,0|YUV_420_888|w5 #cffcf802",
+      "size_choice_note": "强制尺寸 2880x2160（⑤尺寸扫描 \/ 人工指定），非自动选档",
+      "actual_interval_ns": 3.3287996794871796E7,
+      "actual_fps": 30.0408584560443,
+      "frame_duration_ns": 33287995,
+      "rolling_shutter_skew_ns": 9212928,
+      "skew_per_output_row_ns": 4265.2444444444445,
+      "skew_per_crop_row_ns": 2999,
+      "skew_readout_rows": 3072,
+      "skew_line_time_ns": 2999,
+      "valid_frames": 40,
+      "output_to_crop_scale_x": 0.703125,
+      "output_to_crop_scale_y": 0.703125
+    },
+    {
+      "label": "4:3 阶梯（与活动阵列同纵横比）",
+      "target_width": 4096,
+      "forced_full_crop": false,
+      "requested_size": {
+        "w": 4096,
+        "h": 3072
+      },
+      "actual_size": {
+        "w": 4096,
+        "h": 3072
+      },
+      "target_fps": 30,
+      "crop_region": {
+        "left": 0,
+        "top": 0,
+        "width": 4096,
+        "height": 3072
+      },
+      "output_aspect": 1.3333333333333333,
+      "crop_shrunk_for_aspect": false,
+      "sensor_pixel_mode": 0,
+      "config_fingerprint": "4096x3072|a4096x3072|c4096x3072@0,0|YUV_420_888|w5 #a9edf018",
+      "size_choice_note": "强制尺寸 4096x3072（⑤尺寸扫描 \/ 人工指定），非自动选档",
+      "actual_interval_ns": 3.3287996794871796E7,
+      "actual_fps": 30.0408584560443,
+      "frame_duration_ns": 33287995,
+      "rolling_shutter_skew_ns": 9212928,
+      "skew_per_output_row_ns": 2999,
+      "skew_per_crop_row_ns": 2999,
+      "skew_readout_rows": 3072,
+      "skew_line_time_ns": 2999,
+      "valid_frames": 40,
+      "output_to_crop_scale_x": 1,
+      "output_to_crop_scale_y": 1
+    },
+    {
+      "label": "16:9 输出 + aspectSafeCrop（纵横比与 crop 高度同变，单看这条无法归因）",
+      "target_width": 3840,
+      "forced_full_crop": false,
+      "requested_size": {
+        "w": 3840,
+        "h": 2160
+      },
+      "actual_size": {
+        "w": 3840,
+        "h": 2160
+      },
+      "target_fps": 30,
+      "crop_region": {
+        "left": 0,
+        "top": 384,
+        "width": 4096,
+        "height": 2304
+      },
+      "output_aspect": 1.7777777777777777,
+      "crop_shrunk_for_aspect": true,
+      "sensor_pixel_mode": 0,
+      "config_fingerprint": "3840x2160|a4096x3072|c4096x2304@0,384|YUV_420_888|w5 #ec01a783",
+      "size_choice_note": "强制尺寸 3840x2160（⑤尺寸扫描 \/ 人工指定），非自动选档",
+      "actual_interval_ns": 3.3287996794871796E7,
+      "actual_fps": 30.0408584560443,
+      "frame_duration_ns": 33287995,
+      "rolling_shutter_skew_ns": 6909696,
+      "skew_per_output_row_ns": 3198.9333333333334,
+      "skew_per_crop_row_ns": 2999,
+      "skew_readout_rows": 2304,
+      "skew_line_time_ns": 2999,
+      "valid_frames": 40,
+      "output_to_crop_scale_x": 0.9375,
+      "output_to_crop_scale_y": 0.9375
+    },
+    {
+      "label": "**判别档** 16:9 输出 + 强制全阵列 crop：只动纵横比、不动 crop。若 skew 仍按 16:9 的行数算 ⇒ 归属=输出纵横比；若按 3072 行算 ⇒ 归属=crop 高度。本档几何不可用（故意各向异性），只读 skew",
+      "target_width": 3840,
+      "forced_full_crop": true,
+      "requested_size": {
+        "w": 3840,
+        "h": 2160
+      },
+      "actual_size": {
+        "w": 3840,
+        "h": 2160
+      },
+      "target_fps": 30,
+      "crop_region": {
+        "left": 0,
+        "top": 0,
+        "width": 4096,
+        "height": 3072
+      },
+      "output_aspect": 1.7777777777777777,
+      "crop_shrunk_for_aspect": false,
+      "sensor_pixel_mode": 0,
+      "config_fingerprint": "3840x2160|a4096x3072|c4096x3072@0,0|YUV_420_888|w5 #7f69085f",
+      "size_choice_note": "强制尺寸 3840x2160（⑤尺寸扫描 \/ 人工指定），非自动选档",
+      "actual_interval_ns": 3.3287996794871796E7,
+      "actual_fps": 30.0408584560443,
+      "frame_duration_ns": 33287995,
+      "rolling_shutter_skew_ns": 6909696,
+      "skew_per_output_row_ns": 3198.9333333333334,
+      "skew_per_crop_row_ns": 2249.25,
+      "skew_readout_rows": 2304,
+      "skew_line_time_ns": 2999,
+      "valid_frames": 40,
+      "output_to_crop_scale_x": 0.9375,
+      "output_to_crop_scale_y": 0.703125
+    }
+  ]
+}

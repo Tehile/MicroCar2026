@@ -1,0 +1,144 @@
+{
+  "report_kind": "m0_rate_sweep",
+  "generated_at_wall_ms": 1790265019205,
+  "app_version": "m0probe-1.8.2",
+  "capture_path_rev": 1,
+  "camera_id": "0",
+  "requested_rates_fps": [
+    12,
+    15,
+    24,
+    60
+  ],
+  "frames_per_trial": 12,
+  "warmup_frames": 3,
+  "trials": [
+    {
+      "requested_fps": 12,
+      "legacy_fps_range": false,
+      "requested_ns": 83333333,
+      "actual_frame_duration_ns": 83231987,
+      "honored_verbatim": false,
+      "actual_interval_ns": 8.3232005125E7,
+      "actual_fps": 12.014609025676767,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    },
+    {
+      "requested_fps": 15,
+      "legacy_fps_range": false,
+      "requested_ns": 66666666,
+      "actual_frame_duration_ns": 66575990,
+      "honored_verbatim": false,
+      "actual_interval_ns": 6.65759895E7,
+      "actual_fps": 15.020430150722731,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    },
+    {
+      "requested_fps": 24,
+      "legacy_fps_range": false,
+      "requested_ns": 41666666,
+      "actual_frame_duration_ns": 41615993,
+      "honored_verbatim": false,
+      "actual_interval_ns": 4.1615989625E7,
+      "actual_fps": 24.02922552151131,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    },
+    {
+      "requested_fps": 60,
+      "legacy_fps_range": false,
+      "requested_ns": 16666666,
+      "actual_frame_duration_ns": 33287995,
+      "honored_verbatim": false,
+      "actual_interval_ns": 3.328799475E7,
+      "actual_fps": 30.040860301445463,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    },
+    {
+      "requested_fps": 12,
+      "legacy_fps_range": true,
+      "requested_ns": 83333333,
+      "actual_frame_duration_ns": 83231987,
+      "honored_verbatim": false,
+      "actual_interval_ns": 8.3231979125E7,
+      "actual_fps": 12.01461277879952,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    },
+    {
+      "requested_fps": 15,
+      "legacy_fps_range": true,
+      "requested_ns": 66666666,
+      "actual_frame_duration_ns": 66575990,
+      "honored_verbatim": false,
+      "actual_interval_ns": 6.65759895E7,
+      "actual_fps": 15.020430150722731,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    },
+    {
+      "requested_fps": 24,
+      "legacy_fps_range": true,
+      "requested_ns": 41666666,
+      "actual_frame_duration_ns": 41615993,
+      "honored_verbatim": false,
+      "actual_interval_ns": 4.1615989625E7,
+      "actual_fps": 24.02922552151131,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    },
+    {
+      "requested_fps": 60,
+      "legacy_fps_range": true,
+      "requested_ns": 16666666,
+      "actual_frame_duration_ns": 33287995,
+      "honored_verbatim": false,
+      "actual_interval_ns": 3.328799475E7,
+      "actual_fps": 30.040860301445463,
+      "valid_frames": 9,
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w3 #59a6b174"
+    }
+  ],
+  "distinct_actual_interval_ns": [
+    33288,
+    41616,
+    66576,
+    83232
+  ],
+  "control_authority": "effective"
+}

@@ -1,0 +1,27 @@
+# --- Android 构建产物 ---
+android/m0probe/build/
+android/m0probe/app/build/
+android/m0probe/.gradle/
+android/m0probe/local.properties
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- 本地运行产物（PC 端服务落盘） ---
+pc/data/
+pc/*.log
+
+# --- 编辑器/系统 ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- 归档（release/）---
+# 说明与校验和**入库**（它们要能被 diff 与 review）；
+# 但快照 zip 与 APK 是**二进制产物**，不入库 —— 它们由 `git archive <tag>` 与
+# `gradle assembleDebug` 随时可复现，入库只会让仓库无限膨胀。
+# 复现方式写在 release/归档说明.md §四。
+release/*.zip
+release/*.apk

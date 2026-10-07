@@ -1,0 +1,301 @@
+{
+ "_doc": "采集路径登记表。(capture_path_id, capture_path_rev) -> 一条采集路径。判据 G23/G26 用它回答一个问题：手上的两份报告是不是同一条采集路径的产物。",
+ "_why": "不能拿版本号当判据。版本号会因为纯报告字段、注释、UI 改动而变，那类改动不改变采集行为，却会让『一次标定覆盖多次采集』的证据被永久判废 —— 实测踩过：第 6 轮让人重跑②之后，②变新版本、③留在旧版本，判据要求再重跑③，而两者采集路径完全相同。这条规则会无限循环。",
+ "_why_id": "也不能只用修订号。第 8 轮给 App 加了第六条采集路径（拍照），若沿用『App 内任何采集行为变化就 +1』的全局计数，那条新路径会把连拍路径的证据一起作废 —— 同一个返工循环换了个形式再犯。所以 rev 是**按路径**算的：每条路径各自计数，且必须与 id 配对比较（两条不同路径的第 1 版都是 rev=1，单看数字分不开）。",
+ "_semantics": "capture_path_id 是路径标识：burst_yuv_manual / still_yuv_single / still_jpeg_template。capture_path_rev 是该路径的整数修订号，**只在该路径自己的采集行为改变时 +1**：请求参数、会话配置、模板、输出格式、单张 vs 重复请求、crop/尺寸选择规则、帧率下发方式、预热/丢弃规则、锁定字段集合。纯报告字段增删改名、注释、日志、UI 布局不 +1。相同 (id, rev) <=> 该路径的采集行为相同。\n\n⚠ 自 `m0probe-1.14.0` 起，**同一个 APK 可能按模式走不同路径**（`capture_mode=deliver` ⇒ `stream_deliver_yuv`；`live` ⇒ `live_stream_color`）。因此**以报告/会话自带的 `capture_path_id` 为准**去选条目里的那一条；条目里 `paths` 是全量快照（`capture_path_id: null` 表示「本版不止一条路径」），不是「一个版本只能有一条」。判据 G23/G26 比对时必须 (id, rev) **成对**比较。",
+ "_honesty": "本表是**声明**，不是测量 —— 判据只能强制『声明必须显式且可审阅』，无法自己验证代码差异是否触及采集路径。因此每条都必须写出 reason（相对上一版到底动了什么），并接受代码审阅。缺登记且报告又不自带字段时判据会判『不可判定』（fail closed），不会静默放过。",
+ "_limits": "它只补『请求参数相同但代码不同』这一层残余风险；请求参数本身由配置指纹（输出几何+crop+格式+预热帧数）独立校验，那一层不依赖本表。",
+ "_unregistered_note": "1.4.0 及更早版本刻意不登记：它们的输出几何与现行不同（1920x1080、capture_config 里连 crop_region 都没有），配置检查本就会拒绝，登记它们只会把『历史差异』伪装成『已核实等价』。",
+ "_legacy_default": "自 1.8.0 起报告**自带** capture_path_id + capture_path_rev，本表对它们只是冗余（用于交叉核对）。表里 1.5.0~1.7.0 的条目是给『字段出现之前』的旧报告用的，并按当时的唯一一条路径登记。",
+ "versions": {
+  "m0probe-1.5.0": {
+   "capture_path_id": "burst_yuv_manual",
+   "capture_path_rev": 1,
+   "reason": "引入 configFingerprint（报告字段）与 forcedCaptureSize（仅⑤用，默认 null）。自动选档规则、aspectSafeCrop、帧率下发、预热帧数与锁定字段集合在本版定型。",
+   "note": "本版 config_fingerprint **掺了版本号**（后续 1.6.0 认定为设计错误）。指纹串因此与后续版本不同，但采集参数相同 —— 配置校验按原始字段现算，不受影响。"
+  },
+  "m0probe-1.6.0": {
+   "capture_path_id": "burst_yuv_manual",
+   "capture_path_rev": 1,
+   "reason": "相对 1.5.0：configFingerprint 去掉版本号（报告字段）；新增构造参数 forceFullCrop（默认 false，仅⑤的跨纵横比判别档传 true）；逐帧/汇总新增 skew 的读出窗口行数与三套口径字段（报告字段）；⑤新增两条判别档；注释。②③④的请求参数、会话配置、crop/选档、帧率下发、预热帧数均未变。",
+   "note": "因此第 6 轮让用户『重跑②』所产生的新旧两份报告，采集路径其实相同 —— 这正是引入本字段的直接原因。"
+  },
+  "m0probe-1.7.0": {
+   "capture_path_id": "burst_yuv_manual",
+   "capture_path_rev": 1,
+   "reason": "相对 1.6.0：新增 capture_path_rev 字段（报告字段，顶层与 capture_config 各写一份）；⑤每个 trial 记录请求的 target_fps（报告字段）。采集路径未变。",
+   "note": "自本版起报告自描述采集路径修订号，本表对其成为冗余（仅用于解释更早的报告）。"
+  },
+  "m0probe-1.8.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 1,
+    "still_jpeg_template": 1
+   },
+   "reason": "相对 1.7.0：**新增两条采集路径**（⑥ 拍照：单张捕获 session.capture()）—— still_yuv_single 为受控对照档（YUV + TEMPLATE_MANUAL + 与②同档尺寸 + 仍发帧时长约束），still_jpeg_template 为交付档（JPEG + TEMPLATE_STILL_CAPTURE + 强制 4096x3072 + 不发帧时长约束 + 显式 CONTROL_ENABLE_ZSL=false）。逐帧新增 callback_elapsed_ns / wall_clock_ms / callback_latency_ns / request_sent_elapsed_ns / sensor_ts_minus_request_ns / control_enable_zsl / jpeg(EXIF)（报告字段）；锁定字段集合新增 control_enable_zsl。",
+   "note": "**burst_yuv_manual 保持 rev=1 不变** —— ②③④⑤ 的请求参数、会话配置、模板、格式、调度方式、选档规则、锁定字段全部未变（新增的 per-frame 报告字段不改变采集行为）。这正是『rev 按路径算』要保住的东西：加一条新路径不得让其它路径的证据作废。",
+   "self_describing": true
+  },
+  "m0probe-1.8.1": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 2,
+    "still_jpeg_template": 2
+   },
+   "reason": "相对 1.8.0：**两条拍照路径 1→2** —— 取图方式从『回调时刻最后拿到的那张图』（单个 lastJpeg + 用完置空）改成『按 Image.timestamp 与结果的 SENSOR_TIMESTAMP 配对』。这**不是纯报告字段改动**：它改变了『哪张图被记在哪一张结果上』，也就是改变了测出来的量（旧写法在图晚到时会把 A 张的图记到 B 张头上，且任何字段都不会自相矛盾）。同时：⑥对照档的预热帧数改为与②相同的 5（原为 1，导致对照实验多动了一个变量）；每条报告顶层新增 device（manufacturer/model/device/build_fingerprint/android_sdk）；单张模式新增 stats.image_pairing 汇总与逐张 image_matched。",
+   "note": "**burst_yuv_manual 仍保持 rev=1** —— 连续流的取图逻辑逐字未变（仍是 acquireLatestImage + close，不留字节、不做配对），请求参数、会话配置、模板、格式、调度方式全部未变。",
+   "self_describing": true
+  },
+  "m0probe-1.8.2": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 2,
+    "still_jpeg_template": 2
+   },
+   "reason": "相对 1.8.1：**只新增错误处理与报告字段，不改任何采集行为** —— 打开摄像头遇设备级瞬时故障（onDisconnected「摄像头被断开」/ onError / openCamera 抛 CameraAccessException）且尚未采到任何帧时，按 2s/5s/10s 退避自动重试打开（最多 3 次）；超时预算计入退避时间。背景：第 11 轮实测 ② 成功后的约 20 秒窗口内 ⑥⑤④ 的 12 次打开 9 次失败，随后自行恢复。报告新增 open_attempts / open_retry_errors 留痕。",
+   "note": "三条路径的 rev 全部不变：重试只改变「什么时候打开成功」，打开成功后的会话配置、请求参数、模板、格式、调度方式、丢弃规则与逐帧记录完全不变；且只在**零帧**时重试（采到一半重建会话会把两个会话拼进一份报告，那种情况仍判失败）。",
+   "self_describing": true
+  },
+  "m0probe-1.8.3": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3
+   },
+   "reason": "相对 1.8.2：**两条拍照路径 2→3** —— 图与结果的配对从「在结果回调里查表」（在线）改成「结算时按 Image.timestamp 集合逐帧配对」（离线），并在结算前等待末帧图到达（SETTLE_MAX_MS=1.2s，新增 settle_wait_ms/images_pending）。为什么算采集行为变更：同一次采集在两版下会被判成**不同的配对结果**（在线版把「图比结果晚到」记成丢图 —— 实测 5 张「丢图」里 4 张的时间戳同时出现在「未被认领的图」里；离线版记成配对成功）。与 1.8.1 同一判据：「哪张图被记在哪一张结果上」变了就是测出来的量变了。另新增 valid/warmup 分项计数（images_matched_valid / images_missing_valid / images_missing_warmup），EXIF 改在离线阶段从配对上的字节读取。",
+   "note": "**burst_yuv_manual 仍为 rev=1**：④⑤ 只改错误处理（1.8.2 的零帧重试）与报告字段，请求参数、会话配置、模板、格式、调度方式、丢弃规则全部未变；②③ 的证据继续有效，**不需要重跑**。",
+   "self_describing": true
+  },
+  "m0probe-1.9.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 1
+   },
+   "reason": "M1 落地的**新采集路径** `stream_deliver_yuv`（rev=1）：连续流 + 按 SENSOR_TIMESTAMP 抽帧交付。它与 burst_yuv_manual 在**请求层**差两个键：① 显式 CONTROL_ENABLE_ZSL=false（② 不设该键、靠 HAL 默认，两边回读都是 false）；② SENSOR_FRAME_DURATION 由 profile.frame_interval_ms 决定，默认**不发**（② 恒发 30 fps 对应值）。丢弃规则也不同：预热丢前 5 帧 + 按 plan.interval_ms / profile.deliver_fps 间隔抽帧。几何与格式与②相同（TEMPLATE_MANUAL / YUV_420_888 / 4096×3072 crop / 1920×1440 输出，profile 可改）。",
+   "note": "**②③ 与 ⑥ 的 rev 一个都没动** —— 新增一条路径不得让其它路径的证据作废（R20/R21 的代价与收益）。因此本条与既有证据**不能互相替代**：它没有跑过 ②③ 那套逐帧验证（锁定项恒定、跨会话重复性）。但\"由格式与几何决定\"的量（输出格式 YUV_420_888、crop.top=0、skew=2999 ns/读出窗口行）仍可与之比对 —— 见 G27（交付格式必须与证据一致）。⚠ 反过来说：**用它交付一次，不等于它在 M0 意义上\"已取证\"**；M0 取证的是②，而②的证据只覆盖② 的行为。",
+   "self_describing": true
+  },
+  "m0probe-1.9.1": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 1
+   },
+   "reason": "相对 1.9.0：**只有界面与版本串的变化，四条采集路径的 rev 一个都没动**。界面：预览框从\"地址栏与连接按钮之间、固定 240dp\"改为**置顶且高度封顶**（否则小屏上连接/开流/停流按钮被挤出屏幕，实测发生）；连接与断开拆成两个独立按钮（旧实现靠一个按钮改文字，而成功分支没改文字 ⇒ \"断开\"入口从未出现）；M0 探针 ①③④⑤⑥ 收进默认折叠区。这些都不进 HAL 请求、不改会话配置/模板/格式/调度/丢弃规则 ⇒ 不属于采集行为变更。版本串统一：此前同一 APK 里探针报 1.8.3、交付报 1.9.0（两个出口两个版本号），1.9.1 起共用 LockedCaptureProbe.APP_VERSION。",
+   "note": "版本串统一**不改变任何路径的 rev**：登记表按 (capture_path_id, rev) 成对比较，app_version 只是\"这份报告由哪个构建产出\"的索引。既有 m0_out/ 报告（1.8.1/1.8.2/1.8.3）的结论继续有效，不受影响。",
+   "self_describing": true
+  },
+  "m0probe-1.9.2": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 1
+   },
+   "reason": "相对 1.9.1：**四条路径的 rev 一个都没动** —— 改的全是控制道与界面，不进 HAL 请求、不改会话配置/模板/格式/调度方式/丢弃规则/锁定字段集合。具体四处：① 连接成功现在**显式上报**（此前只有失败路径回调，成功时界面永远停在「连接中…」，开流/停流按钮一直 disabled —— 实测踩到）；② WS 意外断开（对端关闭/EOF/读写异常）与用户主动断开**区分开**，前者把界面复位并停采集，后者不误报；③ 本地按「开流交付」时若当前会话号是 PC 上一次 start 分配的，先换新会话号（否则这批帧会上传进 PC 那边已结束的会话目录，把两轮采集混进同一份 manifest）；④ status 的 queue_sessions 不再把旧命名文件（frame_000123.yuv，无 __）各算一个会话，新增 queue_legacy_names。",
+   "note": "第 ③ 项只影响**帧元数据里的 session_id 取值**（以及它在 PC 端落到哪个会话目录），不改变任何一帧的采集过程：请求参数、会话配置、模板、输出格式、调度方式、预热与抽帧丢弃规则全部逐字未变。",
+   "self_describing": true
+  },
+  "m0probe-1.9.3": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 1
+   },
+   "reason": "相对 1.9.2：**四条路径 rev 全不变**。新增的全是\"看得见的量\"与诊断入口：① status 增 upload_mbps（最近 10 s 实测上传速率）、backlog_fps（60 s 队列增长速率）、eta_full_min（按当前积压速度写满剩余空间的分钟数）；② 积压告警：开流中若 backlog_fps>0.5 且距上次告警 >60 s，日志出一条带 ETA 的警告（以前这类\"采集快于交付\"只能靠人对照日志发现，后果是队列无界增长到写满磁盘）；③ 新增「链路测速」按钮 → linkTest()，往 PC 的 /api/v1/linktest 灌 20 MB，把**链路能力**与**采集循环开销**分开。以上都不进 HAL 请求、不改会话配置/模板/格式/调度方式/丢弃规则。",
+   "note": "抽帧间隔仍由 plan.interval_ms / profile.deliver_fps 在运行时给定（未改默认值）。本期只把\"交付速率是否跟得上\"变成常驻可见的量，是否改默认抽帧率是**需求决策**，不属于采集路径变更。",
+   "self_describing": true
+  },
+  "m0probe-1.10.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 1
+   },
+   "reason": "相对 1.9.3：**四条路径 rev 全不变**。新实现的是 D6 的**监视道**（M2 双车道）：从\"已经采到的那一帧\"现算 480 宽灰度 JPEG（q70，约 20–40 KB），1 Hz 经 WS 控制道发 `thumb`；**不排队、不落盘、断开即丢**（可丢项，丢了只影响\"看不见画面\"，不影响任何交付数据）⇒ 交付道堵住时画面仍刷新，这正是两车道分离的意义。缩略图发送走独立线程（WsClient.send 是阻塞写 socket，在相机线程上直发会把帧回调堵住，扰动\"哪一帧被抽中\"），队列满丢最旧；status 增 thumbs_sent / thumbs_dropped。",
+   "note": "CPU 负载有变化（1 Hz 的 JPEG 编码 ≈ 每秒 10–20 ms，与既有的 1/8 s 预览同源），但**请求参数、会话配置、模板、输出格式、调度方式、丢失与预热规则全部未变** ⇒ 不属于采集行为变更。⚠ 若日后把编码挪到别的线程或改码率，仍不构成路径变更；但**改缩略图的来源帧（例如另开一路预览流）就是会话配置变更**，需要重新登记。",
+   "self_describing": true
+  },
+  "m0probe-1.10.1": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 1
+   },
+   "reason": "相对 1.10.0：**四条路径 rev 全不变**。修两处 + 补三组仪器：① 监视道加\"会话确认\"闸门（本地开流时 App 自己生成会话号，而 PC 在首帧 init 才建会话 ⇒ 最早几张缩略图撞\"未知会话\"被丢。修法是让监视道**等交付道确认会话**（首帧 verified 后开闸），而不是让 PC 放宽\"未知会话不建会话\"这条防线）；② status 新增 sample_fps / deliver_fps / samples_lost / plan_interval_ms —— 把\"决定抽帧 / 成功入队 / 上传\"三段速率分开报，否则\"抽了 N 帧只交付 M 帧\"永远说不清；③ 新增\"抽帧落点\"提示：按实测帧栅格算出真实落点与建议的 interval_ms（请求 200 ms 在本机量化成 233 ms = 4.29 fps 而非 5 fps）。",
+   "note": "抽帧规则本身没变（仍是\"与上次样本相隔 ≥ interval 的第一个帧\"，判据是 sensor 时间戳）；新增的只是**把量化后的实际落点算出来打给人看**，没有自动改 interval。同样地，监视道闸门只改变\"什么时候开始发缩略图\"，不改任何一帧的采集过程。",
+   "self_describing": true
+  },
+  "m0probe-1.10.2": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 1
+   },
+   "reason": "相对 1.10.1：**四条路径 rev 全不变**。新增\"换镜可见性\"与变焦断言（为 0.6× 做准备）：① App 逐帧记录生效物理镜头并在**会话内换镜**时告警；帧元数据增 lens_changes_so_far；status 增 active_physical_id / lens_changes；② PC manifest 增 lens 段（active_physical_id_unique / distinct / zoom_requested_distinct / zoom_readback_distinct / zoom_match / lens_changes_peak）与会话摘要；③ 顺手修一处结构隐患：status 的字段清单曾写成**两份并列**的 JSONObject，新增字段只进了一份 ⇒ 合并为一份。",
+   "note": "⚠ **记账更正**：本条当时只写了登记、**忘了同步 APK 的版本串**（构建仍报 1.10.1）。版本串统一在 1.10.3 落地；功能代码本身已在 1.10.2 这一轮完成。",
+   "self_describing": true
+  },
+  "m0probe-1.10.3": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 2
+   },
+   "reason": "**`stream_deliver_yuv` rev 1 → 2**：新增变焦档位选择（0.6× 超广角 / 1.0× 主摄），**默认改为 0.6×**（用户需求：定位为主）。为什么算采集行为变更：变焦是**请求参数**（`CONTROL_ZOOM_RATIO`），而本机 0.6× = **切到超广角 id=3**（不同传感器/像元/光圈）⇒ 默认交付物的**内参、畸变、读出时间全都不同** —— 交付内容的含义变了。同批另有三处不构成 rev 变更的改动：① 权威规则写死（PC `profile.zoom_ratio > 0` ⇒ 用它；**0/缺省 ⇒ 用 App 界面档位**）⇒ PC 默认 profile 从 1.0 改为 **0 = 不指定**；② 运行中切档 ⇒ **自动换新会话号**后重开（避免一段数据混两套内参）；③ 逐帧元数据增 `zoom_source`，status/hello 上报 zoom_choice/effective。另把版本串从 1.10.1 直接补到 1.10.3（1.10.2 那轮只登记未改版本串，已在 1.10.2 条目备注）。",
+   "note": "**其余三条路径 rev 不变**（探针未动）。⚠ **重要未决项**：超广角（0.6×）的 fx / 畸变 / skew **尚未取证** —— M0 的 G22/G25/G14 结论只对主摄成立。在 0.6× 下完成 ①能力探测与 ⑤尺寸扫描之前，**该档数据不得用于亚像素测量**；PC 端 manifest 的 `lens` 段记录每段用的镜头，便于事后筛选与分段。",
+   "self_describing": true
+  },
+  "m0probe-1.10.5": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 2
+   },
+   "reason": "相对 1.10.3：**四条路径 rev 全不变**。修两处缺陷 + 补三处可见性，全部落在控制道与元数据完整度上，不进 HAL 请求、不改会话配置/模板/输出格式/调度方式/丢弃规则/锁定字段集合：① **监视道闸门按会话键控**（原实现是「任何一帧 verified 就开闸」，而本地队列是**跨会话**补传的，连接后先传的往往是**上一个会话**的积压帧 ⇒ 闸门被旧会话的 verified 打开，当前会话的缩略图照样被 PC 当「未知会话」拒掉；实测现象是 `thumbs_gated: 0` 但 PC 打印「未知会话」）；② **会话由控制道显式声明**：新增 `session_begin` → PC 建会话并回 `session_ack`，不再让监视道去猜交付道的进度（交付道是队列驱动的，本会话首帧可能排在几十帧之后）；PC 对未知会话的缩略图回一次 `thumb_rejected`，App 收到即关闸并按上限重声明（自愈，覆盖「PC 重启后会话表丢失」的情形）；③ **修一处静默数据缺陷**：原实现「结果先到、图未到」时**把结果对象丢掉**，图到达时只能拿 null 组元数据 ⇒ 该帧整组 CaptureResult 派生字段缺席（skew / active_physical_id / zoom 回读 / 曝光 / ISO / crop_region）。实测某会话 **44 帧里 28 帧（64%）中招**，而画面、时间戳、计数器全都正常。现在保留结果对象（RECENT_RESULT_KEEP=30）供配对时补齐；确实缺席的帧写 `result_missing: true` 自描述，status 报 `meta_missing_result`；PC 端 manifest 新增 `meta_quality` 段逐项计数，可回查历史会话。",
+   "note": "①③ 都不属于「采集行为变更」：判定口径仍是请求参数/会话配置/模板/格式/调度方式/丢弃规则/锁定字段集合（与 1.9.3 加 status 字段、1.10.2 加 lens 字段同一先例）。⚠ 但③ 改变的是**每帧所附证据的完整度** —— 在 1.10.5 之前采的交付数据里，约 2/3 的帧没有 skew/镜头/曝光，**不得**把那些帧的 None 当数值参与聚合；涉及 skew 或换镜判断的结论，应只用 `meta_quality.missing` 为 0 的会话（PC 端 manifest 与 /api/v1/sessions 均可查）。另：同轮还编出过一个中间构建 1.10.4（只含①，未交付到现场，同日被 1.10.5 取代）——登记表只记到达过设备的版本，此处备案以免日后对不上号。",
+   "self_describing": true
+  },
+  "m0probe-1.10.6": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 2
+   },
+   "reason": "相对 1.10.5：**四条路径 rev 全不变**。把\"PC 主控启动/关断\"从**单向广播**补成**闭环**，全部落在控制道与判据上，不进 HAL 请求、不改会话配置/模板/输出格式/调度方式/丢弃规则/锁定字段集合：① 新增 `start_ack`（App 在相机真正开流后回；打开失败回 ok=false + 原因）⇒ PC 不再把\"WS 发送成功\"当成\"已经在采\"，失败时状态转 `start_failed`；② 新增 `stop_ack`（含\"已抽帧多少、队列还剩多少\"）⇒ PC 知道\"停在哪\"；③ 新增**开流门控**（PC 侧）：把该会话**第一帧的回读值**与本 profile 逐项比对，硬项（zoom / ois / eis / 输出尺寸 / 格式）不一致即**自动停流**并把会话标成 `gate_failed`；软键（对焦/曝光/ISO）只记注记不判——HAL 会量化或覆盖它们。门控实测两条纪律：profile 写 0/None 表示\"不指定\"（如 zoom_ratio=0 由 App 档位决定）必须**跳过**而不是判失败，否则默认配置下门控永远失败。",
+   "note": "⚠ 门控只判\"PC 下发的意图 vs 设备的事实\"，不改变任何采集行为；它失败时的动作是`stop`（停采集）而**不是**改配置重开 —— 配置要不要改是人的决定。另：`start_ack` 只在**PC 主控**（收到 `start`）时回，本机开流不回执（避免把\"用户自己按的\"也报成\"PC 启动\"）。",
+   "self_describing": true
+  },
+  "m0probe-1.10.7": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 2
+   },
+   "reason": "相对 1.10.6：**四条路径 rev 全不变**（本版只改元数据的**标签写法**与 PC 侧判据，不进 HAL 请求、不改会话配置/模板/输出格式/调度方式/丢弃规则/锁定字段集合）。两处 App 侧改动：① `name()` 改为**按字段各一张枚举表**（此前一张通用表把 `CONTROL_VIDEO_STABILIZATION_MODE=2` 记成 `\"AUTO(2)\"`，实为 `PREVIEW_STABILIZATION`；af/ois/eis/edge/nr 各表分离，认不出的码保留裸整数不猜名字）；② **记账更正**：`PATH_REV` 由 1 改为 2。",
+   "note": "⚠ **②是更正而不是变更**：登记表在 1.10.3 就把本路径记为 rev=2（默认档改 0.6×，属请求参数变更），而代码那一行没跟着改 ⇒ **1.10.3~1.10.6 的帧宣称 rev=1、实际行为是 rev=2**。因此：用这些版本采的交付数据做\"是否同一采集路径\"的比较时，必须按 **rev=2**（默认 0.6×）看待，不能采信帧里写的 1；如需严格证据，用 1.10.7 重采。另：同轮修掉的门控**假失败**（`want \"OFF\"` vs `got \"OFF(0)\"` 按字符串比 ⇒ 判硬项不一致 ⇒ 自动停流，现场现象为\"点了开始采集，画面刷一下就再也不动了\"）**全部在 PC 侧**，不动采集行为；具体见 docs/开流门控与枚举比对.md。",
+   "self_describing": true
+  },
+  "m0probe-1.11.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 2
+   },
+   "reason": "相对 1.10.7：**四条路径 rev 全不变** —— 这一版没碰 HAL 请求、会话配置、模板、输出格式、调度方式、丢弃规则、锁定字段集合，改的全是**回传侧的生命周期与观测口径**：① 交付道（HTTP）的存活判据从 `connected`（控制道在线）改成 `deliveryAlive`；旧条件下 WS 一断上传线程就退出，队列里已抽好的帧停在手机上不动，而 HTTP 明明是通的（\"实时联通结束\"≠\"不能回传\"）；② 新增 `delivery_done` 交付收尾宣告（App 在\"采集已停 + 本地队列已空 + 本轮至少成功交付过 1 帧\"三条同时成立时才发）；③ `stop_ack` 增加 `pending_frames` / `will_drain` / `uploaded_frames`；④ `status` 增加 `drain_state` / `delivery_alive` / `uploaded_frames` / `upload_fail_streak` / `thumbs_enqueued` / `thumbs_send_failed` —— 其中旧 `thumbs_sent` 的语义本身就是个记账错误：它在**入队**时 +1（不是真发出去时），于是\"手机说发了 30 张、电脑收到 28 张\"永远对不上账；⑤ PC 端新增 `/ws/panel` 推送通道：面板收到缩略图**即渲染**，不再是 3 s 轮询拉一张 ——现场看到的\"接收计数 +3、画面只更新 1 张\"（比例 1:3）是**采样口径**造成的，数据一张没丢（`thumbs` 是逐张落盘数）。",
+   "note": "⚠ 这一版改了**控制道消息集**（新增 `delivery_done`）与**交付道的生命周期**，但**没改采集行为**：帧的字节内容、请求参数、抽帧规则、锁定字段集合、输出尺寸/格式全部不变 ⇒ 采集路径 rev 保持原值，1.10.7 及更早采集的证据**继续有效**。配套要求：PC 端需同版本（旧 server.py 收到 `delivery_done` 会回 `unknown_type`）。",
+   "self_describing": true
+  },
+  "m0probe-1.11.1": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 2
+   },
+   "reason": "相对 1.11.0：**四条路径 rev 全不变** —— 这一版只加了「配对信息的输入方式」，没碰 HAL 请求、会话配置、模板、输出格式、调度方式、丢弃规则、锁定字段集合。新增内容：① App 内扫码（`QrScanActivity`：Camera2 后摄预览 + YUV_420_888 + zxing 实时解码）；② 唯一解析器 `PairCode`（手输/粘贴/扫码共用；原来 `DeliverySession.parseTarget` 已删除，不再有第二套解析）；③ `MainActivity` 的「扫码配对」按钮与 `onActivityResult` 回填+自动连接；④ PC 端 `pair_uri()` / `qr_svg()` / `GET /api/v1/pair`，终端与面板都改印 `m0probe://pair?…` 配对码。⚠ **扫码用的是手机的相机，但不是采集路径**：它不产生任何交付帧、不进队列、不影响交付指纹（不进采集路径登记，只在本文档与 `docs/扫码配对.md` 里留档）。",
+   "note": "⚠ **本版引入全工程唯一一个第三方二进制依赖**：`app/libs/core-3.5.3.jar`（zxing core，纯 Java、不含 awt/javase），随仓库入库并用 `implementation(files(...))` 引用 ⇒ **仍然可 `--offline` 构建**。大小 607650 B，sha256 8d8064c1636fdaef7189dd9055c7d59950a8940a12f2293956446ec3c109fd82。在此之前工程是零第三方依赖；这条例外是为了不自己实现 QR 解码（定位图形/透视/掩码/RS 纠错，出错时只表现为「扫不出来」，现场无法自查）。配套要求：PC 端需同版本（旧 server.py 没有 /api/v1/pair，面板不显示二维码；但 App 仍兼容旧的整行 URL 与手输写法）。",
+   "self_describing": true
+  },
+  "m0probe-1.12.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 2
+   },
+   "reason": "相对 1.11.1：**四条路径 rev 全不变** —— 这一版加的是「本项目作为整体架构的一部分被别的程序调用」所需的**对外接口面**与**归档道（每一帧）**，改动全落在控制道、回传侧生命周期与 PC 服务端：不进 HAL 请求、不改会话配置/模板/输出格式/调度方式/丢弃规则/锁定字段集合。新增：① PC 侧本机接口面（`/api/v1/capabilities` / `/api/v1/host/status` / `/api/v1/host/events`(WS) / `/stream/mjpeg` / `/api/v1/sessions/{sid}/archive`），全部 **loopback-only**（按**对端地址**判，不认可伪造的 `Host` 头）；② MJPEG over localhost HTTP 的实时监视流（可丢）；③ `pc/hostlink.py` 最小客户端库（三行接入，纯标准库）；④ **归档道**：采集期把**相机吐出的每一帧** Y 平面 + 元数据写手机本地（writer 线程、`.part`→rename 原子序、`index.jsonl` O(1) 追加、配额 + 熔断 `aborted_no_space`），采集**结束之后**才复用既有分片协议限速回传；⑤ PC 侧归档完整性账本（两个缺口分开、两条自洽式、与交付帧的交叉校验）。⚠ **为什么 arch 归档不算采集行为变更**：它不新增 ImageReader/Surface、不改 CaptureRequest、不改锁定配方/输出尺寸/格式/抽帧规则/调度方式 ⇒ 交付帧的字节内容与含义与 1.11.1 完全一致。⚠ 但它**可能通过写盘负载拖慢回调节奏**（这是事实层风险，不是请求层差异）⇒ 判据里专门留了 `frames_seen` 与 `archive.frames_expected` 两个数做**开/关 A/B 实测**，见 `docs/对外接口与单一交付道.md` §6 与 §9。",
+   "note": "⚠ 两个缺口**必须分开命名**：`gaps_on_device`（采集期没写进去）只能**重采**，`upload_gaps`（没传到 PC）可以**重传**；合并成一个数，现场必然选错处置。⚠ 归档默认**开**，但有两个代价写在界面与文档里：① 可录时长 = 手机可用空间 ÷ 帧率×单帧字节（单帧 1920×1440 纯 Y = 2 764 800 B，30.04 fps ⇒ **83.0 MB/s**；21 GB 约 **4.2 分钟**写满，写满会**连带拖死交付道与 App** ⇒ 必须有配额与熔断）；② 采集期**不可能**实时回传（手机→PC 实测链路 5.5 MB/s，差 **15.1 倍**）⇒ 只能先落本地、结束后回传。⚠ **本轮诚实边界（无真机连接）**：「手机能否以 83 MB/s 持续写盘」**未实测**；归档开启对帧率的影响需现场做开/关 A/B —— 判据已就位，数字要现场跑。配套要求：PC 端需同版本（旧 server.py 不支持 `kind=archive`，会把归档帧与交付帧混在同一条道上，且没有 loopback-only 门控）。",
+   "self_describing": true
+  },
+  "m0probe-1.13.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 3
+   },
+   "reason": "**`stream_deliver_yuv` rev 2 → 3**：默认档由「每 200 ms 抽 1 帧」改成「**不抽帧 = 每一帧都留**」。为什么算采集行为变更：改的是**丢弃规则**（帧率下发与丢弃规则同属本表的判定口径），默认配置下产出的**数据量差约 6 倍**（单帧 1920×1440 纯 Y = 2 764 800 B，30.04 fps ⇒ **83.0 MB/s**），交付内容的含义随之改变。先例是 1.10.3 把默认变焦 1.0× 改 0.6×（同为「默认值改变 ⇒ rev +1」）。两侧默认值同步改：App 的 `plan` 默认 `interval_ms` **200 → 0**、`currentIntervalNs()` 在 fps≤0 时返回 **0**；PC 的 `DEFAULT_PROFILE.deliver_fps` **5 → 0**、`/api/v1/control/start` 不带 plan 时默认 `interval_ms=0`。**请求参数、会话配置、模板、输出格式、锁定字段集合逐字未变**（仍 TEMPLATE_MANUAL / YUV_420_888 / 4096×3072 crop / 1920×1440 输出 / 预热丢前 5 帧）。同批非采集行为改动：① 删除「归档道」（`kind=archive`、`archive/` 目录、`s.archives` 表、归档端点、App 归档器、面板归档列全部删除；旧 `kind=archive` 由服务端**显式 400 lane_merged** 拒绝，不许静默写进交付帧的 seq 空间）；② **修一个静默丢帧缺陷**（本轮命门）：`writeQueue.offer(...)` 的返回值曾被忽略 ⇒ 队列（容量 32）满时那一帧**静默消失**，而 App 的 `deliveredCount`（写盘成功才 ++）、`queue_len`（数磁盘上的 `.yuv`）、PC 的 `_delivery_complete`（就靠这两个数）**三方一致地少一帧**，谁都发现不了 —— 与「每一帧都留」直接冲突。现在四条丢帧路径（写队列满 / 图未到 / 写盘失败 / 元数据组装失败）全部进账本；③ 配额 → `aborted_no_space` **显式命名**（不许静默停止），且**只停写盘、不停回传**；④ 缺口按 seq 区间 `[seq_first, seq_last]` 点出（seq 由 `nextSeq()` 逐帧分配，**写失败的帧也占号**），并与 `gaps_on_device + upload_gaps` 构成第三条独立校验，对不上即报警注记。",
+   "note": "**其余三条路径 rev 全不变**（探针未动）。⚠ **1.13.0 起的交付数据与 1.10.3~1.12.0 的不得互相替代**：后者是 rev=2（0.6× 默认档 + 每 200 ms 抽帧）。⚠ **本轮诚实边界（无真机连接）**：「手机能否以 83 MB/s 持续写盘」**未实测**；默认不抽帧对帧率的影响需现场做**开/关 A/B**（判据已就位：PC 端 `frames_seen` 对 `store.frames_expected`，开/关各跑一次即可看出）。⚠ 两个缺口**必须分开命名**：`gaps_on_device`（采集期没写进去）只能**重采**，`upload_gaps`（没传到 PC）可以**重传**。⚠ 降载旋钮仍在（`plan.interval_ms` / `profile.deliver_fps`），一旦设成 >0，账本里 `every_frame` 变 false —— **语义变化必须可见**。配套要求：PC 端需同版本（旧 server.py 会把 `kind=archive` 静默放进交付帧的 seq 空间，且 panel 仍读 `s.archive`）。⚠ **PC 端 `1.13.1` 另有一处不兼容变更**：`/api/v1/control/{start|stop}` **真的开始校验 token** —— `capabilities` 与文档从 1.12.0 起就写着它「需要 token」，而代码一直不查；它**不在 loopback 名单里** ⇒ 同网段任何机器都能启停采集。不带 token 调 control 的调用方现在会收到 403（`pc/hostlink.py` 与面板已同步自带 token）。**App 侧不受影响**（App 不调 control），故本表 App 采集路径 rev 不变。 ⚠ **PC 端 `1.14.0`（第 26 轮）是纯新增、向后兼容**：`/api/v1/pair` 从「配对码接口」扩成**配对三件套**（网址 + token + 二维码三形态 `qr_svg`/`qr_matrix`/`qr_png_b64`，另加全部网卡候选 `hosts[]`）、`capabilities` 新增 `console`（**控制台功能 ↔ 接口的映射声明**）与 `routes`（**从 `app.router.routes()` 导出的**真实路由表）、`hostlink` 新增 5 个便利方法。**App 侧零改动**（无 Kotlin 变更、未重新构建，APK 仍是 `m0probe-1.13.0`，与 `release/app-debug.apk` 逐字节一致）⇒ **四条路径的 rev 一个都没动**，1.10.7 及更早采集的证据**全部继续有效**。旧调用方不受影响：`/api/v1/pair` 原有字段（`ok`/`pair_uri`/`host`/`port`/`token`/`url`/`qr_svg`/`note`）**逐字保留**，新增字段只增不改（**已与 `git show HEAD:pc/server.py` 的旧返回体逐个比对过**）。⚠ 需要同版本的地方只有一处：**调用方若要用面板等价能力**（`overview`/`pair`/`qr_png`/`thumb_url`）需 `pc/hostlink.py` 与 `server.py` 同为 1.14.0；只读旧接口（`sessions`/`events`/`mjpeg_url`/`ledger`）的老客户端在 1.13.x 下照常工作。",
+   "self_describing": true
+  },
+  "m0probe-1.14.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 3,
+    "live_stream_color": 1
+   },
+   "reason": "**新增一条采集路径 `live_stream_color`（rev=1）** —— 这是 `capture_mode=live`（只看不留 + 彩色实时）的产出路径，**不是既有路径的修订**。为什么不借 `stream_deliver_yuv` 的 rev 表达：两者**产出物根本不同**，连「能不能用于测量」这个前提都不一样 —— 前者是**彩色 JPEG**（有损、降采样、无逐帧 sha256、设备零留存、可丢），后者是**原始 Y 平面**（无损、逐帧 sha256、先落本地、一帧不落）。若借用同一 id 的 rev，读数据的人会以为「同一条路径换了个版本」而实际上「换了条路」。**既有四条路径的 rev 一个都没动**（`stream_deliver_yuv` 仍为 3）—— 新增一条路径不许让其它路径的证据作废（R20/R21）。另：`capture_path_id` 自此**按模式取值** —— `deliver` ⇒ `stream_deliver_yuv/3`、`live` ⇒ `live_stream_color/1`；`session_begin` 与 `status.live.path_id` 两处都会报。本次改动的判定依据（是否算采集行为变更）：**丢弃规则**（live 只取最新的陈帧）、**输出格式**（彩色 JPEG vs 原始 Y）、**存储策略**（零留存 vs 先落本地）、**取图语义**（`acquireLatestImage` vs `acquireNextImage`）四项都变了 ⇒ 必须新开一条路径。⚠ 不构成既有路径 rev 变更的部分：`deliver` 路径的请求参数 / 会话配置 / 模板 / 输出尺寸 / 锁定字段集合**逐字未变**。",
+   "note": "⚠ **本版有实质性代码改动**（Kotlin 改了 `DeliverySession.kt`：采集模式分叉、实时道串行闭环、YUV→RGB 彩色编码、不落盘分支；`gradle assembleDebug` **编译通过**）。⚠ **未在真机上跑过**（本轮无设备）⇒ 以下都需要现场复验，不得据本表当已验：① 彩色 JPEG 的编码耗时（若 >25 ms/帧会成为 30 fps 的瓶颈）；② 连续彩色编码的温升与功耗；③ `acquireLatestImage` 在高帧率下的实际丢弃行为（`skipped_est` 是**估算**，Android 没有精确 API）；④ 「延迟不累积」这一性质（判据要看 `live.latency_ms` 是否**稳定**，反例：加队列会让它随积压线性增长）；⑤ 默认档 960×720 q70 在实测链路上的真实帧率与带宽占用。PC 侧（`1.15.0`）为纯新增：新端点 `/api/v1/live/frame`、会话 `capture_mode` 字段、`store.applicable` / `delivery_complete=null` 三态、`lanes.live` 声明；老调用方不受影响，但**行为语义多了一种**（同一个会话可能「没有留存」）⇒ minor +1。⚠ `APP_VERSION` 已改为 `m0probe-1.14.0`；App 的 `live` 路径与探针（M0 证据链）**无关** —— 探针 `LockedCaptureProbe` 一行未改，M0 的 8 份报告仍按各自登记版本有效。",
+   "self_describing": true
+  },
+  "m0probe-1.15.0": {
+   "capture_path_id": null,
+   "capture_path_rev": null,
+   "paths": {
+    "burst_yuv_manual": 1,
+    "still_yuv_single": 3,
+    "still_jpeg_template": 3,
+    "stream_deliver_yuv": 3,
+    "live_stream_color": 2
+   },
+   "reason": "**`live_stream_color` rev 1 → 2**：新增 `color_source` 维度（`yuv_bt601` / `rgba_hal`），`rgba_hal` 走 `ImageFormat.FLEX_RGBA_8888` reader ⇒ **YUV→RGB 由相机 HAL 完成**，本进程只下采样 + JPEG 编码（`rgba_hal` 档里没有任何 BT.601 算术）。按第 16 条铁律的判定清单逐项核对，**输出格式**变了（同一 `ImageReader` 家族但像素语义不同：自算的 RGB vs HAL 算的 RGB）、**请求参数**变了（reader 格式由 plan 决定），而这两项都直接影响**产出像素**，⇒ 必须 rev +1。⚠ 只有 `live_stream_color` 动；`stream_deliver_yuv`（含其 rev=3）与另三条路径**逐字未变** —— 本改动只在 `capture_mode=live` 下生效，交付道请求 `rgba_hal` 会被**400 拒绝**（它要的是原始 Y 平面，RGBA reader 根本没有 Y 平面；放行会让 `stream_deliver_yuv` 宣称的 \"raw Y\" 变成\"经过色彩处理的数据\"，即**声明与实际不符**）。⚠ **设备不支持 RGBA_8888 时会静默降级**成 `yuv_bt601`？——**不会**：App 会 log 警告、把 `liveColorSource` 改写、并把 `rgba_supported=false` 与**实际生效的 `color_source`** 上报；PC 侧 `live.color_source_effective` / `color_source_degraded` 据此显示降级。**降级发生时这次二分不成立**（两条路退化成同一条，画面照样出得来、看着完全正常）⇒ 判据 P16 的 P16e/P16j 就是钉这个的。",
+   "note": "⚠ **本版有实质性代码改动**（Kotlin：`resolveReaderFormat` / `encodeRgbaJpeg` / `encodeColorJpeg` 按 `img.format` 分派 / `drawCrosshair`·`jpegEncode` 抽出共用 / `liveStatusJson` 新增 4 个字段；PC：常量、校验、面板下拉、summary 四字段）。`gradle assembleDebug` **EXIT=0**；PC `server.py` 语法 OK。⚠ **未在真机上验证**（本轮设备在改动完成前掉线，`adb devices` 空）⇒ 以下必须现场复验，**不得据本表当已验**：① **本机的相机到底支不支持 `FLEX_RGBA_8888`** —— 这是二分能否成立的前提；若不支持 ⇒ App 会降级并显式上报（不是静默），但**结论只能是\"未验证\"**；② `rgba_hal` 档的**真实帧率与带宽**（RGBA 是 4 字节/像素，比 YUV_420_888 的 1.5 字节/像素多 2.67 倍，且我们只在**下采样之后**才丢字节，HAL 那一步的成本没人测过）；③ 编码耗时（JPEG 输入从 YUV 变 RGBA，同 q70 下耗时可能变）；④ **RGBA reader 的实际 `rowStride`/`pixelStride`/`position` 语义** —— P16 是在**合成夹具**上验的，夹具按 `pixelStride=4` + `base=buf.position()` 构造，**真机 HAL 若给出别的组合**（例如 `position!=0`、`pixelStride>4`）那要重新验；⑤ live 道整体在 `rgba_hal` 下的延迟是否仍**不累积**。⚠ `rgba_hal` **不新增采集路径 id**：它仍是 `live_stream_color`，只是同一路径的一个**参数化子档**（与 `live_quality`/`live_width` 同性质）⇒ rev +1 而非新开 id。⚠ App 的 `live` 路径与探针（M0 证据链）**无关** —— 探针 `LockedCaptureProbe` 一行未改，M0 的 8 份报告仍按各自登记版本有效。",
+   "self_describing": true
+  }
+ }
+}

@@ -1,0 +1,1723 @@
+{
+  "report_kind": "m0_still_shot",
+  "generated_at_wall_ms": 1790266610946,
+  "app_version": "m0probe-1.8.3",
+  "capture_path_id_per_trial": true,
+  "camera_id": "0",
+  "device": {
+    "manufacturer": "Xiaomi",
+    "model": "24129PN74C",
+    "device": "dada",
+    "build_fingerprint": "Xiaomi\/dada\/dada:16\/BP2A.250605.031.A3\/OS3.0.307.0.WOCCNXM:user\/release-keys",
+    "android_sdk": 36
+  },
+  "shots_per_trial": 8,
+  "warmup_shots": 5,
+  "shot_interval_ms": 500,
+  "interleaved_formats_ok": true,
+  "trials": [
+    {
+      "report_kind": "m0_still_shot_trial",
+      "generated_at_wall_ms": 1790266601515,
+      "app_version": "m0probe-1.8.3",
+      "device": {
+        "manufacturer": "Xiaomi",
+        "model": "24129PN74C",
+        "device": "dada",
+        "build_fingerprint": "Xiaomi\/dada\/dada:16\/BP2A.250605.031.A3\/OS3.0.307.0.WOCCNXM:user\/release-keys",
+        "android_sdk": 36
+      },
+      "open_attempts": 1,
+      "capture_path_id": "still_yuv_single",
+      "capture_path_rev": 3,
+      "camera_id": "0",
+      "capture_size": {
+        "w": 1920,
+        "h": 1440
+      },
+      "capture_config": {
+        "size_choice_note": "在 3145728 px² 上限内取同纵横比尺寸中面积最大者；同纵横比候选共 12 个（见 capture_config.size_candidates）",
+        "size_candidates": [
+          {
+            "w": 4096,
+            "h": 3072,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 4080,
+            "h": 3072,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 4080,
+            "h": 3060,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 2880,
+            "h": 2160,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 1920,
+            "h": 1440,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 1600,
+            "h": 1200,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 1440,
+            "h": 1080,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 1280,
+            "h": 960,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 960,
+            "h": 720,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 800,
+            "h": 600,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 640,
+            "h": 480,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 320,
+            "h": 240,
+            "same_aspect_as_active": true
+          }
+        ],
+        "output_size": {
+          "w": 1920,
+          "h": 1440
+        },
+        "output_format": "YUV_420_888",
+        "template_name": "TEMPLATE_MANUAL",
+        "single_shot": true,
+        "shot_interval_ms": 500,
+        "active_array": {
+          "w": 4096,
+          "h": 3072
+        },
+        "output_to_active_scale_x": 0.46875,
+        "output_to_active_scale_y": 0.46875,
+        "forced_full_crop": false,
+        "crop_region": {
+          "left": 0,
+          "top": 0,
+          "width": 4096,
+          "height": 3072
+        },
+        "output_to_crop_scale_x": 0.46875,
+        "output_to_crop_scale_y": 0.46875,
+        "crop_shrunk_for_aspect": false,
+        "max_yuv_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "max_jpeg_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "max_raw_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "app_version": "m0probe-1.8.3",
+        "capture_path_id": "still_yuv_single",
+        "capture_path_rev": 3,
+        "config_fingerprint": "1920x1440|a4096x3072|c4096x3072@0,0|YUV_420_888|w5 #57a6ae4e"
+      },
+      "requested": {
+        "focus_policy": "explicit_working_distance",
+        "min_focus_distance_diopter": 10,
+        "hyperfocal_distance_diopter": 0.09039752185344696,
+        "focus_diopter": 1,
+        "focus_distance_m": 1,
+        "focus_requested_distance_m": 1,
+        "exposure_time_ns": 10000000,
+        "sensitivity_iso": 200,
+        "exposure_range_ns": [
+          48853,
+          1000000000
+        ],
+        "ae_available_fps_ranges": [
+          [
+            12,
+            12
+          ],
+          [
+            15,
+            15
+          ],
+          [
+            24,
+            24
+          ],
+          [
+            14,
+            30
+          ],
+          [
+            25,
+            30
+          ],
+          [
+            30,
+            30
+          ],
+          [
+            14,
+            60
+          ],
+          [
+            15,
+            60
+          ],
+          [
+            60,
+            60
+          ]
+        ],
+        "target_fps": 30,
+        "frame_duration_requested": true,
+        "sensor_frame_duration_ns": 33333333,
+        "max_frame_duration_ns": 1000000000,
+        "ae_target_fps_range_sent": null
+      },
+      "applied": {
+        "control_mode_off": true,
+        "manual_focus_applied": true,
+        "zoom_ratio_lock_applied": true,
+        "zoom_range_lower_below_one": true,
+        "zoom_range": [
+          0.6000000238418579,
+          10
+        ],
+        "ois_off_applied": true,
+        "eis_off_applied": true,
+        "manual_exposure_applied": true,
+        "awb_off_applied": true,
+        "edge_off_applied": true,
+        "noise_reduction_off_applied": true,
+        "aberration_off_applied": true,
+        "distortion_correction_modes_available": [
+          "OFF",
+          "FAST"
+        ],
+        "distortion_correction_off_applied": true,
+        "zsl_off_requested": null
+      },
+      "params": {
+        "focus_distance_m": 1,
+        "target_fps": 30,
+        "target_frames": 8,
+        "warmup_frames": 5,
+        "legacy_fps_range": false
+      },
+      "frame_count": 8,
+      "frames": [
+        {
+          "frame_number": 0,
+          "frame_index": 0,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169382169228846,
+          "callback_elapsed_ns": 169382265461931,
+          "wall_clock_ms": 1790266596787,
+          "callback_latency_ns": 96233085,
+          "request_sent_elapsed_ns": 169381980607504,
+          "request_to_result_ns": 284854427,
+          "sensor_ts_minus_request_ns": 188621342,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 0.09071941,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "MOVING",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        },
+        {
+          "frame_number": 1,
+          "frame_index": 1,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169382834988846,
+          "callback_elapsed_ns": 169382906906514,
+          "wall_clock_ms": 1790266597429,
+          "callback_latency_ns": 71917668,
+          "request_sent_elapsed_ns": 169382766634952,
+          "request_to_result_ns": 140271562,
+          "sensor_ts_minus_request_ns": 68353894,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        },
+        {
+          "frame_number": 2,
+          "frame_index": 2,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169383467460929,
+          "callback_elapsed_ns": 169383538922452,
+          "wall_clock_ms": 1790266598061,
+          "callback_latency_ns": 71461523,
+          "request_sent_elapsed_ns": 169383407043858,
+          "request_to_result_ns": 131878594,
+          "sensor_ts_minus_request_ns": 60417071,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        },
+        {
+          "frame_number": 3,
+          "frame_index": 3,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169384099932804,
+          "callback_elapsed_ns": 169384176534535,
+          "wall_clock_ms": 1790266598698,
+          "callback_latency_ns": 76601731,
+          "request_sent_elapsed_ns": 169384038505004,
+          "request_to_result_ns": 138029531,
+          "sensor_ts_minus_request_ns": 61427800,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        },
+        {
+          "frame_number": 4,
+          "frame_index": 4,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169384765692804,
+          "callback_elapsed_ns": 169384841884066,
+          "wall_clock_ms": 1790266599364,
+          "callback_latency_ns": 76191262,
+          "request_sent_elapsed_ns": 169384676316410,
+          "request_to_result_ns": 165567656,
+          "sensor_ts_minus_request_ns": 89376394,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        },
+        {
+          "frame_number": 5,
+          "frame_index": 5,
+          "is_warmup": false,
+          "sensor_timestamp_ns": 169385431452804,
+          "callback_elapsed_ns": 169385518394378,
+          "wall_clock_ms": 1790266600040,
+          "callback_latency_ns": 86941574,
+          "request_sent_elapsed_ns": 169385342203128,
+          "request_to_result_ns": 176191250,
+          "sensor_ts_minus_request_ns": 89249676,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        },
+        {
+          "frame_number": 6,
+          "frame_index": 6,
+          "is_warmup": false,
+          "sensor_timestamp_ns": 169386097212804,
+          "callback_elapsed_ns": 169386177621201,
+          "wall_clock_ms": 1790266600699,
+          "callback_latency_ns": 80408397,
+          "request_sent_elapsed_ns": 169386018722815,
+          "request_to_result_ns": 158898386,
+          "sensor_ts_minus_request_ns": 78489989,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        },
+        {
+          "frame_number": 7,
+          "frame_index": 7,
+          "is_warmup": false,
+          "sensor_timestamp_ns": 169386762972804,
+          "callback_elapsed_ns": 169386841709690,
+          "wall_clock_ms": 1790266601363,
+          "callback_latency_ns": 78736886,
+          "request_sent_elapsed_ns": 169386678451565,
+          "request_to_result_ns": 163258125,
+          "sensor_ts_minus_request_ns": 84521239,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true
+        }
+      ],
+      "stats": {
+        "total_frames": 8,
+        "warmup_frames": 5,
+        "valid_frames": 3,
+        "capture_duration_s": 1.33152,
+        "interval_ns": {
+          "n": 2,
+          "note": "单张捕获模式：这里的间隔是应用下发节奏（shot_interval_ms），不是 sensor 帧率，不可用于帧率判据",
+          "mean": 665760000,
+          "min": 665760000,
+          "max": 665760000,
+          "std": 0,
+          "jitter_pp_percent": 0,
+          "p95": 665760000
+        },
+        "lock_stability": {
+          "lens_focus_distance_diopter": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "1.001001"
+            ],
+            "locked": true
+          },
+          "zoom_ratio": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "1.0"
+            ],
+            "locked": true
+          },
+          "ois_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "video_stab_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "sensor_exposure_time_ns": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "10000000"
+            ],
+            "locked": true
+          },
+          "sensor_sensitivity_iso": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "200"
+            ],
+            "locked": true
+          },
+          "sensor_pixel_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "0"
+            ],
+            "locked": true
+          },
+          "sensor_frame_duration_ns": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "33287995"
+            ],
+            "locked": true
+          },
+          "rolling_shutter_skew_ns": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "9212928"
+            ],
+            "locked": true
+          },
+          "distortion_correction_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "edge_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "noise_reduction_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "active_physical_id": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "2"
+            ],
+            "locked": true
+          },
+          "control_enable_zsl": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "false"
+            ],
+            "locked": true
+          }
+        },
+        "requested_vs_actual": {
+          "focus_diopter": {
+            "requested": 1,
+            "actual": 1.001001000404358,
+            "deviation_pp_percent": 0.10010004043579102
+          },
+          "frame_duration_ns": {
+            "requested": 33333333,
+            "actual": 33287995,
+            "deviation_pp_percent": 0.13601400136014
+          },
+          "interval_ns": {
+            "requested": 33333333,
+            "actual": 665760000,
+            "deviation_pp_percent": 1897.2800199728003
+          },
+          "exposure_time_ns": {
+            "requested": 10000000,
+            "actual": 10000000,
+            "deviation_pp_percent": 0
+          },
+          "sensitivity_iso": {
+            "requested": 200,
+            "actual": 200,
+            "deviation_pp_percent": 0
+          }
+        },
+        "frame_duration_control": {
+          "requested_ns": 33333333,
+          "actual_ns": 33287995,
+          "honored_verbatim": false,
+          "legacy_fps_range_sent": false,
+          "actual_fps": 30.040860075832143
+        },
+        "states": {
+          "af_state": [
+            "INACTIVE"
+          ],
+          "ae_state": [
+            "INACTIVE"
+          ],
+          "lens_state": [
+            "MOVING",
+            "STATIONARY"
+          ],
+          "af_mode": [
+            "OFF"
+          ],
+          "ae_mode": [
+            "OFF"
+          ],
+          "control_mode": [
+            "OFF"
+          ]
+        },
+        "lens_state_timeline": {
+          "sequence_head": [
+            "MOVING",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY"
+          ],
+          "moving_frame_indices": [
+            0
+          ],
+          "moving_count": 1,
+          "moving_after_warmup": 0,
+          "moving_all_within_warmup": true
+        },
+        "temperature_c": {
+          "source": "battery",
+          "n": 8,
+          "first": 36,
+          "last": 36,
+          "min": 36,
+          "max": 36,
+          "delta": 0,
+          "sampling_duration_s": 1.33152
+        },
+        "rolling_shutter_skew_ns": {
+          "n": 3,
+          "value": 9212928,
+          "min": 9212928,
+          "max": 9212928,
+          "distinct_count": 1
+        },
+        "skew_readout_rows": {
+          "value": 3072,
+          "formula": "crop_w * outH \/ outW  (= crop_w \/ 输出纵横比)",
+          "note": "按输出纵横比、取满 crop 宽度得到的读出窗口行数"
+        },
+        "skew_line_time_ns": 2999,
+        "skew_per_output_row_ns": 6397.866666666667,
+        "skew_per_crop_row_ns": 2999,
+        "shot_path": {
+          "shots_requested": 8,
+          "shots_dispatched": 8,
+          "serial_dispatch": true,
+          "shot_interval_ms": 500,
+          "frame_duration_requested": true
+        },
+        "image_pairing": {
+          "pairing_key": "Image.timestamp == SENSOR_TIMESTAMP（同一时间基）",
+          "pairing_mode": "离线：结算时按图时间戳集合逐帧配对（与回调先后无关）",
+          "shots_dispatched": 8,
+          "images_acquired": 8,
+          "images_matched": 8,
+          "images_matched_valid": 3,
+          "images_missing": 0,
+          "images_missing_valid": 0,
+          "images_missing_warmup": 0,
+          "images_pending": 0,
+          "images_surplus": 0,
+          "surplus_ts": [],
+          "settle_wait_ms": 151,
+          "acquire_null": 0,
+          "read_errors": 0
+        },
+        "exposure_to_callback_ns": {
+          "n": 3,
+          "min": 78736886,
+          "max": 86941574,
+          "mean": 8.202895233333333E7,
+          "std": 3540138.9789698306,
+          "spread": 8204688,
+          "spread_ms": 8.204688
+        },
+        "sensor_vs_callback_advance": {
+          "n": 2,
+          "sensor_step_min": 665760000,
+          "sensor_step_max": 665760000,
+          "callback_step_min": 659226823,
+          "callback_step_max": 664088489,
+          "diff_min": 1671511,
+          "diff_max": 6533177,
+          "spread_ms": 4.861666,
+          "max_abs_diff_ms": 6.533177
+        },
+        "sensor_ts_minus_request": {
+          "n": 3,
+          "min": 78489989,
+          "max": 89249676,
+          "negative_count": 0,
+          "all_capture_after_request": true
+        }
+      },
+      "trial_id": "still_yuv_single",
+      "label": "对照档：YUV + TEMPLATE_MANUAL，与②同几何\/同格式\/同预热，**只**把重复请求换成单张捕获"
+    },
+    {
+      "report_kind": "m0_still_shot_trial",
+      "generated_at_wall_ms": 1790266608862,
+      "app_version": "m0probe-1.8.3",
+      "device": {
+        "manufacturer": "Xiaomi",
+        "model": "24129PN74C",
+        "device": "dada",
+        "build_fingerprint": "Xiaomi\/dada\/dada:16\/BP2A.250605.031.A3\/OS3.0.307.0.WOCCNXM:user\/release-keys",
+        "android_sdk": 36
+      },
+      "open_attempts": 1,
+      "capture_path_id": "still_jpeg_template",
+      "capture_path_rev": 3,
+      "camera_id": "0",
+      "capture_size": {
+        "w": 4096,
+        "h": 3072
+      },
+      "capture_config": {
+        "size_choice_note": "强制尺寸 4096x3072（⑤尺寸扫描 \/ 人工指定），非自动选档",
+        "size_candidates": [
+          {
+            "w": 4096,
+            "h": 3072,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 4080,
+            "h": 3072,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 4080,
+            "h": 3060,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 2880,
+            "h": 2160,
+            "same_aspect_as_active": true
+          },
+          {
+            "w": 1920,
+            "h": 1440,
+            "same_aspect_as_active": true
+          }
+        ],
+        "output_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "output_format": "JPEG",
+        "template_name": "TEMPLATE_STILL_CAPTURE",
+        "single_shot": true,
+        "shot_interval_ms": 500,
+        "active_array": {
+          "w": 4096,
+          "h": 3072
+        },
+        "output_to_active_scale_x": 1,
+        "output_to_active_scale_y": 1,
+        "forced_full_crop": false,
+        "crop_region": {
+          "left": 0,
+          "top": 0,
+          "width": 4096,
+          "height": 3072
+        },
+        "output_to_crop_scale_x": 1,
+        "output_to_crop_scale_y": 1,
+        "crop_shrunk_for_aspect": false,
+        "max_yuv_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "max_jpeg_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "max_raw_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "app_version": "m0probe-1.8.3",
+        "capture_path_id": "still_jpeg_template",
+        "capture_path_rev": 3,
+        "config_fingerprint": "4096x3072|a4096x3072|c4096x3072@0,0|JPEG|w5 #2867f8c0"
+      },
+      "requested": {
+        "focus_policy": "explicit_working_distance",
+        "min_focus_distance_diopter": 10,
+        "hyperfocal_distance_diopter": 0.09039752185344696,
+        "focus_diopter": 1,
+        "focus_distance_m": 1,
+        "focus_requested_distance_m": 1,
+        "exposure_time_ns": 10000000,
+        "sensitivity_iso": 200,
+        "exposure_range_ns": [
+          48853,
+          1000000000
+        ],
+        "ae_available_fps_ranges": [
+          [
+            12,
+            12
+          ],
+          [
+            15,
+            15
+          ],
+          [
+            24,
+            24
+          ],
+          [
+            14,
+            30
+          ],
+          [
+            25,
+            30
+          ],
+          [
+            30,
+            30
+          ],
+          [
+            14,
+            60
+          ],
+          [
+            15,
+            60
+          ],
+          [
+            60,
+            60
+          ]
+        ],
+        "target_fps": 30,
+        "frame_duration_requested": false,
+        "sensor_frame_duration_ns": null,
+        "max_frame_duration_ns": 1000000000,
+        "ae_target_fps_range_sent": null
+      },
+      "applied": {
+        "control_mode_off": true,
+        "manual_focus_applied": true,
+        "zoom_ratio_lock_applied": true,
+        "zoom_range_lower_below_one": true,
+        "zoom_range": [
+          0.6000000238418579,
+          10
+        ],
+        "ois_off_applied": true,
+        "eis_off_applied": true,
+        "manual_exposure_applied": true,
+        "awb_off_applied": true,
+        "edge_off_applied": true,
+        "noise_reduction_off_applied": true,
+        "aberration_off_applied": true,
+        "distortion_correction_modes_available": [
+          "OFF",
+          "FAST"
+        ],
+        "distortion_correction_off_applied": true,
+        "zsl_off_requested": true
+      },
+      "params": {
+        "focus_distance_m": 1,
+        "target_fps": 30,
+        "target_frames": 8,
+        "warmup_frames": 5,
+        "legacy_fps_range": false
+      },
+      "frame_count": 8,
+      "frames": [
+        {
+          "frame_number": 0,
+          "frame_index": 0,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169389394376971,
+          "callback_elapsed_ns": 169389514742137,
+          "wall_clock_ms": 1790266604037,
+          "callback_latency_ns": 120365166,
+          "request_sent_elapsed_ns": 169389174855158,
+          "request_to_result_ns": 339886979,
+          "sensor_ts_minus_request_ns": 219521813,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 0.09071941,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "MOVING",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5748104,
+            "datetime_original": "2026:09:25 00:16:44",
+            "subsec_time_original": "029032",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:44",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        },
+        {
+          "frame_number": 1,
+          "frame_index": 1,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169390093425096,
+          "callback_elapsed_ns": 169390193480158,
+          "wall_clock_ms": 1790266604715,
+          "callback_latency_ns": 100055062,
+          "request_sent_elapsed_ns": 169390015482814,
+          "request_to_result_ns": 177997344,
+          "sensor_ts_minus_request_ns": 77942282,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5734690,
+            "datetime_original": "2026:09:25 00:16:44",
+            "subsec_time_original": "708963",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:44",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        },
+        {
+          "frame_number": 2,
+          "frame_index": 2,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169390759185096,
+          "callback_elapsed_ns": 169390861636095,
+          "wall_clock_ms": 1790266605383,
+          "callback_latency_ns": 102450999,
+          "request_sent_elapsed_ns": 169390694202605,
+          "request_to_result_ns": 167433490,
+          "sensor_ts_minus_request_ns": 64982491,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5735573,
+            "datetime_original": "2026:09:25 00:16:45",
+            "subsec_time_original": "378600",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:45",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        },
+        {
+          "frame_number": 3,
+          "frame_index": 3,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169391424945096,
+          "callback_elapsed_ns": 169391527693438,
+          "wall_clock_ms": 1790266606049,
+          "callback_latency_ns": 102748342,
+          "request_sent_elapsed_ns": 169391362315157,
+          "request_to_result_ns": 165378281,
+          "sensor_ts_minus_request_ns": 62629939,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5736379,
+            "datetime_original": "2026:09:25 00:16:46",
+            "subsec_time_original": "043625",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:46",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        },
+        {
+          "frame_number": 4,
+          "frame_index": 4,
+          "is_warmup": true,
+          "sensor_timestamp_ns": 169392090705096,
+          "callback_elapsed_ns": 169392194621511,
+          "wall_clock_ms": 1790266606716,
+          "callback_latency_ns": 103916415,
+          "request_sent_elapsed_ns": 169392028396511,
+          "request_to_result_ns": 166225000,
+          "sensor_ts_minus_request_ns": 62308585,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 36,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5744023,
+            "datetime_original": "2026:09:25 00:16:46",
+            "subsec_time_original": "709442",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:46",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        },
+        {
+          "frame_number": 5,
+          "frame_index": 5,
+          "is_warmup": false,
+          "sensor_timestamp_ns": 169392756465096,
+          "callback_elapsed_ns": 169392862809636,
+          "wall_clock_ms": 1790266607385,
+          "callback_latency_ns": 106344540,
+          "request_sent_elapsed_ns": 169392695385469,
+          "request_to_result_ns": 167424167,
+          "sensor_ts_minus_request_ns": 61079627,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 37.2,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5742449,
+            "datetime_original": "2026:09:25 00:16:47",
+            "subsec_time_original": "378017",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:47",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        },
+        {
+          "frame_number": 6,
+          "frame_index": 6,
+          "is_warmup": false,
+          "sensor_timestamp_ns": 169393422225096,
+          "callback_elapsed_ns": 169393526823854,
+          "wall_clock_ms": 1790266608049,
+          "callback_latency_ns": 104598758,
+          "request_sent_elapsed_ns": 169393363988906,
+          "request_to_result_ns": 162834948,
+          "sensor_ts_minus_request_ns": 58236190,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 37.2,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5745264,
+            "datetime_original": "2026:09:25 00:16:48",
+            "subsec_time_original": "041901",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:48",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        },
+        {
+          "frame_number": 7,
+          "frame_index": 7,
+          "is_warmup": false,
+          "sensor_timestamp_ns": 169394087985096,
+          "callback_elapsed_ns": 169394189851354,
+          "wall_clock_ms": 1790266608712,
+          "callback_latency_ns": 101866258,
+          "request_sent_elapsed_ns": 169394027340729,
+          "request_to_result_ns": 162510625,
+          "sensor_ts_minus_request_ns": 60644367,
+          "control_enable_zsl": false,
+          "lens_focus_distance_diopter": 1.001001,
+          "sensor_exposure_time_ns": 10000000,
+          "sensor_sensitivity_iso": 200,
+          "sensor_frame_duration_ns": 33287995,
+          "rolling_shutter_skew_ns": 9212928,
+          "sensor_pixel_mode": 0,
+          "battery_temperature_c": 37.2,
+          "control_mode": "OFF",
+          "af_mode": "OFF",
+          "af_state": "INACTIVE",
+          "ae_mode": "OFF",
+          "ae_state": "INACTIVE",
+          "awb_mode": "OFF",
+          "lens_state": "STATIONARY",
+          "ois_mode": "OFF",
+          "video_stab_mode": "OFF",
+          "edge_mode": "OFF",
+          "noise_reduction_mode": "OFF",
+          "aberration_mode": "OFF",
+          "distortion_correction_mode": "OFF",
+          "zoom_ratio": 1,
+          "active_physical_id": "2",
+          "crop_region": {
+            "left": 0,
+            "top": 0,
+            "width": 4096,
+            "height": 3072
+          },
+          "image_matched": true,
+          "jpeg": {
+            "bytes": 5742925,
+            "datetime_original": "2026:09:25 00:16:48",
+            "subsec_time_original": "703686",
+            "offset_time_original": "+08:00",
+            "datetime": "2026:09:25 00:16:48",
+            "subsec_digits": 6,
+            "has_subsec": true
+          }
+        }
+      ],
+      "stats": {
+        "total_frames": 8,
+        "warmup_frames": 5,
+        "valid_frames": 3,
+        "capture_duration_s": 1.33152,
+        "interval_ns": {
+          "n": 2,
+          "note": "单张捕获模式：这里的间隔是应用下发节奏（shot_interval_ms），不是 sensor 帧率，不可用于帧率判据",
+          "mean": 665760000,
+          "min": 665760000,
+          "max": 665760000,
+          "std": 0,
+          "jitter_pp_percent": 0,
+          "p95": 665760000
+        },
+        "lock_stability": {
+          "lens_focus_distance_diopter": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "1.001001"
+            ],
+            "locked": true
+          },
+          "zoom_ratio": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "1.0"
+            ],
+            "locked": true
+          },
+          "ois_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "video_stab_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "sensor_exposure_time_ns": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "10000000"
+            ],
+            "locked": true
+          },
+          "sensor_sensitivity_iso": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "200"
+            ],
+            "locked": true
+          },
+          "sensor_pixel_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "0"
+            ],
+            "locked": true
+          },
+          "sensor_frame_duration_ns": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "33287995"
+            ],
+            "locked": true
+          },
+          "rolling_shutter_skew_ns": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "9212928"
+            ],
+            "locked": true
+          },
+          "distortion_correction_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "edge_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "noise_reduction_mode": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "OFF"
+            ],
+            "locked": true
+          },
+          "active_physical_id": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "2"
+            ],
+            "locked": true
+          },
+          "control_enable_zsl": {
+            "samples": 3,
+            "distinct_count": 1,
+            "values": [
+              "false"
+            ],
+            "locked": true
+          }
+        },
+        "requested_vs_actual": {
+          "focus_diopter": {
+            "requested": 1,
+            "actual": 1.001001000404358,
+            "deviation_pp_percent": 0.10010004043579102
+          },
+          "frame_duration_ns": null,
+          "interval_ns": null,
+          "exposure_time_ns": {
+            "requested": 10000000,
+            "actual": 10000000,
+            "deviation_pp_percent": 0
+          },
+          "sensitivity_iso": {
+            "requested": 200,
+            "actual": 200,
+            "deviation_pp_percent": 0
+          }
+        },
+        "frame_duration_control": {
+          "requested_ns": null,
+          "actual_ns": 33287995,
+          "honored_verbatim": false,
+          "legacy_fps_range_sent": false,
+          "actual_fps": 30.040860075832143
+        },
+        "states": {
+          "af_state": [
+            "INACTIVE"
+          ],
+          "ae_state": [
+            "INACTIVE"
+          ],
+          "lens_state": [
+            "MOVING",
+            "STATIONARY"
+          ],
+          "af_mode": [
+            "OFF"
+          ],
+          "ae_mode": [
+            "OFF"
+          ],
+          "control_mode": [
+            "OFF"
+          ]
+        },
+        "lens_state_timeline": {
+          "sequence_head": [
+            "MOVING",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY",
+            "STATIONARY"
+          ],
+          "moving_frame_indices": [
+            0
+          ],
+          "moving_count": 1,
+          "moving_after_warmup": 0,
+          "moving_all_within_warmup": true
+        },
+        "temperature_c": {
+          "source": "battery",
+          "n": 8,
+          "first": 36,
+          "last": 37.2,
+          "min": 36,
+          "max": 37.2,
+          "delta": 1.2000000000000028,
+          "sampling_duration_s": 1.33152
+        },
+        "rolling_shutter_skew_ns": {
+          "n": 3,
+          "value": 9212928,
+          "min": 9212928,
+          "max": 9212928,
+          "distinct_count": 1
+        },
+        "skew_readout_rows": {
+          "value": 3072,
+          "formula": "crop_w * outH \/ outW  (= crop_w \/ 输出纵横比)",
+          "note": "按输出纵横比、取满 crop 宽度得到的读出窗口行数"
+        },
+        "skew_line_time_ns": 2999,
+        "skew_per_output_row_ns": 2999,
+        "skew_per_crop_row_ns": 2999,
+        "shot_path": {
+          "shots_requested": 8,
+          "shots_dispatched": 8,
+          "serial_dispatch": true,
+          "shot_interval_ms": 500,
+          "frame_duration_requested": false
+        },
+        "image_pairing": {
+          "pairing_key": "Image.timestamp == SENSOR_TIMESTAMP（同一时间基）",
+          "pairing_mode": "离线：结算时按图时间戳集合逐帧配对（与回调先后无关）",
+          "shots_dispatched": 8,
+          "images_acquired": 8,
+          "images_matched": 8,
+          "images_matched_valid": 3,
+          "images_missing": 0,
+          "images_missing_valid": 0,
+          "images_missing_warmup": 0,
+          "images_pending": 0,
+          "images_surplus": 0,
+          "surplus_ts": [],
+          "settle_wait_ms": 150,
+          "acquire_null": 0,
+          "read_errors": 0
+        },
+        "exposure_to_callback_ns": {
+          "n": 3,
+          "min": 101866258,
+          "max": 106344540,
+          "mean": 104269852,
+          "std": 1842984.3163572138,
+          "spread": 4478282,
+          "spread_ms": 4.478282
+        },
+        "sensor_vs_callback_advance": {
+          "n": 2,
+          "sensor_step_min": 665760000,
+          "sensor_step_max": 665760000,
+          "callback_step_min": 663027500,
+          "callback_step_max": 664014218,
+          "diff_min": 1745782,
+          "diff_max": 2732500,
+          "spread_ms": 0.986718,
+          "max_abs_diff_ms": 2.7325
+        },
+        "sensor_ts_minus_request": {
+          "n": 3,
+          "min": 58236190,
+          "max": 61079627,
+          "negative_count": 0,
+          "all_capture_after_request": true
+        },
+        "exif": {
+          "n": 3,
+          "subsec_digits_values": [
+            6
+          ],
+          "with_subsec": 3,
+          "sample_datetime_original": "2026:09:25 00:16:47",
+          "sample_offset_time_original": "+08:00",
+          "first_bytes": 5742449
+        }
+      },
+      "trial_id": "still_jpeg_template",
+      "label": "交付档：JPEG + TEMPLATE_STILL_CAPTURE + 全幅 4096x3072，不发帧时长约束"
+    }
+  ]
+}

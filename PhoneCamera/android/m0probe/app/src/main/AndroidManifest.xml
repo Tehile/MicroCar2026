@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- M1 交付：连 PC（WS 控制道 + HTTP 交付道）。走局域网，无外网依赖 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="true" />
+
+    <application
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true"
+        android:label="M0 Camera Probe"
+        android:theme="@android:style/Theme.Material.Light">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 扫码配对：只在内部分发（exported=false），因为它的返回值会被直接填进地址框。
+             若把它开放出去，任何应用都能塞一个"配对码"进来 ⇒ 等于把配网入口交出去。 -->
+        <activity
+            android:name=".QrScanActivity"
+            android:exported="false"
+            android:label="扫码配对"
+            android:screenOrientation="portrait" />
+
+    </application>
+
+</manifest>

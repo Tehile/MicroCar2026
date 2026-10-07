@@ -1,0 +1,38 @@
+# PhoneCamera 归档校验（2026-09-27）
+# 源码快照 = git tag v1.13.1-m1-r25 = commit 86b0c2e270724dcd55119038488ec6fb4a77c2c8
+# 复现快照：git archive --format=zip -o PhoneCamera-1.13.1-20260927.zip v1.13.1-m1-r25
+# 校验基准 = **tag v1.13.1-m1-r25 的那棵树**（生成本表时它就等于工作区）。
+#   在仓库根目录执行：sha256sum -c release/SHA256SUMS.txt
+# ⚠ **第 26 轮（PC 1.14.0）起，本表里被改动过的 8 条源码会报 FAILED**（实测：pc/server.py、
+#   pc/hostlink.py、pc/test_server.py、pc/test_interop.py、pc/README.md、tools/capture_path_versions.json、
+#   手机相机采集与回传_方案设计.md、docs/对外接口与单一交付道.md）。**那是预期，不是损坏** ——
+#   本表是「v1.13.1-m1-r25 那一刻」的快照台账，不是「工作区永远等于它」的断言。
+#   复验快照：先 `git checkout v1.13.1-m1-r25`，或解压 release/PhoneCamera-1.13.1-20260927.zip，
+#   再跑本表 —— 应当 16/16 全 OK（二进制 zip / APK / jar 在任何时候都不受影响）。
+#   Windows 无 sha256sum 时：certutil -hashfile <文件> SHA256，逐条比对
+# ⚠ 校验基准说清楚（否则会被误判成数据损坏）：本机的 core.autocrlf=true，
+#   git archive 导出时把文本文件的 LF 转成了 CRLF ⇒ **zip 内的文本文件与工作区行尾不同**。
+#   已验证差异**仅行尾**（把 CRLF 归一成 LF 后逐字节相同），二进制文件不受影响。
+#   ⇒ 所以：① 校验本表请在**仓库根目录**做；② 想验 zip 的完整性，看**第 1 行**（zip 自身 sha256）即可。
+# 说明：release/*.zip 与 release/*.apk 按 .gitignore 不入库（二进制产物，由该 tag
+#       与 gradle assembleDebug --offline 随时可复现），故校验和另存于此。
+# ⚠ 本文件不许有空行：GNU coreutils 的 sha256sum -c 把空行记成
+#   WARNING: 1 line is improperly formatted（它只跳过 # 注释，不跳过空行）。
+# ⚠ 本文件必须是 LF 行尾：CRLF 会让 sha256sum 把行尾的 `\r` 当成文件名的一部分，
+#   于是每一条都 FAILED open or read（Windows 上 write_text 默认会写 CRLF）。
+b942c3edb0f4279dfed3bd625737a41651518d31406e7682c6d4455706bb7f3b  release/PhoneCamera-1.13.1-20260927.zip
+f0bc44e2a9b4d17141077ede6ea372cacc3392b02bf9a8838eae2ea4222fccd9  release/app-debug.apk
+8ff0bfff45ec58e2f22458e16115180b1d3a54b4a7fccf3478cdbd4c7e8088d1  pc/server.py
+316705475a8d06296e2741308452b766b734a284eb8c64c032b964f79dba3eae  pc/hostlink.py
+2349c52a0b7110df3ea8e8433af2ab344acf2b74a205769ea22b0fe149b4372b  pc/test_server.py
+feb1ede6b08d5593fdee8bbf2d2619e6d619b6ec0af7617e46566db702dd3e88  pc/test_interop.py
+5f58b7f9a7118bec1ccbf03e7e6ff9a944a4711f6549d41b3e3b4ed08cac76a5  pc/verify_pair_contract.py
+8fb64242fcda323e6aeddd7c719163d6401a9f751b7f30bf1950bdb2c2f12c39  pc/README.md
+8d8064c1636fdaef7189dd9055c7d59950a8940a12f2293956446ec3c109fd82  android/m0probe/app/libs/core-3.5.3.jar
+415c86eb1059d505bed132b2927a684172797e862d2772883695f58e0b5a4b34  android/m0probe/app/src/main/java/com/mouse/phoneprobe/DeliverySession.kt
+76a7f4e3ba747a2bde78556fa142d9b5e4a5daa27321f75b167c4bbbe13ae226  android/m0probe/app/build.gradle.kts
+aa5da37fac76bd03eec3ec5ebfd4d77547f597fcd7efd4b1e6e06be0c09035f1  tools/capture_path_versions.json
+e3245fb277272c54ad6cd4e572058df2e6a03415f7419cda42df17d961622c29  tools/m0_evaluate.py
+073e7117a193dd084558458da72b59c5a9aeed9421b648f059b83219de190e98  手机相机采集与回传_方案设计.md
+6ab3e4b07fc7bb0d9d3a828a22adf4aab01e4e64fda8141368c87d2eae3091cc  docs/对外接口与单一交付道.md
+e8e6dc264ff9f21764b022a22f81e2142ea0936a05a6493882bee5db3bdfcabd  release/归档说明.md

@@ -1,0 +1,1083 @@
+{
+  "report_kind": "m0_capability",
+  "generated_at_wall_ms": 1790266593485,
+  "device": {
+    "manufacturer": "Xiaomi",
+    "model": "24129PN74C",
+    "device": "dada",
+    "android_release": "16",
+    "sdk_int": 36,
+    "abis": [
+      "arm64-v8a"
+    ],
+    "build_fingerprint": "Xiaomi\/dada\/dada:16\/BP2A.250605.031.A3\/OS3.0.307.0.WOCCNXM:user\/release-keys"
+  },
+  "cameras": [
+    {
+      "id": "0",
+      "lens_facing": "BACK",
+      "supported_hardware_level": "LEVEL_3",
+      "sensor_orientation_deg": 90,
+      "focus": {
+        "min_focus_distance_diopter": 10,
+        "hyperfocal_distance_diopter": 0.09039752185344696,
+        "min_focus_distance_meters": 0.1,
+        "focus_distance_calibration": "APPROXIMATE",
+        "af_available_modes": [
+          "OFF",
+          "AUTO",
+          "MACRO",
+          "CONTINUOUS_VIDEO",
+          "CONTINUOUS_PICTURE"
+        ],
+        "manual_focus_supported": true
+      },
+      "lens": {
+        "focal_lengths_mm": [
+          6.550000190734863
+        ],
+        "apertures": [
+          1.6200000047683716
+        ],
+        "optical_stabilization_available_modes": [
+          "OFF",
+          "ON"
+        ]
+      },
+      "multi_camera": {
+        "is_logical": true,
+        "physical_camera_count": 3,
+        "physical_camera_ids": [
+          "2",
+          "3",
+          "4"
+        ],
+        "physical_cameras": [
+          {
+            "id": "2",
+            "focal_lengths_mm": [
+              6.550000190734863
+            ],
+            "apertures": [
+              1.6200000047683716
+            ],
+            "active_array_size": {
+              "w": 4096,
+              "h": 3072
+            },
+            "physical_size_mm": {
+              "w": 9.805824279785156,
+              "h": 7.354368209838867
+            },
+            "crop_factor": 3.5298694951484864,
+            "equivalent_focal_length_mm": 23.12064586649176
+          },
+          {
+            "id": "3",
+            "focal_lengths_mm": [
+              2.1600000858306885
+            ],
+            "apertures": [
+              2.200000047683716
+            ],
+            "active_array_size": {
+              "w": 4080,
+              "h": 3072
+            },
+            "physical_size_mm": {
+              "w": 5.222400188446045,
+              "h": 3.932159900665283
+            },
+            "crop_factor": 6.618493707873586,
+            "equivalent_focal_length_mm": 14.295946977076817
+          },
+          {
+            "id": "4",
+            "focal_lengths_mm": [
+              9
+            ],
+            "apertures": [
+              2
+            ],
+            "active_array_size": {
+              "w": 4096,
+              "h": 3072
+            },
+            "physical_size_mm": {
+              "w": 5.242879867553711,
+              "h": 3.932159900665283
+            },
+            "crop_factor": 6.601959395295147,
+            "equivalent_focal_length_mm": 59.41763455765632
+          }
+        ],
+        "sensor_sync_type": "APPROXIMATE"
+      },
+      "optics": {
+        "focal_length_mm": 6.550000190734863,
+        "pixel_pitch_um": 2.394000068306923,
+        "fx_px_full_array": 2736.0066849818986,
+        "sensor_diagonal_mm": 12.257280349731445,
+        "crop_factor": 3.5298694951484864,
+        "equivalent_focal_length_mm": 23.12064586649176
+      },
+      "zoom": {
+        "max_digital_zoom": 10,
+        "zoom_ratio_range": [
+          0.6000000238418579,
+          10
+        ]
+      },
+      "stabilization": {
+        "video_stabilization_available_modes": [
+          "OFF",
+          "ON",
+          "PREVIEW_STABILIZATION"
+        ]
+      },
+      "timing": {
+        "timestamp_source": "REALTIME",
+        "max_frame_duration_ns": 1000000000
+      },
+      "distortion": {
+        "distortion_correction_available_modes": [
+          "OFF",
+          "FAST"
+        ]
+      },
+      "sensor": {
+        "active_array_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "pixel_array_size": {
+          "w": 4096,
+          "h": 3072
+        },
+        "physical_size_mm": {
+          "w": 9.805824279785156,
+          "h": 7.354368209838867
+        },
+        "exposure_time_range_ns": [
+          48853,
+          1000000000
+        ],
+        "sensitivity_range_iso": [
+          50,
+          3188
+        ],
+        "color_filter_arrangement": 0,
+        "white_level": 1023
+      },
+      "exposure_control": {
+        "ae_available_modes": [
+          "OFF",
+          "ON",
+          "ON_AUTO_FLASH",
+          "ON_ALWAYS_FLASH"
+        ],
+        "awb_available_modes": [
+          "AUTO",
+          "INCANDESCENT",
+          "FLUORESCENT",
+          "WARM_FLUORESCENT",
+          "DAYLIGHT",
+          "CLOUDY_DAYLIGHT",
+          "TWILIGHT",
+          "SHADE",
+          "OFF"
+        ],
+        "ae_target_fps_ranges": [
+          [
+            12,
+            12
+          ],
+          [
+            15,
+            15
+          ],
+          [
+            24,
+            24
+          ],
+          [
+            14,
+            30
+          ],
+          [
+            25,
+            30
+          ],
+          [
+            30,
+            30
+          ],
+          [
+            14,
+            60
+          ],
+          [
+            15,
+            60
+          ],
+          [
+            60,
+            60
+          ]
+        ],
+        "edge_available_modes": [
+          "FAST",
+          "HIGH_QUALITY",
+          "OFF",
+          "ZERO_SHUTTER_LAG"
+        ],
+        "noise_reduction_available_modes": [
+          "OFF",
+          "FAST",
+          "HIGH_QUALITY",
+          "MINIMAL",
+          "ZERO_SHUTTER_LAG"
+        ],
+        "aberration_correction_available_modes": [
+          "OFF",
+          "FAST",
+          "HIGH_QUALITY"
+        ]
+      },
+      "capabilities": [
+        "BACKWARD_COMPATIBLE",
+        "CONSTRAINED_HIGH_SPEED_VIDEO",
+        "RAW",
+        "YUV_REPROCESSING",
+        "PRIVATE_REPROCESSING",
+        "READ_SENSOR_SETTINGS",
+        "MANUAL_SENSOR",
+        "BURST_CAPTURE",
+        "MANUAL_POST_PROCESSING",
+        "STREAM_USE_CASE",
+        "DYNAMIC_RANGE_TEN_BIT",
+        "UNKNOWN_20",
+        "LOGICAL_MULTI_CAMERA"
+      ],
+      "manual_sensor_supported": true,
+      "burst_capture_supported": true,
+      "raw_supported": true,
+      "private_reprocessing_supported": true,
+      "output_sizes": {
+        "JPEG": {
+          "count": 21,
+          "sizes": [
+            {
+              "w": 4096,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3060
+            },
+            {
+              "w": 4080,
+              "h": 2560
+            },
+            {
+              "w": 4096,
+              "h": 2304
+            },
+            {
+              "w": 3072,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 2296
+            },
+            {
+              "w": 4096,
+              "h": 2160
+            },
+            {
+              "w": 3840,
+              "h": 2160
+            },
+            {
+              "w": 4096,
+              "h": 1844
+            },
+            {
+              "w": 4080,
+              "h": 1836
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            }
+          ],
+          "largest": {
+            "w": 4096,
+            "h": 3072
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 4096,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3060
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            }
+          ]
+        },
+        "YUV_420_888": {
+          "count": 34,
+          "sizes": [
+            {
+              "w": 4096,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3060
+            },
+            {
+              "w": 4080,
+              "h": 2560
+            },
+            {
+              "w": 4096,
+              "h": 2304
+            },
+            {
+              "w": 3072,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 2296
+            },
+            {
+              "w": 4096,
+              "h": 2160
+            },
+            {
+              "w": 3840,
+              "h": 2160
+            },
+            {
+              "w": 4096,
+              "h": 1844
+            },
+            {
+              "w": 4080,
+              "h": 1836
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            }
+          ],
+          "largest": {
+            "w": 4096,
+            "h": 3072
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 4096,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3060
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            },
+            {
+              "w": 1600,
+              "h": 1200
+            },
+            {
+              "w": 1440,
+              "h": 1080
+            },
+            {
+              "w": 1280,
+              "h": 960
+            },
+            {
+              "w": 960,
+              "h": 720
+            },
+            {
+              "w": 800,
+              "h": 600
+            },
+            {
+              "w": 640,
+              "h": 480
+            },
+            {
+              "w": 320,
+              "h": 240
+            }
+          ]
+        },
+        "PRIVATE": {
+          "count": 34,
+          "sizes": [
+            {
+              "w": 4096,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3060
+            },
+            {
+              "w": 4080,
+              "h": 2560
+            },
+            {
+              "w": 4096,
+              "h": 2304
+            },
+            {
+              "w": 3072,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 2296
+            },
+            {
+              "w": 4096,
+              "h": 2160
+            },
+            {
+              "w": 3840,
+              "h": 2160
+            },
+            {
+              "w": 4096,
+              "h": 1844
+            },
+            {
+              "w": 4080,
+              "h": 1836
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            }
+          ],
+          "largest": {
+            "w": 4096,
+            "h": 3072
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 4096,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3072
+            },
+            {
+              "w": 4080,
+              "h": 3060
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            },
+            {
+              "w": 1600,
+              "h": 1200
+            },
+            {
+              "w": 1440,
+              "h": 1080
+            },
+            {
+              "w": 1280,
+              "h": 960
+            },
+            {
+              "w": 960,
+              "h": 720
+            },
+            {
+              "w": 800,
+              "h": 600
+            },
+            {
+              "w": 640,
+              "h": 480
+            },
+            {
+              "w": 320,
+              "h": 240
+            }
+          ]
+        },
+        "RAW_SENSOR": {
+          "count": 1,
+          "sizes": [
+            {
+              "w": 4096,
+              "h": 3072
+            }
+          ],
+          "largest": {
+            "w": 4096,
+            "h": 3072
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 4096,
+              "h": 3072
+            }
+          ]
+        },
+        "RAW10": {
+          "count": 1,
+          "sizes": [
+            {
+              "w": 4096,
+              "h": 3072
+            }
+          ],
+          "largest": {
+            "w": 4096,
+            "h": 3072
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 4096,
+              "h": 3072
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1",
+      "lens_facing": "FRONT",
+      "supported_hardware_level": "LEVEL_3",
+      "sensor_orientation_deg": 270,
+      "focus": {
+        "min_focus_distance_diopter": 0,
+        "hyperfocal_distance_diopter": 0.3506099581718445,
+        "min_focus_distance_meters": null,
+        "focus_distance_calibration": "APPROXIMATE",
+        "af_available_modes": [
+          "OFF"
+        ],
+        "manual_focus_supported": false
+      },
+      "lens": {
+        "focal_lengths_mm": [
+          2.8299999237060547
+        ],
+        "apertures": [
+          2
+        ],
+        "optical_stabilization_available_modes": [
+          "OFF"
+        ]
+      },
+      "multi_camera": {
+        "is_logical": false,
+        "physical_camera_count": 0,
+        "physical_camera_ids": [],
+        "physical_cameras": [],
+        "sensor_sync_type": "UNKNOWN"
+      },
+      "optics": {
+        "focal_length_mm": 2.8299999237060547,
+        "pixel_pitch_um": 1.4039999805390835,
+        "fx_px_full_array": 2015.6694892683977,
+        "sensor_diagonal_mm": 5.728319883346558,
+        "crop_factor": 7.553104728977373,
+        "equivalent_focal_length_mm": 21.375285806749805
+      },
+      "zoom": {
+        "max_digital_zoom": 10,
+        "zoom_ratio_range": [
+          1,
+          10
+        ]
+      },
+      "stabilization": {
+        "video_stabilization_available_modes": [
+          "OFF",
+          "ON",
+          "PREVIEW_STABILIZATION"
+        ]
+      },
+      "timing": {
+        "timestamp_source": "REALTIME",
+        "max_frame_duration_ns": 410386927
+      },
+      "distortion": {
+        "distortion_correction_available_modes": [
+          "OFF",
+          "FAST"
+        ]
+      },
+      "sensor": {
+        "active_array_size": {
+          "w": 3264,
+          "h": 2448
+        },
+        "pixel_array_size": {
+          "w": 3264,
+          "h": 2448
+        },
+        "physical_size_mm": {
+          "w": 4.582655906677246,
+          "h": 3.4369919300079346
+        },
+        "exposure_time_range_ns": [
+          25044,
+          410311796
+        ],
+        "sensitivity_range_iso": [
+          50,
+          800
+        ],
+        "color_filter_arrangement": 3,
+        "white_level": 1023
+      },
+      "exposure_control": {
+        "ae_available_modes": [
+          "OFF",
+          "ON"
+        ],
+        "awb_available_modes": [
+          "AUTO",
+          "INCANDESCENT",
+          "FLUORESCENT",
+          "WARM_FLUORESCENT",
+          "DAYLIGHT",
+          "CLOUDY_DAYLIGHT",
+          "TWILIGHT",
+          "SHADE",
+          "OFF"
+        ],
+        "ae_target_fps_ranges": [
+          [
+            10,
+            10
+          ],
+          [
+            10,
+            15
+          ],
+          [
+            15,
+            15
+          ],
+          [
+            24,
+            24
+          ],
+          [
+            10,
+            30
+          ],
+          [
+            25,
+            30
+          ],
+          [
+            30,
+            30
+          ],
+          [
+            60,
+            60
+          ]
+        ],
+        "edge_available_modes": [
+          "FAST",
+          "HIGH_QUALITY",
+          "OFF",
+          "ZERO_SHUTTER_LAG"
+        ],
+        "noise_reduction_available_modes": [
+          "OFF",
+          "FAST",
+          "HIGH_QUALITY",
+          "MINIMAL",
+          "ZERO_SHUTTER_LAG"
+        ],
+        "aberration_correction_available_modes": [
+          "OFF",
+          "FAST",
+          "HIGH_QUALITY"
+        ]
+      },
+      "capabilities": [
+        "BACKWARD_COMPATIBLE",
+        "CONSTRAINED_HIGH_SPEED_VIDEO",
+        "RAW",
+        "YUV_REPROCESSING",
+        "PRIVATE_REPROCESSING",
+        "READ_SENSOR_SETTINGS",
+        "MANUAL_SENSOR",
+        "BURST_CAPTURE",
+        "MANUAL_POST_PROCESSING",
+        "STREAM_USE_CASE",
+        "DYNAMIC_RANGE_TEN_BIT",
+        "UNKNOWN_20"
+      ],
+      "manual_sensor_supported": true,
+      "burst_capture_supported": true,
+      "raw_supported": true,
+      "private_reprocessing_supported": true,
+      "output_sizes": {
+        "JPEG": {
+          "count": 11,
+          "sizes": [
+            {
+              "w": 3264,
+              "h": 2448
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 3264,
+              "h": 1836
+            },
+            {
+              "w": 2448,
+              "h": 2448
+            },
+            {
+              "w": 3200,
+              "h": 1800
+            },
+            {
+              "w": 3200,
+              "h": 1440
+            },
+            {
+              "w": 2560,
+              "h": 1440
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            },
+            {
+              "w": 2512,
+              "h": 1080
+            },
+            {
+              "w": 2400,
+              "h": 1080
+            },
+            {
+              "w": 1920,
+              "h": 1080
+            }
+          ],
+          "largest": {
+            "w": 3264,
+            "h": 2448
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 3264,
+              "h": 2448
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            }
+          ]
+        },
+        "YUV_420_888": {
+          "count": 24,
+          "sizes": [
+            {
+              "w": 3264,
+              "h": 2448
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 3264,
+              "h": 1836
+            },
+            {
+              "w": 2448,
+              "h": 2448
+            },
+            {
+              "w": 3200,
+              "h": 1800
+            },
+            {
+              "w": 3200,
+              "h": 1440
+            },
+            {
+              "w": 2560,
+              "h": 1440
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            },
+            {
+              "w": 2512,
+              "h": 1080
+            },
+            {
+              "w": 2400,
+              "h": 1080
+            },
+            {
+              "w": 1920,
+              "h": 1080
+            },
+            {
+              "w": 1600,
+              "h": 1200
+            }
+          ],
+          "largest": {
+            "w": 3264,
+            "h": 2448
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 3264,
+              "h": 2448
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            },
+            {
+              "w": 1600,
+              "h": 1200
+            },
+            {
+              "w": 1440,
+              "h": 1080
+            },
+            {
+              "w": 1280,
+              "h": 960
+            },
+            {
+              "w": 960,
+              "h": 720
+            },
+            {
+              "w": 800,
+              "h": 600
+            },
+            {
+              "w": 640,
+              "h": 480
+            },
+            {
+              "w": 320,
+              "h": 240
+            }
+          ]
+        },
+        "PRIVATE": {
+          "count": 24,
+          "sizes": [
+            {
+              "w": 3264,
+              "h": 2448
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 3264,
+              "h": 1836
+            },
+            {
+              "w": 2448,
+              "h": 2448
+            },
+            {
+              "w": 3200,
+              "h": 1800
+            },
+            {
+              "w": 3200,
+              "h": 1440
+            },
+            {
+              "w": 2560,
+              "h": 1440
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            },
+            {
+              "w": 2512,
+              "h": 1080
+            },
+            {
+              "w": 2400,
+              "h": 1080
+            },
+            {
+              "w": 1920,
+              "h": 1080
+            },
+            {
+              "w": 1600,
+              "h": 1200
+            }
+          ],
+          "largest": {
+            "w": 3264,
+            "h": 2448
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 3264,
+              "h": 2448
+            },
+            {
+              "w": 2880,
+              "h": 2160
+            },
+            {
+              "w": 1920,
+              "h": 1440
+            },
+            {
+              "w": 1600,
+              "h": 1200
+            },
+            {
+              "w": 1440,
+              "h": 1080
+            },
+            {
+              "w": 1280,
+              "h": 960
+            },
+            {
+              "w": 960,
+              "h": 720
+            },
+            {
+              "w": 800,
+              "h": 600
+            },
+            {
+              "w": 640,
+              "h": 480
+            },
+            {
+              "w": 320,
+              "h": 240
+            }
+          ]
+        },
+        "RAW_SENSOR": {
+          "count": 1,
+          "sizes": [
+            {
+              "w": 3264,
+              "h": 2448
+            }
+          ],
+          "largest": {
+            "w": 3264,
+            "h": 2448
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 3264,
+              "h": 2448
+            }
+          ]
+        },
+        "RAW10": {
+          "count": 1,
+          "sizes": [
+            {
+              "w": 3264,
+              "h": 2448
+            }
+          ],
+          "largest": {
+            "w": 3264,
+            "h": 2448
+          },
+          "sizes_same_aspect": [
+            {
+              "w": 3264,
+              "h": 2448
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
