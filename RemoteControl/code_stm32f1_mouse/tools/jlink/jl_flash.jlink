@@ -1,0 +1,10 @@
+si SWD
+speed 4000
+device STM32F103RB
+connect
+halt
+savebin C:\Users\liuru\AppData\Local\Temp\mouse_fw_backup.bin, 0x08000000, 0x20000
+loadfile C:\Users\liuru\AppData\Local\Temp\mouse_new.hex
+r
+go
+q

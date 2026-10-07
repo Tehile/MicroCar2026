@@ -1,0 +1,304 @@
+/* Control 上位机 —— 暗色、信息密度优先（用户原话："自己用，不讲究界面"）。
+   不做花哨动效：现场盯着看的是数字和波形，不是阴影。 */
+
+:root{
+  --bg:#12141a; --panel:#1a1d25; --panel2:#20242e; --line:#2c313d;
+  --fg:#dde3ec; --dim:#8b94a6; --dim2:#5e6675;
+  --acc:#4da3ff; --ok:#38d17a; --warn:#e8b03c; --bad:#ff5c5c;
+  --mono:"Cascadia Mono","Consolas","DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+/* 行：顶栏 / 主区（入口页 或 模块界面）/ 底栏。
+   中间那行必须 minmax(0,1fr)，否则模块界面里的长表格会把整页顶高、
+   把底栏挤出屏幕（overflow 就失效了）。 */
+body{
+  background:var(--bg); color:var(--fg);
+  font:13px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  display:grid; grid-template-rows:auto minmax(0,1fr) auto;
+  height:100vh; overflow:hidden;
+}
+button{
+  background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+  border-radius:4px; padding:4px 10px; cursor:pointer; font-size:12px;
+}
+button:hover{border-color:var(--acc); color:#fff}
+button.primary{background:#1d4e86;border-color:#2f6fb8}
+button.on{background:#1d4e86;border-color:#2f6fb8;color:#fff}
+button.danger{background:#5a1f1f;border-color:#8e3333}
+button.warn{background:#3d3218;border-color:#7a6528}
+button.mini{padding:2px 7px;font-size:11px}
+button:disabled{opacity:.4;cursor:not-allowed}
+input,select{
+  background:#0e1015;color:var(--fg);border:1px solid var(--line);
+  border-radius:4px;padding:4px 7px;font-size:12px;font-family:var(--mono);min-width:0
+}
+h3{margin:0 0 6px;font-size:12px;color:var(--dim);
+   display:flex;justify-content:space-between;align-items:center;font-weight:600}
+code,.mono{font-family:var(--mono)}
+a{color:var(--acc)}
+
+/* ---------- 顶栏 ---------- */
+#top{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--line);
+}
+.lights{display:flex;gap:6px;align-items:center}
+/* 状态标签**就是按钮**：点它开这一路的窗口（设参数 / 连接 / 看配对码）。
+   给足可点感的办法不是画大，而是 hover 有底、有边框、光标变手。 */
+.lamp{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;
+  background:transparent;border:1px solid transparent;padding:3px 8px;border-radius:5px}
+.lamp:hover{background:#252b38;border-color:var(--line)}
+.lamp i{width:9px;height:9px;border-radius:50%;background:var(--dim2);display:inline-block;flex:0 0 auto}
+.lamp.on i{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.lamp.err i{background:var(--bad);box-shadow:0 0 6px var(--bad)}
+.lamp.warn i{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+.lamp b{font-weight:600;color:var(--fg)}
+.lamp em{color:var(--dim);font-style:normal;font-family:var(--mono);font-size:11px}
+.lamp.gated em{color:var(--warn)}
+.sessline{display:flex;gap:10px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.sep{width:1px;height:14px;background:var(--line);display:inline-block}
+.actions{margin-left:auto;display:flex;gap:6px;align-items:center}
+.ledger.unknown{color:var(--warn)}
+.ledger.true{color:var(--ok)}
+.ledger.false{color:var(--bad)}
+/* 顶栏那个 WS 小灯。用 id 而不是 .ws 类：模块工作区容器也叫 .ws，
+   两者共用类名时，工作区会被小灯的 padding/字号静默带偏。 */
+#ws-dot{padding:1px 6px;border-radius:3px;font-size:10px;font-family:var(--mono)}
+.ws.offline{background:#3a2020;color:#ff9b9b}
+.ws.live{background:#173a25;color:#7ce0a6}
+
+/* ---------- 主区：入口页 ⇄ 模块界面（两级，互斥） ----------
+   入口页（#nav）**只做导航**：子系统分组（分割线 + 类别名称）+ 模块卡片，不放控件。
+   点卡片**单开一个整屏模块界面**（#mod）做那一个实验，点【← 返回】回入口。
+   两级共用 #sys 这一格，切换只靠 #sys 上的 .mod-open —— 不跳页、不开新标签：
+   连接状态只有一份，两个标签同时开着会互相打架。 */
+#sys{min-height:0;overflow:auto;padding-bottom:6px}
+#sys.mod-open{overflow:hidden;padding-bottom:0}    /* 模块界面自己滚，主区不再滚 */
+#sys.mod-open #nav{display:none}
+#sys:not(.mod-open) #mod{display:none}
+
+/* ── 入口页 ── */
+.nav-sec{border-top:1px solid var(--line)}
+.nav-sec:first-child{border-top:0}
+
+/* 类别名称：入口页的分组标题与模块界面头部共用一套 */
+.sec-head,#mod-head{display:flex;align-items:baseline;gap:9px;padding:6px 12px;
+  background:var(--panel);border-bottom:1px solid var(--line)}
+.sec-head b,#mod-head b{font-size:12.5px;color:var(--fg);font-weight:600}
+.sec-sub{font-family:var(--mono);font-size:10.5px;color:var(--dim2)}
+
+/* 组内 = 模块卡片网格 */
+.mods{min-height:0;padding:11px 12px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+  gap:9px;align-content:start}
+.mods:empty{display:none}
+.mod-card{text-align:left;padding:11px 12px;border-radius:6px;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--line);
+  display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+.mod-card:hover{border-color:var(--acc)}
+.mod-card b{font-size:13px;color:var(--fg)}
+.mod-card span{font-size:11px;color:var(--dim);font-family:var(--mono)}
+.mod-card .miss{color:var(--warn);font-size:10.5px}
+
+/* ── 模块界面：整屏，一次只开一个模块 ── */
+#mod{display:flex;flex-direction:column;height:100%;min-height:0}
+#mod-head{flex:0 0 auto;align-items:center}
+#mod-head b{font-size:13px}
+#mod-body{flex:1;min-height:0;overflow:auto;padding:11px 12px}
+#mod-body > .ws{display:none}
+#mod-body > .ws.on{display:block}
+/* 「综合运动」= 原有的两栏并排 + 底部整合栏，撑满整个模块界面 */
+#ws-all.on{display:flex;flex-direction:column;overflow:hidden;padding:0}
+#ws-all .mod-all{display:none;flex-direction:column;flex:1;min-height:0}
+#ws-all .mod-all.on{display:flex}
+
+/* ---------- 两栏：左相机 / 右小车（「综合运动」界面内部布局） ----------
+   它在模块界面里撑满剩余高度，底部压一条可收纳的整合栏。 */
+#body{display:grid;grid-template-columns:1fr 1fr;min-height:0;flex:1}
+.col{display:flex;flex-direction:column;min-width:0;min-height:0}
+#col-cam{border-right:1px solid var(--line)}
+.rail-tabs{display:flex;align-items:center;gap:3px;padding:5px 8px;
+  background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.rail-name{font-size:9.5px;letter-spacing:.06em;color:var(--dim);opacity:.75;
+  margin-right:6px;white-space:nowrap}
+.rail-tabs button{border-color:transparent;background:transparent;color:var(--dim);padding:3px 9px}
+.rail-tabs button.on{background:#26456b;color:#fff;border-color:#2f6fb8}
+.rail-views{flex:1;overflow:auto;padding:9px;min-height:0;min-width:0}
+.quickbar{display:flex;align-items:center;gap:4px;flex-wrap:wrap;
+  padding:4px 8px;background:#171b23;border-bottom:1px solid var(--line)}
+.qb-name{font-size:9.5px;letter-spacing:.06em;color:var(--dim);opacity:.75;margin-right:4px}
+.quickbar .hint{margin:0}
+/* 每栏底部的「数据」条：只放这一路当前页的 KV。空的时候整条收起 ——
+   空栏目比没有栏目更浪费（原来是右栏 320px，现在改成栏内一条）。 */
+.ctx{border-top:1px solid var(--line);background:var(--panel);
+  padding:7px 9px;max-height:42vh;overflow:auto}
+.ctx:empty{display:none}
+.ctx .card{margin-bottom:6px}
+.ctx .card:last-child{margin-bottom:0}
+
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:8px}
+.list{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+.list .item{padding:3px 6px;border-radius:3px;cursor:pointer;font-family:var(--mono);font-size:11px}
+.list .item:hover{background:#283042}
+.list .item.sel{background:#26456b;color:#fff}
+.list .item .kind{color:var(--dim2);font-size:10px}
+.row{display:flex;gap:5px;align-items:center;margin-top:5px}
+.row.wrap{flex-wrap:wrap}
+.hint{color:var(--dim);font-size:11px;font-family:var(--mono);white-space:pre-wrap;margin-top:4px}
+
+/* ---------- 准备清单（先手动连好、再测试） ---------- */
+.prep{display:flex;flex-direction:column;gap:5px}
+.prep .it{border:1px solid var(--line);border-left:3px solid var(--dim2);border-radius:4px;
+  padding:5px 7px;background:#171b23}
+.prep .it.ok{border-left-color:var(--ok)}
+.prep .it.bad{border-left-color:var(--bad)}
+/* 不拦记录、但没准备好 —— 用黄边，不跟"拦住"的红边混。 */
+.prep .it.soft{border-left-color:var(--warn)}
+.prep .it .hd{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+.prep .it .hd .dot{width:8px;height:8px;border-radius:50%;background:var(--dim2);flex:0 0 auto}
+.prep .it.ok .hd .dot{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.prep .it.bad .hd .dot{background:var(--bad);box-shadow:0 0 6px var(--bad)}
+.prep .it.soft .hd .dot{background:var(--warn)}
+.prep .it .st{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-left:auto;
+  text-align:right;font-weight:400}
+.prep .it .nb{font-size:9.5px;color:var(--dim2);border:1px solid var(--line);
+  border-radius:3px;padding:0 4px;margin-left:6px;font-weight:400}
+.prep .it .ac{font-size:10.5px;color:var(--acc);margin-top:2px;white-space:pre-wrap}
+
+/* ---------- 底部整合栏（可收纳） ---------- */
+#dock{flex:0 0 auto;background:var(--panel);border-top:1px solid var(--line);min-height:0}
+#dock-head{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:transparent;border:none;border-radius:0;padding:4px 10px;
+  font-size:11px;color:var(--dim);font-family:var(--mono)}
+#dock-head:hover{background:#252b38;border-color:transparent}
+#dock-head .dh-arrow{transition:transform .12s;color:var(--dim2);font-size:10px}
+#dock.on .dh-arrow{transform:rotate(90deg)}
+#dock-head .dh-title{color:var(--fg);font-family:inherit;font-size:11.5px;font-weight:600}
+#dock-body{display:none;grid-template-columns:270px 300px minmax(0,1fr);gap:9px;
+  padding:8px 10px 10px;border-top:1px solid var(--line);max-height:52vh;overflow:auto}
+#dock.on #dock-body{display:grid}
+.dock-col{min-width:0}
+.dock-col h3{font-size:11px}
+.dock-col .rail-views{padding:0;overflow:visible}
+/* 窄屏（≤1400px）：两栏本来就紧张，dock 的三列改成两列。 */
+@media (max-width:1400px){
+  #dock-body{grid-template-columns:1fr 1fr}
+  .dock-col.wide{grid-column:1/-1}
+}
+/* 一栏放不下并排两块面板时改单列，而不是硬挤到看不清数字。 */
+@media (max-width:1500px){
+  #col-cam .grid2,#col-mouse .grid2{grid-template-columns:1fr}
+}
+
+/* ---------- 模态（设备窗口） ---------- */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.66);z-index:50;
+  align-items:center;justify-content:center;padding:16px}
+.modal.on{display:flex}
+.modal-box{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:12px;width:min(640px,94vw);max-height:92vh;overflow:auto}
+.modal-box h3{margin-bottom:8px;font-size:13px;color:var(--fg);justify-content:flex-start;gap:8px}
+.modal-box h3 button{margin-left:auto}
+.dev-pane{display:none}
+.dev-pane.on{display:block}
+.pair-flex{display:flex;gap:12px;align-items:flex-start;margin:8px 0;flex-wrap:wrap}
+#dc-qr{background:#fff;border-radius:4px}
+#dc-qr.empty{display:none}
+.pair-flex .hint{margin-top:0;flex:1;min-width:220px;word-break:break-all}
+.warnbox{color:var(--warn);font-size:11px;white-space:pre-wrap}
+.warnbox:empty{display:none}
+/* 「还没准备好」—— 和 errbox（出错了）**必须分开**。
+   未连接不是错误：它是一条待办。混用同一个类会带来两个后果：
+   ① 检查器把"提示"数成"错误"，真错误就淹在里头了；
+   ② 人看到红色会去找故障，而其实只需要去插一下线。 */
+.gatehint{color:var(--warn);font-size:11.5px;white-space:pre-wrap;line-height:1.5}
+.gatehint:empty{display:none}
+.gatehint::before{content:"› "}
+.gatehint:empty::before{content:""}
+.errbox{color:var(--bad);font-size:11px;white-space:pre-wrap;line-height:1.5}
+.errbox:empty{display:none}
+
+/* ── 实验 8 右栏：运行状态胶囊 + 时间线进度条 + 决策分类色 ──────────────────
+   状态胶囊要"醒目"（用户明确要求"醒目显示现在已经处在运行状态"），
+   所以**运行中**用实底绿 + 呼吸点；已停止是中性灰；判不了是暗色（不许涂红，
+   也不许跟"已停止"长得一样 —— 三态纪律）。 */
+.tltop{display:flex;align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap}
+.runpill{
+  display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:9px;
+  font-size:11px;font-weight:600;letter-spacing:.4px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--fg2,#9aa4b2);white-space:nowrap;
+}
+.runpill.run{background:#12351f;border-color:#2e7d4f;color:#4ade80}
+.runpill.stop{background:#2a2a2e;border-color:#4a4a52;color:#c9c9d1}
+.runpill.unknown{background:transparent;border-style:dashed;color:var(--warn)}
+.runpill.replay{background:#1b2a3d;border-color:#3b6ea5;color:#7cc0ff}
+#m8-tlsld{width:100%;margin:2px 0 4px}
+#m8-tl div{padding:1px 2px;white-space:nowrap}
+/* 当前时刻那一条：**加一边条**而不是整行反白 —— 反白会把"分类色"盖掉，
+   而分类色正是这一栏要传达的主要信息。 */
+#m8-tl div.tlnow{background:#1b2231;box-shadow:inset 2px 0 0 var(--acc)}
+#m8-tl b{font-weight:600;margin-right:2px}
+#m8-tl b.k-task{color:#7cc0ff}
+#m8-tl b.k-road{color:#4ade80}
+#m8-tl b.k-turn{color:#f0c469}
+#m8-tl b.k-straight{color:#8fa4b8}
+#m8-tl b.k-junc{color:#c58cff}
+#m8-tl b.k-cell{color:#6b7684}
+#m8-tl b.k-head{color:#6b7684}
+#m8-tl b.k-goal{color:#ff9f6e}
+#m8-tl b.k-event{color:#ff5c5c}
+.okbox{color:var(--ok);font-size:11px;white-space:pre-wrap}
+
+/* ---------- views ---------- */
+.view{display:none}
+.view.on{display:block}
+.view h2{margin:0 0 8px;font-size:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* 实验 8 的三栏（状态 / 重构 / 历程）。
+   ⚠️ 与 `.grid2` 分开写而不是加一个修饰类：三栏的**列宽比例**是有讲究的 ——
+   中栏要画迷宫（方形，得够宽），左右两栏是键值列表（窄一点更好读）。
+   用 `minmax(0,…)` 而不是固定 px：窄屏时栅格项不会撑破容器
+   （不写 `0` 的话，内容宽度会反过来把列顶宽，最后整页横向溢出——
+   这个坑 §11.2 第 7 条记过一次）。 */
+.mz3{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) minmax(0,1.15fr);gap:10px}
+@media (max-width:1200px){.mz3{grid-template-columns:1fr 1fr}}
+@media (max-width:820px){.mz3{grid-template-columns:1fr}}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:8px}
+.pane h4{margin:0 0 6px;font-size:12px;color:var(--dim);font-weight:600;
+  display:flex;justify-content:space-between;align-items:center;gap:6px}
+canvas{display:block;width:100%;background:#0b0d12;border:1px solid var(--line);border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:11px;font-family:var(--mono)}
+th,td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600;position:sticky;top:0;background:var(--panel)}
+tr:hover td{background:#1f2430}
+.scroll{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:4px}
+.tag{display:inline-block;padding:0 5px;border-radius:3px;font-size:10px;
+  background:#2b3346;color:#a9b6cd;margin-right:4px}
+.tag.ok{background:#173a25;color:#7ce0a6}
+.tag.bad{background:#3a2020;color:#ff9b9b}
+.tag.warn{background:#3d3218;color:#f0c469}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-family:var(--mono);font-size:11px}
+.kv b{color:var(--dim);font-weight:400}
+.watermark{color:var(--warn);font-size:11px;margin:4px 0}
+.bar{height:6px;background:#2a3040;border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc)}
+
+/* ---------- footer ---------- */
+#bottom{border-top:1px solid var(--line);background:var(--panel);
+  display:grid;grid-template-columns:1fr 420px;max-height:120px}
+#readouts{padding:5px 10px;font-family:var(--mono);font-size:11px;color:var(--dim);
+  overflow:auto;white-space:pre-wrap}
+#readouts b{color:var(--fg);font-weight:600}
+.console{padding:5px 10px;font-family:var(--mono);font-size:11px;overflow:auto;
+  border-left:1px solid var(--line);white-space:pre-wrap}
+.console .tx{color:#8fd1ff}
+.console .rx{color:#a7e3b6}
+
+/* ---------- toast ---------- */
+#toast{position:fixed;right:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;
+  max-width:440px;z-index:60}
+#toast div{background:#22283a;border:1px solid var(--line);border-left:3px solid var(--acc);
+  padding:7px 10px;border-radius:4px;font-size:12px;white-space:pre-wrap;box-shadow:0 4px 14px #0008}
+#toast div.bad{border-left-color:var(--bad)}
+#toast div.ok{border-left-color:var(--ok)}
+#toast div.warn{border-left-color:var(--warn)}

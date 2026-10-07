@@ -1,0 +1,24 @@
+{
+  "started": "2026-10-05 17:09:11",
+  "host_version": "2.0.0",
+  "link_stats": {
+    "unified": 0,
+    "map": 0,
+    "text": 0,
+    "event": 0,
+    "bad_crc": 0,
+    "unknown_frame": 0,
+    "seq_gap": 0,
+    "seq_lost": 0,
+    "rx_bps": 0.0,
+    "bad_sync": 0,
+    "frames": 0
+  },
+  "control_session": "2026-10-05_1709_rsel",
+  "counts": {
+    "unified": 0,
+    "text": 0,
+    "event": 0
+  },
+  "ended": "2026-10-05 17:09:13"
+}

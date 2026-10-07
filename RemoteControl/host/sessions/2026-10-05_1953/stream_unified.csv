@@ -1,0 +1,4 @@
+t_host_ms,dev_ms,seq,ms8,irAdcF1,irAdcF2,irAdcL,irAdcR,irF1,irF2,irL,irR,battMv,speedL,speedR,gyroAngle,encAngle,trackL,trackR,cellOdom,pidErr,dir,mazeTask,wallLeft,wallFront,wallRight,motionTask,irSwitch,motionStep,critL,critR,left45,right45,flags,posX,posY,goalX,goalY,wallThresh,stackIdx,fastwayCount,dropCnt
+1791201199493,,0,29,818,818,2498,158,181,181,41,236,7634,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,0,0,7,7,160,0,0,0
+1791201199554,12,2,93,866,866,2510,158,177,177,40,236,7634,48,48,0,0,1,1,1,0,0,2,1,1,0,32,0,0,1,0,0,0,0,0,0,7,7,110,0,0,0
+1791201199585,43,3,124,1094,1058,2474,158,158,161,43,236,7629,67,67,0,0,22,22,21,0,0,2,1,1,0,32,0,0,1,0,0,0,0,0,0,7,7,110,0,0,0

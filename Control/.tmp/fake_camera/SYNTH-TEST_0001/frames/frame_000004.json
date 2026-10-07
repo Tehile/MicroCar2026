@@ -1,0 +1,18 @@
+{
+ "seq": 4,
+ "session_id": "SYNTH-TEST_0001",
+ "format": "YUV_Y",
+ "width": 960,
+ "height": 960,
+ "y_stride": 960,
+ "source_row_stride": 960,
+ "repacked": true,
+ "size_bytes": 921600,
+ "wall_clock_ns": 1790447907129755392,
+ "sensor_timestamp_ns": 1790447907129755392,
+ "capture_path_id": "stream_deliver_yuv",
+ "capture_path_rev": 3,
+ "sha256": "e474503e0c745accd2d89e627db7ddb82bc73618553b0ccd83c5c33468c309a8",
+ "file": "frame_000004.yuv",
+ "_synthetic": true
+}

@@ -1,0 +1,16 @@
+# Control 的依赖。
+#
+# ⚠️ 这份文件只是**记录**，不要拿它去建新环境：
+# 本整合层固定跑在 general_env（C:\Users\liuru\.conda\envs\general_env\python.exe），
+# 那里面这些依赖**已经齐了**（实测 aiohttp 3.14.3 / cv2 4.11.0 / numpy / pyyaml /
+# pyserial / websockets / Pillow / qrcode / pandas 全部在位）。
+#
+# 走 Web 形态的目的之一就是**不引入 PySide6 / pyqtgraph** ——
+# 于是不需要 stmlink 环境，也不会碰到 Auto Locate 那条
+# 「不得在 general_env 之外 pip install」的纪律。
+
+aiohttp>=3.9
+numpy>=1.24
+pyyaml>=6.0
+opencv-contrib-python>=4.8    # aruco 在 contrib 里，opencv-python 没有
+pyserial>=3.5

@@ -1,0 +1,120 @@
+{
+  "session_id": "2026-10-04_0330_edhz",
+  "started_at": "2026-10-04T03:30:13.397",
+  "ended_at": "2026-10-04T03:30:15.923",
+  "host_version": "0.1.0",
+  "clock": {
+    "offset_ms": 0.0,
+    "uncertainty_ms": 250.0,
+    "source": "assumed",
+    "method": "",
+    "calibrated": false,
+    "samples": 0,
+    "which": "手机侧(wall_clock_ns) 相对 PC 的偏移",
+    "anchor": {
+      "source": "monotonic+wall-anchor",
+      "refreshes": 2,
+      "rejects": 0,
+      "wall_gap_ms": -1.525,
+      "max_gap_ms": 5.996,
+      "note": "墙钟被调过（|gap| > 250ms）时不跟随，只在此报告：宁可绝对值略差，也不在会话中途跳变"
+    },
+    "note": "offset 未标定时，视觉轨迹与遥测可能有整体错位；场地页的 Δt 读数会因此失真"
+  },
+  "device": {
+    "armed": false,
+    "arm_up_ms": null,
+    "offset_s": null,
+    "drift_ppm": null,
+    "one_way_ms": null,
+    "samples": 0,
+    "latest_up_ms": null,
+    "beacon_on": false,
+    "maze_run": false,
+    "explain": "发车        : 未发车\n时间同步帧  : 收到 0 帧\n基准灯      : 灭    迷宫在跑: 否\n提示: 样本还太少, 偏移/漂移估计不收敛 —— 多等几秒。"
+  },
+  "mouse_features": {
+    "timesync": true,
+    "lab": true,
+    "lesson": true,
+    "params_grouped": true,
+    "motor_guard": true,
+    "estop_locked": true,
+    "log_ready": true,
+    "motor_disabled": true,
+    "seq_stats": true
+  },
+  "arena": {
+    "grid": 8,
+    "pitch_mm": 180.0,
+    "field_mm": 1440.0,
+    "fw_to_arena": {
+      "y_flip": true,
+      "x_flip": false,
+      "marker_offset_mm": [
+        0.0,
+        0.0
+      ],
+      "theta_offset_deg": 0.0
+    },
+    "calibrated": false,
+    "nadir_xy": [
+      0.5,
+      0.5
+    ],
+    "camera_height_mm": null
+  },
+  "locator": {
+    "profile": "default",
+    "config": {
+      "camera.parallax.camera_height_mm": null,
+      "camera.parallax.nadir_xy": [
+        0.5,
+        0.5
+      ],
+      "camera.field_size_mm": 1440.0,
+      "detection.target_id": 0,
+      "geometry.vertex_mode": "xdiag_plane",
+      "detection.edge_refine": true,
+      "output.smooth": "none"
+    }
+  },
+  "upstream": {
+    "remotecontrol": {
+      "path": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\RemoteControl\\host",
+      "api_version": "1.1.0"
+    },
+    "phonecamera": {
+      "path": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\PhoneCamera\\pc",
+      "git": "004f6df",
+      "dirty": false,
+      "dirty_files": 0,
+      "server_version": null,
+      "protocol_version": null
+    },
+    "autolocate": {
+      "path": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Auto Locate",
+      "version": "1.1.0"
+    }
+  },
+  "paths": {
+    "control": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Control",
+    "sessions": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Control\\sessions",
+    "remotecontrol_host": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\RemoteControl\\host",
+    "phonecamera_pc": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\PhoneCamera\\pc",
+    "autolocate": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Auto Locate",
+    "locator_config": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Auto Locate\\config.yaml"
+  },
+  "counts": {
+    "camera_frames_verified": 8,
+    "locate_valid": 8,
+    "locate_invalid": 0,
+    "timeline_rows": 22
+  },
+  "camera": {
+    "session_id": "SYNTH-TEST_0001",
+    "data_dir": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Control\\.tmp\\drill\\camera",
+    "store": null
+  },
+  "mouse_path": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Control\\sessions\\2026-10-04_0330_edhz/mouse"
+}

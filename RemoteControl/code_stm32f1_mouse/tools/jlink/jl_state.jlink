@@ -1,0 +1,17 @@
+si SWD
+speed 4000
+device STM32F103RB
+connect
+halt
+mem32 0x20000820, 8
+go
+sleep 2000
+halt
+mem32 0x20000820, 8
+regs
+mem32 0x40013800, 8
+mem32 0x40020044, 4
+mem32 0x40021014, 2
+mem32 0xE000ED04, 1
+mem32 0xE000ED28, 2
+q

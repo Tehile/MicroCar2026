@@ -1,0 +1,28 @@
+{
+  "started": "2026-09-27 06:12:39",
+  "host_version": "1.0.0",
+  "link_stats": {
+    "fast": 122,
+    "mid": 113,
+    "slow": 10,
+    "time": 2,
+    "map": 1,
+    "dump_blk": 20,
+    "text": 73,
+    "bad_crc": 0,
+    "unknown_frame": 0,
+    "seq_gap": 0,
+    "seq_lost": 0,
+    "rx_bps": 6223.233223810792,
+    "bad_sync": 0,
+    "frames": 270
+  },
+  "counts": {
+    "fast": 119,
+    "mid": 113,
+    "slow": 10,
+    "text": 1,
+    "dump": 0
+  },
+  "ended": "2026-09-27 06:12:41"
+}

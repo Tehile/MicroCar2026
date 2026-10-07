@@ -1,0 +1,342 @@
+﻿/*
+********************************************************************************************************
+*                                               示例代码
+*                                             EXAMPLE  CODE
+*
+*               The code is for internal use only, not for commercial transactions(开源学习,请勿商用).
+*               The code ADAPTS the corresponding hardware mouse(代码适配对应人工智能电脑鼠/mouse).
+*               the specific details consult the professional(欢迎联系我们).
+*       ------------------------------------------------------------------------------------------------
+*               Function: link.h —— 蓝牙链路(遥测上行/命令下行/标定服务/参数持久化)
+*       ------------------------------------------------------------------------------------------------
+*               设计要点(细节见 docs/传输模式重构设计方案.md):
+*                 - 本模块为**纯新增**, 不改动任何现有业务逻辑与红线数值
+*                 - 上行: 二进制帧 AA 55 | LEN(2) | TYPE | SEQ | PAYLOAD | CRC16(2); MODBUS 多项式
+*                 - 下行: ASCII 文本行 <CMD> [args] [#seq] *CRC16, 应答亦为文本行
+*                 - 与 printf 共存: printf 只产出 0x09-0x7E, 永不产出 0xAA, 故可分流
+*                 - 发送搬运走 DMA1_Channel4 (USART1_TX), 零 CPU 占用
+*
+*               v2.1 拉取模式(2026-10-05, 真机实测后的修正):
+*                 - **遥测改为请求-响应**: 上位机发 `TELEM`, 固件回一帧统一帧 + 带时基的 ACK
+*                 - **废除 v2.0 的自时钟持续流** —— 实测该链路(蓝牙透传)只能承载约 190 B/s,
+*                   而自时钟会把 4.3 KB/s 持续压上去, 模块缓冲瞬间灌满并**停止转发且不自恢复**
+*                 - 因此删除 `STREAM ON` / `STREAM OFF` 两条命令与固件侧的开流状态
+*                 - 时间锚改由 `TELEM` 的应答携带(**每请求一次就刷新一次**, 比开流时给一次更稳)
+*
+*               v2.0 传输模式重构(2026-10-05):
+*                 - **只有一种周期帧**: LINK_TYPE_UNIFIED(45B payload)
+*                 - 取消双流: SCOPE 本地 1kHz 录制 + DUMP 整块回传全部删除
+*                 - 取消 SNAP: 可测量量已全在统一帧里, 配置量走参数命令
+*                 - 取消 MAZE EV 事件流: 迷宫状态量已进统一帧, 边沿由上位机差分取得
+*                 - 上行只剩两个事件行: `STOPPED <reason> #n` / `ESTOP TRIP #n`
+*********************************************************************************************************
+*/
+
+#ifndef _LINK_H_
+#define _LINK_H_
+#include "main.h"
+/*-----------------------------------------  I N C L U D E S  -----------------------------------------*/
+
+/*---------------------------------------  D E F I N I T I O N  ---------------------------------------*/
+
+/* ---- 协议版本 ---- */
+#define LINK_PROTO_VER 3 /* v2.1: 命令集变了(STREAM ON/OFF -> TELEM), 故协议号进一位 */
+#define LINK_FW_VER 214  /* 2.14 —— v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。
+                          *        真机事故 2026-10-05: 首版只置倒计时未停车, 现场
+                          *        出现"复位后电机继续转、且对红外障碍物不再响应",
+                          *        操作者被迫强行断电。现在先走 `link_StopMotion()`
+                          *        (freemode=1 ⇒ PWM 恒 0), 让 150ms 倒计时在静态下
+                          *        度过。另: 复位只复位**固件**, 不复位**物理位置** ——
+                          *        复位后须人工把车放回起点角再发车。
+                          *        213 = v2.2.0(首版 MCU RESET)。
+                          *        走迷宫的主循环有 30 余处**非协作式阻塞等待**在等物理进度,
+                          *        而 `STOP` 会让电机永不再转 ⇒ 那些条件永远不成立 ⇒
+                          *        程序卡在函数内部、连退出检查都轮不到 ⇒ 只能断电。
+                          *        `MCU RESET` 给出不必断电的出口(复位后回等待循环,
+                          *        PING 报 rst=SW 可验证)。仅 MOUSE_ESTOP_RECOVERABLE
+                          *        (=[1][2][3][4]) 编译; **比赛固件[5] ROM 逐字节不变**。
+                          *        212 = v2.1.1 第 2 次迭代(解阻塞 main() 的发车前死等)。
+                          *        **线格式未变**(帧结构/CRC 照旧), 故 PROTO_VER 仍是 3。 */
+
+/* ---- 帧同步头与开销 ----
+ * 布局: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(LEN) | CRC16(2,LE)
+ * 开销 = 同步2 + 长度2 + 类型1 + 序号1 + CRC2 = 8 字节(不是 7!) */
+#define LINK_SYNC0 0xAA
+#define LINK_SYNC1 0x55
+#define LINK_FRAME_OVERHEAD 8
+
+/* ---- 上行帧类型(二进制) ----
+ * v2.0 只留两种: 统一遥测帧 + 墙图整块。
+ * 旧 FAST 0x01 / MID 0x02 / SLOW 0x03 / DUMP_HDR 0x04 / DUMP_BLK 0x05 / DUMP_END 0x06 /
+ * TIME 0x08 / MAZE 0x09 **全部删除** —— 周期量统一进 LINK_TYPE_UNIFIED;
+ * 时间同步不再单开帧(统一帧带 ms8, `TELEM` 应答带完整 u32 锚)。 */
+#define LINK_TYPE_MAP 0x07 /* 墙图整块(静态数据, 按需拉取) */
+#define LINK_TYPE_UNIFIED 0x0A
+
+/* 墙图整块: cX,cY,dir,task + mapWall[MAZETYPE^2] + mapVisited[MAZETYPE^2]
+ * 注意 MAZETYPE 定义在 STRATEGY/maze.h。宏体在**使用点**才展开, 而 link.c 使用时
+ * main.h 已完整展开到 maze.h, 故此处取值正确(当前 MAZETYPE=7 -> 102 字节)。
+ * 若将来把 MAZETYPE 改成 16, 本帧自动变为 516 字节, 单帧仍可发送。 */
+#define LINK_MAP_LEN (4 + MAZETYPE * MAZETYPE * 2)
+
+/* ================= 统一帧 =================
+ * 见 docs/传输模式重构设计方案.md §4 / docs/传输模式接口设计.md §1。
+ * 形态: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(45) | CRC16(2)  ->  53 B
+ *
+ * **拉取式(v2.1)**: 收到一条 `TELEM` 就发一帧, 没有任何周期任务、没有开流开关。
+ *   于是设备端**不存在"自己发多了"的可能** —— 上限完全由上位机的请求窗口决定。
+ *   过载保护在 link_SendFrame: TX 环空间不足就整帧丢弃并计数(linkDrop, 随帧上报),
+ *   上位机据此收窄窗口。**丢弃而不阻塞**是必须的 —— 命令处理跑在 1ms 中断里。
+ *
+ * ⚠️ 为什么不做自时钟(v2.0 的做法, 已废除): 本链路经过一对蓝牙透传模块,
+ *   其内部缓冲一旦被灌满就**停止转发且不会自行恢复**(需要模块重新上电)。
+ *   自时钟会把 53B/帧 连续压到 100% 线速(≈4.3 KB/s), 远超实测的 ≈190 B/s 承载能力
+ *   => 缓冲灌死, 从此连 PING 都收不到。拉取模式下上位机一停请求, 缓冲即自然排空。
+ *
+ * **时间锚**: 每帧带 ms8(时基低 8 位); `TELEM` 的应答另带完整 u32 时基,
+ *   上位机以"锚 + 单调时钟粗估"做同余还原(resolve_ms8)。因为**每次拉取都刷新锚**,
+ *   锚不会陈旧, 失锁能立刻自愈。
+ *   ⚠️ `TELEM` **不参与幂等重放簿记**(既不查也不写 linkLastSeq) —— 它是持续流量,
+ *   若参与就会把待重放的真实命令(如 MOVE/CAL)冲掉, 使重发变成重复执行。见 link.c。 */
+#define LINK_UNIFIED_LEN 45
+
+/* 载荷偏移(与上位机 codec.UNIFIED_CHANNELS 逐字段对齐; 改动须同步) */
+#define LINK_U_MS8 0       /* u8     设备毫秒时基低 8 位        */
+#define LINK_U_IRADC 1     /* u16×4  原始 ADC: F1 F2 L R        */
+#define LINK_U_IRMM 9      /* u16×4  距离 mm: F1 F2 L R         */
+#define LINK_U_BATTMV 17   /* u16    电池 mV(IIR 后)            */
+#define LINK_U_SPEEDL 19   /* s16    左轮速度 cm/s              */
+#define LINK_U_SPEEDR 21   /* s16    右轮速度 cm/s              */
+#define LINK_U_GYRO 23     /* s16    陀螺积分角度               */
+#define LINK_U_ENCANG 25   /* s16    编码器角度(与陀螺角不同物理量) */
+#define LINK_U_TRACKL 27   /* s16    左轮相对里程 **mm**(非 pulse)  */
+#define LINK_U_TRACKR 29   /* s16    右轮相对里程 mm            */
+#define LINK_U_CELLODOM 31 /* s16    格内里程 mm                */
+#define LINK_U_PIDERR 33   /* s16    控制误差(调参核心信号)     */
+#define LINK_U_STATE_A 35  /* 位打包: 见下                      */
+#define LINK_U_STATE_B 36  /* 位打包: 见下                      */
+#define LINK_U_STATE_C 37  /* 位打包: 见下                      */
+#define LINK_U_FLAGS 38    /* u8     LINK_FLAG_*                */
+#define LINK_U_POS 39      /* 位打包: posX(4) | posY(4)         */
+#define LINK_U_GOAL 40     /* 位打包: goalX(4) | goalY(4)       */
+#define LINK_U_WALLTHR 41  /* u8     **运行时**侧墙阈值(非参数值)  */
+#define LINK_U_STACKIDX 42 /* u8     岔路栈深度                 */
+#define LINK_U_FASTWAY 43  /* u8     路径动作计数               */
+#define LINK_U_DROP 44     /* u8     累计丢帧低 8 位            */
+
+/* 位打包明细(偏移 35/36/37/39/40) */
+/*  35 状态A: bit0-1 dir(0=UP 1=RIGHT 2=DOWN 3=LEFT)
+ *            bit2-4 mazeTask(0=WAIT 1=START 2=SEARCH 3=SPURT 4=SPURT45 5=SPURT90)
+ *            bit5   wallLeft   bit6 wallFront   bit7 wallRight        */
+/*  36 状态B: bit0-6 motionTask(0..107, 见 core.h)   bit7 irSwitch      */
+/*  37 状态C: bit0-3 motionStep   bit4 critL   bit5 critR
+ *            bit6   left45                       bit7 right45          */
+/*  39        bit0-3 posX(0-6)                     bit4-7 posY(0-6)     */
+/*  40        bit0-3 goalX                         bit4-7 goalY         */
+
+/* 位宽与值域上限(供组帧裁剪与上位机静态断言共用) */
+#define LINK_UB_DIR_W 2
+#define LINK_UB_MAZETASK_W 3
+#define LINK_UB_MAZETASK_MAX 5
+#define LINK_UB_MOTIONTASK_W 7
+#define LINK_UB_MOTIONTASK_MAX 107 /* 见未决项: 枚举再扩张就会溢出, 须加静态断言 */
+#define LINK_UB_MOTIONSTEP_W 4
+#define LINK_UB_POS_W 4
+#define LINK_UB_GOAL_W 4
+
+/* ---- 时间同步基准灯(相对独立于校准与各测试档) ----
+ * 毫秒时基 linkTimeMs 由 SysTick 每 1ms 自增(u32, 49 天不绕), 上电起走。
+ * 收到 ARM 命令即"发车": 记下基准 armMs 并点亮 1Hz 时间基准灯(50% 占空比),
+ * armMs 由 `ARM` 的应答直接带回(v2.0: 不再单发 ARMED 行, 也不再单发 TIME 帧)。 */
+#define LINK_TIME_LED 4    /* 时间基准灯 = LED4(PC7)。见 led.h 的 ledBeaconLock */
+#define LINK_TIME_DIV 1000 /* 基准灯周期(ms) = 1Hz */
+
+/* ---- 统一帧 flags 位 ----
+ * ⚠️ SCOPING(0x08) / DUMPING(0x10) 在 v2.0 **恒为 0**: 它们描述的是已删除的
+ *    SCOPE/dump 机制。位定义保留, 以免上位机的位解释漂移。
+ *    bit7 由已废弃的 RUNLOG 改为 EVQ —— 见设计方案 §8.3 的"状态帧 EVQ 位"。 */
+#define LINK_FLAG_FREEMODE 0x01 /* 自由模式 freemode==1: 电机输出被强制为 0(不是"解锁"!) */
+#define LINK_FLAG_SLEEP 0x02    /* 休眠(sleepmode==1) */
+#define LINK_FLAG_EMERG 0x04    /* 急停生效(本次上电以来触发过一次, 由 emergMon.active 镜像) */
+#define LINK_FLAG_SCOPING 0x08  /* [v2.0 恒 0] 示波器采集中 */
+#define LINK_FLAG_DUMPING 0x10  /* [v2.0 恒 0] dump 传输中 */
+#define LINK_FLAG_MOTOR_OFF 0x20 /* 固件处于安全测试模式(MOUSE_TEST_NO_MOTOR): 电机物理禁用 */
+#define LINK_FLAG_ESTOP_LOCK 0x40 /* 急停**锁存**中: 新的 MOVE/CAL 会被拒(ERR_ESTOP), 须 STOP 解锁 */
+#define LINK_FLAG_EVQ 0x80        /* v2.0(替代 RUNLOG): 有事件行因 TX 空间不足被丢弃 → 事件流不完整 */
+
+/* ---- 缓冲区尺寸(TX 环为 2 的幂, 便于位运算取模) ----
+ * v2.0: SNAP 删除后不再有"一条 250B 文本必须整体入队"的需求,
+ * 256B 足够(一帧 53B + printf 文本), 省 256B RAM。 */
+#define LINK_TX_BUF_SIZE 256 /* TX 环形缓冲(必须是 2 的幂) */
+
+/* ---- 事件行(上行异常) ----
+ * 只有两条: `STOPPED <reason> #n` / `ESTOP TRIP #n`。
+ * 序号 `#n` 是 1 字节循环, 与遥测帧的 SEQ **共用同一计数器空间**(linkSeq) ——
+ * 于是主机既能检出事件丢失(step>=2), 也能判定帧与事件的相对顺序。
+ * 发送前要求 TX 空闲 >= LINK_EV_NEED_SPACE, 不足则丢弃并计数(linkEvDrop)。 */
+#define LINK_EV_NEED_SPACE 64u
+
+/* ---- Flash 标定参数页 ----
+ * 页规划（与 flash.h 同步, 2026-10-04 调整）:
+ *   page 0..100   程序区(101 KB, IROM1 上限 0x19400)
+ *   page 101      运行数据计数
+ *   page 102..114 运行数据录制区（擦除范围正好 13 页）
+ *   page 115      本模块的生产标定页 ← 原为 page 99
+ *   page 116      课程调参参数页     ← 原为 page 100
+ *   page 117      备用
+ *   page 118..127 迷宫/路径/红外/陀螺零偏
+ *
+ * ⚠️ 为什么从 99/100 上移到 115/116:
+ *   运行数据区的擦除范围是 `saveNum/100+1 = 13 页`, 即 **page 89..101**。
+ *   原先取 page 99/100 时, 两个标定页都落在该范围内 —— 一次 FLASH_EraseRunData()
+ *   就会把生产标定与课程参数一起擦掉。上移后录制区为 102..114, 不再相交。
+ *   **后续若再改运行数据区或 saveNum, 必须重新核对本页是否落在擦除范围内。** */
+#define FLASH_ADDR_SYSCALIB 0x0801CC00   /* page 115 */
+#define LINK_CALIB_MAGIC 0x4D435331 /* 'MCS1' */
+#define LINK_CALIB_VER 1
+#define LINK_CALIB_PAYLOAD_OFF 16   /* 头 12B + 4B 对齐预留 */
+
+/* ---- 课程调参参数页(仅 MOUSE_LESSON_LAB) ----
+ * 生产标定参数在 page 115, 课程参数**另起 page 116**。分开的理由:
+ *   1) "实验代码与最终版代码分开"这条要求落到存储上就是"参数分页"——
+ *      交比赛固件前清掉实验参数, 不会碰到生产标定值;
+ *   2) 课程参数较多且会频繁试验(每次调参都在翻页), 不应与生产值共享一个擦除单元。 */
+#define FLASH_ADDR_LESSONPARAM 0x0801D000 /* page 116 */
+#define LINK_LESSON_MAGIC 0x4D434C32      /* 'MCL2' */
+
+/* ---- LESSON 命令的动作词 ---- */
+#define LINK_LESSON_ACT_START "START"
+#define LINK_LESSON_ACT_STOP "STOP"
+#define LINK_LESSON_ACT_STATUS "STATUS"
+
+/* ---- 标定参数 id ----
+ * 分段约定(与上位机 protocol/commands.py 的 PARAM_IDS 必须逐项一致):
+ *   1-7   生产标定     任何固件都有, 落 Flash page115
+ *   8-21  课程调参     仅 MOUSE_LESSON_LAB, 落独立 page116
+ *   22-38 红外测量+电源 任何固件都有, 落 Flash page115 (本文件下方)
+ */
+#define LINK_P_TRACKL 1   /* sysCfg.trackRatioL   里程脉冲/mm */
+#define LINK_P_TRACKR 2   /* sysCfg.trackRatioR */
+#define LINK_P_SPEEDL 3   /* sysCfg.speedRatioL   (pulse/ms)/(cm/s) = TRACKL/100 */
+#define LINK_P_SPEEDR 4   /* sysCfg.speedRatioR */
+#define LINK_P_GYRO 5     /* sysCfg.gyroRatio */
+#define LINK_P_ENCANG 6   /* sysCfg.encAngleRatio */
+#define LINK_P_WALLDIST 7 /* sysCfg.distToWall */
+
+/* ---- 红外测量与阈值(22-32): 全部映射到 IrCfg, 默认值 = 原 WALL_* 宏值 ---- */
+#define LINK_P_IRTHRWALL 22   /* irCfg.thrWall      侧墙阈值 mm       */
+#define LINK_P_IRTHR45 23     /* irCfg.thr45        45 度阈值 mm      */
+#define LINK_P_IRTHRCRIT 24   /* irCfg.thrCritical  临界墙阈值 mm     */
+#define LINK_P_IRTHRFLO 25    /* irCfg.thrFrontLo   前墙远距-低 mm    */
+#define LINK_P_IRTHRFMID 26   /* irCfg.thrFrontMid  前墙远距-中 mm    */
+#define LINK_P_IRTHRFHI 27    /* irCfg.thrFrontHi   前墙远距-高 mm    */
+#define LINK_P_IRTHRFNEAR 28  /* irCfg.thrFrontNear 前墙近距 mm       */
+#define LINK_P_IRKALQ 29      /* irCfg.kalQ         卡尔曼 Q ×10000   */
+#define LINK_P_IRKALP 30      /* irCfg.kalP         卡尔曼 P ×10000   */
+#define LINK_P_IRKALSW 31     /* irCfg.kalOn        卡尔曼开关 0/1    */
+#define LINK_P_IRFRONTMODE 32 /* irCfg.frontMode    前向综合 0/1/2    */
+
+/* ---- 电源监控(33-38): 全部映射到 PowerCfg ---- */
+#define LINK_P_BATTKV 33     /* powerCfg.battKv    分压系数 µV/LSB   */
+#define LINK_P_BATTLOWMV 34  /* powerCfg.battLowMv 低电 mV           */
+#define LINK_P_BATTHIGHMV 35 /* powerCfg.battHighMv 满电 mV          */
+#define LINK_P_BATTALPHA 36  /* powerCfg.battAlpha IIR ×1000         */
+#define LINK_P_BATTMAXPCT 37 /* powerCfg.battMaxPct 档位上限         */
+#define LINK_P_BATTMINPCT 38 /* powerCfg.battMinPct 档位下限         */
+
+#define LINK_P_NUM 24 /* 生产表条目数 = 1-7 + 22-38 (课程 8-21 在独立表) */
+
+/* 参数值域钳制(link_ParamApplyOne 用): 防止写进离谱值把判定打穿 */
+#define LINK_IR_THR_MAX 1000u /* 红外阈值上限 mm(>表长即等价关闭) */
+#define LINK_IR_KAL_MAX 60000u /* 卡尔曼 Q/P 上限 ×10000 */
+#define LINK_BATT_KV_MIN 1u    /* 分压系数下限 µV/LSB */
+#define LINK_BATT_KV_MAX 20000u
+
+/* ---- 标定动作 ----
+ * v2.0: 标定改为**请求-响应**。`CAL <item> START` 不再立即 ACK,
+ * 而是等该步采集完成才回 ACK(见 link_CalibService 的 ackSeq 机制)。
+ * IRDATA 的"相位"由 `CAL IRDATA <n>`(n=0..3) 表达, 每步完成回一次 ACK。 */
+#define LINK_ACT_START 0
+#define LINK_ACT_STEP 1
+#define LINK_ACT_DONE 2
+#define LINK_ACT_ABORT 3
+#define LINK_ACT_SAMPLE 4 /* 内部: 触发一次采样(IRDATA 逐点采集用) */
+
+/* ---- 标定项(LINK_CAL_*, 对应命令 CAL <item> <act>) ---- */
+#define LINK_CAL_GYRO 1      /* 陀螺零偏 -> 既有 page127 */
+#define LINK_CAL_WALLDIST 2  /* 车心到墙距离 */
+#define LINK_CAL_IRDATA 3    /* 红外 8 值 -> 既有 page123 */
+#define LINK_CAL_GYRORATIO 4 /* 陀螺角度系数(以红外极值为物理基准) */
+#define LINK_CAL_ENCANGLE 5  /* 编码器角度系数(同一基准) */
+
+/* ---- 移动/标定子状态 ---- */
+#define LINK_MOVE_NONE 0
+#define LINK_MOVE_FWD 1  /* 固定脉冲直线 */
+#define LINK_MOVE_ROT 2  /* 固定 PWM 定长原地转 */
+#define LINK_MOVE_RUN 3  /* 受"时间 + 红外"双护栏约束的远程运动(电机远程控制实验) */
+#define LINK_SRV_NONE 0
+#define LINK_SRV_SWEEP 1 /* 全周扫描找最小, 记录基准 */
+#define LINK_SRV_PARK 2  /* 停到最近极小 */
+
+/* ---- 电机远程控制实验: MOVE RUN 的护栏常量 ----
+ * 为什么护栏要放在固件里(而不是上位机定时发 STOP):
+ *   上位机可能卡死、蓝牙可能断、操作者可能离开 —— 而这条链路是不做配对的一次性透传。
+ *   把"到时必停 / 贴脸必停"放在 1ms ISR 里判定, 停止就不再依赖任何外部条件。 */
+#define LINK_RUN_MS_DEF 2000   /* 默认最长运行时间(ms)。2 秒是实验建议值 */
+#define LINK_RUN_MS_MAX 60000  /* 上限, 防止误敲出天量数字把护栏架空 */
+#define LINK_RUN_IR_DEF 10     /* 默认红外停车阈值(mm) = 1cm */
+#define LINK_RUN_IR_MAX 3000   /* 阈值上限(大于红外量程即等于关闭) */
+#define LINK_RUN_SPEED_MAX 300 /* 速度绝对值上限(cm/s)。超限直接 ERR_VALUE, 不再靠饱和 */
+
+/* ---- 远程软复位(`MCU RESET`)----
+ * 为什么要有它: 走迷宫的主循环里有 30 余处**非协作式阻塞等待**在等物理进度
+ * (`while (odomStr.cellOdom < dis) ;` 之类), 而 `STOP` 会把 freemode 置 1、
+ * 让电机永不再转 ⇒ 那些条件永远不成立 ⇒ 主循环卡在函数内部, `LESSON_Blind8()`
+ * 顶部的退出检查轮不到。表现是"命令照回 OK, 但车再也不响应, 只能断电"。
+ * 本命令给出一个**不必断电**的出口(真机实测 2026-10-05)。
+ * 仅 `MOUSE_ESTOP_RECOVERABLE`(=[1][2][3][4]) 编译; 比赛固件[5]不含此命令。 */
+#define LINK_MCU_RESET_DELAY_MS 150 /* 先发 ACK, 延时这么多 ms 后再复位
+                                     * (远小于上位机 2.5s 命令超时, 又留足蓝牙转发时间) */
+
+/* ---- STOPPED 的停止原因(设计方案 §8.1) ----
+ * 语义变化(v2.0): 旧的 `MOVEDONE RUN <REASON> <elapsed> <ir_min> ...` 只剩 reason,
+ * 明细改由统一帧连续采样获得(见 link_MoveFinishRun)。 */
+#define LINK_RUN_REASON_TIME "TIME"   /* 时间护栏到 */
+#define LINK_RUN_REASON_IR "IR"       /* 近墙保护触发 */
+#define LINK_RUN_REASON_ESTOP "ESTOP" /* 急停 */
+#define LINK_RUN_REASON_USER "USER"   /* STOP 命令 */
+#define LINK_RUN_REASON_END "END"     /* 任务正常跑完(固定脉冲直线/定长转) */
+
+/*-------------------------------------  F U N C T I O N S  -------------------------------------*/
+void LINK_Init(void); /* 链路初始化: RX 优先级/DMA/标定参数载入(须在 HARDWARE_Init 之后调用) */
+void LINK_Tick(void); /* 每 1ms 由 SysTick_Handler 调用(须置于 sleepmode 分支之外) */
+
+/* 急停通知(由 isr.c 的 SysTick_Handler 在 emergMon.active==1 时调用)。
+ * 作用: 把"急停已发生"这一事实锁存到链路层 ——
+ *   1) 统一帧 flags 的 LINK_FLAG_ESTOP_LOCK 置位, 上位机一眼可见;
+ *   2) 之后所有 MOVE/CAL 命令回 ERR_ESTOP, 直到显式 STOP 解锁;
+ *   3) 上行一行 `ESTOP TRIP #n`(最低延迟, 不等任务收尾)。
+ * 这样操作者在任何时候按下急停, 系统都会**停在锁死状态**而不是悄悄恢复。 */
+void LINK_EStopTrip(void);
+
+/* ---- 远程发车(见 docs/数据收集与时间同步.md) ----------------------------------------
+ * 设计要点: **时基与基准灯都在 1ms 中断里维护**, 因此无论主循环在做什么
+ * (包括卡在 LESSON_Blind8() 的 while(1) 里跑迷宫), 计时与灯都不受影响;
+ * 反过来, 命令解析与遥测组帧也在同一个中断里完成 —— 所以跑迷宫期间
+ * 上位机依然能收数据、发命令。数据收集能"搭"在阻塞式自走上, 靠的就是这一点。 */
+u8 LINK_MazeRequested(void);  /* 是否已收到 MAZE RUN 请求 */
+void LINK_MazeStarted(void);  /* 由 main() 在真正进入迷宫前调用: 消费请求位 + 置"已在跑" */
+void LINK_MazeFinished(void); /* 由 main() 在退出迷宫后调用: 复位发车状态, 以允许再次发车 */
+
+#ifdef MOUSE_DATA_LOG
+/* 是否有"退出迷宫"请求(LESSON_Blind8 的 while(1) 用; 见 APP/lesson.c)。
+ * 只有 `MAZE STOP` 与 `ESTOP` 会置位。**比赛固件不编译本声明与对应检查**,
+ * 于是 LESSON_Blind8 的机器码与原来完全一致。 */
+u8 LINK_MazeAbortRequested(void);
+#endif
+
+/* printf 出口: usart.c 的 fputc() 调用它, 使 printf 与遥测共用 TX 环缓冲。
+ * 返回 1=已入队, 0=环满已丢弃(不阻塞)。 见 link.c 中的详细说明。 */
+u8 LINK_PutChar(u8 b);
+
+#endif

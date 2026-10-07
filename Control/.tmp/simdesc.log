@@ -1,0 +1,5 @@
+<frozen runpy>:128: RuntimeWarning: 'host.sim.mouse_sim' found in sys.modules after import of package 'host.sim', but prior to execution of 'host.sim.mouse_sim'; this may result in unpredictable behaviour
+[sim] 监听 127.0.0.1:5555（Ctrl+C 退出）
+[sim] 客户端接入 ('127.0.0.1', 63865)
+[sim] 客户端断开, 等待下一个连接
+[sim] 客户端接入 ('127.0.0.1', 52634)

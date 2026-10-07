@@ -1,0 +1,32 @@
+{
+  "run_id": "run001",
+  "state": "done",
+  "started_at": 1791055027021,
+  "ended_at": 1791055027335,
+  "elapsed_ms": 308,
+  "rate_per_s": 25.89,
+  "src": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Control\\.tmp\\drill\\camera\\SYNTH-TEST_0001",
+  "out": "C:\\PersonalData\\Doc\\competition\\2026 Computer Mouse\\Control\\sessions\\2026-10-04_0317_wkzf\\locate",
+  "total_frames": 8,
+  "processed": 8,
+  "skipped_already_done": 0,
+  "valid": 8,
+  "invalid": 0,
+  "invalid_reasons": {},
+  "counts_source": "以 results.jsonl 为准重新点数（不是本次循环的累加值）",
+  "locator_fingerprint": {
+    "camera.parallax.camera_height_mm": null,
+    "camera.parallax.nadir_xy": [
+      0.5,
+      0.5
+    ],
+    "camera.field_size_mm": 1440.0,
+    "detection.target_id": 0,
+    "geometry.vertex_mode": "xdiag_plane",
+    "detection.edge_refine": true,
+    "output.smooth": "none"
+  },
+  "profile": "default",
+  "downsample_w": 0,
+  "note": "赛后批量结果：覆盖每一帧、不占网，为建模用的权威数据。在线段（≈2 fps）仅用于现场观察。"
+}

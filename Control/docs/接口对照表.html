@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Control 接口对照表（Control 端点 ↔ 上游方法）</title>
+<style>
+:root{
+  --bg:#14161a; --bg2:#1a1d23; --bg3:#20242c; --line:#2b3038;
+  --fg:#dfe3ea; --fg2:#9aa3b0; --fg3:#6b7480;
+  --accent:#5aa9e6; --accent2:#7bd88f; --warn:#e5b567; --danger:#e06c75;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+#wrap{display:flex; align-items:flex-start; max-width:1500px; margin:0 auto}
+/* ---------- 侧栏 ---------- */
+#toc{
+  position:sticky; top:0; flex:0 0 300px; height:100vh; overflow-y:auto;
+  padding:22px 16px 60px; border-right:1px solid var(--line); background:var(--bg2);
+}
+#toc .brand{font-size:13px; color:var(--fg3); letter-spacing:.08em; margin-bottom:14px; text-transform:uppercase}
+#toc ul{list-style:none; margin:0; padding-left:0}
+#toc ul ul{padding-left:14px}
+#toc li{margin:1px 0}
+#toc a{display:block; padding:4px 8px; border-radius:6px; color:var(--fg2); text-decoration:none;
+        font-size:13px; line-height:1.45; border-left:2px solid transparent}
+#toc a:hover{background:var(--bg3); color:var(--fg)}
+#toc>ul>li>a{color:var(--fg); font-weight:600}
+/* ---------- 正文 ---------- */
+main{flex:1 1 auto; min-width:0; padding:34px 46px 120px}
+h1,h2,h3,h4{line-height:1.35; margin:1.9em 0 .6em; scroll-margin-top:16px}
+h1{font-size:27px; margin-top:0; padding-bottom:.45em; border-bottom:2px solid var(--line)}
+h2{font-size:21px; padding-bottom:.35em; border-bottom:1px solid var(--line); color:#fff}
+h3{font-size:17px; color:var(--accent)}
+h4{font-size:15px; color:var(--fg2)}
+p{margin:.75em 0}
+a{color:var(--accent)}
+strong{color:#fff}
+hr{border:0; border-top:1px solid var(--line); margin:2.2em 0}
+/* ---------- 表格 ---------- */
+table{border-collapse:collapse; width:100%; margin:1.1em 0; font-size:13.5px; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:7px 11px; text-align:left; vertical-align:top}
+th{background:var(--bg3); color:#fff; font-weight:600; white-space:nowrap}
+tr:nth-child(even) td{background:rgba(255,255,255,.014)}
+td code{white-space:nowrap}
+/* ---------- 代码 ---------- */
+code{background:var(--bg3); padding:1px 5px; border-radius:4px; font-family:var(--mono);
+     font-size:12.8px; color:#e8c07d}
+pre{background:#0f1115; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+    overflow-x:auto; margin:1.1em 0}
+pre code{background:none; padding:0; color:#c8d0da; font-size:12.6px; line-height:1.65; white-space:pre}
+/* ---------- 引用（本方案里全是纪律/警告） ---------- */
+blockquote{margin:1.1em 0; padding:10px 16px; border-left:3px solid var(--warn);
+           background:rgba(229,181,103,.07); border-radius:0 8px 8px 0; color:#f0e0c0}
+blockquote p{margin:.3em 0}
+blockquote code{background:rgba(0,0,0,.35)}
+ul,ol{padding-left:1.6em}
+li{margin:.28em 0}
+@media (max-width:1080px){
+  #toc{display:none}
+  main{padding:20px 18px 80px}
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <nav id="toc">
+    <div class="brand">Control · 整合上位机</div>
+    <div class="toc">
+<ul>
+<li><a href="#control-control">Control 接口对照表（Control 端点 ↔ 上游方法）</a><ul>
+<li><a href="#0">0. 通用 / 时钟 / 日志</a></li>
+<li><a href="#1-a">1. 鼠（模块 A）</a></li>
+<li><a href="#1b-a-140">1b. 时间同步 / 发车（模块 A，上游 1.4.0）</a></li>
+<li><a href="#1c-a-130-150">1c. 参数（四组 / 两套写入通道，模块 A，上游 1.3.0 → 1.5.0）</a></li>
+<li><a href="#1d-a-200">1d. 统一帧遥测与迷宫状态机（模块 A，上游 2.0.0）</a></li>
+<li><a href="#1e-a-120-130">1e. 电机实验 / 课程调参实验（模块 A，上游 1.2.0 / 1.3.0）</a></li>
+<li><a href="#2-b">2. 相机（模块 B）</a></li>
+<li><a href="#3-c">3. 定位（模块 C）</a></li>
+<li><a href="#4">4. 统一会话 / 时间轴</a></li>
+<li><a href="#5">5. 场地标定</a></li>
+<li><a href="#6-websocket">6. WebSocket</a></li>
+<li><a href="#7">7. 明确不映射到上游的端点（本层自研）</a></li>
+<li><a href="#8">8. 校验</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+  </nav>
+  <main>
+<h1 id="control-control">Control 接口对照表（Control 端点 ↔ 上游方法）</h1>
+<blockquote>
+<p>这份表的存在意义只有一个：<strong>防漂移</strong>。</p>
+<p>上游三个仓库各有自己的取证体系，我们不碰它们的源码（判据 I9）。代价是：上游哪天把
+<code>HostLink.ledger()</code> 改名了，Control 会在运行时才炸，而且只在现场那一页才炸。
+所以这里把「每个端点是靠哪个上游方法撑起来的」写成一张<strong>能被机器读</strong>的表，
+并用 <code>python tools/check_iface_table.py</code> 一条命令同时校验三件事：</p>
+<ol>
+<li>表里写到的每个上游符号<strong>真的存在</strong>（改名/删除立刻现形）；</li>
+<li><code>routes.py</code> 里注册的每个端点<strong>都在表里有记录</strong>（新增端点忘了登记会报错）；</li>
+<li><code>docs/上位机整合设计方案.md</code> 的附录 A 与这份表一致（只有指向，不重复内容）。</li>
+</ol>
+<p><strong>改上游之后先跑它，不要靠眼睛。</strong></p>
+</blockquote>
+<p>上游路径（相对 <code>Control/</code>，见 <code>config.yaml</code> 的 <code>paths</code>）：</p>
+<table>
+<thead>
+<tr>
+<th>代号</th>
+<th>仓库</th>
+<th>路径</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td><code>RemoteControl</code></td>
+<td><code>../RemoteControl/host</code>（包名 <code>host</code>）</td>
+</tr>
+<tr>
+<td>B</td>
+<td><code>PhoneCamera</code></td>
+<td><code>../PhoneCamera/pc</code>（模块 <code>hostlink</code>）</td>
+</tr>
+<tr>
+<td>C</td>
+<td><code>Auto Locate</code></td>
+<td><code>../Auto Locate</code>（模块 <code>aruco_locator</code>）</td>
+</tr>
+</tbody>
+</table>
+<p>「上游调用」列里的名字是<strong>可机读</strong>的：<code>类.方法</code> 或模块级函数名。
+<code>—</code> 表示这一步是 Control 自己的逻辑（读缓存、编会话目录、做统计），不经过上游。</p>
+<hr />
+<h2 id="0">0. 通用 / 时钟 / 日志</h2>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/health</code></td>
+<td>A B C</td>
+<td><code>MouseClient.is_connected</code>、<code>HostLink.status</code>、<code>ArucoLocator.locate</code></td>
+<td>三者都<strong>只读快照</strong>，不发网络（判据 I12）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/caps</code></td>
+<td>A B C</td>
+<td><code>StreamAPI.on/off/is_on</code>、<code>StreamAPI.stats</code>、<code>StreamAPI.anchor</code>、<code>TelemetryAPI.channels</code>、<code>TelemetryAPI.hz</code>、<code>UNIFIED_HZ</code>、<code>HostLink.capabilities</code>、<code>describe_profiles</code></td>
+<td>两个是 <code>@staticmethod</code>，不连也能答。<strong>故意不含"候选连接目标"与"参数当前值"</strong> —— 那两个要现场枚举串口 / 逐条回读设备（同步慢调用，会冻住事件循环），端口列表归 <code>GET /api/v1/mouse/ports</code>（走线程池、由人点【刷新】）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/config</code></td>
+<td>—</td>
+<td>—</td>
+<td>脱敏后的配置（凭据只答"有没有配"）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/paths</code></td>
+<td>—</td>
+<td>—</td>
+<td>三个上游路径 + 是否存在</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/upstream</code></td>
+<td>—</td>
+<td>—</td>
+<td>三个仓库的版本 / git HEAD / 工作区是否干净</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/logs/tail</code></td>
+<td>—</td>
+<td>—</td>
+<td>服务日志环形缓冲</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/clock</code></td>
+<td>—</td>
+<td>—</td>
+<td>主时钟当前快照</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/clock/offset</code></td>
+<td>—</td>
+<td>—</td>
+<td>手工设偏移（source=<code>manual</code>）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/clock/mark</code></td>
+<td>—</td>
+<td>—</td>
+<td>记一次 (t_pc_ms, device_ms) 样本</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/clock/fit</code></td>
+<td>—</td>
+<td>—</td>
+<td>L1 <code>sync_pulse</code> 拟合（&lt;3 样本拒绝）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/clock/autofit</code></td>
+<td>B</td>
+<td><code>HostLink.ledger</code></td>
+<td>L2 最小延迟法，取 ledger 的往返时延低分位</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1-a">1. 鼠（模块 A）</h2>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/mouse/ports</code></td>
+<td>A</td>
+<td><code>ConnAPI.targets</code>、<code>ConnAPI.port_labels</code></td>
+<td>列出可选目标（串口 / tcp / replay）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/connect</code></td>
+<td>A</td>
+<td><code>ConnAPI.connect</code>、<code>MouseClient.connect</code></td>
+<td>失败信息由 <code>MouseClient.state_detail</code> 转成可照做的提示（判据 I3）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/disconnect</code></td>
+<td>A</td>
+<td><code>MouseClient.disconnect</code></td>
+<td>先 STREAM OFF 再关链路（上游负责）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/state</code></td>
+<td>A</td>
+<td><code>MouseClient.device</code>、<code>MouseClient.state</code>、<code>ConnAPI.stats</code>、<code>Link.self_check</code></td>
+<td>设备信息 + 链路自检</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/params</code></td>
+<td>A</td>
+<td><code>ParamsAPI.get_all</code>、<code>ParamsAPI.meta</code>、<code>ParamsAPI.get_raw</code></td>
+<td>十进制 + Q16.16 原值都给（参数页要能对照）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/params</code></td>
+<td>A</td>
+<td><code>ParamsAPI.set_many</code>、<code>ParamsAPI.derive_speed_from_track</code></td>
+<td><code>readback=True</code> 强制回读校验</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/params/save</code></td>
+<td>A</td>
+<td><code>ParamsAPI.backup</code>、<code>ParamsAPI.save</code></td>
+<td><strong>先备份再存</strong>，免得存坏了回不去</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/params/reset</code></td>
+<td>A</td>
+<td><code>ParamsAPI.reset</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/params/backup</code></td>
+<td>A</td>
+<td><code>ParamsAPI.backup</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/stream</code></td>
+<td>A</td>
+<td><code>StreamAPI.on</code>、<code>StreamAPI.off</code>、<code>StreamAPI.toggle</code>、<code>StreamAPI.is_on</code>、<code>StreamAPI.stats</code>、<code>TelemetryAPI.hz</code></td>
+<td><strong>2.1.0 起语义是「启停本机拉取器」</strong>（不再是"命令固件开流"）。<strong>只接受 <code>{"on": true|false}</code></strong>；<code>RATE</code> 已删除 ⇒ 带 <code>hz</code> 一律 <strong>400</strong>（帧率由<strong>链路往返</strong>决定：1/RTT）。应答里 <code>hz</code> 是<strong>实测值</strong>，另给 <code>pull</code>（拉取器状态：<code>mode:"stop-and-wait"</code> / <code>inflight</code> / <code>done</code> / <code>lost</code> / <code>hz</code>）。⚠️ <code>off()</code> 会<strong>立刻丢弃在途请求</strong> —— 这是让蓝牙透传模块缓冲排空的唯一手段</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze</code></td>
+<td>A</td>
+<td><code>MazeAPI.fetch</code>、<code>MazeAPI.grid</code>、<code>MazeAPI.visited</code>、<code>MazeAPI.position</code>、<code>MazeAPI.mazetype</code>、<code>MazeAPI.to_text</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/move</code></td>
+<td>A</td>
+<td><code>MoveAPI.forward</code>、<code>MoveAPI.rotate</code>、<code>MoveAPI.servo</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/calib/report</code></td>
+<td>A</td>
+<td><code>CalibAPI.report</code></td>
+<td>⚠️ 这条路由必须<strong>先于</strong> <code>{item}</code> 注册，否则会被它吞掉</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/calib/{item}</code></td>
+<td>A</td>
+<td><code>CalibAPI.gyro</code>、<code>CalibAPI.wall_distance</code>、<code>CalibAPI.ir_data</code>、<code>CalibAPI.angle</code>、<code>CalibAPI.track</code>、<code>CalibAPI.step</code></td>
+<td angle_="angle," gyro_="gyro," ir_95_data_="ir_data," step="step" track_="track," wall_95_distance_="wall_distance,">item ∈</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/tare</code></td>
+<td>A</td>
+<td><code>MouseClient.send_cmd</code>（登记名 <code>tare</code>）</td>
+<td>发 <code>TARE</code>。⚠️ 参数是<strong>登记名</strong>（全小写），不是线上文本 —— 这三个端点曾因传线上文本而<strong>一直是 404</strong>（见设计方案 §11.12）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/stop</code></td>
+<td>A</td>
+<td><code>MouseClient.send_cmd</code>（登记名 <code>stop</code>）</td>
+<td>发 <code>STOP</code>：正常停车 + <strong>解急停锁存</strong>（急停后重新拿回控制权的入口）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/estop</code></td>
+<td>A</td>
+<td><code>MouseClient.send_cmd</code>（登记名 <code>estop</code>）</td>
+<td>发 <code>ESTOP</code>（急停，<strong>锁存</strong>；也进时间轴）。急停锁存中发车会回 <code>ERR_ESTOP</code></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/raw</code></td>
+<td>A</td>
+<td><code>MouseClient.send_raw</code></td>
+<td>原始命令逃生舱，<strong>同步等设备回</strong>（跑在线程里）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/link_stats</code></td>
+<td>A</td>
+<td><code>MouseClient.stats</code></td>
+<td>链路统计，<strong>含丢帧</strong> <code>seq_gap</code> / <code>seq_lost</code></td>
+</tr>
+<tr>
+<td>WS <code>mouse.wave</code>（二进制）</td>
+<td>A</td>
+<td><code>TelemetryAPI.latest</code>、<code>TelemetryAPI.channels</code>、<code>TelemetryAPI.hz</code></td>
+<td>250 Hz 推给波形页</td>
+</tr>
+<tr>
+<td>WS <code>mouse.telemetry</code>（JSON）</td>
+<td>A</td>
+<td><code>TelemetryAPI.history_dict</code>、<code>TelemetryAPI.summary_text</code>、<code>TelemetryAPI.is_streaming</code>、<code>TelemetryAPI.bytes_per_second</code></td>
+<td>底部读数条每秒更新</td>
+</tr>
+<tr>
+<td>WS <code>mouse.estop</code></td>
+<td>A</td>
+<td><code>Event.ESTOP</code></td>
+<td>急停锁存/触发（上游 1.2.0）</td>
+</tr>
+<tr>
+<td>WS <code>mouse.lesson</code></td>
+<td>A</td>
+<td><code>Event.LESSON</code></td>
+<td>课程实验异步消息（上游 1.3.0）</td>
+</tr>
+<tr>
+<td>WS <code>mouse.timesync</code></td>
+<td>A</td>
+<td><code>Event.TIMESYNC</code></td>
+<td>发车回执（上游 1.4.0）</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1b-a-140">1b. 时间同步 / 发车（模块 A，上游 1.4.0）</h2>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/timesync</code></td>
+<td>A</td>
+<td><code>TimeSyncAPI.snapshot</code>、<code>TimeSyncAPI.explain</code>、<code>MouseClient.stats</code></td>
+<td>发车与时间同步总览：偏移 / 频差 / 单程延迟 / 样本数 / 基准灯 + 丢帧 + 一帧实例</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/timesync/arm</code></td>
+<td>A</td>
+<td><code>TimeSyncAPI.arm</code></td>
+<td><strong>发车</strong>：记发车时刻 + 点亮 1Hz 基准灯 + 回 <code>ARMED &lt;ms&gt;</code></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/timesync/maze_run</code></td>
+<td>A</td>
+<td><code>TimeSyncAPI.maze_run</code></td>
+<td>远程发车跑无记忆迷宫（<strong>仅 <code>MOUSE_DATA_LOG</code> 档</strong>，其余固件回 ERR_VALUE）</td>
+</tr>
+<tr>
+<td>（帧时间换算，内部）</td>
+<td>A</td>
+<td><code>TimeSyncAPI.frame_time_up</code>、<code>TimeSyncAPI.frame_time</code>、<code>TimeSyncAPI.dev_ms</code>、<code>TimeSyncAPI.dev_ms_from_recv</code></td>
+<td>把一帧换算成"真正发生的时刻"；本层只补"单调→墙钟"那一段</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1c-a-130-150">1c. 参数（<strong>四组 / 两套写入通道</strong>，模块 A，上游 1.3.0 → 1.5.0）</h2>
+<blockquote>
+<p>⚠️ <strong>页号会随固件分区调整而变</strong>。上游 1.5.4 把运行数据区上移后：
+生产标定页 99 → <strong>115</strong>、课程参数页 100 → <strong>116</strong>（原值正落在 <code>FLASH_EraseRunData()</code>
+的擦除范围内，一次擦除就会把标定抹掉）。本层不写死这两个数，统一取
+<code>adapters/mouse.py</code> 的 <code>FLASH_PAGE_PROD</code> / <code>FLASH_PAGE_LESSON</code>，并把值随参数一起返回。</p>
+<p>⚠️ <strong>写入通道按命名空间分</strong>：生产命名空间（id 1–7 <strong>+ 1.5.0 新增的 22–38</strong>）
+走 <code>mc.params.set()</code>，课程调参（id 8–21）走 <code>mc.lesson.set_params()</code>。混用会失败，
+所以这里分开暴露、分组写回时自动选通道。上游 1.5.0 起的 17 项新增参数
+（红外阈值 / 卡尔曼 / 前向综合 + 分压 / 低电 / 档位）落在<strong>生产命名空间</strong>，
+于是 <code>GET ALL</code> / <code>SETQ</code> / <code>SAVE</code> 四条既有路径<strong>自动全覆盖</strong>，本层一行遍历逻辑都没改。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/mouse/params/grouped</code></td>
+<td>A</td>
+<td><code>ParamsAPI.get_all</code>、<code>ParamsAPI.meta</code>、<code>ParamsAPI.get_raw</code></td>
+<td>按「生产标定 / 课程调参 / 红外测量 / 电源监控」四组返回，并带 <code>flash_page</code> / <code>write_via</code>；分组标签来自上游 <code>PARAM_GROUPS</code></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/params/grouped</code></td>
+<td>A</td>
+<td><code>ParamsAPI.set_many</code>、<code>LessonAPI.set_params</code></td>
+<td><strong>按参数所在组自动分流</strong>；混着传也行（会拆成两次调用）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/params/save_group</code></td>
+<td>A</td>
+<td><code>ParamsAPI.backup</code>、<code>ParamsAPI.save</code>、<code>LessonAPI.params</code>、<code>LessonAPI.set_params</code></td>
+<td>落 Flash。生产与课程是<strong>两条命令</strong>（不同页），各存各的</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1d-a-200">1d. 统一帧遥测与迷宫状态机（模块 A，上游 <strong>2.0.0</strong>）</h2>
+<blockquote>
+<p>⚠️ <strong>本节的形态是 2.0.0「传输模式重构」之后的</strong>。它<strong>取代了</strong> 1.5.0 的「组测发送 <code>SNAP</code>」
+与 1.5.5 的「三通道迷宫回传」。上游明确"协议整体替换、不做兼容层"，所以本层
+<strong>没有 <code>_v2</code> 端点、没有弃用期</strong>：旧端点一律 404（判据 I22/I23 负向验证）。</p>
+<p><strong>只有一条流</strong>：<code>TYPE_UNIFIED</code>（53 B = 8 B 开销 + <strong>45 B 载荷</strong>）/ <strong>拉取模式</strong> /
+解码后 <strong>39 个扁平通道</strong>。四路红外<strong>ADC 与 mm 双传</strong>（非线性映射，上位机不便复算）、
+电池给 mV（线性映射且分压标定在设备端，所以不传 ADC）、完整迷宫状态机就在帧里。
+⚠️ 帧率<strong>由上位机的拉取节奏决定</strong>（真机 4.4~6.5 Hz），<code>UNIFIED_HZ = 217.0</code> 只是
+协议常量、<strong>不代表实际帧率</strong> —— 见下方 2.1.0 说明。</p>
+<p><strong>为什么删除 <code>SNAP</code> / <code>SCOPE</code></strong>（上游设计方案 §6）：两者存在的唯一理由是"物理速率不足"
+（旧链路 152 B/s，只能"实时看状态 / 停车拉数据"）。改自时钟发送后，<strong>每一帧都是全量快照</strong>，
+"实验期间的数据"本来就在主机内存里 ⇒ <code>SNAP</code> 的"静默一问一答"与 <code>SCOPE</code> 的"停车后整块回传"
+都不再需要。代价是失去"零常驻带宽地看一个瞬时值"—— 而那个代价<strong>只剩一种付费方式了</strong>。</p>
+<p><strong>迷宫状态机回传</strong>（<code>LESSON_Blind8</code>）：观测层整个放在固件 <code>HARDWARE/link.c</code>，
+<strong>不在 maze/state/lesson/motion 里插一行钩子</strong> —— 只读已公开的 <code>mazeState</code> / <code>wallSns</code> /
+<code>motionCtrl.task</code>，所以"回传的状态"与"代码里的状态"同源，且关掉本模块行为逐字不变。
+状态量<strong>全在统一帧里</strong>；"它刚才识别到了什么"由<strong>主机差分相邻帧</strong>得到（<code>MAZE EV</code> 已删除）。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/mouse/meas/meta</code></td>
+<td>A</td>
+<td><code>UNIFIED_CHANNELS</code>、<code>FLAG_NAMES</code>、<code>MAZE_TASK_NAMES</code>、<code>ROAD_NAMES</code>、<code>ROAD_KINDS</code>、<code>MOTION_TASK_NAMES</code>、<code>DIR_NAMES</code>、<code>JUNCTION_KINDS</code></td>
+<td>统一帧的<strong>通道清单</strong> + 迷宫<strong>静态码表</strong>。<strong>零设备访问</strong> —— 未连接 / 静默时也要画得出"要读什么"。⚠️ 取的是<strong>协议层静态表</strong>（<code>host.protocol.codec</code>）而不是要连上调实例的方法：这条端点的契约恰恰是"<strong>不连也能答</strong>"。⚠️ 旧名 SNAP_DOMAINS / SNAP_FIELDS / MAZE_FLAG_NAMES / MAZE_EV_BITS <strong>已随上游删除</strong>（这里故意不加反引号：本表里的反引号是「这个符号必须存在」的断言，而它们已经不存在了）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/state</code></td>
+<td>A</td>
+<td><code>MazeAPI.state</code>、<code>MazeAPI.position</code>、<code>MazeAPI.road_name</code>、<code>MazeAPI.task_changes</code>、<code>MouseClient.events_incomplete</code></td>
+<td>当前状态 + 位置 + 路口分类 + <strong>迁移序列</strong>（主机差分）。<strong>不发任何命令</strong>（全是本地缓存）⇒ 界面心跳走这条</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/history</code></td>
+<td>A</td>
+<td><code>MazeAPI.task_changes</code></td>
+<td>任务<strong>迁移序列</strong>（时间正序的 <code>(t, from, to)</code>）。这是旧「事件流」的替代物，见 <code>host/api/maze.py</code> 的差分实现</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/summary</code></td>
+<td>A</td>
+<td><code>MazeAPI.summary</code>、<code>MazeAPI.explain</code></td>
+<td>汇总 + 人话版（<code>explain</code> 是上游原文，前端按 <code>data-raw</code> 端出）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/maze/reset</code></td>
+<td>A</td>
+<td><code>MazeAPI.clear_changes</code></td>
+<td><strong>只清本层的差分缓冲</strong>。2.0.0 删除了 <code>MAZE RST</code> ⇒ 固件侧<strong>无统计可清</strong>，界面措辞照此写</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/maze/stop</code></td>
+<td>A</td>
+<td><code>MazeAPI.stop</code>（登记命令 <code>maze.stop</code>，线上 <code>MAZE STOP</code>）</td>
+<td><strong>收车</strong>（2.1.1 新增）：停车 + <strong>复位发车状态</strong> + 解锁急停。⚠️ <strong>车在运动时不可靠</strong>（只置"请退出"标志，而标志检查在 <code>while(1)</code> 顶部、主循环有 30 余处非协作阻塞等待）⇒ 应答带 <code>fresh</code>/<code>reliable</code>，<strong>等新帧</strong>后才判（三态）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/rescue</code></td>
+<td>A</td>
+<td><code>ConnAPI.soft_reset</code>（别名 <code>rescue</code>；登记命令 <code>system.reset</code>，线上 <code>MCU RESET</code>）</td>
+<td><strong>救援</strong>（2.2.0 新增）：整机软复位。<code>?verify=0</code> 可跳过复核（<strong>不建议</strong>：<code>accepted=False</code> 不代表失败，真判据是 <code>rst == "SW"</code>）。复位<strong>不复位物理位置</strong>，且约 3 s 才有新帧</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/launch_precheck</code></td>
+<td>A</td>
+<td><code>LAUNCH_MIN_MV</code>（<strong>零上游调用</strong>，只读最新帧）</td>
+<td>发车前<strong>低电预检</strong>。三态 <code>level ∈ {ok, warn, unknown}</code>；阈值<strong>从上游取</strong>不写死；与上游判据逐条对齐（<code>battMv==0</code> 与无帧<strong>都不拦</strong>）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze</code></td>
+<td>A</td>
+<td><code>MazeAPI.fetch</code>、<code>MazeAPI.to_text</code></td>
+<td>拉墙图（<code>TYPE_MAP</code> 整块，静态数据按需拉）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/reconstruct</code></td>
+<td>A</td>
+<td><code>—</code>（<strong>零上游调用</strong>：读上游环形缓冲 + 本层 <code>MazeWallMap</code>）</td>
+<td><strong>实时</strong>墙图重建（中栏"重构示意"）：取最近 <code>seconds</code>（默认 30 s）帧，按 <code>dir</code> 把 <code>wallLeft/Front/Right</code> 转到<strong>绝对方向</strong>后累积。为什么不用上面那条"拉墙图"端点（固件那份墙图）：那是<strong>命令往返</strong>（真机 ≈1.21 s），跑动中拉会占掉一次拉取机会。固件那份作为<strong>对账基准</strong>一并返回（<code>firmware</code>），不发命令</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/decisions</code></td>
+<td>A</td>
+<td><code>MazeAPI.state</code>（只取运行状态；<strong>决策序列是本层差分的</strong>）</td>
+<td><strong>实时决策流</strong>（右栏时间线）+ 运行状态（<code>running</code>/<code>task</code>/<code>taskName</code>）。<strong>零设备访问</strong>（读记录器的常驻差分器）。⚠️ 上游 v2.0 删了 <code>MAZE EV</code> 事件流 ⇒ 这条序列只能<strong>主机差分</strong>：<code>TASK</code>/<code>ROAD</code>/<code>TURN</code>/<code>STRAIGHT</code>/<code>JUNC</code>/<code>CELL</code>/<code>HEAD</code>/<code>GOAL</code></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/record/live</code></td>
+<td>A</td>
+<td><code>—</code>（<strong>零上游调用</strong>：把内存里这一段组一份 doc）</td>
+<td><strong>当前这一段</strong>的完整快照（与落盘那份<strong>同形状</strong>）—— 供"边跑边回放"。<code>?with_map=0</code> 跳过墙图。<strong>不落盘、不改状态</strong>；拿到的是调用那一刻的快照</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/record</code></td>
+<td>A</td>
+<td><code>—</code></td>
+<td>记录状态一行（在记吗 / 帧数 / 时长 / 上次保存的摘要）。<strong>零设备访问</strong></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/maze/record/start</code></td>
+<td>A</td>
+<td><code>—</code></td>
+<td>开始记录（<strong>【发车】自动触发</strong>，也可单独调）。<strong>不要求已连接</strong> —— 真机上蓝牙被灌满时"连接"可能暂时不可用，而那时恰恰最需要把<strong>已经收到的</strong>记下来</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/maze/record/stop</code></td>
+<td>A</td>
+<td><code>MazeAPI.fetch</code>、<code>MazeAPI.to_text</code></td>
+<td>停止并保存（<strong>人工兜底</strong>）。顺带把固件墙图记进文件作对账基准</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/records</code></td>
+<td>A</td>
+<td><code>—</code></td>
+<td>列出已有复盘记录（按时间倒序，只读文件名与大小）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/mouse/maze/records/{name}</code></td>
+<td>A</td>
+<td><code>—</code></td>
+<td>读一条记录（复盘的数据源）。含<strong>全量 39 通道每帧</strong> ⇒ 几百 KB 量级；<code>?with_map=0</code> 可跳过墙图</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/maze/records/import</code></td>
+<td>A</td>
+<td><code>—</code></td>
+<td>导入外部记录（前端把文件内容 POST 上来），校验后落进记录目录</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>复盘记录的数据源</strong>：记录器订阅上游 <strong><code>Event.TELEMETRY</code></strong>（<strong>每收到一帧就 emit 一次</strong>，
+与有没有浏览器看无关）逐帧缓存 ⇒ 不依赖浏览器订阅、也不用上游环形缓冲（它只有 30 s）。
+<strong>墙图不存快照</strong>：每帧都带墙位与朝向，复盘时<strong>重放帧序列即可确定性重建</strong>。
+文件里帧用 <code>channels</code> + 每帧一行的值数组（不是逐帧写键名，否则大好几倍）。</p>
+<p><strong>2.1.0 的追加变化（拉取模式）</strong>：<code>STREAM ON</code>/<code>STREAM OFF</code> <strong>已删除</strong>，
+新增 <strong><code>TELEM</code></strong>（<code>no_retry</code>，超时 3 s）—— <code>PC → TELEM</code>，设备回<strong>一帧 + 时间锚</strong>。
+固件<strong>不再自时钟发帧</strong>（v2.0 那套在真机上把蓝牙模块缓冲灌死了，见设计方案 §11.10）。
+上位机侧由 <code>host.api.stream.PullRequester</code> <strong>严格停等</strong>驱动：<strong>在途恒 1</strong>，
+收到应答才发下一条 ⇒ 可达帧率 = <strong>1/RTT</strong>（真机 <strong>4.4~6.5 Hz</strong>），<strong>不是软件限速</strong>。
+<code>mc.stream.on/off</code> 的<strong>方法名与签名都没变</strong>，只换了语义 —— 所以本层几乎零代码改动。
+⚠️ <code>UNIFIED_HZ = 217.0</code> 被上游降级为"只用于环形缓冲容量估算 + 缺省显示"，
+<strong>不代表实际帧率</strong>；实际帧率一律用 <code>TelemetryAPI.hz()</code>（按到达间隔实算）。</p>
+<p><strong>2.1.1 / 2.1.2 / 2.2.0 / 2.2.1 的追加变化（真机事故驱动，命令 22 → 24）</strong>：
+帧格式、39 通道、事件模型<strong>零改动</strong>；变的都是"<strong>能不能把车收回来</strong>"（见设计方案 §11.12）。
+新增返回状态 <strong><code>ERR_LOWBATT</code></strong>（<strong>上位机产生、不来自设备</strong>，<code>data.blocked=True</code>，带实测 <code>battMv</code>）。
+<code>maze.run</code> 的失败语义因此有三态：<code>ERR_LOWBATT</code>（充电/换电）/ <code>ERR_ESTOP</code>（先解锁急停）/
+<code>ERR_BUSY</code>（先收车）—— <strong>处置完全不同，不许混成一句</strong>。
+⚠️ <code>resume()</code> <strong>只在"原本在跑"时才恢复</strong> ⇒ 本层 <code>/mouse/stream</code> 的开关语义不受影响
+（I22 的负向"关掉拉取后帧不许再涨"仍然成立，已复跑确认）。</p>
+</blockquote>
+<p>⚠️ 上面那段里的表格故意<strong>写成普通表</strong>（不是引用块里的表）：本工具<strong>只解析以 <code>|</code> 开头的行</strong>，
+放进引用块（<code>&gt; |</code>）就等于<strong>这几个符号永远不会被断言</strong>（踩过）。所以下面这张表是<strong>真的断言</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>新增符号</th>
+<th>作用</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MazeAPI.stop</code></td>
+<td><strong>收车</strong>（登记命令线上文本 <code>MAZE STOP</code>）：停车 + 复位发车状态 + 解锁急停</td>
+<td>⚠️ <strong>车在运动时不可靠</strong>（标志检查在 <code>while(1)</code> 顶部，主循环有 30 余处非协作阻塞等待）</td>
+</tr>
+<tr>
+<td><code>ConnAPI.soft_reset</code>、<code>ConnAPI.rescue</code></td>
+<td><strong>救援</strong>（线上文本 <code>MCU RESET</code>）：整机软复位（卡死救援口）</td>
+<td>成功判据是复核 <code>rst == "SW"</code>，<strong>不是 ACK</strong>（<code>accepted=False</code> 不代表失败）</td>
+</tr>
+<tr>
+<td><code>LAUNCH_MIN_MV</code></td>
+<td>发车前低电闸的阈值（= 7000 mV）</td>
+<td>本层 <code>caps.launch_min_mv</code> <strong>从上游取</strong>，不写死</td>
+</tr>
+<tr>
+<td><code>CommandSpec.precheck</code></td>
+<td>发送前的<strong>现场安全检查</strong>；返回非 <code>None</code> 即拒绝发送（<strong>不碰链路</strong>）</td>
+<td>挂在<strong>登记表层</strong>⇒ 脚本/CLI/datalog 走 <code>send_cmd</code> 的路径<strong>一律绕不开</strong>；唯一绕过是 <code>send_raw</code></td>
+</tr>
+<tr>
+<td><code>CommandSpec.urgent</code></td>
+<td>时间敏感命令<strong>让路</strong>（11 条）</td>
+<td>修"急停按了 3220 ms 才停"（那正是 <code>MOVE RUN</code> 的时间护栏 ⇒ 其实<strong>没生效</strong>）</td>
+</tr>
+<tr>
+<td><code>PullRequester.suspend</code>、<code>PullRequester.resume</code></td>
+<td>暂停拉取并等线上静默 / 恢复（<strong>嵌套计数</strong>保护）</td>
+<td>已内置在 <code>send_cmd</code>/<code>send_raw</code> 里 ⇒ <strong>本层不必也不该手动调用</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>已删除（404）</strong>：<code>GET /mouse/snap</code>、<code>GET /mouse/scope/last</code>、
+<code>POST /mouse/scope/{start|stop|fetch}</code>、<code>GET|POST /mouse/maze/events</code>、<code>POST /mouse/maze/snap</code>。</p>
+<p><strong><code>mouse.maze</code> 广播</strong>：上游 v2.0 起<strong>不再有 <code>Event.MAZE</code></strong>（<code>MAZE EV</code> 整条删除）。
+本层保留 <code>mouse.maze</code> 这条广播作为"老上游仍有该事件"的兜底，且<strong>仍不落时间轴</strong>
+（一次迷宫跑 5~6 条/s，落进去会把真正要紧的行淹掉）。
+新版的上行事件只有两条（<code>STOPPED &lt;reason&gt; #n</code> / <code>ESTOP TRIP #n</code>），
+它们走 <strong><code>mouse.upevent</code> / <code>mouse.estop</code></strong> 并<strong>落时间轴</strong> —— 因为 <code>reason</code> <strong>推不出来</strong>：
+"时间护栏到"与"红外护栏触发"在帧里长得一样。</p>
+<h2 id="1e-a-120-130">1e. 电机实验 / 课程调参实验（模块 A，上游 1.2.0 / 1.3.0）</h2>
+<blockquote>
+<p>⚠️ <strong>轮子必须悬空</strong>。护栏（时间 + 红外）全在固件 1 ms 中断里判定，
+上位机被 kill 也不会失控 —— 但那是"不失控"，不是"不会撞墙"。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/lab/status</code></td>
+<td>A</td>
+<td><code>MotorLabAPI.status</code></td>
+<td>一眼看清"现在能不能动、能不能拉日志"</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lab/run</code></td>
+<td>A</td>
+<td><code>MotorLabAPI.run</code></td>
+<td>双护栏远程运动 + <strong>运动期间就地采样</strong>：只接 <code>sp_l/sp_r/ms/ir_mm</code> + <strong><code>sample_hz</code></strong>（对最新快照的采样频率），<code>on_sample</code> 收到每个样本。⚠️ 2.0.0 起<strong>没有</strong> <code>fetch_log</code> / <code>realtime_hz</code>（板载 1 kHz 环已删除）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lab/log</code></td>
+<td>A</td>
+<td><code>MotorLabAPI.capture</code></td>
+<td><strong>旧名保留、语义变了</strong>：<code>capture(seconds=2.0, hz=50.0)</code> —— 按频率采下<strong>最新快照</strong>若干秒。它<strong>不发命令、不运动</strong>，所以是个安全的只观察动作</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lab/estop</code></td>
+<td>A</td>
+<td><code>MotorLabAPI.estop</code></td>
+<td>急停（锁存）。<strong>不过 motor_guard</strong> —— 急停必须随时可用</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lab/resume</code></td>
+<td>A</td>
+<td><code>MotorLabAPI.resume</code></td>
+<td>解锁急停。<strong>重新获得控制权的唯一入口</strong></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/lesson/list</code></td>
+<td>A</td>
+<td><code>LESSON_EXPS</code>、<code>LessonAPI.param_meta</code></td>
+<td>可驱动的实验清单 + 理论系数 + 上游能力探测结果</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/lesson/status</code></td>
+<td>A</td>
+<td><code>LessonAPI.status</code></td>
+<td>课程实验视角的状态</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lesson/run</code></td>
+<td>A</td>
+<td><code>LessonAPI.run</code></td>
+<td>闭环：启动 → 等 DONE → <strong>实验期间本地捕获统一帧</strong> → 自动算参。参数为实验自带形参 + <strong><code>capture</code></strong>（默认 true）/ <strong><code>sample_hz</code></strong>（默认 5）。⚠️ 2.0.0 起没有 <code>fetch_log</code> / <code>realtime_hz</code>；且上游对<strong>未知形参</strong>会回 <code>ERR_ARG</code>（静默忽略会让「参数全默认」悄悄跑完）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lesson/stop</code></td>
+<td>A</td>
+<td><code>LessonAPI.stop</code></td>
+<td>中止当前实验（固件会停车并回一行 <code>LESSON DONE ... STOP</code>）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lesson/log</code></td>
+<td>A</td>
+<td>—（<strong>无对应上游方法</strong>）</td>
+<td><strong>明确报错</strong>：2.0.0 没有「事后回传课程日志」这条通道。曲线在 <code>lesson/run</code> 期间就地捕获并随结果返回。不给空数组 —— 空数组会被界面画成「零个点」，那是谎</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lesson/suggest</code></td>
+<td>A</td>
+<td><code>LessonAPI.set_params</code>、<code>ParamsAPI.get</code>、<code>solve_ratio</code>、<code>error_ratio</code></td>
+<td><strong>自动算参</strong>（纯计算，不改设备）。实验 2 改 TRACKL/TRACKR、实验 5 改 GYRORATIO</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/lesson/apply</code></td>
+<td>A</td>
+<td><code>ParamsAPI.set_many</code></td>
+<td>把建议值写回。实验 2/5 改的是<strong>生产参数</strong> ⇒ 走 <code>mc.params</code> 而不是 <code>mc.lesson</code></td>
+</tr>
+<tr>
+<td>（电机动作前置检查，内部）</td>
+<td>A</td>
+<td><code>MouseClient.motor_guard</code>、<code>MouseClient.motor_disabled</code></td>
+<td>安全固件下 MOVE/CAL 照常回 ACK 但电机不转 ⇒ 提前一行说清，省掉 90 s 超时</td>
+</tr>
+</tbody>
+</table>
+<h2 id="2-b">2. 相机（模块 B）</h2>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/camera/status</code></td>
+<td>B</td>
+<td><code>HostLink.status</code></td>
+<td><strong>同步</strong>探测，走 executor</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/probe</code></td>
+<td>B</td>
+<td><code>HostLink.status</code></td>
+<td>强制重探一次（配对/排查用）。<code>/health</code> 只读快照，要真相就按这个</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/connect</code></td>
+<td>B</td>
+<td><code>HostLink.status</code> + <code>HostLink.sessions</code></td>
+<td>用户点【连接】时走这条：<strong>同步</strong>探一次并回一份确认单（可达/服务版本/手机在线数）。与 <code>probe</code> 的分工：probe 答"通不通"，这条答"连上的是谁、手机在不在"</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/ledger</code></td>
+<td>B</td>
+<td><code>HostLink.ledger</code></td>
+<td>留存账本；<code>complete</code> 三态，null 必须能判成"判不了"（判据 I11）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/sessions</code></td>
+<td>B</td>
+<td><code>HostLink.sessions</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/overview</code></td>
+<td>B</td>
+<td><code>HostLink.overview</code></td>
+<td>取权威 <code>data_dir</code>（不猜路径）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/pair</code></td>
+<td>B</td>
+<td><code>HostLink.pair</code></td>
+<td>⚠️ 响应<strong>含 token</strong>：只在显式请求时返回、<strong>不写日志</strong>（R10）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/mjpeg</code></td>
+<td>B</td>
+<td><code>HostLink.mjpeg_url</code></td>
+<td>服务端反代，浏览器拿到的 URL 里<strong>没有 token</strong>。<strong>只监视不测量</strong></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/thumb</code></td>
+<td>B</td>
+<td><code>HostLink.thumb_url</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/frames</code></td>
+<td>B</td>
+<td><code>HostLink.overview</code></td>
+<td>列出某会话的交付帧（走 <code>data_dir()</code>，10 s 缓存）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/offline/sessions</code></td>
+<td>—</td>
+<td>—</td>
+<td>列本地已有会话（<code>camera.offline_import_root</code>）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/start</code></td>
+<td>B</td>
+<td><code>HostLink.start</code></td>
+<td><code>plan.interval_ms≠0</code> 是语义变化，前端必须提示</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/stop</code></td>
+<td>B</td>
+<td><code>HostLink.stop</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/base</code></td>
+<td>—</td>
+<td>—</td>
+<td>改服务地址（现场 IP 会变）；改完作废旧快照</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/settings</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>写回 config.yaml</strong>（外科式改写，保住注释）：地址 + 上游程序；改完当场生效</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/camera/service</code></td>
+<td>—</td>
+<td>—</td>
+<td>代启器现状 + 启动行（<strong>token 用占位符</strong>）。<strong>零网络、零副作用</strong></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/service/start</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>代启</strong>上游 <code>pc/server.py</code> 并等到真能答话（失败带日志尾巴）。<strong>只由人触发</strong></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/service/stop</code></td>
+<td>—</td>
+<td>—</td>
+<td>停掉<strong>本层起的</strong>那个上游进程（别处启动的不动）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/service/pause</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>本次运行内</strong>暂停/恢复代启（不写配置）——给"我自己管进程"与判据的降级路用</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/import</code></td>
+<td>—</td>
+<td>—</td>
+<td>离线导入本地会话，接进同一条事件路径</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/camera/exit_offline</code></td>
+<td>—</td>
+<td>—</td>
+<td>退出离线，回去探真服务</td>
+</tr>
+<tr>
+<td>WS <code>camera.event</code></td>
+<td>B</td>
+<td><code>HostLink.events</code></td>
+<td>含 <code>_reconnected</code> → 主动作废快照并重探（判据 I14）</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3-c">3. 定位（模块 C）</h2>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/locate/catalog</code></td>
+<td>C</td>
+<td><code>parameter_catalog</code></td>
+<td>参数目录（在线段可热改的那部分）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/params</code></td>
+<td>C</td>
+<td><code>flatten_config</code></td>
+<td>拍平后的当前参数</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/locate/params</code></td>
+<td>C</td>
+<td><code>apply_params</code></td>
+<td>键名必须是 catalog 里的点号路径或叶子简写</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/profiles</code></td>
+<td>C</td>
+<td><code>describe_profiles</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>POST /api/v1/locate/profile</code></td>
+<td>C</td>
+<td><code>apply_profile</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/preview</code></td>
+<td>C</td>
+<td><code>create_locator</code>、<code>ArucoLocator.locate</code>、<code>ArucoLocator.annotate</code></td>
+<td>单帧试算 + 叠加图。<strong>权威数据来自赛后批量，不是这里</strong></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/annotated/{seq}.jpg</code></td>
+<td>C</td>
+<td><code>ArucoLocator.annotate</code></td>
+<td>叠加图（有缓存，最多留 40 张）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/results</code></td>
+<td>—</td>
+<td>—</td>
+<td>读 <code>results.jsonl</code>（权威结果）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/track</code></td>
+<td>—</td>
+<td>—</td>
+<td>轨迹数组，走二进制帧</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/runs</code></td>
+<td>—</td>
+<td>—</td>
+<td>批量任务列表</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/locate/run</code></td>
+<td>C</td>
+<td><code>create_locator</code></td>
+<td>起赛后批量（<strong>有 src 去重</strong>）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/locate/run/{rid}</code></td>
+<td>—</td>
+<td>—</td>
+<td>单任务进度</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/locate/run/{rid}/abort</code></td>
+<td>—</td>
+<td>—</td>
+<td>中止</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/locate/online</code></td>
+<td>C</td>
+<td><code>create_locator</code></td>
+<td>开关在线段（有界队列，满则丢最旧）</td>
+</tr>
+<tr>
+<td>（定位在线/离线段内部）</td>
+<td>C</td>
+<td><code>ArucoLocator.locate</code>、<code>ArucoLocator.annotate</code>、<code>create_locator</code></td>
+<td>单实例单线程（<code>_proc_lock</code>）</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4">4. 统一会话 / 时间轴</h2>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /api/v1/session/open</code></td>
+<td>A B C</td>
+<td><code>SessionAPI.open</code>、<code>HostLink.start</code>、<code>create_locator</code></td>
+<td><strong>三路同开，任一步失败全回滚</strong>（判据 I5）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/session/close</code></td>
+<td>A B</td>
+<td><code>SessionAPI.close</code>、<code>HostLink.stop</code></td>
+<td>收会话 + 等投递 + 自动触发赛后批量</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/session</code></td>
+<td>A</td>
+<td><code>SessionAPI.is_open</code>、<code>SessionAPI.counts</code>、<code>SessionAPI.path</code></td>
+<td>还有 <code>half_open</code> 自检</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/sessions</code></td>
+<td>—</td>
+<td>—</td>
+<td>列历史会话</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/session/timeline</code></td>
+<td>—</td>
+<td>—</td>
+<td><code>timeline.csv</code>（每行必有 <code>t_pc_ms</code>，判据 I4）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/session/note</code></td>
+<td>A</td>
+<td><code>SessionAPI.note</code></td>
+<td>往会话里插一条人工注记（也进时间轴）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/session/export</code></td>
+<td>—</td>
+<td>—</td>
+<td>导出为 zip / csv</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/session/file</code></td>
+<td>—</td>
+<td>—</td>
+<td>读会话目录里的单个文件（<strong>限会话根内</strong>，防目录穿越）</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5">5. 场地标定</h2>
+<table>
+<thead>
+<tr>
+<th>Control 端点</th>
+<th>上游</th>
+<th>上游调用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/arena</code></td>
+<td>A</td>
+<td><code>MazeAPI.position</code></td>
+<td>归一化场地 + 固件当前位置 + 最近一次定位</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/arena/observations</code></td>
+<td>A</td>
+<td><code>MazeAPI.position</code></td>
+<td>记一次"此刻鼠在哪个已知格"的观测</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/arena/observations</code></td>
+<td>—</td>
+<td>—</td>
+<td>读回已记的观测</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/arena/solve</code></td>
+<td>—</td>
+<td>—</td>
+<td>穷举 4 种 flip，只在 margin &gt; 15% 场宽时才敢下结论</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/arena/calibrate</code></td>
+<td>—</td>
+<td>—</td>
+<td>手工写死 flip + 天底点 + 相机高度</td>
+</tr>
+</tbody>
+</table>
+<h2 id="6-websocket">6. WebSocket</h2>
+<table>
+<thead>
+<tr>
+<th>端点</th>
+<th>上游</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /ws</code></td>
+<td>A B C</td>
+<td>JSON 通道（≤64 KiB）+ 二进制帧 <code>[4B uint32 header_len][JSON header][Float32Array]</code>（判据 I10）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="7">7. 明确<strong>不</strong>映射到上游的端点（本层自研）</h2>
+<p>这些没有对应的上游方法，理由写在「说明」里 —— 列出来是为了防止有人误以为漏了：</p>
+<table>
+<thead>
+<tr>
+<th>端点</th>
+<th>为什么属于本层</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>health</code> / <code>caps</code> / <code>config</code> / <code>paths</code> / <code>upstream</code> / <code>logs/tail</code></td>
+<td>「整合层」这个概念只在这里存在，三个上游各自都不知道有别人</td>
+</tr>
+<tr>
+<td><code>clock/*</code></td>
+<td>统一时钟是整合层引入的（墙钟为主时钟），上游没有跨机时间基</td>
+</tr>
+<tr>
+<td><code>session/*</code></td>
+<td>把三路合成<strong>一个</strong>会话目录是整合层的核心职责</td>
+</tr>
+<tr>
+<td><code>arena/*</code></td>
+<td>场地归一化坐标系（原点左下、按角标记内顶点归一化）是整合层与 Auto Locate 之间的契约</td>
+</tr>
+<tr>
+<td><code>locate/results</code>、<code>locate/track</code>、<code>locate/runs</code></td>
+<td>读的是本层落盘的权威产物，不是上游 API</td>
+</tr>
+<tr>
+<td><code>camera/offline/*</code>、<code>camera/import</code>、<code>camera/base</code></td>
+<td>无手机演练与现场改 IP 都需要，上游不提供</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8">8. 校验</h2>
+<pre><code class="language-bash">python tools/check_iface_table.py          # 校验本表 ↔ 上游 ↔ routes.py 三者一致
+</code></pre>
+<p>它会做三件事：① 本表提到的上游符号是否存在；② <code>routes.py</code> 里的端点是否都已登记；
+③ 本表与设计方案附录 A 是否互相指得到。<strong>上游有改动就跑它。</strong></p>
+  </main>
+</div>
+</body>
+</html>

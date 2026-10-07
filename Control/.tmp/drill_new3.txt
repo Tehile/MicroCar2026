@@ -1,0 +1,115 @@
+==============================================================================
+Control 端到端演练（无鼠 / 无手机 / 无场地）
+==============================================================================
+
+── 0. 造合成素材（有真值） ─────────────────────────────────────────────────────────
+  [PASS] S0    合成了两个会话：无填充 + 行填充 16B（用于验 I13）
+
+── 1. 起服务 ────────────────────────────────────────────────────────────────
+  [PASS] S1    服务已就绪 http://127.0.0.1:8899（它自己的输出在 C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\.tmp\drill\service.log）
+
+── 2. 判据 I2 / I12：健康端点在子系统全挂时仍可用、且不阻塞 ────────────────────────────────────
+  [PASS] I2    HTTP 200；三路都有可读 detail；相机当前 不可达（不可达时也返回 200 并说清了原因）
+  [PASS] I12   /health 耗时 14 ms（< 1 s）
+
+── 2b. 判据 I20 / I21：界面资源不许被浏览器自行缓存、引用的文件都可达 ──────────────────────────────
+  [PASS] I20   Cache-Control：/ = 'no-cache'、/static/wsproto.js = 'no-cache'
+  [PASS] I21   index.html 引用 21 个静态资源，全部 200
+
+── 3. 判据 I1：不许引入 GUI 框架 ──────────────────────────────────────────────────
+  [PASS] I1    装载全部后端模块后 sys.modules 里的 GUI 框架: []
+
+── 4. 判据 I3：串口被占用时的错误信息要能照着做 ─────────────────────────────────────────────
+  [PASS] I3    不存在的口 COM199 ⇒ HTTP 409，信息「COM199 不存在 —— 端口可能已被移除(拔线/蓝牙掉线), 请点『刷新』重新枚举。 [SerialException: could n」（本机枚举到 2 个串口：['COM4', 'COM5']；**故意不去连它们** —— 见 drill 里这段注释）
+
+── 4b. 判据 I18 / I19：手动连接是**前置条件**，不是提示 ───────────────────────────────────
+  [PASS] I18   一路都没连（清单 3 项、就绪 0 项，can_record=False）⇒ 开会话 HTTP 409；消息里给了可照做的清单=是；没新建会话目录（集合 未变）
+
+── 5. 判据 I10：大数组必须能走二进制帧 ─────────────────────────────────────────────────
+  [PASS] I10   帧编解码往返一致；JSON 载荷上限 64 KiB（超过必须走二进制）
+
+── 6. 判据 I13：帧解码必须按 stride 切行（含反例） ───────────────────────────────────────
+  [PASS] I13   TESTED 16 BAD 0 PAD_FRAMES_MATCHING_NAIVE 0 ⇒ 两条路径逐像素相同，且硬编码 reshape(H,W) 在填充帧上确实出错（反例成立 ⇒ 这条判据有区分度）
+
+── 7. 判据 I14：收到 _reconnected 必须主动重对齐状态 ───────────────────────────────────
+  [PASS] I14   TYPES ['log', 'camera.status'] RECON 1 BLOCK_MS 0 ⇒ _reconnected 立刻发出 camera.status(reconnected=True)，且**不再**在事件线程里做阻塞 status()（0 ms）
+
+── 8. 判据 I5：开会话失败必须回滚，不留半个会话目录 ───────────────────────────────────────────
+  [PASS] I5    假相机（status 正常 ⇒ 门控放行，camera 项「服务可达 · 手机已连 1 个」；start 故意 500）⇒ 开会话中途失败：HTTP 409，目录集合未变 ⇒ 没留半个会话，消息里写明了回滚到哪一步
+
+── 9. 正路：导入离线会话 → 开会话 → 回放 → 收会话 → 赛后批量 ──────────────────────────────────
+  [PASS] S2    会话 2026-10-04_1733_pbcm 三路同开：{'mouse': 'open', 'camera': 'open', 'locate': 'open'}
+  [PASS] I19   只连了相机这一路 ⇒ 会话照开（没误伤「只测场地」的用法）；开会话时给 1 条提醒，点出鼠那一路是空的：['电脑鼠没连上（未连接）：点顶栏【电脑鼠】连接']
+  [PASS] S3    回放 8/8 帧，在线定位有效 8 无效 0
+  [PASS] S4    收会话告警 0 条（含行数守恒自检 I6）
+  [PASS] S5    赛后批量任务 (id, state, 进度, 有效, 无效)：[('run001', 'done', '8/8', 8, 0)]
+
+── 10. 判据 I7：结果行数 == 交付帧数，且无效帧也留档 ────────────────────────────────────────
+  [PASS] I7    results.jsonl 8 行 == 交付帧 8 帧；无效 0 行（也留档，带 reason）
+
+── 11. 判据 I4 / I6：时间轴每行有 t_pc_ms；meta 记时钟；行数守恒 ───────────────────────────
+  [PASS] I4    22 行时间轴，缺 t_pc_ms 的 0 行；meta.clock = offset 0.0ms / source=assumed / ±250.0ms
+  [SKIP] I6    离线导入没有真实留存账本（store=null），无法比对；时间轴里 frame_verified 有 8 行（= 交付帧数，自行对照）
+
+── 12. 判据 I9：跑完之后三个上游仓库仍然干净 ──────────────────────────────────────────────
+  [PASS] I9    三个上游仓库 git status 全空（只消费，没写过一个字节）
+
+── 13. 定位精度：与合成真值对比（这一条不是判据，是「链路真的通了」的证据） ────────────────────────────────
+  [INFO] INFO  位置误差 均值 1.68 mm / 最大 2.65 mm（按 1440 mm 场地折算）；角度 均值 0.087° / 最大 0.214°
+
+── 14b. 判据 I15 / I16 / I17：跟上游更新（需要模拟器） ──────────────────────────────────
+  [PASS] S6    服务端已连上模拟器：{'proto': 1, 'fw': 100, 'mazetype': 7}
+  [PASS] I16   38 项 = 生产 7 + 课程 14 + 红外 11 + 电源 6（page 115 / 116，mc.params.set vs mc.lesson.set_params）⇒ 生产侧四组同页同通道、课程侧另一条通道
+  [PASS] I15   发车=True，样本 2 帧 TIME，偏移 80696.234s（频差 Noneppm，样本够才拟合得出）；帧发生时刻 1791106397264 vs 到达 1791106397264（链路 未估出 ms）；2026-10-04_1733_pbcm 的 timeline 22 行，t_src 分布 {'local': 14, 'arrival': 8}
+  [PASS] I17   seq_lost=0 seq_gap=0 bad_crc=0 rx=6509 B/s ⇒ 「数据齐不齐」是可回答的，不靠猜
+
+── 14c. 顺带验：课程实验与自动算参（新功能，非判据） ───────────────────────────────────────────
+  [FAIL] S7    课程实验失败：HTTP 200 {"ok": true, "data": {"ok": false, "status": "ERR_BUSY", "exp": 2, "exp_name": "编码器测距", "reason": "", "reason_text": "", "elapsed_ms": null, "dL": null, "dR": null, "peak_l": null, "peak_r": null, "an
+  [PASS] I22   静默状态（STREAM OFF）下 SNAP 取到 ['MAZE', 'MOTION', 'ODOM', 'POWER', 'SENSE', 'TIME']，status=OK；四路红外 F1=140mm/正常 F2=141mm/正常 L=236mm/正常 R=40mm/正常；电源 7553 mV / 档 4 / 采样 True；码表 6 域
+  [PASS] I23   发车 HTTP 200 ⇒ 事件 42 条（种类 ['BEGIN', 'ROAD', 'TASK', 'TURN']，路口 ['CORNER_L', 'CORNER_R', 'CROSS', 'TEE_FL', 'TEE_FR', 'TEE_LR', 'THRU']）；状态帧 task=SEARCH road=TEE_FL(岔路口(T型,缺右)) pos=(3,4) 标志=8 丢弃=False；汇总 task=SEARCH 计数={'evCount': 40, 'juncCnt': 7, 'turnCnt': 14, 'deadCnt': 0, 'cellCnt': None}；点查 cellCnt=15 evDrop=0
+
+── 15. 需要现场硬件才能判的（这里如实标出，不假装通过） ──────────────────────────────────────────
+  [SKIP] I8    需要现场硬件：场地标定后把鼠放到已知格，比固件与视觉的格距残差 < 0.3 格
+  [SKIP] I11   半自动：complete=null 时前端渲染为「判不了」。服务端已在 /camera/ledger 里给出 _complete_meaning，但需要一台真的手机才能造出 null 的账本
+  [INFO] I3*   串口占用已实测；但'先关 run_host.py'那句提示要真开着 GUI 才会走到
+  [INFO] I12*  需要现场硬件：一次 5 MB 慢投递下 /health 仍 < 1 s（需要真采集）
+
+── 产物 ────────────────────────────────────────────────────────────────────
+  会话目录：C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\sessions\2026-10-04_1733_pbcm
+    camera.json  (262 B)
+    locate\results.csv  (1391 B)
+    locate\results.jsonl  (19067 B)
+    locate\results_online.jsonl  (19347 B)
+    locate\run_meta.json  (1127 B)
+    meta.json  (3927 B)
+    mouse\meta.json  (527 B)
+    mouse\raw.bin  (0 B)
+    mouse\raw.ts  (0 B)
+    mouse\stream_250hz.csv  (89 B)
+    mouse\stream_50hz.csv  (71 B)
+    mouse\stream_5hz.csv  (83 B)
+    mouse\text.log  (0 B)
+    timeline.csv  (3283 B)
+
+  日志尾：
+    [info] 相机可达性变为 可达
+    [info] 会话 2026-10-04_1732_svkj 已建目录：C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\sessions\2026-10-04_1
+    [warn] start 采集失败：HostLinkError: HTTP 500: {"ok": false, "error": "\u5047\u76f8\u673a\u6545\u610f\u5931\u8d25\uff08\u
+    [info] 相机事件订阅恢复（此前连续失败 2 次）
+    [info] 相机事件流重连 —— 作废快照并主动重探，通知客户端重新对齐
+    [info] 相机可达性变为 不可达
+    [info] 已导入本地相机会话 SYNTH-TEST_0001：8 帧（离线模式，不连服务）
+    [info] 相机可达性变为 可达
+    [info] 会话 2026-10-04_1733_pbcm 已建目录：C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\sessions\2026-10-04_1
+    [info] 赛后批量定位已启动：run001，共 8 帧 → C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\sessions\2026-10-04_1733_
+    [info] 赛后批量定位 done：run001 8/8（跳过已算 0），文件内有效 8、无效 0（无效帧亦留档，带 reason）
+    [warn] 相机事件订阅断了：TimeoutError: timed out；改为退避重试（2→4→8→15 s 封顶），恢复时另报一条
+
+── 汇总 ────────────────────────────────────────────────────────────────────
+  PASS 27   FAIL 1   SKIP 3（需要现场硬件）
+
+  没过的：
+    · S7: 课程实验失败：HTTP 200 {"ok": true, "data": {"ok": false, "status": "ERR_BUSY", "exp": 2, "exp_name": "编码器测距", "reason": "", "reason_text": "", "elapsed_ms": null, "dL": null, "dR": null, "peak_l": null, "peak_r": null, "an
+
+  下一步：python app.py → http://127.0.0.1:8770
+  （--keep 可以保留 .tmp/drill 里的合成素材，方便自己进去翻）

@@ -1,0 +1,58 @@
+==========================================================================
+Control 前端无头实测（CDP 直连，不依赖 Playwright）
+==========================================================================
+
+── 0. 目标服务 ─────────────────────────────────────────────────────────────
+  [PASS] S0     http://127.0.0.1:8770/api/v1/health → 200
+
+── 0c. 确定起点（断开残留连接并等状态稳定） ──────────────────────────────────────────────
+  [PASS] S0e    鼠标已断开且状态稳定（这一轮从确定状态开始）
+  [PASS] S0d    假上游相机：已起假上游相机 127.0.0.1:8765（37×37 矩阵，供绘制通路验证）
+
+── 0b. 起鼠标模拟器（让页面有真数据可渲染） ──────────────────────────────────────────────
+  [PASS] S0b    模拟器已监听 127.0.0.1:5555
+  [PASS] S0c    服务端已连上模拟器：{'ok': True, 'target': 'tcp://127.0.0.1:5555', 'device': {'proto': 1, 'fw': 100, 'mazetype': 7}, 'state': 'open'}
+
+── 1. 起无头浏览器 ───────────────────────────────────────────────────────────
+  [PASS] S1     chrome.exe 无头已起（CDP 62197）
+
+── 2. 打开首页（P0 验收：四灯可点 + 两栏 + 九页） ───────────────────────────────────────
+  [PASS] B0     标题「Control · 电脑鼠整合上位机」；顶栏灯 4 个：['tcp://127.0.0.1:5555', 'fake-1.0', 'default', '未标定']；其中可点的设备标签 ['mouse', 'camera', 'locator', 'clock']
+  [PASS] B1     两栏页签 8 个（左栏 2 / 右栏 6）：['arena', 'capture', 'params', 'calib', 'depart', 'exp', 'scope', 'console']
+  [PASS] B2     视图容器 9 个（两栏 8 + 底栏 1），全部 mount 无异常
+
+── 2b. 入口页（子系统分组 + 模块卡片） ───────────────────────────────────────────────
+  [PASS] B24    入口页只有导航（无旧选项卡、工作区不在入口页）：小车控制 5 卡片 ['实时参数', '分组测量', '运动控制', '校准例程', '实验 8 · 无记忆走迷宫']／相机 1／定位 2／综合运动 1
+
+── 2c. 模块界面：点卡片单开、点返回回入口 ───────────────────────────────────────────────
+  [PASS] B25    点卡片「实时参数」⇒ 入口页收起、工作区整屏 (1680px)、其它工作区未露、URL=#/mouse/mod_params；点返回 ⇒ 回入口页、URL 清空
+  [PASS] B26    入口页几何正常：四组竖排 [40, 168, 284, 399]、等宽 1680px、内容 840/840px 无横向溢出；mouse 高 128（卡片 74）／cam 高 116（卡片 61）／loc 高 116（卡片 61）／all 高 116（卡片 61）
+  [PASS] B27    深链 `#/loc/mod_maze` 直接落到「迷宫结构解析」界面
+  [PASS] B28    「综合运动」卡片打开了两栏九页界面（视图容器 9 个）
+
+── 2f. 新模块：分组测量 / 实验 8 走迷宫 ─────────────────────────────────────────────
+  [PASS] B30    模块界面都挂上了：mod_params(#mp-groups/#mp-reload/#mp-saves/#mp-acc)；mod_meas(#ms-read/#ms-doms/#ms-ir/#ms-batt/#ms-scope)；mod_maze8(#m8-run/#m8-state/#m8-snap/#m8-kv/#m8-mask-bits/#m8-ev) 全在、有内容（运动 MOTION · 10 项字段值s…｜迷宫未运行…）、挂载无未捕获异常
+
+── 2g. 实时参数：界面读数 vs 遥测（同一张表里的 mid + slow） ──────────────────────────────
+Traceback (most recent call last):
+  File "C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\tools\browser_check.py", line 1804, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\tools\browser_check.py", line 1800, in main
+    return asyncio.run(run(args))
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\liuru\.conda\envs\general_env\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\liuru\.conda\envs\general_env\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\liuru\.conda\envs\general_env\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\tools\browser_check.py", line 957, in run
+    rp = await cdp.eval(
+         ^^^^^^^^^^^^^^^
+  File "C:\PersonalData\Doc\competition\2026 Computer Mouse\Control\tools\browser_check.py", line 466, in eval
+    raise RuntimeError(json.dumps(r["exceptionDetails"], ensure_ascii=False)[:400])
+RuntimeError: {"exceptionId": 1, "text": "Uncaught", "lineNumber": 0, "columnNumber": 1056, "scriptId": "43", "exception": {"type": "object", "subtype": "error", "className": "SyntaxError", "description": "SyntaxError: Unexpected token ')'", "objectId": "-1052410657574103434.2.2"}}

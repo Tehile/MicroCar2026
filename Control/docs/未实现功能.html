@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>未实现功能清单</title>
+<style>
+:root{
+  --bg:#14161a; --bg2:#1a1d23; --bg3:#20242c; --line:#2b3038;
+  --fg:#dfe3ea; --fg2:#9aa3b0; --fg3:#6b7480;
+  --accent:#5aa9e6; --accent2:#7bd88f; --warn:#e5b567; --danger:#e06c75;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+#wrap{display:flex; align-items:flex-start; max-width:1500px; margin:0 auto}
+/* ---------- 侧栏 ---------- */
+#toc{
+  position:sticky; top:0; flex:0 0 300px; height:100vh; overflow-y:auto;
+  padding:22px 16px 60px; border-right:1px solid var(--line); background:var(--bg2);
+}
+#toc .brand{font-size:13px; color:var(--fg3); letter-spacing:.08em; margin-bottom:14px; text-transform:uppercase}
+#toc ul{list-style:none; margin:0; padding-left:0}
+#toc ul ul{padding-left:14px}
+#toc li{margin:1px 0}
+#toc a{display:block; padding:4px 8px; border-radius:6px; color:var(--fg2); text-decoration:none;
+        font-size:13px; line-height:1.45; border-left:2px solid transparent}
+#toc a:hover{background:var(--bg3); color:var(--fg)}
+#toc>ul>li>a{color:var(--fg); font-weight:600}
+/* ---------- 正文 ---------- */
+main{flex:1 1 auto; min-width:0; padding:34px 46px 120px}
+h1,h2,h3,h4{line-height:1.35; margin:1.9em 0 .6em; scroll-margin-top:16px}
+h1{font-size:27px; margin-top:0; padding-bottom:.45em; border-bottom:2px solid var(--line)}
+h2{font-size:21px; padding-bottom:.35em; border-bottom:1px solid var(--line); color:#fff}
+h3{font-size:17px; color:var(--accent)}
+h4{font-size:15px; color:var(--fg2)}
+p{margin:.75em 0}
+a{color:var(--accent)}
+strong{color:#fff}
+hr{border:0; border-top:1px solid var(--line); margin:2.2em 0}
+/* ---------- 表格 ---------- */
+table{border-collapse:collapse; width:100%; margin:1.1em 0; font-size:13.5px; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:7px 11px; text-align:left; vertical-align:top}
+th{background:var(--bg3); color:#fff; font-weight:600; white-space:nowrap}
+tr:nth-child(even) td{background:rgba(255,255,255,.014)}
+td code{white-space:nowrap}
+/* ---------- 代码 ---------- */
+code{background:var(--bg3); padding:1px 5px; border-radius:4px; font-family:var(--mono);
+     font-size:12.8px; color:#e8c07d}
+pre{background:#0f1115; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+    overflow-x:auto; margin:1.1em 0}
+pre code{background:none; padding:0; color:#c8d0da; font-size:12.6px; line-height:1.65; white-space:pre}
+/* ---------- 引用（本方案里全是纪律/警告） ---------- */
+blockquote{margin:1.1em 0; padding:10px 16px; border-left:3px solid var(--warn);
+           background:rgba(229,181,103,.07); border-radius:0 8px 8px 0; color:#f0e0c0}
+blockquote p{margin:.3em 0}
+blockquote code{background:rgba(0,0,0,.35)}
+ul,ol{padding-left:1.6em}
+li{margin:.28em 0}
+@media (max-width:1080px){
+  #toc{display:none}
+  main{padding:20px 18px 80px}
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <nav id="toc">
+    <div class="brand">Control · 整合上位机</div>
+    <div class="toc">
+<ul>
+<li><a href="#_1">未实现功能清单</a><ul>
+<li><a href="#1">1. 完成度</a></li>
+<li><a href="#2">2. 未接通项</a><ul>
+<li><a href="#21">2.1 迷宫结构解析（定位）</a></li>
+<li><a href="#22">2.2 综合运动（推迟）</a></li>
+</ul>
+</li>
+<li><a href="#3-2026-10-04">3. 与上游能力的对应（2026-10-04 核对）</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+  </nav>
+  <main>
+<h1 id="_1">未实现功能清单</h1>
+<blockquote>
+<p>界面已经按<strong>子系统 → 模块</strong>重排（见 <code>上位机整合设计方案.md</code> 的「总纲（冻结）」）。
+这篇记录<strong>已列进界面、但子系统侧还没接通</strong>的部分：它们的模块卡片上写着「未实现 · 见文档」，
+点开是一页说明。</p>
+<p>原则：<strong>不在整合层伪造上游没有的能力</strong>。缺的是上游事实，就如实写"缺什么"。</p>
+</blockquote>
+<hr />
+<h2 id="1">1. 完成度</h2>
+<table>
+<thead>
+<tr>
+<th>子系统</th>
+<th>模块</th>
+<th>状态</th>
+<th>后端</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>小车控制</td>
+<td>实时参数</td>
+<td><strong>可用</strong></td>
+<td><code>GET/POST /api/v1/mouse/params/grouped</code>、<code>POST /api/v1/mouse/tare</code>（38 项 / 四组，SAVE 按钮按数据里的页号现生成）；<strong>实时读数</strong> = 统一帧 <strong>39 通道</strong>（运动与姿态 / 里程与位置 / 迷宫判定 / 四路红外 / 电源 / 链路），随 WS <code>mouse.telemetry</code> 刷新；码表来自 <code>GET /api/v1/mouse/meas/meta</code>（零设备访问）。⚠️ 本模块<strong>已并入原「分组测量」</strong>（上游 2.0.0 删了 <code>SNAP</code>/<code>SCOPE</code>，两者读的东西成了同一条流）</td>
+</tr>
+<tr>
+<td>小车控制</td>
+<td>运动控制</td>
+<td><strong>可用</strong></td>
+<td><code>POST /api/v1/mouse/move</code>（kind = <code>run</code> / <code>rotate</code> / <code>forward</code> / <code>backward</code>）</td>
+</tr>
+<tr>
+<td>小车控制</td>
+<td>校准例程</td>
+<td><strong>可用</strong></td>
+<td><code>POST /api/v1/mouse/calib/{item}</code>、<code>POST /api/v1/arena/*</code></td>
+</tr>
+<tr>
+<td>小车控制</td>
+<td>实验 8 · 无记忆走迷宫</td>
+<td><strong>可用</strong>（真机未验证）</td>
+<td><strong>三栏</strong>：<code>GET /api/v1/mouse/maze/reconstruct</code>（<strong>中栏重构示意</strong>，零上游调用）、<code>GET /api/v1/mouse/maze/state</code>、<code>GET /api/v1/mouse/maze/history</code>、<code>GET /api/v1/mouse/maze/summary</code>、<code>POST /api/v1/mouse/maze/reset</code>、<code>GET /api/v1/mouse/maze</code>（固件墙图，对账用）。<strong>记录与复盘</strong>：<code>POST …/maze/record/start｜stop</code>、<code>GET …/maze/record</code>、<code>GET …/maze/records[/{name}]</code>、<code>POST …/maze/records/import</code>。⚠️ 2.0.0 删了 <code>maze/events</code> 与 <code>maze/snap</code>：<strong>迁移序列改由主机差分相邻帧</strong>取得</td>
+</tr>
+<tr>
+<td>相机</td>
+<td>图像回传测试（灰度）</td>
+<td><strong>可用</strong></td>
+<td><code>GET /api/v1/camera/mjpeg</code>（监视道）</td>
+</tr>
+<tr>
+<td>相机</td>
+<td>图像回传测试（彩色）</td>
+<td><strong>可用</strong></td>
+<td><code>POST /api/v1/camera/start</code>（<code>capture_mode=live</code>）+ 同一条 MJPEG</td>
+</tr>
+<tr>
+<td>定位</td>
+<td>定位测试</td>
+<td><strong>可用</strong></td>
+<td><code>GET /api/v1/locate/preview</code>、<code>GET /api/v1/locate/annotated/{seq}.jpg</code></td>
+</tr>
+<tr>
+<td>定位</td>
+<td>迷宫结构解析</td>
+<td><strong>未接通</strong></td>
+<td>——</td>
+</tr>
+<tr>
+<td>综合运动</td>
+<td>全部</td>
+<td><strong>推迟</strong></td>
+<td>原有两栏九页保留可用</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>「实验 8」标注<strong>真机未验证</strong>：状态机回传是上游 1.5.5 新加的，上游自己列了 6 项真机待办
+（路口判定与现场是否一致、<code>EVQ</code> 是否为 0 等）。模拟器上<strong>帧 + 差分序列</strong>全通（判据 I23）。
+⚠️ 2.0.0 起 <code>classify_road()</code> 由<strong>主机侧复刻</strong>（固件不再上报路口分类），所以
+"路口判定与现场是否一致"这件事现在多了一层：<strong>要看主机复刻得对不对</strong>。</p>
+<p>⚠️ <strong>「实验 8」的自动收尾是弱判据</strong>（如实标注，不假装通过）：固件<strong>没有"迷宫结束"事件</strong>
+（<code>MAZE RUN</code> 之后一直处于迷宫态）⇒"从发车到停止"里的<strong>"停止"没有权威信号</strong>，
+只能组合弱判据（<code>STOPPED</code> 事件 / 任务机回到 WAIT 持续 N 秒 / 断链 / 帧数上限）。
+⇒ 界面上<strong>必须有【停止并保存】人工兜底</strong>，且这一点写在界面文案里。
+⚠️ 2.1.1 / 2.2.0 起"收尾"多了两个<strong>正经动作</strong>（【收车】<code>MAZE STOP</code> / 【救援】<code>MCU RESET</code>），
+但它们是<strong>动车</strong>、不是存盘，所以与【停止并保存】<strong>分成三个按钮</strong>，不合并。</p>
+</blockquote>
+<hr />
+<h2 id="2">2. 未接通项</h2>
+<h3 id="21">2.1 迷宫结构解析（定位）</h3>
+<p><strong>为什么列在这里</strong>：上游 Auto Locate 已经把算法做出来了 —— 仓库根目录的独立脚本
+<code>maze_extract.py</code>，核心接口：</p>
+<pre><code class="language-python">extract_maze(frame_bgr, H_img2field, cfg) -&gt; (Maze, 正射图, 红色掩码)
+</code></pre>
+<p>它从<strong>红色墙线</strong>解出 8×8 迷宫的墙结构，并输出邻接图与结构示意图。</p>
+<p><strong>卡在哪一步</strong>：本层手上没有<strong>彩色帧</strong>。</p>
+<ul>
+<li>PhoneCamera 的<strong>交付道</strong>落盘的是<strong>原始 Y 平面</strong>（灰度），Control 的 <code>decode_y()</code>
+  只是把它铺成三通道；那张图里没有红色 ⇒ <code>extract_maze</code> 解不出墙。</li>
+<li>彩色只存在于<strong>实时道</strong>（<code>capture_mode=live</code>），而实时道<strong>不落盘</strong>（"只看不留"）。</li>
+</ul>
+<p><strong>因此缺的是</strong>：一个"彩色帧的落盘来源"。这属于上游能力，不在整合层伪造。</p>
+<p><strong>接通后要做的</strong>（留给后续）：</p>
+<ol>
+<li>拿到彩色帧的落盘路径 / 或一条"取一帧彩色"的接口；</li>
+<li>用现有的 <code>locate()</code> 先在<strong>同一帧</strong>上解出场系单应 <code>H_img2field</code>
+   （<code>maze_extract</code> 自己不检测标记，它<strong>要求调用方给 H</strong>）；</li>
+<li>新增一个端点把 <code>extract_maze</code> 的输出转成 PNG + 邻接 JSON 给前端；</li>
+<li>前端把结构图（<code>render_structure()</code> 的白底黑墙图）显示出来。</li>
+</ol>
+<p><strong>注意</strong>：<code>maze_extract.py</code> 是<strong>独立脚本</strong>，<strong>不在</strong> <code>aruco_locator</code> 包里，
+<code>__all__</code> 未导出（上游明确"v1.x 接口保持冻结"）。消费它要单独 <code>import</code> 并把上游根目录
+加进 <code>sys.path</code>；<strong>不得</strong>把它并进包，也不得改它的源码。</p>
+<h3 id="22">2.2 综合运动（推迟）</h3>
+<p>用户已明确"综合的页面不急着完成"。它当前就是原有的<strong>两栏九页</strong>（①场地 ②采集 ③参数
+④标定 ⑤发车 ⑥实验 ⑦波形 ⑧调试台 ⑨数据），功能完整、继续可用；
+将来若要按子系统重排，再单独决策。</p>
+<hr />
+<h2 id="3-2026-10-04">3. 与上游能力的对应（2026-10-04 核对）</h2>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>新能力</th>
+<th>本层接法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PhoneCamera <strong>1.15.0</strong></td>
+<td>彩色实时道 <code>POST /api/v1/live/frame</code>，会话级 <code>capture_mode=live</code>（只看不留、不落盘）</td>
+<td><code>camera/start</code> 带 <code>plan.capture_mode=live</code>，画面并入既有 MJPEG</td>
+</tr>
+<tr>
+<td>PhoneCamera（既有）</td>
+<td>监视道 <code>GET /stream/mjpeg</code>（480 宽灰度）</td>
+<td><code>camera/mjpeg</code> 反代（前端拿不到 token）</td>
+</tr>
+<tr>
+<td>Auto Locate</td>
+<td>迷宫结构生成（<strong>独立脚本</strong> <code>maze_extract.py</code>）</td>
+<td><strong>未接通</strong>，见 §2.1</td>
+</tr>
+<tr>
+<td>RemoteControl</td>
+<td><code>move.run(sp_l, sp_r, ms, ir_mm)</code> / <code>move.rotate(pwm, ms)</code></td>
+<td><code>mouse/move</code> 的 <code>run</code> / <code>rotate</code></td>
+</tr>
+<tr>
+<td>RemoteControl</td>
+<td><code>TARE</code>（陀螺角累加器与里程基准清零）</td>
+<td><code>mouse/tare</code></td>
+</tr>
+<tr>
+<td>RemoteControl <strong>2.0.0</strong>（<strong>取代</strong> 1.5.0 的 <code>mc.snap</code> + <code>SCOPE</code>）</td>
+<td><strong>统一帧</strong> <code>TYPE_UNIFIED</code>（53 B / <strong>39 个扁平通道</strong>：四路红外 ADC+mm 双传、电池 mV、里程 mm、完整迷宫状态机、<code>ms8</code> 时间锚）</td>
+<td><code>mouse/meas/meta</code>（通道清单 + 迷宫码表，<strong>零设备访问</strong>）、WS <code>mouse.telemetry</code>；旧 <code>mouse/snap</code>、<code>mouse/scope/*</code> <strong>已删（404）</strong></td>
+</tr>
+<tr>
+<td>RemoteControl <strong>2.1.0</strong>（<strong>推翻</strong> 2.0 的自时钟发送）</td>
+<td><strong>上位机停等拉取</strong>：<code>PC → TELEM</code>，设备回一帧 + <code>ACK &lt;seq&gt; OK &lt;upMs&gt;</code>；<code>STREAM ON</code>/<code>OFF</code> <strong>已删除</strong>，命令 23 → 22。帧格式<strong>零改动</strong>。可达帧率 = <strong>1/RTT</strong>（真机 <strong>4.4~6.5 Hz</strong>）</td>
+<td><code>POST /mouse/stream</code>（语义 = <strong>启停本机拉取器</strong>，应答含实测 <code>hz</code> 与 <code>pull</code> 状态）；<code>mc.stream.on/off</code> <strong>方法名与签名未变</strong> ⇒ 本层几乎零代码改动</td>
+</tr>
+<tr>
+<td>RemoteControl <strong>1.5.0</strong></td>
+<td>参数新增 17 项（红外阈值 / 卡尔曼 / 前向综合 + 分压 / 低电 / 档位），落在<strong>生产命名空间</strong></td>
+<td>自动出现在「实时参数」的「红外测量」「电源监控」两组（<code>GET ALL</code> 全覆盖，本层未改遍历）</td>
+</tr>
+<tr>
+<td>RemoteControl <strong>1.5.4</strong></td>
+<td>Flash 分区调整：生产标定页 99 → <strong>115</strong>、课程参数页 100 → <strong>116</strong></td>
+<td><code>FLASH_PAGE_PROD</code> / <code>FLASH_PAGE_LESSON</code>；页号随分组数据返回，界面不写死</td>
+</tr>
+<tr>
+<td>RemoteControl <strong>2.0.0</strong>（<strong>取代</strong> 1.5.5 的三通道）</td>
+<td>迷宫状态量<strong>全在统一帧里</strong>；迁移边沿由<strong>主机差分相邻帧</strong>取得（<code>MAZE EV</code> / <code>MAZE RST</code> 已删）；上行事件收敛成 <code>STOPPED &lt;reason&gt; #n</code> / <code>ESTOP TRIP #n</code>（<strong>带序号</strong>）</td>
+<td><code>mouse/maze/state|history|summary|reset</code>；WS <code>mouse.upevent</code> / <code>mouse.estop</code>；「实验 8」模块</td>
+</tr>
+<tr>
+<td>PhoneCamera（既有能力）</td>
+<td><code>pc/server.py</code>（独立服务，需手动启动/自带 <code>start_service.cmd</code>）</td>
+<td><strong>本层代启</strong>：<code>camera/service/start</code> 按设置里的程序地址起它并等到可答话；配对不再依赖手动启动</td>
+</tr>
+<tr>
+<td>PhoneCamera（既有能力）</td>
+<td><code>pc/server.py</code>（独立服务，需手动启动/自带 <code>start_service.cmd</code>）</td>
+<td><strong>本层代启</strong>：<code>camera/service/start</code> 按设置里的程序地址起它并等到可答话；配对不再依赖手动启动</td>
+</tr>
+</tbody>
+</table>
+<p><strong>上游没有的东西</strong>（不要假装有）：</p>
+<ul>
+<li><code>mc.move</code> <strong>没有 <code>turn(deg)</code></strong>（转向是按 cm/s + ms 的开环定长）；<strong>没有 <code>rear</code></strong>（后退用负速度）。</li>
+<li><code>mc</code> <strong>没有 <code>caps()</code></strong>（能力协商未实现）。⚠️ 2026-10-05 起 <code>registry.API_VERSION</code> <strong>可信</strong>
+  （上游每次都改，已到 2.2.1），但 <code>host.__version__</code> 停在 2.1.0 ⇒ 两者<strong>不一致是上游的既有状况</strong>；
+  本层仍以 <code>API_VERSION</code> 为准并<strong>一律走能力探测</strong>，不靠版本号判能力。</li>
+<li>~~<code>mc.maze</code> <strong>没有"停止跑迷宫"</strong>~~ ⇒ <strong>2026-10-05 已被上游推翻</strong>（2.1.1 新增 <code>MAZE STOP</code>）。
+  现在的实情分两层，都要知道：
+  · <strong><code>MAZE STOP</code>（【收车】）存在</strong>：停车 + 复位发车状态 + 解锁急停 ⇒ 不必断电即可再发车；
+  · <strong>但车在运动时它不可靠</strong>：它只置一个"请退出"标志（<code>linkMazeAbort</code>），而标志的检查在
+    <code>LESSON_Blind8()</code> 的 <code>while(1)</code> <strong>顶部</strong>，主循环却有 30 余处<strong>非协作式阻塞等待</strong>
+    （等的是编码器里程这类<strong>物理进度</strong>）⇒ 车在运动时程序正卡在那些循环内部，标志轮不到。
+    真机实测：回 <code>OK</code> 但 <code>mazeTask</code> 仍 <code>SEARCH</code>。
+  · ⇒ <strong>可靠收车手段是 <code>MCU RESET</code>（【救援】，2.2.0）</strong> —— 整机软复位，BSS 清零把发车状态
+    一起清掉。代价是<strong>复位不复位物理位置</strong>（发车前必须人工把车放回起点角），且复位后
+    约 3 s 才有新遥测帧。由 <strong>I28</strong> 守（含"收车后能再发车"与"急停中发车回 ERR_ESTOP"）。</li>
+<li><strong>课程参数的值读不回来</strong>（2.0.0）：固件 <code>GET ALL</code> / <code>GET &lt;name&gt;</code> 只查<strong>生产表</strong>（24 项），
+  课程 14 项一律回 <code>ERR_NAME</code>；<strong>写侧</strong>（<code>SET</code>/<code>SETQ</code>）仍通。所以界面上课程组标着
+  「值读不到，可写」，SAVE 时要<strong>先把新值填进输入框</strong>。这不是本层漏做，是固件侧的读侧缺口。</li>
+<li><strong>没有"事后回传课程日志"</strong>（2.0.0）：<code>SCOPE</code>/<code>DUMP</code> 整套删除，曲线只在 <code>lesson/run</code>
+  期间就地捕获。所以那个按钮<strong>已删除</strong>，路由也明确报错而不是返回空数组。</li>
+</ul>
+  </main>
+</div>
+</body>
+</html>

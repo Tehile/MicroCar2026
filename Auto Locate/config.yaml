@@ -1,0 +1,114 @@
+# ArUco 场地定位配置
+# 所有阈值、字典、相机参数都在这里，代码里不硬编码。
+# 这里写的是默认值，删掉某项即回落到内置默认。
+
+detection:
+  dict_name: DICT_4X4_1000
+  corner_ids: [1, 2, 3, 4]
+  target_id: 0
+
+  adaptive_thresh_win_size_min: 3
+  adaptive_thresh_win_size_max: 53
+  adaptive_thresh_win_size_step: 6
+  adaptive_thresh_constant: 7.0
+  min_marker_perimeter_rate: 0.01
+  max_marker_perimeter_rate: 4.0
+  polygonal_approx_accuracy_rate: 0.03
+  min_distance_to_border: 1
+  error_correction_rate: 0.6
+
+  # 透视矫正后的逐格位采样。默认(4, 0.13)在小且斜、有模糊的标记上会解码失败：
+  # 实拍验证 8 / 0.25 能找回此类标记，且不引入误检（2026-09-25 迷宫实拍）。
+  perspective_remove_pixel_per_cell: 8
+  perspective_remove_ignored_margin_per_cell: 0.25
+
+  corner_refinement: subpix
+  corner_refinement_win: 5
+  corner_refinement_max_iter: 30
+  corner_refinement_min_accuracy: 0.01
+
+  # ↓ 精度主要来自这一步：边缘直线拟合亚像素精化（见 aruco_locator/corners.py）
+  #   它比 cv2 的 CORNER_REFINE_SUBPIX 准，并且能消掉后者约 1.6% 的"标记整体缩小"系统偏置。
+  edge_refine: true
+  edge_search_px: 2.5          # 沿外法线的初始搜索半宽（像素）
+  edge_step_px: 0.25           # 灰度剖面采样步长（像素）
+  edge_samples: 0              # 每条边采样点数，0 = 按边长自动
+  edge_trim: 0.15              # 每条边两端各裁掉的比例（避开圆角）
+  edge_iterations: 2
+  edge_min_points: 5
+  edge_clip_sigma: 2.5
+  edge_bright_outside: true    # 黑标记贴浅色地面时为 true；若标记比背景亮则改 false
+  edge_max_shift_ratio: 0.35   # 角点位移上限（相对边长），超过则放弃本次精化
+
+  # edge_refine=false 时才会走这条（cv2 的 cornerSubPix 全局精化）
+  subpixel_polish: true
+  subpixel_win: 5
+  subpixel_max_iter: 30
+  subpixel_min_accuracy: 0.01
+
+  # 标记在画面里很小时，加上 2.0 能显著提高检出率（代价是稍慢）
+  scales: [1.0]
+
+  # 光照不均（顶灯偏一侧）时打开
+  clahe: false
+  clahe_clip_limit: 2.0
+  clahe_grid: 8
+
+geometry:
+  # 内顶点选择：
+  #   xdiag_plane  【默认】对角线法（四标记中心两两配对取相交 → 沿对角线点乘取最大），
+  #                点乘在**平面空间**做。无超参、无搜索；实测精度与 auto 持平（实拍逐位一致），
+  #                强透视下更好（auto 有 23mm 野值而它没有），内顶点那一步快约 14 倍。
+  #   xdiag_unit   同上但点乘在图像空间做（省一次仿射拟合，精度略逊）
+  #   xdiag        图像空间原始点乘（不推荐：受投影各向异性偏袒）
+  #   nearest      只用"离场地中心最近"
+  #   auto/search  代价 = 相对形状残差均值 + vertex_margin_weight × 距离余量惩罚
+  #   full         穷举 4^4 组合（最慢）
+  vertex_mode: xdiag_plane
+  max_vertex_search: 16         # 仅 auto/search 用；组合数上限，0 = 不限
+  # 仅 auto/search/full 用。⚠ 0.05~0.5 才安全：0.02 及以下时"形状残差"项会盖过
+  #   "距离余量"项（形状项在 4 点单应下近乎退化、只差 ~1e-4，且会偏袒错误组合），
+  #   实测导致 2026-10-03 新数据 15/18 帧选错内顶点（位置偏 10~45mm）。
+  #   改默认档位为 xdiag_plane 后此参数不再参与计算，仅为兼容旧档位保留。
+  vertex_margin_weight: 0.1
+
+  # 质量门限
+  max_square_rms: 0.02          # 角标记映射回正方形的残差上限（场地单位，0.02 ≈ 场地边长 2%）
+  min_origin_margin: 0.05       # 原点判定余量，低于该值标 ambiguous_origin
+  min_axis_margin: 0.05         # 轴向判定余量，低于该值标 ambiguous_axis
+  max_inner_margin_warn: 0.5
+  require_all_corners: true     # 缺任何角标记即判该帧无效
+
+refine:
+  # 把 16 个角点一起用上的联合最小二乘精化
+  enable: true
+  max_nfev: 100
+
+output:
+  smooth: none                  # none | ema | moving_average
+  ema_alpha: 0.4
+  window: 5
+
+camera:
+  undistort: false              # 走标定路线时打开
+  intrinsic_file: null          # calibrate_camera.py 的输出；也给"自动求天底点"用
+  # 场地实际边长，**只**用于把修正量换算成 mm 写进诊断。
+  # 归一化输出 [0,1]² 与视差系数 k 都与它无关（分子分母同除边长），填错也无害。
+  # 本场地：8×8 格 × 180mm/格 = 1440mm（2026-09-25 用户确认，非标准 16×16）。
+  field_size_mm: 1440.0
+
+  # 高度视差修正。四个角标记定义参考平面，单应只对该平面精确；0 号标记离地高度
+  # 不同时，它的结果会沿"天底点（相机正下方那块场地）方向"偏 (k-1)·|x-N|，
+  # k = (Hc - h_target) / (Hc - h_corner)。详见 README 第 9 节与 parallax.py。
+  #
+  # 现场实测（2026-09-25）：迷宫墙高 50mm，四角标记与墙顶平行（支撑件 0~2mm，
+  # 影响仅 0.1%，忽略）；0 号标记装在小车顶上、离地 23mm。目标比参考平面低
+  # 27mm → k > 1，修正把结果"推离"天底点。相机居中俯拍时修正量约 1% 场地边长。
+  # 场地为 8×8 格（边长 1440mm）——注意这只影响 mm 换算，不影响 k 与归一化结果。
+  parallax:
+    enable: true
+    corner_height_mm: 50.0      # 参考平面（角标记）离地高度 = 墙高
+    target_height_mm: 23.0      # 0 号标记离地高度
+    camera_height_mm: null      # ← 必填：镜头光心离地高度（卷尺量；±20% 精度即可）
+    nadir_xy: [0.5, 0.5]        # 相机正下方那块场地位置；不在场地正上方时改成实测值
+    from_intrinsics: true       # nadir_xy 置 null 且有内参时，用单应分解自动求天底点

@@ -1,0 +1,93 @@
+# 电脑鼠整合上位机（Control）—— 唯一配置
+#
+# 纪律：本文件是**唯一真相来源**；界面里改的东西（场地标定）也会写回这里。
+# 相对路径一律相对于本文件所在目录（Control/）。
+
+server:
+  host: 127.0.0.1        # 单机自用；要开 0.0.0.0 必须先把鉴权补上
+  port: 8770             # 避开 PhoneCamera 的 8765
+  session_root: sessions
+  log_ring: 800          # 服务日志环形缓冲行数
+
+records:
+  # 实验 8「从发车到停止」的记录目录（`*.maze.json`，自包含、可拷走、可导入复盘）。
+  # 为什么**不放进 sessions/**：它是**鼠单路**的产物，且要在"没开会话"时也能记
+  # （只跑一盘迷宫不必开全套会话）。若会话开着，会在 timeline 里记一行指向它。
+  maze_root: records/maze
+
+mouse:
+  target: ""             # ""=由界面选 | "COM7" | "tcp://127.0.0.1:5555" | "replay://sessions/xxx/mouse"
+  baud: 115200
+  auto_stream: true      # 连上即 STREAM ON（固件上电默认静默）
+  scheduler_hz: 50
+  telemetry_window_s: 30.0
+  wave_window_ms: 10000
+  auto_reconnect: true
+
+camera:
+  base: http://127.0.0.1:8765
+  token: ab12cd34        # ⚠️ 凭据：只存服务端，不进前端、不进日志
+  timeout: 10.0
+  default_plan:          # interval_ms=0 ⇒ 不抽帧，每一帧都留（与上游 capabilities 声明一致）
+    mode: interval
+    interval_ms: 0
+    count: 0
+  offline_import_root: "../PhoneCamera/pc/data/sessions"   # 无手机时把已有会话当采来源
+  # 后台健康探测周期（秒）—— /health 只读快照，**绝不同步发网络请求**。
+  # 为什么必须有这两个数：本机实测，对 127.0.0.1:8765 一个"被拒绝"的连接要 ~2.0 s
+  # 才返回（socket.create_connection 原始测试也是 2.047 s，是系统层行为，不是上游的锅）。
+  # 同步探一次就等于 /health 稳定花 2 s ⇒ 违反判据 I12，前端每秒刷一次还会堵线程。
+  probe_interval_s: 8.0      # 相机活着时：多久重读一次 status
+  probe_interval_bad_s: 4.0  # 相机不可达时：多久重试一次（≈一次失败的耗时 + 余量）
+  # 上游程序：不可达时由本层**代启**，省掉手动双击 start_service.cmd。
+  # ⚠️ 代启**只发生在人点了按钮之后**（配对 / 连接 / 重探 / 启动）；后台探测与 /health
+  # 绝不拉起进程 —— 否则一个 2.5 s 刷新的页面会不停起进程。
+  launcher:
+    enabled: true            # 关掉＝彻底不代启（一律自己起）
+    autostart: true          # 配对 / 连接时若不可达就自动代启
+    # Control 收工（Ctrl+C）时要不要顺手停掉本层代启的上游服务。
+    # 默认 false：手机连的是那个服务，Control 重启一次不该把手机也断了。
+    # 收尾时日志会写明"它还活着、PID 多少、怎么停"，所以留着的不会变成"看不见的进程"。
+    stop_on_exit: false
+    script: ""               # ←「上游程序」地址；""＝paths.phonecamera_pc/server.py
+    python: ""               # ""＝用跑 Control 的那个解释器（general_env）
+    port: 0                  # 0＝从 camera.base 解析
+    data_dir: ""             # ""＝paths.phonecamera_pc/data（与手动启动一致）
+    token: ""                # ""＝沿用 camera.token
+    max_mbps: 40.0           # 与 start_service.cmd 一致；WiFi 实测约 5.5 MB/s，调大不会更快
+    host: ""                 # ""＝上游默认 0.0.0.0（手机要能从局域网连到）
+    log: ".tmp/phonecamera-service.log"   # 子进程输出落文件（不许 PIPE 后不读）
+
+locator:
+  config: "../Auto Locate/config.yaml"
+  profile: default
+  online:
+    enabled: true
+    queue_size: 8        # 有界；满了丢最旧并显式计数，绝不阻塞事件消费
+    warn_latency_ms: 500
+  offline:
+    enabled: true
+    auto_run_after_delivery: true
+    downsample_w: 0      # 0 = 原始分辨率
+
+arena:
+  grid: 8                # 固件迷宫 8×8
+  pitch_mm: 180.0
+  field_mm: 1440.0
+  fw_to_arena:
+    y_flip: true         # ⚠️ 未实测前一律视为未标定（arena.calibrated=false）
+    x_flip: false
+    marker_offset_mm: [0.0, 0.0]
+  calibrated: false
+  nadir_xy: [0.5, 0.5]
+  camera_height_mm: null # ⚠️ 必填项：卷尺量镜头光心离地高度
+
+clock:
+  offset_ms: 0.0         # t_pc_ms = device_ms - offset_ms
+  uncertainty_ms: 250.0  # 未标定前用一个诚实的"很大"
+  source: assumed        # assumed | manual | sync_pulse | l2_minlatency
+
+paths:
+  remotecontrol_host: "../RemoteControl/host"
+  autolocate: "../Auto Locate"
+  phonecamera_pc: "../PhoneCamera/pc"

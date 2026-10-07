@@ -1,0 +1,23 @@
+{
+  "started": "2026-10-05 03:15:56",
+  "host_version": "2.0.0",
+  "link_stats": {
+    "unified": 213,
+    "map": 0,
+    "text": 5,
+    "event": 0,
+    "bad_crc": 0,
+    "unknown_frame": 0,
+    "seq_gap": 0,
+    "seq_lost": 0,
+    "rx_bps": 9575.389747566789,
+    "bad_sync": 0,
+    "frames": 213
+  },
+  "counts": {
+    "unified": 210,
+    "text": 0,
+    "event": 0
+  },
+  "ended": "2026-10-05 03:15:57"
+}
