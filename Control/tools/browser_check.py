@@ -110,15 +110,23 @@ PAGE_PROBES = {
     # 实验页：状态行有值 + 实验下拉里真的有上游给的清单（来自 LESSON_EXPS）
     # 实验页：**清单与理论值来自上游的静态表，不依赖连接**，所以那部分必须始终在
     # （这正是"没插硬件也能把页面看全"的要求）；而"前置状态"未连时可以只写一句原因。
+    # ⚠️ **2.4.0 上游已删除课程调参整层**（`LESSON_EXPS` 不复存在）⇒ 这一页只剩电机实验：
+    #    此时课程那栏被换成 `#x-lesson-gone` 的一句说明、下拉本身收起（0 个选项）。
+    #    ⇒ 判据改**两支**：课程层在 ⇒ 下拉 ≥4 项；课程层已删 ⇒ `#x-lesson-gone` 有文字
+    #      **且点明"2.4.0 已删除"**（否则就是把一块空白的栏当成了正常）。理论值同理随层删。
     "exp": ("(()=>{const st=document.querySelector('#x-status'),"
-            "sel=document.querySelector('#x-exp');"
-            "const opts=sel?Array.from(sel.options).map(o=>o.value):[];"
+            "sel=document.querySelector('#x-exp'),gone=document.querySelector('#x-lesson-gone');"
+            "const opts=sel?Array.from(sel.options).map(o=>o.value).filter(v=>v!==''):[];"
             "const th=(document.querySelector('#x-theory')||{}).textContent||'';"
             "const nb=st?st.querySelectorAll('b').length:0;"
             "const gated=st?((st.innerText||'').indexOf('需连接电脑鼠')>=0):false;"
-            "return {ok: opts.length>=4 && (nb>=5||gated),"
-            " note:'实验 '+opts.length+' 个'+' / 状态字段 '+nb+(gated?'（未连鼠，已写明）':'')"
-            "+' / 理论值'+(th.indexOf('62.22')>=0?'有':'缺')};})()"),
+            "const gtxt=gone?(gone.innerText||''):'';"
+            "const goneShown=!!(gone&&gone.offsetParent!==null&&gtxt.indexOf('2.4.0')>=0);"
+            "const course=opts.length>=4;"
+            "return {ok: goneShown || (course && (nb>=5||gated)),"
+            " note:(goneShown?'课程层已删（2.4.0）：'+gtxt.slice(0,40)+'…':'实验 '+opts.length+' 个')"
+            "+' / 状态字段 '+nb+(gated?'（未连鼠，已写明）':'')"
+            "+' / 理论值'+(th.indexOf('62.22')>=0?'有':(goneShown?'随层删':'缺'))};})()"),
     # 波形页：2.0.0 只剩**一条统一帧**，dump 那半块已随 `SCOPE`/`DUMP` 一起删除。
     # 所以这里判的是"实时画布 + 信息行 + 游标区"三件东西在不在（而不是旧的信息行）。
     "scope": ("(()=>{const cv=document.querySelector('#s-live'),"
@@ -143,7 +151,11 @@ GATE_CHECKS = [
     ("B14a", "#d-arm", "mouse", "⑤ 发车（ARM）"),
     ("B14b", "#d-maze", "mouse", "⑤ 远程发车跑迷宫"),
     ("B14c", "#x-lab-run", "mouse", "⑥ 电机实验「跑一次」"),
-    ("B14d", "#x-lesson-run", "mouse", "⑥ 课程实验「跑实验」"),
+    # ⚠️ B14d 在 2.4.0 上游上**判的是隐藏的按钮**（课程那栏被 `#x-lesson-body`
+    # 整体收起）—— 但**没有删它**：本层是整合层，要能在 2.3.x 上游上跑，
+    # 那时这个按钮是可见且需要门控的。`disabled` 检查对隐藏元素照样成立，
+    # 所以它不假绿（真未门控时仍然会红）。
+    ("B14d", "#x-lesson-run", "mouse", "⑥ 课程实验「跑实验」（2.4.0 起该栏收起，仍守 2.3.x）"),
     # ⚠️ 原 B14e（`#s-dump`）**已删除**：2.0.0 起没有"拉 dump"这个动作（`SCOPE`/`DUMP`
     # 整套删除），门控一个不存在的按钮等于给自己留一条永远绿的空断言。
     ("B14f", "#p-reload", "mouse", "③ 读全部参数"),
@@ -855,11 +867,14 @@ async def run(args) -> int:
                 " hash:location.hash||''};})()")
             sec_ok = (sorted(sysinfo.keys()) == sorted(SYS_TABS)
                       and all(sysinfo[s]["name"] for s in SYS_TABS))
-            # ⚠️ 「小车控制」的卡片数是 **4**（不是 5）：上游 2.0.0 删了 `SNAP`/`SCOPE` 之后，
-            # 「分组测量」并入「实时参数」，两张卡变一张。这里写死数字是有意的 ——
-            # 卡片由 `SYS_DEF` 渲染，**模块脚本没加载时卡片照样在**，所以
-            # "卡片数对不对"与"模块能否挂上"是两道独立的闸。
-            cards_ok = (sysinfo["mouse"]["cards"] == 4 and sysinfo["cam"]["cards"] == 1
+            # ⚠️ 「小车控制」的卡片数是 **3**：
+            #   · 上游 2.0.0 删了 `SNAP`/`SCOPE` ⇒「分组测量」并入「实时参数」，5 变 4；
+            #   · 上游 2.4.0 压到两档编译 + 删课程层 + 加 `MAZE RUN [BLIND|RACE]`
+            #     ⇒ 四卡重排为**三卡**：①实时状态与参数设定（原「实时参数」+「运动控制」
+            #     +「校准例程」合成一页）②无记忆走迷宫（原「实验 8」改名）③比赛（新）。
+            #   这里写死数字是有意的 —— 卡片由 `SYS_DEF` 渲染，**模块脚本没加载时卡片照样在**，
+            #   所以"卡片数对不对"与"模块能否挂上"是两道独立的闸。
+            cards_ok = (sysinfo["mouse"]["cards"] == 3 and sysinfo["cam"]["cards"] == 1
                         and sysinfo["loc"]["cards"] == 2 and sysinfo["all"]["cards"] == 1)
             b24_ok = sec_ok and cards_ok and not oldnav and shown["nav"] and not shown["mod"]
             record("B24", "PASS" if b24_ok else "FAIL",
@@ -976,11 +991,11 @@ async def run(args) -> int:
                    f"「综合运动」卡片打开了两栏九页界面（视图容器 {want_views} 个）"
                    if b28_ok else f"**综合运动界面打不开**：{allview}")
 
-            # 两个**新模块**（上游 1.5.0 组测发送 / 1.5.5 实验 8 状态机）必须真的挂上并渲染出控件。
+            # 三个**模块**（上游 1.5.0 组测发送 / 1.5.5 实验 8 状态机 / 2.4.0 比赛页）必须真的挂上并渲染出控件。
             # 为什么单独判：模块脚本没加载 / 注册失败时，**卡片照样在**（它由 `SYS_DEF` 渲染），
             # 点进去才发现是空的 —— 而"页面是空的"和"这个功能本来就没做"长得一模一样
             # （同 I21 的那条纪律：静态资源少一个会**静默变空**）。
-            head("2f. 模块：实时参数（含合并进来的分组测量）/ 实验 8 走迷宫")
+            head("2f. 模块：实时状态与参数设定 / 无记忆走迷宫 / 比赛")
             n_err0 = len(await cdp.snapshot_console())
             want_sel = {
                 # SAVE 按钮是**按数据里的 flash_page 现生成**的 ——
@@ -989,11 +1004,16 @@ async def run(args) -> int:
                 # 2.0.0：「分组测量」**已合并进「实时参数」**（`SNAP`/`SCOPE` 整套删除，
                 # 两者读的东西变成了同一条统一帧）⇒ 这一页现在必须同时有
                 # **读数区**（`#mp-live` / `#mp-stream` / `#mp-fault`）与**参数表区**。
+                # 2.4.0（改版十二）：这一页改名「实时状态与参数设定」，并**并入了原
+                # 「运动控制」（#mm-*）与「校准例程」（#mc-*）两张卡的内容 ⇒ 那些 id
+                # 现在也必须在这一页里找得到（它们不再有自己的卡片，丢了没人报红）。
                 "mod_params": ["#mp-groups", "#mp-reload", "#mp-saves",
-                               "#mp-live", "#mp-stream", "#mp-fault"],
-                # 实验 8 改成**三栏**（状态 / 重构 / 历程）+ 记录与回放 ⇒ 断言跟着换：
-                # 三栏的容器与关键 id 一个都不能少，而且**记录/回放那几个控件也要在**
-                # （它们不在任何别的清单里，少一个就没人为它报红 —— 见 §11.10 的教训）。
+                               "#mp-live", "#mp-stream", "#mp-fault",
+                               "#mm-go", "#mm-estop", "#mc-items", "#mc-refresh"],
+                # 无记忆走迷宫（原「实验 8」）改成**三栏**（状态 / 重构 / 历程）
+                # + 记录与回放 ⇒ 断言跟着换：三栏的容器与关键 id 一个都不能少，
+                # 而且**记录/回放那几个控件也要在**（它们不在任何别的清单里，
+                # 少一个就没人为它报红 —— 见 §11.10 的教训）。
                 # 2026-10-06 追加：右栏顶上那套"运行状态胶囊 + 时间线进度条 + 进入/退出回放"
                 # 是本轮新加的，所以一并钉在这里。
                 "mod_maze8": ["#m8-run", "#m8-mstop", "#m8-rescue", "#m8-stop",
@@ -1002,9 +1022,13 @@ async def run(args) -> int:
                               "#m8-reclist", "#m8-import", "#m8-recbox",
                               "#m8-runpill", "#m8-tlsld", "#m8-rep-enter",
                               "#m8-repctl", "#m8-rep-exit"],
+                # 比赛（2.4.0 新页）：`MAZE RUN RACE` 发车 + 收车/救援 + 前墙双档
+                # + 冲刺状态 + 状态机。这些 id 是**新加的、别处没有**，所以必须钉住。
+                "mod_race": ["#rc-run", "#rc-mstop", "#rc-rescue", "#rc-refresh",
+                             "#rc-front", "#rc-front-ok", "#rc-spurt", "#rc-state"],
             }
             newmods = {}
-            for mid in ("mod_params", "mod_maze8"):
+            for mid in ("mod_params", "mod_maze8", "mod_race"):
                 newmods[mid] = await cdp.eval(
                     "(()=>{C.openMod('mouse','" + mid + "');"
                     "const v=document.querySelector('#ws-mouse .view.on');"
@@ -1016,14 +1040,18 @@ async def run(args) -> int:
                     "  err:eb.map(function(e){return e.textContent.slice(0,60);})};})()")
                 await asyncio.sleep(0.4)
                 # 未连接时**也要画得出"要读什么"**：码表是静态的，不该等设备。
-                #   · 实时参数：读数区要按 `meas/meta` 的 39 个通道名把清单列出来；
-                #   · 实验 8：要么明说「未运行」，要么给出真的状态机读数。
+                #   · 实时状态与参数设定：读数区要按 `meas/meta` 的通道名把清单列出来；
+                #   · 无记忆走迷宫：要么明说「未运行」，要么给出真的状态机读数；
+                #   · 比赛：状态机要么明说「未运行」，要么给出真的状态。
                 newmods[mid]["txt"] = await cdp.eval(
                     "(()=>{const b=document.querySelector('#mp-live');"
                     "return b?b.textContent.replace(/\\s+/g,' ').slice(0,400):'';})()"
                     if mid == "mod_params" else
-                    "(()=>{const b=document.querySelector('#m8-kv');"
-                    "return b?b.textContent.replace(/\\s+/g,' ').slice(0,120):'';})()")
+                    ("(()=>{const b=document.querySelector('#m8-kv');"
+                     "return b?b.textContent.replace(/\\s+/g,' ').slice(0,120):'';})()"
+                     if mid == "mod_maze8" else
+                     "(()=>{const b=document.querySelector('#rc-state');"
+                     "return b?b.textContent.replace(/\\s+/g,' ').slice(0,120):'';})()"))
                 if shots:
                     s = await cdp.call("Page.captureScreenshot", {"format": "png"})
                     (shots / f"{mid}.png").write_bytes(base64.b64decode(s["data"]))
@@ -1036,27 +1064,32 @@ async def run(args) -> int:
             bad_m = [m for m, r in newmods.items()
                      if r.get("mod") != m or r.get("miss") or r.get("err")]
             # 内容也要**有话说**（表还在、字是空的 = 只有壳）：
-            #   · 实时参数：未连接时唯一能画的就是**通道清单**（静态码表）—— 要有 `speedL`；
-            #   · 实验 8：要么明说「未运行」，要么给出真的状态机读数。
+            #   · 实时状态与参数设定：未连接时唯一能画的就是**通道清单**（静态码表）—— 要有 `speedL`；
+            #   · 无记忆走迷宫：要么明说「未运行」，要么给出真的状态机读数；
+            #   · 比赛：同上（未连接时应写「未连接电脑鼠」或「未运行」）。
             mp_txt = newmods["mod_params"].get("txt", "")
             m8_txt = newmods["mod_maze8"].get("txt", "")
-            says_ok = ("speedL" in mp_txt) and (("未运行" in m8_txt) or ("任务" in m8_txt))
+            rc_txt = newmods["mod_race"].get("txt", "")
+            says_ok = (("speedL" in mp_txt)
+                       and (("未运行" in m8_txt) or ("任务" in m8_txt))
+                       and (("未运行" in rc_txt) or ("未连接" in rc_txt) or ("任务" in rc_txt)))
             b30_ok = (not bad_m) and not hard30 and says_ok
             record("B30", "PASS" if b30_ok else "FAIL",
                    "模块界面都挂上了：" + "；".join(
                        f"{m}({'/'.join(want_sel[m])})" for m in want_sel)
-                   + f" 全在、有内容（{mp_txt[:20]}…｜{m8_txt[:20]}…）、挂载无未捕获异常"
+                   + f" 全在、有内容（{mp_txt[:16]}…｜{m8_txt[:16]}…｜{rc_txt[:16]}…）、"
+                   + "挂载无未捕获异常"
                    + (f"（另有 {len(soft30)} 条非异常日志）" if soft30 else "")
                    if b30_ok else
                    f"**模块没挂上或渲染失败**：{newmods}；"
                    f"未捕获异常 {hard30[:2]}；内容={'ok' if says_ok else '空'}")
 
-            # 「实时参数」那一页把**唯一那条统一帧**按语义分组画出来。只判"行在不在"不够
+            # 「实时状态与参数设定」那一页把**唯一那条统一帧**按语义分组画出来。只判"行在不在"不够
             # —— 键名读错时行照样在、值永远显示 `—`，而且脚本不报错。
             # ⚠️ 不能拿"当前遥测值"当期望：统一帧 ≈217 Hz 一直在走，读完 DOM 再读遥测，
             # 两边本来就差几拍（旧版第一次就是这么假红的）。
             # ⇒ 喂一份**已知的**帧进去重渲染，逐行比对；比对完立刻还原。
-            head("2g. 实时参数：界面读数 vs 统一帧（分组表逐行）")
+            head("2g. 实时状态与参数设定：界面读数 vs 统一帧（分组表逐行）")
             # 哨兵值：每组各挑一个，覆盖四种渲染路径 ——
             #   小数+单位（speedL mm/s）、整数+单位（irF1 mm）、编码表翻名字（motionTask）、
             #   位掩码展开（flags）、以及派生键（roadName 来自 `classify_road`，不是通道）。
@@ -1124,11 +1157,11 @@ async def run(args) -> int:
                     if u not in allv:
                         b34_bad.append(f"读数区没有出现单位「{u}」")
                 # 派生键（`roadName`）**不在**通道清单里，也不在分组里 ——
-                # 它是"分类结果"，属于「实验 8」那一页；这里出现反而是分组表把非通道键混进来了。
+                # 它是"分类结果"，属于「无记忆走迷宫」那一页；这里出现反而是分组表把非通道键混进来了。
                 if "roadName" in got:
                     b34_bad.append("roadName 混进了读数区（它是分类结果，不是帧通道）")
-                if "实时参数" not in rp.get("title", ""):
-                    b34_bad.append(f"模块名不是「实时参数」：{rp.get('title')!r}")
+                if "实时状态与参数设定" not in rp.get("title", ""):
+                    b34_bad.append(f"模块名不是「实时状态与参数设定」：{rp.get('title')!r}")
                 if "实时读数" not in rp.get("paneH4", ""):
                     b34_bad.append(f"读数区标题不是「实时读数」：{rp.get('paneH4')!r}")
                 # 流概览行要说清"这是哪条流、多大、多久以前"
@@ -1146,19 +1179,19 @@ async def run(args) -> int:
                     b34_bad.append(f"流概览行没写明这是「协议常量」：{rp.get('stream')!r}")
             b34_ok = not b34_bad
             record("B34", "PASS" if b34_ok else "FAIL",
-                   f"「实时参数」读数区：{len(want)} 个哨兵逐行与喂进去的统一帧一致"
+                   f"「实时状态与参数设定」读数区：{len(want)} 个哨兵逐行与喂进去的统一帧一致"
                    f"（{' '.join(b34_got[:6])}…）、单位齐（cm/s / mm / mV）、"
                    f"编码翻名字（motionTask/dir/flags）、标题「{rp.get('paneH4')}」、"
                    f"流概览「{rp.get('stream')}」"
                    if b34_ok else
                    f"**实时读数的分组/键名/单位/编码不对**：{b34_bad[:4]}；实际={b34_got}")
 
-            # ── B35：实验 8 的**三栏几何 + 记录/复盘往返** ──
+            # ── B35：无记忆走迷宫的**三栏几何 + 记录/复盘往返** ──
             # 这一条守的是本轮新加的那套东西。它比"控件在不在"深一层：
             #   · 三栏必须**真的并排在同一行**（三列竖排也能"三块都在"，那是错的）；
             #   · 复盘必须**真的在回放** —— 拖游标后左栏读数**跟着变**。
             #     只判"点了一下有个复盘条"是查不出"游标没接线"的。
-            head("2h. 实验 8：三栏几何 + 记录/复盘往返（拖游标读数要跟着变）")
+            head("2h. 无记忆走迷宫：三栏几何 + 记录/复盘往返（拖游标读数要跟着变）")
             geo = await cdp.eval(
                 "(()=>{C.openMod('mouse','mod_maze8');"
                 "const box=document.querySelector('.mz3');"
@@ -1304,11 +1337,11 @@ async def run(args) -> int:
                     b35_bad.append("中栏没有画布 #m8-cv")
             b35_ok = not b35_bad
             record("B35", "PASS" if b35_ok else "FAIL",
-                   f"实验 8 三栏并排（{'/'.join(str(r['w']) for r in geo.get('rects') or [])}px，"
+                   f"无记忆走迷宫三栏并排（{'/'.join(str(r['w']) for r in geo.get('rects') or [])}px，"
                    f"不溢出 {geo.get('wrapW')}px）+ 记录→列表→复盘→拖游标→退出 全通（"
                    f"{'；'.join(b35_got)}）"
                    if b35_ok else
-                   f"**实验 8 三栏 / 复盘往返不对**：{b35_bad[:4]}")
+                   f"**无记忆走迷宫三栏 / 复盘往返不对**：{b35_bad[:4]}")
 
             # ── B36：收车 / 救援按钮 + 发车前低电门控（**正反两面**） ──
             # 守的是上游 2.1.1~2.2.1 新接进来的三个动作：收车、救援、低电提醒。
@@ -1319,7 +1352,7 @@ async def run(args) -> int:
             #     接口**喂 warn 级预检 + 等一个定时器周期。
             #   · **负向**：喂 ok 级时那一行必须**空**。只验"warn 时会有字"是不够的 ——
             #     一个永远有字的提示等于没提示（本层纪律：一道从没红过的闸不算闸）。
-            head("2i. 实验 8 / 设备窗口：收车与救援按钮 + 低电门控（含负向）")
+            head("2i. 无记忆走迷宫 / 设备窗口：收车与救援按钮 + 低电门控（含负向）")
             b36_bad = []
             btn = await cdp.eval(
                 "(()=>{C.openMod('mouse','mod_maze8');"
@@ -1330,7 +1363,7 @@ async def run(args) -> int:
             await asyncio.sleep(0.3)
             for k, want in (("mstop", "收车"), ("rescue", "救援")):
                 if not btn.get(k, {}).get("there"):
-                    b36_bad.append(f"实验 8 缺少按钮 {k}")
+                    b36_bad.append(f"无记忆走迷宫缺少按钮 {k}")
                 elif want not in btn[k]["txt"]:
                     b36_bad.append(f"按钮 {k} 的文案不是「{want}」：{btn[k]['txt']!r}")
             if not btn.get("dmRescue", {}).get("there"):
@@ -1383,7 +1416,7 @@ async def run(args) -> int:
                 b36_bad.append(f"电量正常时门控行不该有字，却有：{ok_txt!r}")
             b36_ok = not b36_bad
             record("B36", "PASS" if b36_ok else "FAIL",
-                   f"实验 8 有【收车】【救援】、设备窗口有【救援（软复位）】；"
+                   f"无记忆走迷宫有【收车】【救援】、设备窗口有【救援（软复位）】；"
                    f"低电预检会把实测电压摆到门控行（warn ⇒ {warn_txt[:46]}…），"
                    f"**电量正常时那一行为空**（负向）"
                    if b36_ok else

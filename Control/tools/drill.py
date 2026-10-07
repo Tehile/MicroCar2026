@@ -336,7 +336,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -359,12 +359,13 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
 
-    # ---- I16：参数必须按 Flash 页分成两套（上游 1.5.0 起生产命名空间增至 24 项）
+    # ---- I16：参数必须按 Flash 页/通道分组（**不写死项数** —— 上游 2.4.0 删掉课程层，
+    #          参数从 38 项四组降到 24 项三组：生产 7 + 红外 11 + 电源 6，全在 page 115、同一条写入通道）
     g, c, _ = api(base, "/api/v1/mouse/params/grouped")
     d = g.get("data") or {}
     groups = d.get("groups") or {}
@@ -375,23 +376,27 @@ def _mouse_sections(base: str, args, sim) -> None:
              for k, v in groups.items()}
     vias = {k: (list(v.values())[0].get("write_via") if v else None)
             for k, v in groups.items()}
-    # 页号是**固件分区**的事实：上游 1.5.4 把运行数据区上移后 99/100 → 115/116
+    # 页号是**固件分区**的事实：上游 1.5.4 把运行数据区上移后 99/100 → 115
     # （原值正落在 FLASH_EraseRunData 的擦除范围内，会被连标定一起抹掉）。
-    # 生产侧 7+11+6=24 项同页同通道 —— 所以它们必须**共用**一个 SAVE。
-    ok = (c == 200 and len(prod) == 7 and len(les) == 14
-          and len(meas_ir) == 11 and len(meas_batt) == 6
-          and pages.get("生产标定") == 115 and pages.get("课程调参") == 116
+    # 2.4.0 起课程层整层删除 ⇒ 只剩生产侧三组，7+11+6=24 项**同页同通道**，共用一次 SAVE。
+    # 判据按"组数/项数从上一次查询现算"写，**不写死 38/24 或组名个数**（跟着上游走）。
+    total = d.get("count")
+    prod_only = prod and not les and not groups.get("课程调参")
+    ok = (c == 200
+          and len(prod) == 7 and len(meas_ir) == 11 and len(meas_batt) == 6
+          and (total in (24, len(prod) + len(meas_ir) + len(meas_batt)))
+          and pages.get("生产标定") == 115
           and pages.get("红外测量") == 115 and pages.get("电源监控") == 115
-          and vias.get("生产标定") != vias.get("课程调参")
-          and vias.get("红外测量") == vias.get("生产标定"))
+          and vias.get("红外测量") == vias.get("生产标定")
+          and (total != 24 or
+               (vias.get("电源监控") == vias.get("生产标定") and not les)))
     record("I16", "PASS" if ok else "FAIL",
-           f"{d.get('count')} 项 = 生产 {len(prod)} + 课程 {len(les)} + "
-           f"红外 {len(meas_ir)} + 电源 {len(meas_batt)}"
-           f"（page {pages.get('生产标定')} / {pages.get('课程调参')}，"
-           f"{vias.get('生产标定')} vs {vias.get('课程调参')}）"
-           f"⇒ 生产侧四组同页同通道、课程侧另一条通道"
-           if ok else f"HTTP {c}；生产 {len(prod)} / 课程 {len(les)} / 红外 {len(meas_ir)}"
-                      f" / 电源 {len(meas_batt)}；pages={pages} vias={vias}")
+           f"{total} 项 = 生产 {len(prod)} + 红外 {len(meas_ir)} + 电源 {len(meas_batt)}"
+           + (f" + 课程 {len(les)}" if les else "（课程层：2.4.0 已删除，本层不再出现）")
+           + f"（page {pages.get('生产标定')}，同一写入通道 {vias.get('生产标定')}）"
+           f"⇒ 剩余三组同页同通道"
+           if ok else f"HTTP {c}；生产 {len(prod)} / 红外 {len(meas_ir)} / 电源 {len(meas_batt)}"
+                      f" / 课程 {len(les)}（应 0）；pages={pages} vias={vias}")
 
     # ---- 发车 + 时间同步
     a, c, _ = api(base, "/api/v1/timesync/arm", "POST", {})
@@ -440,30 +445,32 @@ def _mouse_sections(base: str, args, sim) -> None:
            if lk_ok else f"stats 里没有丢帧字段：{lk}")
 
     # ---- 顺带：课程实验能跑通并自动算参（这不是判据，是"新功能真的通了"的证据）
-    head("14c. 顺带验：课程实验与自动算参（新功能，非判据）")
+    head("14c. 顺带验：课程调参实验在本层已随上游删除（应为明确拒绝，非 5xx）")
     r, c, _ = api(base, "/api/v1/lesson/run", "POST",
                   {"exp": 2, "args": {"v": 60, "dist": 100, "ms": 3000},
                    "fetch_log": False}, timeout=120)
     res = r.get("data") or {}
-    if c == 200 and res.get("ok"):
-        s, c2, _ = api(base, "/api/v1/lesson/suggest", "POST",
-                       {"exp": 2, "truth": 110.0, "result": res})
-        sg = s.get("data") or {}
-        items = sg.get("items") or {}
-        record("S7", "PASS" if items else "FAIL",
-               f"实验2 跑到 {res.get('reason')}，dL={res.get('dL')} dR={res.get('dR')}；"
-               f"算参：{ {k: (v['old'], '→', v['new'], str(v['err_pct']) + '%') for k, v in items.items()} }"
-               f"；{sg.get('accept_note') or sg.get('hint') or ''}")
-    else:
-        record("S7", "FAIL", f"课程实验失败：HTTP {c} {json.dumps(r, ensure_ascii=False)[:200]}")
+    msg = json.dumps(r.get("error") or r, ensure_ascii=False)[:180]
+    # 上游 2.4.0 已删除课程层 ⇒ 本层必须**明确拒绝**而不是照样答 200 假成功、也不能吐 500。
+    # 允许 404（路由没了）或 409/4xx（路由在但明确说不支持）——总之要指出"上游已删"。
+    gone = c in (404, 409, 410, 422) or (c == 400)
+    says_deleted = any(k in msg for k in ("2.4.0", "删除", "课程", "lesson", "不存在", "不支持"))
+    record("S7", "PASS" if (gone and says_deleted) else "FAIL",
+           f"课程实验端点：HTTP {c} ⇒ " +
+           (f"明确拒绝且指出了原因（{msg}）" if (gone and says_deleted)
+            else f"应为「已删除」类拒绝，实际 {msg}"))
 
     # ---- I22 / I23 **放在最后**：跑迷宫会把设备留在"迷宫里"（`mouse_task` 停在
     # MAZESEARCH，运动互斥判据因此一直忙）⇒ 它会挡住后面任何运动类判据。
     # 这不是绕开问题，而是这条链路的**真实次序**：跑迷宫是"整场"的事，跑完就该收工。
-    # ---- I22：**统一帧单流 + 码表零设备访问 + 拉取节奏可控**
-    # 这条判据跨了两次上游改版，所以它现在要守四件事：
-    #   ① **拉取关着**时码表照样答得出 39 通道 + 迷宫码表 ⇒ 证明它**零设备访问**
+    # I22：**统一帧单流 + 码表零设备访问 + 拉取节奏可控**
+    # 这条判据跨了三次上游改版，所以它现在要守四件事：
+    #   ① **拉取关着**时码表照样答得出全部通道 + 迷宫码表 ⇒ 证明它**零设备访问**
     #      （否则未连接时页面画不出"要读什么"）；
+    # ⚠️ **通道数不许写死**：2.0.0 是 39、2.3.0 起是 49（前墙双档 3 + 冲刺状态 7）。
+    #    这里原写成 `len(chans) == 39` ⇒ 上游一升到 2.3.0，这条判据就**假红**，而根因
+    #    是"判据钉错了数"而不是产品错（纪律 13：判据红先怀疑判据）。改成**与上游
+    #    `UNIFIED_CHANNELS` 逐项相等**（见下面的 `chans_ok`），数字由协议层自己说。
     #   ② 打开拉取后**帧真的在来**（`counts.unified` 增长、`rx_bps > 0`）——
     #      这是"这条流存在"的实测证据，不是看协议常量的 217 Hz；
     #   ③ **关掉拉取后帧必须停止增长** —— 2.1.0 的核心性质（发送节奏在上位机手里）。
@@ -522,7 +529,7 @@ def _mouse_sections(base: str, args, sim) -> None:
     frames = cap.get("frames") or []
     # 帧类型只剩两种（`UNIFIED` / `MAP`），流只剩一条 —— 这是"整体替换"的形状。
     one_stream = (list(streams) == ["unified"] and sorted(frames) == ["MAP", "UNIFIED"])
-    # 39 个通道要与协议层常量**逐项一致**，不是"有个列表就行"。
+    # 通道要与协议层常量**逐项一致**，不是"有个列表就行"，也**不写死个数**。
     # 上游路径取自配置（与 `_start_sim` 同一处真相：`ROOT.parent / RemoteControl / host`）。
     try:
         host_dir = ROOT.parent / "RemoteControl" / "host"
@@ -533,7 +540,7 @@ def _mouse_sections(base: str, args, sim) -> None:
     except Exception as e:                                    # noqa: BLE001
         want = []
         record("I22", "FAIL", f"取不到上游 `UNIFIED_CHANNELS`：{type(e).__name__}: {e}")
-    chans_ok = (len(chans) == 39 and chans == want)
+    chans_ok = bool(want) and chans == want
     maze_ok = bool(maze_tab.get("tasks") and maze_tab.get("roads")
                    and maze_tab.get("road_kinds") and maze_tab.get("motions")
                    and maze_tab.get("dirs") and maze_tab.get("flags")
@@ -551,12 +558,12 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"旧端点全 404（{len(gone)} 条）"
            if i22_ok else
            f"**统一帧单流没成立**：HTTP meta={cm_} caps={ccap} stats={cl2}/{clo2}；"
-           f"chans={len(chans)}（应 39，与上游一致={chans_ok}）；"
+           f"chans={len(chans)}（与上游 UNIFIED_CHANNELS({len(want)}) 一致={chans_ok}）；"
            f"streams={list(streams)} frames={sorted(frames)} one_stream={one_stream}；"
            f"maze_ok={maze_ok}；unified 开 {n1}→{n2} bps={bps}，"
            f"关 {m1}→{m2}（stopped_ok={stopped_ok}）；旧端点状态码={gone}")
 
-    # ---- I23：实验 8 无记忆走迷宫 —— **统一帧 + 主机差分**（上游 2.0.0）
+    # ---- I23：无记忆走迷宫 —— **统一帧 + 主机差分**（上游 2.0.0）
     # 旧 I23 判三条通道（事件流 / 1 Hz 状态帧 / SNAP MAZE）。2.0.0 把 `MAZE EV`
     # 与 `SNAP` 都删了，"它刚才识别到了什么"改成**主机差分相邻帧**得到。
     # 所以这条判据改成：
@@ -616,18 +623,26 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"state={stv}；changes={len(chg)} chg_ok={chg_ok} seq_ok={seq_ok}；"
            f"eventsIncomplete={evinc!r}（要 bool）；旧命令应答={raw_txt[:200]}")
 
-    # ---- I27：实验 8「记录 → 保存 → 读回」往返 + 重建（含两条负向）
+    # ---- I27：无记忆走迷宫「记录 → 保存 → 读回」往返 + 重建（含两条负向）
     # 这条判据守的是"**从发车到停止的数据真的落下来了、而且读回来是同一样东西**"：
     #   · 记录器拿得到帧（它订阅上游 `Event.TELEMETRY`，**不依赖浏览器**）；
-    #   · 落盘的文件**自洽**：`channels` 是 39 个、`frames`/`t_ms`/`integrity.frames` 三者一致、
+    #   · 落盘的文件**自洽**：`channels` 与上游 `UNIFIED_CHANNELS` 逐项相同、
+    #     `frames`/`t_ms`/`integrity.frames` 三者一致、
     #     每行长度都等于通道数（列名与值对不齐是最容易出的错，且**看着像对的**）；
     #   · 重建得出来：`wall` 有格子被访问过（否则中栏是空白）；
     #   · **负向 A**：`records/{name}` 读一个不存在的名字必须 **404**（不许静默回空）；
     #   · **负向 B**：**空记录不许落盘** —— 立刻 start→stop（一帧都没来）必须回
     #     `ok=False` 且**不新增文件**。理由：零帧文件对复盘毫无价值，只会留垃圾。
     #
+    # ⚠️ **通道数不许写死**：2.0.0 是 39、2.3.0 起是 49。改成与上游 `UNIFIED_CHANNELS`
+    #    逐项相等（`chans` 由记录文件带来，`want_chans` 由协议层取），数字由上游自己说。
+    #
     # ⚠️ 这里**不停拉取**（I23 已经把它开着），否则记录器会"什么都没有，而且一声不响"。
     # 先把 I23 发车时**自动开着的那一次**记录收掉，好让下面这次从零开始、可复算。
+    try:
+        want_chans = list(UNIFIED_CHANNELS)         # 复用 I22 取到的那份协议层清单
+    except Exception:                               # noqa: BLE001
+        want_chans = list(want)
     api(base, "/api/v1/mouse/maze/record/stop", "POST", {})
     time.sleep(0.5)
     list0, _, _ = api(base, "/api/v1/mouse/maze/records")
@@ -673,7 +688,8 @@ def _mouse_sections(base: str, args, sim) -> None:
 
     i27_ok = (c_rec == 200 and c_stop == 200 and c_get == 200
               and live_ok and saved.get("ok") and name
-              and len(chans) == 39 and counts_ok and rows_ok and wall_ok
+              and bool(want_chans) and chans == want_chans
+              and counts_ok and rows_ok and wall_ok
               and c_bad == 404 and empty_saved_ok and no_new_ok)
     record("I27", "PASS" if i27_ok else "FAIL",
            f"记录中 frames={rec_live.get('frames')}（recording={rec_live.get('recording')}）→ "
@@ -684,7 +700,8 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"（应 False）、新增文件={'有' if not no_new_ok else '无'}"
            if i27_ok else
            f"**记录往返没成立**：live={rec_live}；stop HTTP {c_stop} → {saved}；"
-           f"get HTTP {c_get}：chans={len(chans)}（应 39）frames={len(fr)} t_ms={len(tt)} "
+           f"get HTTP {c_get}：chans={len(chans)}（与上游 {(len(want_chans))} 一致={chans == want_chans}）"
+           f"frames={len(fr)} t_ms={len(tt)} "
            f"integrity={integ}；counts_ok={counts_ok} rows_ok={rows_ok} wall_ok={wall_ok}；"
            f"负向：不存在→{c_bad}（应 404）；空记录 ok={(empty_r.get('data') or {}).get('ok')}"
            f"（应 False）新增={names1 - names0}")
@@ -962,6 +979,53 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"发车被拒：HTTP {c32}（应 409，{_msg(r32)[:70]!r}）"
            f"旧条目 {len(before_k)} 条、前缀保持={after_k[:len(before_k)] == before_k}、"
            f"neg={len(_neg(after))} ⇒ {keep_ok}")
+
+    # ---- I31：「比赛」页数据面 —— MAZE RUN RACE 用 target="RACE" 发车；
+    #      meas/meta 答得出 spurt 两张码表；maze/state 的 spurt 块读得出；
+    #      前墙双档恒等式 frontNear|frontFar == wallFront 且两档互斥。
+    #      三态纪律：老上游无 spurt 时如实标"读不到"，**绝不涂成 0/未选**。
+    head("14e. 判据 I31：「比赛」页数据面（RACE / 前墙双档 / 冲刺状态）")
+    mt, cmt, _ = api(base, "/api/v1/mouse/meas/meta")
+    mtd = mt.get("data") or {}
+    sp_meta = mtd.get("spurt") or {}
+    modes = sp_meta.get("modes") or {}
+    front = sp_meta.get("front") or {}
+    meta_ok = (cmt == 200 and bool(modes) and bool(front)
+               and any("90" in str(v) for v in modes.values())
+               and any("近端" in str(v) for v in front.values()))
+    # 发车（活链路）——先确保不在运动态且**急停未锁存**：
+    #   `/mouse/stop` 是"停车 + **解急停锁存**"（线上文本 STOP），`/mouse/maze/stop` 是收车。
+    #   ⚠️ 别用 `/mouse/estop` 去"解锁" —— 它是**上锁**（线上文本 ESTOP）。踩过：那样 RACE 必回 ERR_ESTOP。
+    api(base, "/api/v1/mouse/maze/stop", "POST", {}, timeout=25)
+    time.sleep(0.6)
+    api(base, "/api/v1/mouse/stop", "POST", {}, timeout=15)     # 解锁（STOP）
+    time.sleep(0.9)
+    rrc, crc, _ = api(base, "/api/v1/timesync/maze_run", "POST",
+                      {"target": "RACE"}, timeout=25)
+    time.sleep(1.2)
+    # 状态面：spurt 块（前墙双档 + 冲刺）是否读得出
+    st, cst, _ = api(base, "/api/v1/mouse/maze/state")
+    std = st.get("data") or {}
+    sp = std.get("spurt") or {}
+    race_ok = crc in (200, 400, 409, 503)   # 400=该档没这命令；409=BUSY；503=没连
+    sp_ok = (cst == 200 and isinstance(sp, dict))
+    # 恒等式（有帧才谈得上）：在 spurt 里找 frontNear/frontFar/wallFront
+    ident = None
+    if sp:
+        fn = sp.get("frontNear"); ff = sp.get("frontFar"); wf = sp.get("wallFront")
+        if None not in (fn, ff, wf):
+            ident = ((fn | ff) == wf) and ((fn & ff) == 0)
+    i31_ok = meta_ok and race_ok and sp_ok and (ident is not False)
+    record("I31", "PASS" if i31_ok else "FAIL",
+           f"码表：spurt.modes {len(modes)} 档（{list(modes.values())[:2]}）、"
+           f"front {len(front)} 项（{list(front.values())[:2]}）；"
+           f"`MAZE RUN RACE` HTTP {crc}（{_msg(rrc)[:60]!r}）；"
+           f"maze/state.spurt 是 dict={isinstance(sp, dict)}"
+           + (f"；前墙恒等式 {(sp.get('frontNear'), sp.get('frontFar'), sp.get('wallFront'))} ⇒ {ident}"
+              if ident is not None else "；⚠️ 本次帧里没有前墙三项 ⇒ 恒等式判不了（老固件如实标'读不到'，不当失败）")
+           if i31_ok else
+           f"**比赛页数据面没守住**：meas/meta HTTP {cmt}（modes={modes} front={front}）"
+           f"；RACE HTTP {crc}（{_msg(rrc)[:80]!r}）；state.spurt={sp!r}；恒等式={ident}")
 
     # ---- 断开，别把模拟器链路留着
     api(base, "/api/v1/mouse/disconnect", "POST", {})
@@ -1371,7 +1435,7 @@ def main(argv=None) -> int:
     ap.add_argument("--frames", type=int, default=8)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--sim", action="store_true",
-                    help="起上游鼠标模拟器，额外验 I15~I17 / I22~I23（时间同步 / 参数四组 / 丢帧 / 统一帧单流 / 迷宫状态机 / 记录往返 / 收车与救援）。"
+                    help="起上游鼠标模拟器，额外验 I15~I17 / I22~I23（时间同步 / 参数分组 / 丢帧 / 统一帧单流 / 迷宫状态机 / 记录往返 / 收车与救援）。"
                          "不加就 SKIP —— 那几条需要一条活链路。")
     ap.add_argument("--sim-port", type=int, default=5556)
     ap.add_argument("--fake-cam-port", type=int, default=8797,
@@ -1842,7 +1906,7 @@ def main(argv=None) -> int:
         head("14b. 判据 I15 / I16 / I17：跟上游更新（需要模拟器）")
         if not args.sim:
             for cid, why in (("I15", "帧时间必须说清是哪一种（send / arrival）"),
-                             ("I16", "参数必须按 Flash 页分两套且通道不混"),
+                             ("I16", "参数必须按 Flash 页分组且写入通道一致（2.4.0 起 24 项三组）"),
                              ("I17", "丢帧必须可回答（seq_lost 不是 None）")):
                 record(cid, "SKIP", f"{why} —— 加 --sim 才验（需要一条活链路）")
             _skip_mouse_sections = True
@@ -1850,7 +1914,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

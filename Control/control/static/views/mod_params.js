@@ -1,14 +1,31 @@
-/* 小车控制 · 实时参数 —— 全部参数（四组：生产标定 / 红外测量 / 电源监控 / 课程调参）
-   + **实时读数**（唯一那条统一帧的全部 39 个通道）+ 累加量清零。
+/* 小车控制 · 实时状态与参数设定 —— 「把车调好」的那一段（四个区块）。
+
+   ## 改版十二（上游 2.4.0）：四卡 → 三卡，这一页变宽了
+   上游 2.4.0 把编译档位由 5 档压到 2 档（远程档 / 按键比赛档），并**删掉课程调参整层**。
+   于是「小车控制」按**现场真会做的三件事**重排，本页接的是第一件：
+     · 实时读数（唯一那条统一帧的全部通道）
+     · 参数表（生产命名空间 24 项）
+     · 手动运动   ← 原「运动控制」卡，现挂 `C.parts.motion`
+     · 标定例程   ← 原「校准例程」卡，现挂 `C.parts.calib`
+   后两个原先是独立模块，现在**并进这一页**：它们与参数设定是同一个现场阶段里的连续动作，
+   共用同一组门控（"连上电脑鼠"）。合成一页之后顺序就是现场顺序：
+   先看状态 → 再调参数 → 需要就手动动一下 → 标定。
+
+   ⚠️ 「取消独立参数标定」指的是上游删掉的**课程调参整层**（`lesson_lab.c`，
+   课程 14 项死参数）—— 不是这里的「标定例程」。生产标定（GYRO / 壁距 / 红外逐点 /
+   角度 / 里程，Flash page 115）上游一行没删，远程档下照常可跑，**保留**。
 
    ## 一次改版（上游 2.0.0「传输模式重构」）
    原先这里是**两个**模块：「实时参数」读 fast/mid/slow 三档流 + 参数表；
    「分组测量」用 `SNAP` 一问一答地点查全部测量量（含红外/电源）+ SCOPE 剖面。
    2.0.0 把 `SNAP` / `SCOPE` **整套删除**，测量量只剩**一条统一帧**（53 B，
-   39 个扁平通道，红外 ADC+mm 双传、电池 mV、完整迷宫状态机都在里面）。
+   39 个扁平通道，红外 ADC+mm 双传、电池 mV、完整迷宫状态机都在里面。
+   ⚠️ 2.3.0 起这条帧涨到 **49** 个通道：新增前墙双档 `frontNear`/`frontFar`/`frontBoth`
+   与比赛冲刺状态 `spurtMode`/`spurtFlag`/`goOrBack`/`spurtTestFlag`/`objectGoToFlag`/
+   `goaheadnum`/`fastwayCount90` 共 10 个。**界面不写死通道数** —— 它读 `meas/meta`。）
    ⇒ 两者读的东西**变成了同一样**，于是合并为一页：
      · 上面 = 这条流的实时读数（原「分组测量」的红外/电源并进这里）；
-     · 下面 = 参数表（原样保留，只是课程组要标注"值读不到"）。
+     · 下面 = 参数表（原样保留）。
    界面仍要说清两种刷新方式的区别：读数随拉取走，参数表只在点【读取全部】时读一次。
 
    ## 一次修正（上游 2.1.0「拉取模式」）
@@ -18,11 +35,6 @@
    节奏完全由本机决定，停发就让缓冲自然排空、**无需断电即可自愈**。
    ⇒ 对**这一页**的影响只有一条，但很显眼：**帧率不再是 217 Hz**。
    真机实测 **4.4~6.5 Hz**（由链路往返 1/RTT 决定，不是软件限速）。
-
-   ## 为什么不再有"这一段慢"的说法
-   三档流时代 mid 真机 1 Hz、slow 0.5 Hz，界面上必须解释"数字为什么半天不动"；
-   现在**一份帧就是全量**，任何字段的更新节奏都一样（都由那一次拉取带来）。
-   所以这一页只报**实测帧率 + 最新一帧年龄**，不再分档解释。
 
    ## 速率一律用**服务端量出来的**
    协议常量 `UNIFIED_HZ = 217.0` 只是"纯串口线"上的理论上限（2.1.0 起上游也把它降级成
@@ -57,7 +69,7 @@ C.mods.mod_params = (function () {
   }
 
   /* ------------------------------------------------------------ 读数分组
-     分组只是**看的顺序**，不是协议概念（协议里 39 个键是平铺的）。
+     分组只是**看的顺序**，不是协议概念（协议里几十个键是平铺的）。
      契约：`keys` 里的每个键名都出自上游 `UNIFIED_CHANNELS` —— **键名照上游原样**
      标在行上，因为现场对着上游文档查字段时，能对得上的只有键名。
 
@@ -65,7 +77,14 @@ C.mods.mod_params = (function () {
        speedL/R = cm/s、trackL/trackR/cellOdom = mm、ir* = mm、battMv = mV、ms8 = ms。
        `gyroAngle` / `encAngle` / `pidErr` 上游**没标单位** ⇒ 这里也**不臆造**一个
        （写错的单位比没有单位更坏：现场会拿它去换算）。
-     第 3、4 项分别是单位与小数位，省略即"无单位 / 整数"。 */
+     第 3、4 项分别是单位与小数位，省略即"无单位 / 整数"。
+
+     ## 2.3.0 新增的两组（前墙双档 + 比赛冲刺状态）
+     这两组是**这一页与「比赛」页共用的量**：这一页只把它们当"传感器/状态机"平铺出来
+     （现场调参时要知道"前墙现在算的是近端还是远端"）；「比赛」页负责解释它们。
+     ⚠️ **恒等式**：`frontNear | frontFar == wallFront`，且二者互斥（码表 0=无墙 /
+     1=近端（贴脸）/ 2=远端（提前量））。分组里把它俩并排放在 `wallFront` 旁边，
+     就是为了让这个恒等式在界面上一眼可比 —— 对不上就是固件那一档的判断出问题了。 */
   const CH_GROUPS = [
     { name: '运动与姿态', keys: [
       ['speedL', '左轮速', ' cm/s', 1], ['speedR', '右轮速', ' cm/s', 1],
@@ -83,10 +102,16 @@ C.mods.mod_params = (function () {
     { name: '迷宫判定', keys: [
       ['mazeTask', '迷宫任务'],
       ['wallLeft', '墙·左'], ['wallFront', '墙·前'], ['wallRight', '墙·右'],
+      ['frontNear', '前墙·近端'], ['frontFar', '前墙·远端'], ['frontBoth', '前墙·双档'],
       ['critL', '临界·左'], ['critR', '临界·右'],
       ['left45', '左 45°'], ['right45', '右 45°'],
       ['wallThresh', '侧墙阈值'], ['irSwitch', '红外档位'],
-      ['dropCnt', '丢帧计数'], ['flags', '标志位'],
+    ] },
+    { name: '比赛冲刺（2.3.0）', keys: [
+      ['spurtMode', '冲刺档位'], ['spurtFlag', '冲刺标志'],
+      ['goOrBack', '去/回'], ['spurtTestFlag', '冲刺试探'],
+      ['objectGoToFlag', '物体去向'], ['goaheadnum', '前冲计数'],
+      ['fastwayCount90', '90° 快路计数'],
     ] },
     { name: '四路红外', keys: [
       ['irF1', '前左', ' mm', 0], ['irF2', '前右', ' mm', 0],
@@ -94,12 +119,19 @@ C.mods.mod_params = (function () {
       ['irAdcF1', '前左 ADC'], ['irAdcF2', '前右 ADC'],
       ['irAdcL', '左 ADC'], ['irAdcR', '右 ADC'],
     ] },
-    { name: '电源', keys: [['battMv', '电池', ' mV', 0]] },
-    { name: '链路', keys: [['ms8', '帧时基低 8 位', ' ms', 0]] },
+    { name: '电源与链路', keys: [
+      ['battMv', '电池', ' mV', 0], ['ms8', '帧时基低 8 位', ' ms', 0],
+      ['dropCnt', '丢帧计数'], ['flags', '标志位'],
+    ] },
   ];
 
-  /* 哪些键要拿**码表**翻成人话。表来自 `/api/v1/mouse/meas/meta`（静态，零设备访问）。 */
-  const CODE_OF = { dir: 'dirs', mazeTask: 'tasks', motionTask: 'motions' };
+  /* 哪些键要拿**码表**翻成人话。表来自 `/api/v1/mouse/meas/meta`（静态，零设备访问）。
+     `spurtMode` / `frontNear` 的码表是 2.3.0 新增的，`meta.spurt.modes`/`meta.spurt.front`。 */
+  const CODE_OF = {
+    dir: 'dirs', mazeTask: 'tasks', motionTask: 'motions',
+    spurtMode: 'spurtModes', frontNear: 'frontNames', frontFar: 'frontNames',
+    frontBoth: 'frontNames', goOrBack: 'goOrBack',
+  };
 
   let chans = [];             // 这条流里**实际有**的通道名（meta 或 WS 消息里带来的）
 
@@ -123,9 +155,12 @@ C.mods.mod_params = (function () {
     return out;
   }
 
+  /* 码表查名字。**没查到就回原码**（不臆造）—— 老上游没这些表时，
+     数字照样印出来，只是没有名字，而不是显示 `—`。 */
   function codeName(kind, v) {
-    const m = (meta && meta[kind]) || null;
+    const m = meta && meta[kind];
     if (!m || v == null) return null;
+    if (kind === 'spurtModes') return (m[String(v)] || null);
     return m[String(v)] || null;
   }
 
@@ -295,15 +330,29 @@ C.mods.mod_params = (function () {
     el.querySelector('#mp-groups').addEventListener('input', function (e) {
       if (e.target.dataset.name) dirty[e.target.dataset.name] = e.target.value;
     });
+    /* 两个**区块**（原「运动控制」「校准例程」两张卡）挂进本页 ——
+       它们已经是 `C.parts.*`，各自 mount 时**追加自己的 pane**，
+       与上面的读数/参数共享同一个 `el`（所以 id 前缀 mm-/mc- 必须与 mp- 不撞）。 */
+    if (C.parts.motion) C.parts.motion.mount(el);
+    if (C.parts.calib) C.parts.calib.mount(el);
     loadMeta();
     renderAll();
+    load();
   }
 
-  /* 码表（静态，零设备访问）：通道清单 + 迷宫码表。
-     未连接时它是这一页**唯一**能画出来的东西，所以进来就读一次。 */
+  /* 码表（静态，零设备访问）：通道清单 + 迷宫/冲刺码表。
+     未连接时它是这一页**唯一**能画出来的东西，所以进来就读一次。
+
+     ⚠️ `meta.spurt`（`modes` / `front` 两张表）是 2.3.0 新增的 —— 老上游没有，
+     拿不到就退化成"只印原码"（`codeName` 返回 null ⇒ 走 `String(v)`）。
+     这里**不设** fallback 表：上游改了档位编号，界面写死的表就会骗人。 */
   async function loadMeta() {
     const d = await C.guard(function () { return C.api('/api/v1/mouse/meas/meta'); }, '读码表');
-    meta = (d && d.maze) || {};
+    const mz = (d && d.maze) || {};
+    const sp = (d && d.spurt) || {};
+    meta = Object.assign({}, mz);
+    if (sp.modes) meta.spurtModes = sp.modes;
+    if (sp.front) meta.frontNames = sp.front;
     applyChans(d && d.channels);
     renderAll();
   }
@@ -311,7 +360,7 @@ C.mods.mod_params = (function () {
   /* SAVE 按钮**按数据里的 flash_page 现生成**，不写死页号。
      页号属于固件分区，会随上游调整而变（1.5.4 就把生产页从 99 挪到了 115）——
      写死在界面里等于给现场留一个会悄悄过期的数字。同页的几组共用一个按钮：
-     生产命名空间是**一次写整表**，红外/电源与生产标定同页，拆三个按钮反而像三件事。 */
+     生产命名空间是**一次写整表**，三组同页，拆三个按钮反而像三件事。 */
   function renderSaves() {
     const box = el.querySelector('#mp-saves');
     if (!box) return;
@@ -370,17 +419,11 @@ C.mods.mod_params = (function () {
       const items = groups[g];
       const names = Object.keys(items);
       const it0 = items[names[0]] || {};
-      /* 课程组的值**读不回来**（2.0.0 固件 `GET` 只查生产表），但**能写**。
-         所以条目照样列出来 + 一个输入框（写新值），只是"当前值"那一列必须说真话。 */
-      const noread = (it0.readable === false);
       return '<div class="pane" style="margin-top:8px">' +
         '<h4>' + C.util.esc(g) + ' · ' + names.length + ' 项' +
         ' <span class="hint">Flash page ' + C.util.esc(it0.flash_page) +
         ' · <code>' + C.util.esc(it0.write_via || '') + '</code>' +
-        (noread ? ' · <b>值读不到，可写</b>' : '') + '</span></h4>' +
-        (noread ? '<div class="hint">这一组的值读不回来：2.0.0 起固件只对生产表答读取，' +
-          '课程 14 项一律回 ERR_NAME。想落盘请先把新值填进输入框，再按下面的 SAVE；' +
-          '不填就没有值可写。</div>' : '') +
+        '</span></h4>' +
         '<div class="scroll"><table><thead><tr><th>id</th><th>名字</th><th>十进制</th>' +
         '<th>Q16.16</th><th>单位</th><th>说明</th></tr></thead><tbody>' +
         names.map(function (n) {
@@ -421,6 +464,8 @@ C.mods.mod_params = (function () {
       return C.api('/api/v1/mouse/params/grouped', { method: 'POST', body: body });
     }, '写参数');
     if (!d) return;
+    /* 2.4.0 起**没有课程组** ⇒ 只剩 `prod` 一条回执。保留 `lesson` 的兜底写法
+       （老上游 2.3.x 还会回它），但**不再**把它当成常态。 */
     const all = (d.prod || []).concat(d.lesson || []);
     const bad = all.filter(function (r) { return !r.ok; }).length;
     msg(all.map(function (r) {
@@ -433,8 +478,7 @@ C.mods.mod_params = (function () {
   }
 
   /* SAVE = **写 Flash**（比 SET 更重：擦写会打断 1 kHz 控制环）。
-     生产侧几组同页、固件一次写整表，所以按钮按页合并；
-     课程组的值读不回来，所以必须把**输入框里的值**一并带上（没有值就没法保存）。 */
+     生产侧几组同页、固件一次写整表，所以按钮按页合并。 */
   async function saveGroup(group, groupList) {
     const label = (groupList && groupList.length > 1) ? groupList.join(' + ') : group;
     const vals = {};
@@ -444,14 +488,6 @@ C.mods.mod_params = (function () {
         if (dirty[n] !== undefined && dirty[n] !== '') vals[n] = Number(dirty[n]);
       });
     });
-    const need = Object.keys(groups[group] || {}).some(function (n) {
-      return groups[group][n].readable === false;
-    });
-    if (need && !Object.keys(vals).length) {
-      msg('「' + group + '」的值读不回来（固件 GET 只查生产表），'
-        + '所以没有"当前值"可以落盘 —— 请先把新值填进输入框再 SAVE。');
-      return;
-    }
     if (!confirm('把「' + label + '」写入 Flash？')) return;
     const body = { group: group };
     if (Object.keys(vals).length) body.values = vals;
@@ -461,13 +497,21 @@ C.mods.mod_params = (function () {
     if (d) msg('已写入 page ' + C.util.fmt(d.flash_page) + (d.backup ? (' · 备份 ' + d.backup) : ''));
   }
 
+  /* 把一次 health 广播转给两个区块 —— 它们是独立挂载的，收不到本页的 onHealth。 */
+  function fanHealth() {
+    if (C.parts.motion && C.parts.motion.onHealth) C.parts.motion.onHealth();
+    if (C.parts.calib && C.parts.calib.onHealth) C.parts.calib.onHealth();
+  }
+
   return {
     mount: mount,
     activate: function () {
       if (!meta) loadMeta();
       if (!Object.keys(groups).length) load();
+      if (C.parts.calib && C.parts.calib.activate) C.parts.calib.activate();
     },
     onMsg: function (m) {
+      if (C.parts.calib && C.parts.calib.onMsg) C.parts.calib.onMsg(m);
       if (m.type !== 'mouse.telemetry') return;
       noteMsg();                 // 界面 FPS 由**前端自己数**到达时刻（最诚实）
       renderAll();
@@ -478,6 +522,7 @@ C.mods.mod_params = (function () {
         C.gate(el.querySelector('#' + id), why);
       });
       el.querySelectorAll('#mp-saves [data-page]').forEach(function (b) { C.gate(b, why); });
+      fanHealth();
     },
   };
 })();

@@ -1,9 +1,18 @@
-/* 小车控制 · 校准例程 —— 上游 `mc.calib` 的五项 + 场地/相机几何。
+/* 「实时状态与参数设定」的一个**区块**：标定例程（鼠侧五项 + 场地/相机几何 + 报告）。
 
-   为什么单开一个模块而不复用 ④ 标定 页：模块是"可验证的最小实验"，
-   单独跑、单独看结果；把两处 DOM 合在一起会让 id 冲突、也会让"哪一步失败"变模糊。
-   这里的 id 一律加 `mc-` 前缀，与 ④ 标定 页（`c-`）互不干扰。 */
-C.mods.mod_calib = (function () {
+   ⚠️ 2026-10-07（改版十二）起它**不再是一个独立模块**，而是 `mod_params` 那一页里的
+   一个 pane（理由见 `mod_motion.js` 顶部：上游 2.4.0 压档"调车"成了一个连续阶段）。
+   ⇒ 注册成 `C.parts.calib`，由 `mod_params.mount()` 挂进自己的 pane。
+   id 一律带 `mc-` 前缀，与同一页里的 `mp-`（读数/参数）/`mm-`（运动）互不干扰 ——
+   四个区块合并到同一页之后，**id 不撞**这件事比以前更要紧。
+
+   ## 关于"取消独立参数标定"（上游 2.4.0）
+   用户说的"取消独立参数标定"指的是上游删掉的**课程调参整层**（`lesson_lab.c`）——
+   那 14 项是**自走路径里的死参数**。而这里这五项（GYRO / 壁距 / 红外逐点 / 角度 / 里程）
+   是**生产标定**（`mc.calib`，Flash page 115 那 24 项），上游**一行没删**，
+   远程档下照常可跑。⇒ 这一块**保留**（它正是"把车调好"要做的最后一件事）。 */
+C.parts = C.parts || {};
+C.parts.calib = (function () {
   let el, obs = [];
 
   const ITEMS = [
@@ -16,39 +25,37 @@ C.mods.mod_calib = (function () {
 
   function mount(host) {
     el = host;
-    el.innerHTML = `
-      <div class="pane">
-        <h4>鼠侧标定 <span><button class="mini" id="mc-refresh">刷新场地</button></span></h4>
-        <div id="mc-items"></div>
+    const box = document.createElement('div');
+    box.className = 'pane';
+    box.style.marginTop = '8px';
+    box.innerHTML = `
+      <h4>标定例程 <span><button class="mini" id="mc-refresh">刷新场地</button></span></h4>
+      <div id="mc-items"></div>
+      <div class="hint" style="margin-top:6px">相机 / 场地几何</div>
+      <div class="row"><label class="hint" style="flex:0 0 96px">相机高度 mm</label>
+        <input id="mc-height" style="flex:1"></div>
+      <div class="row"><label class="hint" style="flex:0 0 96px">天底点 nx,ny</label>
+        <input id="mc-nadir" value="0.5, 0.5" style="flex:1"></div>
+      <div class="row">
+        <button class="mini" id="mc-addobs">记录观测</button>
+        <input id="mc-fw" placeholder="固件格 x,y，留空自动读取" style="flex:1">
       </div>
-      <div class="pane" style="margin-top:8px">
-        <h4>相机 / 场地几何</h4>
-        <div class="row"><label class="hint" style="flex:0 0 96px">相机高度 mm</label>
-          <input id="mc-height" style="flex:1"></div>
-        <div class="row"><label class="hint" style="flex:0 0 96px">天底点 nx,ny</label>
-          <input id="mc-nadir" value="0.5, 0.5" style="flex:1"></div>
-        <div class="row">
-          <button class="mini" id="mc-addobs">记录观测</button>
-          <input id="mc-fw" placeholder="固件格 x,y，留空自动读取" style="flex:1">
-        </div>
-        <div class="row"><button class="mini" id="mc-solve">解 flip</button>
-          <span class="hint" id="mc-solve-state"></span></div>
-        <div class="scroll" style="max-height:150px;margin-top:6px"><table id="mc-obs"></table></div>
-        <button class="mini" id="mc-apply" style="margin-top:6px">落盘至 Control/config.yaml</button>
-        <div class="hint" id="mc-arena-msg"></div>
-      </div>
-      <div class="pane" style="margin-top:8px">
-        <h4>标定报告 · mouse/calib/report.md</h4>
-        <textarea id="mc-report" style="width:100%;height:100px;background:#0e1015;color:var(--fg);
-          border:1px solid var(--line);border-radius:4px;font-family:var(--mono);font-size:11px"></textarea>
-        <div class="row"><button class="mini" id="mc-save-report">写入会话</button></div>
-      </div>`;
+      <div class="row"><button class="mini" id="mc-solve">解 flip</button>
+        <span class="hint" id="mc-solve-state"></span></div>
+      <div class="scroll" style="max-height:150px;margin-top:6px"><table id="mc-obs"></table></div>
+      <button class="mini" id="mc-apply" style="margin-top:6px">落盘至 Control/config.yaml</button>
+      <div class="hint" id="mc-arena-msg"></div>
+      <div class="hint" style="margin-top:8px">标定报告 · mouse/calib/report.md</div>
+      <textarea id="mc-report" style="width:100%;height:100px;background:#0e1015;color:var(--fg);
+        border:1px solid var(--line);border-radius:4px;font-family:var(--mono);font-size:11px"></textarea>
+      <div class="row"><button class="mini" id="mc-save-report">写入会话</button></div>`;
+    el.appendChild(box);
     renderItems();
-    el.querySelector('#mc-refresh').onclick = function () { loadArena(); };
-    el.querySelector('#mc-addobs').onclick = function () { addObs(); };
-    el.querySelector('#mc-solve').onclick = function () { solve(false); };
-    el.querySelector('#mc-apply').onclick = function () { solve(true); };
-    el.querySelector('#mc-save-report').onclick = async function () {
+    box.querySelector('#mc-refresh').onclick = function () { loadArena(); };
+    box.querySelector('#mc-addobs').onclick = function () { addObs(); };
+    box.querySelector('#mc-solve').onclick = function () { solve(false); };
+    box.querySelector('#mc-apply').onclick = function () { solve(true); };
+    box.querySelector('#mc-save-report').onclick = async function () {
       const txt = el.querySelector('#mc-report').value.trim();
       if (!txt) return;
       const d = await C.guard(function () {
@@ -137,7 +144,7 @@ C.mods.mod_calib = (function () {
 
   async function loadArena() {
     const d = await C.guard(function () { return C.api('/api/v1/arena'); });
-    if (!d) return;
+    if (!d || !el) return;
     const a = d.arena || {};
     if (a.camera_height_mm && !el.querySelector('#mc-height').value) {
       el.querySelector('#mc-height').value = a.camera_height_mm;
@@ -151,11 +158,13 @@ C.mods.mod_calib = (function () {
     mount: mount,
     activate: function () { loadArena(); },
     onHealth: function () {
+      if (!el) return;
       const why = C.needMouse();
       el.querySelectorAll('#mc-items [data-run]').forEach(function (b) { C.gate(b, why); });
       C.gate(el.querySelector('#mc-addobs'), why);
     },
     onMsg: function (m) {
+      if (!el) return;
       if (m.type === 'arena.changed') loadArena();
       if (m.type === 'locate.result' && m.valid) {
         el.querySelector('#mc-fw').placeholder = '固件格 x,y ｜ 视觉 x=' +

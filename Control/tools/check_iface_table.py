@@ -57,15 +57,21 @@ RESOLVER = {
     # 1.2.0 / 1.3.0 / 1.4.0 新增的三个子 API 与它们的纯函数
     "MotorLabAPI": "host.api.lab",
     "RunResult": "host.api.lab",
-    "LessonAPI": "host.api.lesson",
-    "LessonResult": "host.api.lesson",
-    "LESSON_EXPS": "host.api.lesson",
-    "solve_ratio": "host.api.lesson",
-    "error_ratio": "host.api.lesson",
-    "step_metrics": "host.api.lesson",
-    "straightness_metrics": "host.api.lesson",
-    "theory_track_ratio": "host.api.lesson",
-    "theory_gyro_ratio": "host.api.lesson",
+    # ⚠️ 2.4.0 把**课程层整层删了**（`host.api.lesson` 连模块都不存在）：
+    #    LessonAPI / LessonResult / LESSON_EXPS 一律**不列** —— 列了 A0 会去 import
+    #    一个不存在的模块，报出来的错看着像"本层拼错了"，其实是"上游删了"。
+    #    ⇒ 本表只放**当前真的存在**的符号（同 2.0.0 处理 `SnapAPI` 的做法）。
+    #
+    # ⚠️ 但**算参那几个纯函数只是搬了家**（`host/api/lesson.py` → **`host/api/calc.py`**），
+    #    逻辑一字未改，且 `host.api` 仍把其中一部分再导出。它们的家现在是 `calc`。
+    #    注：`theory_gyro_ratio` / `pick_best_position` 等 `host.api` 未再导出的，
+    #    从 `host.api.calc` 取（与当年从 `host.api.lesson` 取同理）。
+    "solve_ratio": "host.api.calc",
+    "error_ratio": "host.api.calc",
+    "step_metrics": "host.api.calc",
+    "straightness_metrics": "host.api.calc",
+    "theory_track_ratio": "host.api.calc",
+    "theory_gyro_ratio": "host.api.calc",
     "TimeSyncAPI": "host.api.timesync",
     "TimeSyncState": "host.api.timesync",
     "min_delay_offset": "host.api.timesync",
@@ -84,6 +90,9 @@ RESOLVER = {
     "ROAD_NAMES": "host.protocol.codec",
     "ROAD_KINDS": "host.protocol.codec",
     "MOTION_TASK_NAMES": "host.protocol.codec",
+    # 2.3.0 新增的两张码表（前墙双档 / 比赛冲刺档）—— `/mouse/meas/meta` 端出它们
+    "SPURT_MODE_NAMES": "host.protocol.codec",
+    "FRONT_NAMES": "host.protocol.codec",
     "DIR_NAMES": "host.api.maze",
     "JUNCTION_KINDS": "host.api.maze",
     # 2.2.1 发车前低电闸：阈值是**登记表**里的常量（本层从它取，不写死），

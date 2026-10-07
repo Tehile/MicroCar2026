@@ -1,18 +1,29 @@
-/* ⑥ 实验 —— 电机实验（mc.lab）+ 课程调参实验（mc.lesson）。
+/* ⑥ 实验 —— 电机实验（`mc.lab`）+ 台面算参（2.4.0 起走 `host.api.calc` 纯函数）。
  *
  * 这是「小车 · 测试发车」里的**台面实验**那一半：标定位、调参、算系数都在这里做，
  * 和 ⑤ 发车（场地上真的跑）是两套流程，所以分开两页。
  *
- * ⚠️ **轮子必须悬空**。护栏（时间 + 红外）全在固件 1 ms 中断里判定，
- * 上位机被 kill 也不会失控 —— 但那是"不失控"，不是"不会撞墙"。
+ * ## ⚠️ 上游 2.4.0 把"课程调参实验"整层删了
+ * `lesson_lab.c`(751 行) + `host/api/lesson.py`(865 行) + 命令 `lesson.start/stop/status`
+ * + `Event.LESSON` + 课程 14 项参数 + Flash page 116 —— **一条都不剩**。
+ * ⇒ 本页那一栏"课程调参实验"整个不要了；只剩**电机实验**（`mc.lab`，生产档的台面动作）。
+ *   后端这七条路由现在的行为：`list/status` 回 200 + `available:false`（**仍在**，好让老界面
+ *   拿到一句"为什么不能用"），`run/stop/log` 回 **409 明确拒绝**，`suggest/apply` **照常可用**
+ *   —— 因为算参那几个纯函数上游只是**搬了家**（`api/lesson.py` → `host/api/calc.py`），
+ *   逻辑一字未改，仍是"拿一次实验的读数 + 真值 → 算生产参数"。
  *
- * ⚠️ 两套参数在不同的 Flash 页（生产 99 / 课程 100），写入通道也不同。
- * 实验 2/5 算出来的是 **TRACKL/TRACKR/GYRORATIO（生产参数）**，写回走 mc.params；
- * 课程 14 项走 mc.lesson.set_params。本页按参数自动分流，不让人猜。
+ * ## 台面实验为什么必须"轮子悬空"
+ * ⚠️ 护栏（时间 + 红外）全在固件 1 ms 中断里判定，上位机被 kill 也不会失控 ——
+ * 但那是"不失控"，不是"不会撞墙"。
+ *
+ * ## 两套参数（2.4.0 起只剩一套写回通道）
+ * 实验 2/5 算出来的是 **TRACKL/TRACKR/GYRORATIO（生产参数）**，写回走 `mc.params`
+ * （Flash page 115）。课程那套（page 116）已经不存在了 —— 本页不再分流。
  */
 
 C.views.exp = (function () {
   let el, exps = [], theory = null, labRes = null, lessonRes = null, sug = null;
+  let lessonOk = null;        // 课程实验在这台上游上还在不在（探 /lesson/list 的 available）
 
   function mount(host) {
     el = host;
@@ -50,25 +61,28 @@ C.views.exp = (function () {
             font-size:11px"></div>
         </div>
 
-        <div class="pane">
-          <h4>课程调参实验 · mc.lesson
+        <div class="pane" id="x-lesson-pane">
+          <h4>课程调参实验
             <span><button class="mini" id="x-lesson-stop">中止</button></span></h4>
-          <div class="kv">
-            <b>实验</b><span><select id="x-exp"></select></span>
+          <div id="x-lesson-gone" class="hint" style="display:none"></div>
+          <div id="x-lesson-body">
+            <div class="kv">
+              <b>实验</b><span><select id="x-exp"></select></span>
+            </div>
+            <div id="x-exp-help" class="hint"></div>
+            <div id="x-exp-args" class="kv"></div>
+            <div class="row wrap" style="margin-top:6px">
+              <button class="primary" id="x-lesson-run">执行实验</button>
+            </div>
+            <div id="x-lesson-progress" class="hint"></div>
+            <div id="x-lesson-out" class="hint" data-raw="1" style="white-space:pre-wrap;font-family:var(--mono);
+              font-size:11px"></div>
           </div>
-          <div id="x-exp-help" class="hint"></div>
-          <div id="x-exp-args" class="kv"></div>
-          <div class="row wrap" style="margin-top:6px">
-            <button class="primary" id="x-lesson-run">执行实验</button>
-          </div>
-          <div id="x-lesson-progress" class="hint"></div>
-          <div id="x-lesson-out" class="hint" data-raw="1" style="white-space:pre-wrap;font-family:var(--mono);
-            font-size:11px"></div>
         </div>
       </div>
 
       <div class="pane" id="x-sug-pane" style="margin-top:10px;display:none">
-        <h4>自动算参</h4>
+        <h4>自动算参（host.api.calc 纯函数）</h4>
         
         <div class="row wrap">
           <span>实测真值 <input id="x-truth" value="110" style="width:90px"></span>
@@ -100,12 +114,30 @@ C.views.exp = (function () {
     return el;
   }
 
+  /* 课程实验在**这台上游**上还在不在。2.4.0 起为 false，那一栏改成一句说明。
+     为什么不在 mount 里写死 false：这一段代码也要能在 2.3.x 上游上跑（本层是整合层，
+     老板子不一定跟着升）。后端的 `available` 是**能力探测**的结果，照它走。 */
+  function applyLessonAvail(ok, note) {
+    lessonOk = ok;
+    const gone = el.querySelector('#x-lesson-gone');
+    const body = el.querySelector('#x-lesson-body');
+    if (!gone || !body) return;
+    if (ok) { gone.style.display = 'none'; body.style.display = ''; return; }
+    gone.style.display = '';
+    body.style.display = 'none';
+    gone.textContent = note ||
+      '这台上游没有课程调参实验：RemoteControl 2.4.0 已把课程层整层删除'
+      + '（lesson_lab.c / lesson.start·stop·status / 课程 14 项参数 / Flash page 116）。'
+      + ' 台面动作只剩上面的电机实验；算参与写回仍在下面的「自动算参」里。';
+  }
+
   /* ------------------------------------------------------------ 状态 / 清单 */
   async function loadList() {
     const d = await C.guard(function () { return C.api('/api/v1/lesson/list'); });
     if (!d) return;
     exps = d.exps || [];
     theory = d.theory || {};
+    applyLessonAvail(d.available !== false, d.note);
     const sel = el.querySelector('#x-exp');
     sel.innerHTML = exps.map(function (e) {
       return '<option value="' + e.no + '">实验 ' + e.no + ' · ' + C.util.esc(e.name) + '</option>';
@@ -150,10 +182,13 @@ C.views.exp = (function () {
       return;
     }
     const lab = await C.guard(function () { return C.api('/api/v1/lab/status'); });
+    /* 2.4.0 起课程层没了 ⇒ `lesson/status` 回 `available:false`。
+       照旧问一次（拿到了才知道这台上游有没有），但**不**把它当成"能跑实验"的依据。 */
     const les = await C.guard(function () { return C.api('/api/v1/lesson/status'); });
     if (!lab && !les) return;
+    if (les && les.available === false) applyLessonAvail(false, les.note);
     const L = (lab && lab.connected !== false) ? lab : {};
-    const S = les || {};
+    const S = (les && les.available !== false) ? les : {};
     el.querySelector('#x-status').innerHTML = [
       ['已连接', L.connected === undefined ? (les && les.connected) : L.connected],
       ['电机被禁用', L.motor_disabled, L.motor_disabled
@@ -221,8 +256,12 @@ C.views.exp = (function () {
       '采下 ' + d.points + ' 点（2 s × 50 Hz，取自统一帧）\n' + (d.note || '');
   }
 
-  /* ------------------------------------------------------------ 课程实验 */
+  /* ------------------------------------------------------------ 课程实验
+     ⚠️ 2.4.0 起上游把这层删了 ⇒ 后端 `run/stop` 回 **409**。这不是"坏掉了"，
+     而是"这台设备没这个功能"；`C.guard` 会把后端那句话说进 toast，够了 —— 但**先**判一次
+     `lessonOk`，别在白屏的按钮上白等一次往返（按钮本来就已经藏起来了，这里只是兜底）。 */
   async function doLessonRun() {
+    if (lessonOk === false) { C.toast('这台上游没有课程调参实验（2.4.0 已删除）', 'warn'); return; }
     const no = Number(el.querySelector('#x-exp').value);
     const args = {};
     el.querySelectorAll('[data-arg]').forEach(function (i) {
@@ -238,15 +277,16 @@ C.views.exp = (function () {
     if (!d) return;
     lessonRes = d;
     el.querySelector('#x-lesson-out').textContent = d.explain || JSON.stringify(d, null, 1);
-    // 只有实验 2/5 能自动算参 —— 能算才把那一块露出来，免得白填
-    if (no === 2 || no === 5) {
-      el.querySelector('#x-sug-pane').style.display = '';
-      el.querySelector('#x-apply').disabled = true;
-      sug = null;
-    }
+    /* 算参那一块：只要拿到一次实验读数就能算（后端走 `host.api.calc` 纯函数，
+       与课程层在不在无关）⇒ 不再按 `no===2||no===5` 卡死（那一对是**课程**实验号，
+       2.4.0 之后不再出现）。有一次结果就把那一块露出来，让人自己填真值算。 */
+    el.querySelector('#x-sug-pane').style.display = '';
+    el.querySelector('#x-apply').disabled = true;
+    sug = null;
   }
 
   async function doLessonStop() {
+    if (lessonOk === false) { C.toast('这台上游没有课程调参实验（2.4.0 已删除）', 'warn'); return; }
     const d = await C.guard(function () {
       return C.api('/api/v1/lesson/stop', { method: 'POST', body: {} });
     }, '中止实验');
@@ -343,6 +383,8 @@ C.views.exp = (function () {
           '<b class="tag bad">急停锁存中</b> 运动命令返回 ERR_ESTOP';
       }
       /* 电机实验与课程实验都会**真驱动电机** ⇒ 没连上鼠就没意义，按钮先关门。
+         课程那两个按钮在 2.4.0 上游上已经藏起来了（`#x-lesson-body` 整块 `display:none`），
+         门控照旧走一遍无害。
          不门控的：#x-calc（纯计算，不碰设备）、#x-estop/#x-resume（越连不上越想按）、
          #x-refresh（读了才知道状态）、#x-apply（它自己还有"先算一算"的前提，
          这里不插手它的启用逻辑；真要写回时后端那道 motor_guard 也拦得住）。 */
@@ -356,14 +398,15 @@ C.views.exp = (function () {
     context: function (box) {
       box.innerHTML = `
         <div class="card">
-          <h3>两套参数</h3>
+          <h3>参数与通道</h3>
           <div class="kv">
             <b>生产标定</b><span>TRACKL/TRACKR/SPEEDL/SPEEDR/GYRORATIO/ENCANGLE/WALLDIST<br>
-              Flash page <b>115</b> · mc.params</span>
-            <b>课程调参</b><span>KPL…WALLMODE 共 14 项<br>Flash page <b>116</b> · mc.lesson</span>
+              Flash page <b>115</b> · mc.params（24 项，写页按 SAVE 按钮上的数字为准）</span>
+            <b>课程调参</b><span>RemoteControl <b>2.4.0 已整层删除</b><br>
+              lesson_lab.c / lesson.start·stop·status / 14 项 / page 116 都不在了</span>
           </div>
           <div class="hint">页号是**固件分区**给的，随上游调整会变（1.5.4 就把生产页从
-            99 挪到了 115）。以「实时参数」页上 SAVE 按钮里的数字为准。</div>
+            99 挪到了 115）。以「实时状态与参数设定」页上 SAVE 按钮里的数字为准。</div>
         </div>`;
     }
   };

@@ -109,7 +109,16 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_post("/api/v1/lab/log", _lab_log)
     r.add_post("/api/v1/lab/estop", _lab_estop)
     r.add_post("/api/v1/lab/resume", _lab_resume)
-    # ---- 课程调参实验（上游 1.3.0）
+    # ---- 课程调参实验（上游 1.3.0 引入，**2.4.0 整层删除**）
+    #
+    # ⚠️ **这七条路由保留，但语义变了**：上游把课程层删了（编译档位 5 → 2，
+    #    `MOUSE_LESSON_LAB` 连同 `lesson_lab.c` 751 行一并移除），所以它们**只能**
+    #    回一条解释得清楚的错。为什么不干脆删掉路由：
+    #      · 旧前端/旧脚本/判据调它们时，**404 说不出为什么** —— 现场会以为
+    #        "本层忘了实现"，而不是"上游删了"；
+    #      · 保留一条到 `calc` 的口（`/lesson/suggest`）—— **算参能力保留**，
+    #        它算的是生产参数（TRACK*/GYRORATIO），与课程层无关。
+    #    所以：`/lesson/suggest` **仍然可用**（走 calc 纯函数），其余六条明说已删除。
     r.add_get("/api/v1/lesson/list", _lesson_list)
     r.add_get("/api/v1/lesson/status", _lesson_status)
     r.add_post("/api/v1/lesson/run", _lesson_run)
@@ -979,9 +988,34 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
     ⚠️ 记录**失败不影响发车**：车该走还是要走。记录失败只记一行日志 ——
     把"记不上"升级成"发不了车"是本末倒置（而且现场很可能就是因为记录写不进磁盘
     才出问题，那时更该让车照常跑）。
+
+    ## 2.4.0：`target` 决定跑哪套剖面（**这是「比赛」页与「实验 8」页的分岔口**）
+
+    | target | 固件路径 | 界面上的入口 |
+    |---|---|---|
+    | `BLIND`（默认） | `LESSON_Blind8()` 无记忆走迷宫 | 「无记忆走迷宫」页 |
+    | `RACE` | 先读 Flash 地图选档/定冲刺，再进主循环 | 「比赛」页 |
+
+    ⚠️ **`target` 只在 request body 里给**，不给就是 `BLIND` —— 与上游"默认省略目标词"
+    同构，于是 v2.3 时代的调用点与日志格式**原样保留**（纪律 26：越"零改动跟上"越要
+    逐条读文案，这里我们反而是**故意**让旧路径一字不改）。
+
+    ⚠️ **不许把 `RACE` 拼给不认识它的上游**：老上游的 `MazeAPI.run()` 是零参的，
+    传 `target=` 会 `TypeError` ⇒ 冒成 500，看着像"本层拼错了请求"。
+    所以这里先看能力探测（`maze_target`），不认就**当场 400 说清楚**。
     """
     ctx = request.app["ctx"]
     _need_mouse(ctx)
+    d = await body_json(request, required=False)
+    target = str((d or {}).get("target") or "BLIND").strip().upper() or "BLIND"
+    if target not in ("BLIND", "RACE"):
+        raise ApiError(400, f"target 只能是 BLIND 或 RACE，收到 {target!r}")
+    if target == "RACE" and not ctx.mouse.caps().get("maze_target"):
+        raise ApiError(
+            400,
+            "这台设备上的上游不支持 RACE 发车（`MazeAPI.run()` 没有 target 形参）。\n"
+            "  · RACE 是 RemoteControl 2.4.0 新增的（`MAZE RUN [BLIND|RACE]`）；\n"
+            "  · 2.3.0 及更早只有无记忆走迷宫，也就是 BLIND。")
     loop = asyncio.get_running_loop()
     # 先取一份**低电预检**随应答带回去（纯读帧）。它**不是闸** —— 真闸在上游
     # `send_cmd` 的登记表层（脚本/CLI 也绕不开）；这里只是让"电池不够"这件事
@@ -1004,7 +1038,7 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
         rec_note = f"（记录未能开始：{type(e).__name__}）"
         ctx.bus.log("warn", f"实验 8 记录没能开始：{type(e).__name__}: {e}")
     try:
-        res = await loop.run_in_executor(None, ctx.mouse.maze_run)
+        res = await loop.run_in_executor(None, lambda: ctx.mouse.maze_run(target))
     except Exception:
         # 发车被拒（`ERR_LOWBATT` / `ERR_ESTOP` / `ERR_BUSY` / 其他）⇒ 这一段根本没开始。
         #
@@ -1152,16 +1186,44 @@ async def _lab_resume(request: web.Request) -> web.Response:
 
 
 # ================================================================ 课程实验（mc.lesson）
+#
+# ⚠️ **上游 2.4.0 已删除课程调参整层**。下面这一组里：
+#   · `/lesson/list`、`/lesson/status` → 照常 200，但 `available=false` + 一段说明。
+#     **不返回 404**：界面要能画出"这一块已经不存在了，原因是……"，
+#     而不是让"少了一半界面"变成"网络出错了"。
+#   · `/lesson/run`、`/lesson/stop`、`/lesson/log` → **409 明确拒绝**（这些是动作，
+#     假装成功比拒绝更坏）。`/lesson/log` 本来就一直是"明确失败"（见它的 docstring）。
+#   · `/lesson/suggest`、`/lesson/apply` → **照常可用**：算参纯函数已迁到
+#     `host/api/calc.py`，算出来的 TRACKL/TRACKR/GYRORATIO **全是生产参数**。
+
+def _lesson_available(ctx: Any) -> bool:
+    """上游还有没有课程层。**能力探测**，不看版本号。"""
+    return bool((getattr(ctx.mouse, "_features", {}) or {}).get("lesson"))
+
+
+_lesson_gone_msg = (
+    "上游 RemoteControl 2.4.0 已删除课程调参实验整层（编译档位 5 → 2）。\n"
+    "  · lesson.start / lesson.stop / lesson.status 三条命令已退出登记表；\n"
+    "  · 课程 14 项参数（id 8–21）与 Flash page 116 一并释放；\n"
+    "  · 曲线数据在旧版是实验期间就地捕获的，现在没有这条通道了。\n"
+    "  · 算参仍然可用：POST /api/v1/lesson/suggest 算的是生产参数。")
+
 
 async def _lesson_list(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
     return ok({"exps": ctx.mouse.lesson_exps(),
                "theory": ctx.mouse.lesson_theory(),
+               "available": _lesson_available(ctx),
+               "note": ("" if _lesson_available(ctx) else _lesson_gone_msg),
                "features": dict(getattr(ctx.mouse, "_features", {}) or {})})
 
 
 async def _lesson_status(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
+    if not _lesson_available(ctx):
+        # 不 404：界面靠这一条把"这块没了 + 为什么"画出来。
+        return ok({"connected": ctx.mouse.mc is not None and ctx.mouse.mc.is_connected,
+                   "available": False, "note": _lesson_gone_msg})
     if ctx.mouse.mc is None or not ctx.mouse.mc.is_connected:
         return ok({"connected": False})
     loop = asyncio.get_running_loop()
@@ -1171,11 +1233,12 @@ async def _lesson_status(request: web.Request) -> web.Response:
 async def _lesson_run(request: web.Request) -> web.Response:
     """跑一次课程实验：启动 → 等 DONE → **实验期间本地捕获统一帧** → 自动算参。
 
-    2.0.0 起曲线在实验期间就地捕获（`capture=true`，默认），实验结束不再有
-    "回传往返" —— 所以 `fetch_log` / `realtime_hz` 两个参数消失，改为 `capture` / `sample_hz`。
+    ⚠️ 2.4.0 起这条路对上游不存在了 ⇒ **409 明确拒绝**（不返回空壳结果）。
     """
     ctx = request.app["ctx"]
     _need_mouse(ctx)
+    if not _lesson_available(ctx):
+        raise ApiError(409, _lesson_gone_msg)
     d = await body_json(request, required=True)
     if "exp" not in d:
         raise ApiError(400, "要给 exp（实验号）。可用的见 GET /api/v1/lesson/list")
@@ -1209,21 +1272,32 @@ async def _lesson_run(request: web.Request) -> web.Response:
 async def _lesson_stop(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
     _need_mouse(ctx)
+    if not _lesson_available(ctx):
+        raise ApiError(409, _lesson_gone_msg)
     loop = asyncio.get_running_loop()
     return ok(await loop.run_in_executor(None, ctx.mouse.lesson_stop))
 
 
 async def _lesson_log(request: web.Request) -> web.Response:
     """旧接口。2.0.0 没有"事后回传课程日志"这条通道 —— 它会**明确报错**，
-    而不是返回一个空数组假装成功（空数组会被界面画成"零个点"）。"""
+    而不是返回一个空数组假装成功（空数组会被界面画成"零个点"）。
+    2.4.0 更进一步：连课程层本身都没了。"""
     ctx = request.app["ctx"]
     _need_mouse(ctx)
+    if not _lesson_available(ctx):
+        raise ApiError(409, _lesson_gone_msg)
     loop = asyncio.get_running_loop()
     return ok(await loop.run_in_executor(None, ctx.mouse.lesson_fetch_log))
 
 
 async def _lesson_suggest(request: web.Request) -> web.Response:
-    """**自动算参**：给实测真值，算出该写回的系数（纯计算，不改设备）。"""
+    """**自动算参**：给实测真值，算出该写回的系数（纯计算，不改设备）。
+
+    ⚠️ **2.4.0 之后这条仍然可用，而且更要紧**：它算的是 `TRACKL`/`TRACKR`/`GYRORATIO`，
+    **全部属生产标定参数**（走 `mc.params`），与课程层毫无关系 —— 上游把算参函数
+    从 `lesson.py` 专门迁到 `api/calc.py` 就是为了保住这条能力。
+    所以这里**不判课程层在不在**，只判算参纯函数在不在。
+    """
     ctx = request.app["ctx"]
     _need_mouse(ctx)
     d = await body_json(request, required=True)
@@ -1237,6 +1311,13 @@ async def _lesson_suggest(request: web.Request) -> web.Response:
 
 
 async def _lesson_apply(request: web.Request) -> web.Response:
+    """把算出的建议值写回设备。**按参数所在组自动选通道**。
+
+    ⚠️ 与 `/lesson/suggest` 同理：算参算出来的全是**生产参数**（TRACK*/GYRORATIO），
+    走 `mc.params` ⇒ **2.4.0 之后照常可用**，不判课程层在不在。
+    历史注：上游 CHANGELOG 曾专门提过"`mc.lesson.set_params()` 只接受课程命名空间" ——
+    那正是为什么本层这里走的是 `mc.params`。
+    """
     ctx = request.app["ctx"]
     _need_mouse(ctx)
     d = await body_json(request, required=True)

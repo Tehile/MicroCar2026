@@ -152,6 +152,7 @@ li{margin:.28em 0}
 <li><a href="#1112-211-212-220-221">11.12 上游 2.1.1 / 2.1.2 / 2.2.0 / 2.2.1 的跟进记录（"能不能把车收回来"）</a></li>
 <li><a href="#1113-88">11.13 「实验 8」右栏的决策差分：8 类判据与它们的上游依据</a></li>
 <li><a href="#1114">11.14 「回放和实时的决策树不一样」：两条来路必须同一个纪元</a></li>
+<li><a href="#1115-230-240">11.15 上游 2.3.0 / 2.4.0 的跟进记录（"取消独立参数标定"与比赛发车）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -325,6 +326,87 @@ li{margin:.28em 0}
 时间线上"事件落在第几帧旁边"不再由前端按 <code>t0_pc_ms</code> 自己换算 ——
 <strong>后端能算的，不要前端自己攒</strong>。前端那个模块级 <code>evs</code> 数组随之删掉。
 细节、实测数据与判据见 §11.14。</p>
+<p><strong>改版记录 2026-10-07（十二）</strong>：上游 RemoteControl 发布 <strong>2.4.0</strong>（紧跟 2.3.0）。
+这一轮<strong>只动「小车控制」这一个子系统的模块划分</strong>，布局规则与其余三个子系统<strong>全不变</strong>
+（仍是"入口页只做导航 + 整屏模块界面"，仍是"不设选项卡、不切页"）。</p>
+<p><strong>① 上游这一轮改了什么（本层的适配面）。</strong>
+· <strong>编译档位 5 → 2</strong>：<code>MOUSE_REMOTE</code>（远程档）/ 什么都不定义（按键比赛档，
+  与 v2.3.0 比赛固件<strong>逐字节一致</strong>）。本层跑的是<strong>远程档</strong>。
+· <strong>删掉课程调参整层</strong>：<code>APP/lesson_lab.c</code>(751 行)、<code>host/api/lesson.py</code>(865 行)、
+  <code>host/lesson.py</code>(568 行)、命令 <code>lesson.start/stop/status</code>、<code>Event.LESSON</code>、
+  <strong>课程 14 项参数</strong>（id 8–21）、Flash page 116。
+· <strong>参数表 38 → 24 项</strong>：<code>commands.PARAM_IDS</code> 只剩生产命名空间
+  （<code>PARAM_IDS_BASE</code> 1–7 + <code>PARAM_IDS_MEAS</code> 22–38），与固件 <code>LINK_P_NUM = 24</code> <strong>严格相等</strong>。
+· <strong>新增 <code>MAZE RUN [BLIND|RACE]</code></strong>：<code>MazeAPI.run(target="BLIND")</code>、<code>timesync.maze_run(target=…)</code>、
+  CLI <code>maze run --goal {blind,race}</code>；默认 <code>BLIND</code> 时<strong>省略目标词</strong>。
+· <strong>算参纯函数搬家</strong>：从 <code>api/lesson.py</code> <strong>原样</strong>搬到 <code>host/host/api/calc.py</code>
+  （<code>theory_track_ratio</code>/<code>solve_ratio</code>/<code>step_metrics</code>/<code>straightness_metrics</code>/
+  <code>ir_error_stats</code>/<code>pick_best_position</code> …），<code>host.api</code> 仍导出 ⇒ <strong>逻辑一字未改</strong>。
+· <strong>版本</strong>：<code>registry.API_VERSION</code> = <strong>2.4.0</strong>、<code>LINK_FW_VER</code> = <strong>216</strong>、<code>LINK_PROTO_VER</code> = <strong>5</strong>、
+  设备指纹 <code>PONG 5 216 7 512 &lt;rst&gt;</code>（TX 环缓冲 256 → 512）。
+· 另含 <strong>2.3.0</strong>（本层此前从未接）：统一帧 <strong>39 → 49 通道</strong>，新增前墙双档
+  <code>frontNear</code>/<code>frontFar</code>/<code>frontBoth</code> 与比赛冲刺状态 <code>spurtMode</code>/<code>spurtFlag</code>/<code>goOrBack</code>/
+  <code>spurtTestFlag</code>/<code>objectGoToFlag</code>/<code>goaheadnum</code>/<code>fastwayCount90</code>。</p>
+<p><strong>② 界面：「小车控制」四张卡 → 三张卡。</strong> 按<strong>现场真会做的三件事</strong>重排，与上游的
+档位/入口一一对应：</p>
+<table>
+<thead>
+<tr>
+<th>卡片</th>
+<th>接的上游</th>
+<th>由原四卡里的谁构成</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① <strong>实时状态与参数设定</strong></td>
+<td>远程档全部</td>
+<td>原「实时参数」+「运动控制」+「校准例程」</td>
+</tr>
+<tr>
+<td>② <strong>无记忆走迷宫</strong></td>
+<td><code>MAZE RUN BLIND</code></td>
+<td>原「实验 8 · 无记忆走迷宫」（<strong>改名</strong>，内部三栏不变）</td>
+</tr>
+<tr>
+<td>③ <strong>比赛</strong></td>
+<td><code>MAZE RUN RACE</code></td>
+<td><strong>新增</strong>：读地图选档发车 + 冲刺状态监视</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>为什么把「运动控制」「校准例程」并进「实时状态与参数设定」</strong>：上游压到两档之后，
+"把车调好"（看状态 → 调参数 → 手动动一下 → 标定）成了<strong>同一个现场阶段</strong>里的连续动作，
+共用同一组门控（"连上电脑鼠"）；在导航上给它们各开一张卡，只是让这件事多两级。
+而「走迷宫」与「比赛」是<strong>两种跑法</strong>（一个从零趟、一个读地图冲），是并列的，
+所以它们各占一张卡。并进一页的三个区块仍各有 id 前缀（<code>mp-</code> / <code>mm-</code> / <code>mc-</code>），
+判据 <strong>B30</strong> 逐 id 检查 —— <strong>并进一页不等于不用守</strong>。</p>
+<p><strong>③ 「比赛」页为什么几乎全是只读。</strong> 冲刺档位 <code>spurtMode</code> 是固件<strong>只读镜像</strong>
+（<code>mazeState</code>/<code>taskSt</code> 的位），上位机<strong>设不了</strong>它 —— 冲刺入口是比赛流程里
+"人工贴墙选档"那一段（刻意不动）。⇒ 这一页的职责是<strong>把固件正在想什么说出来</strong>，
+只有两个动作：【比赛发车】（<code>RACE</code>）与【收车】/【救援】。少写这句"我们设不了它"，
+现场会到处找那个不存在的下拉框。</p>
+<p><strong>④ 前墙双档要</strong>当场自校验<strong>。</strong> 2.3.0 把前墙拆成互斥两档（0 无墙 / 1 近端贴脸 /
+2 远端提前量），恒等式 <code>frontNear | frontFar == wallFront</code>。比赛档靠这一档决定
+"减速还是马上转"，判错就是撞墙 ⇒ 界面把三个量并排画，旁边一行当场验这条恒等式，
+对不上立刻红字（<strong>固件自相矛盾时要喊一声</strong>，这是界面唯一能做的）。</p>
+<p><strong>⑤ 三态不许涂红：<code>spurt</code> 拿不到时不许画成"未选"。</strong> 老上游（≤2.2.1）没有这些量，
+适配器 <code>_spurt_of()</code> 回 <code>None</code> ⇒ 界面必须写"这台设备没有这个量（升级上游）"，
+<strong>不许</strong>把 <code>null</code> 画成"未选 / 0"——"没选档"与"读不到档"是两件事，
+混起来现场会以为车已经准备好冲了。</p>
+<p><strong>⑥ 「取消独立参数标定」指的是课程层，不是「标定例程」。</strong> 用户说的这句话，
+对应的是上游删掉的 <strong>课程调参整层</strong>（14 项死参数）；而「标定例程」那五项
+（GYRO / 壁距 / 红外逐点 / 角度 / 里程，<code>mc.calib</code>，Flash page 115）是<strong>生产标定</strong>，
+上游<strong>一行没删</strong>，远程档下照常可跑 ⇒ <strong>保留</strong>（它正是"把车调好"的最后一步）。</p>
+<p><strong>⑦ 顺带修掉本层一个"从没红过的真缺陷"：<code>unified</code> 能力位静默变 False。</strong>
+<code>_probe_features()</code> 里把统一帧通道数<strong>写死成 39</strong>（<code>len(...) == 39</code>），而 2.3.0 起是 <strong>49</strong>
+⇒ 上游一升级，这条能力位就<strong>静默变 False</strong>，而<strong>没有任何判据会红</strong>
+（判据只查 <code>caps.unified_channels</code> 列表，不查这条能力位）。
+⇒ 判据改成"<strong>协议层有通道清单 + 有解码器</strong>"（<code>len(...) &gt; 0 and callable(decode_unified)</code>），
+数量由 <code>caps</code> 清单与 <strong>I22</strong> 从协议层逐项比对负责。
+同一条纪律也落到了 <code>drill.py</code>：I22/I27 原写死 <code>== 39</code>（升到 2.3.0 就假红），
+改为与上游 <code>UNIFIED_CHANNELS</code> <strong>逐项相等</strong>。
+细节见 §11.15。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -365,7 +447,7 @@ li{margin:.28em 0}
 ├──────────────────────────────────────────────────────────────┤
 │ 【入口页】只做导航                                             │
 │ ── 小车控制 — RemoteControl ──────────────────────────────── │  ← 分割线 + 类别名称
-│    [实时参数] [运动控制] [校准例程] [实验 8 · 无记忆走迷宫]      │
+│    [实时状态与参数设定] [无记忆走迷宫] [比赛]                    │  ← 改版十二：四卡 → 三卡
 │ ── 相机 — PhoneCamera ──────────────────────────────────── │
 │    [图像回传测试]                                             │
 │ ── 定位 — Auto Locate ──────────────────────────────────── │
@@ -380,7 +462,7 @@ li{margin:.28em 0}
 ┌──────────────────────────────────────────────────────────────┐
 │ 顶栏 + 页脚（不变）                                            │
 ├──────────────────────────────────────────────────────────────┤
-│ 【模块界面】 ← 返回   运动控制 · 小车控制 · RemoteControl       │  ← 一次只开一个
+│ 【模块界面】 ← 返回   实时状态与参数设定 · 小车控制 · RemoteControl  │  ← 一次只开一个
 │    ……该模块的控件与读数（没有别的东西）……                        │
 └──────────────────────────────────────────────────────────────┘
         │「综合运动台」进去后 = 原有的两栏并排
@@ -424,7 +506,7 @@ li{margin:.28em 0}
 <tr>
 <td><strong>小车控制</strong></td>
 <td>RemoteControl</td>
-<td>① <strong>实时参数</strong>（参数表 38 项 / 四组 + <strong>实时读数</strong>：统一帧 39 通道，含里程 / 陀螺 / <strong>四路红外 / 电压</strong> + 清零）<br>② 运动控制（前进 / 后退 / 转向，指令 + 持续秒数）<br>③ 校准例程（标定步骤 + 参数写回）<br>④ <strong>实验 8 · 无记忆走迷宫</strong>（<strong>三栏</strong>：左=状态机 + 关键传感器实时读数 / 中=<strong>重构示意</strong>（搜过哪里、已知哪里有墙、小车朝向与轨迹）/ 右=<strong>决策与状态迁移时间线</strong>（可滚动）；<strong>从发车到停止自动圈定并落盘</strong>，可<strong>导入文件复盘</strong>）</td>
+<td>① <strong>实时状态与参数设定</strong>（参数表 <strong>24 项 / 三组</strong> + <strong>实时读数</strong>：统一帧 <strong>49 通道</strong>，含里程 / 陀螺 / <strong>四路红外 / 电压 / 前墙双档 / 比赛冲刺状态</strong> + 清零；<strong>并入</strong>原「运动控制」与「校准例程」两个区块 —— 手动运动（前进 / 后退 / 转向）+ 标定例程（五项 + 场地几何 + 报告））<br>② <strong>无记忆走迷宫</strong>（<code>MAZE RUN BLIND</code>；<strong>三栏</strong>：左=状态机 + 关键传感器实时读数 / 中=<strong>重构示意</strong>（搜过哪里、已知哪里有墙、小车朝向与轨迹）/ 右=<strong>决策与状态迁移时间线</strong>（可滚动）；<strong>从发车到停止自动圈定并落盘</strong>，可<strong>导入文件复盘</strong>）<br>③ <strong>比赛</strong>（<code>MAZE RUN RACE</code>：读 Flash 地图选档发车 + <strong>前墙双档</strong>当场自校验 + <strong>冲刺状态</strong>只读监视 + 收车 / 救援）</td>
 </tr>
 <tr>
 <td><strong>相机</strong></td>
@@ -443,6 +525,11 @@ li{margin:.28em 0}
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p><strong>改版十二（上游 2.4.0）</strong>：小车控制由<strong>四卡</strong>精简为<strong>三卡</strong>。原「实时参数」改名
+「实时状态与参数设定」并<strong>并入</strong>「运动控制」「校准例程」；原「实验 8 · 无记忆走迷宫」
+改名「无记忆走迷宫」；<strong>新增</strong>「比赛」。详见开篇「改版记录 2026-10-07（十二）」与 §11.15。</p>
+</blockquote>
 <p>上游新能力对应关系（2026-10-04 核对）：</p>
 <ul>
 <li><strong>PhoneCamera 1.15.0</strong>：新增<strong>彩色实时道</strong> <code>POST /api/v1/live/frame</code>（会话级
@@ -722,7 +809,9 @@ li{margin:.28em 0}
 ⇒ 这条教训对本层的意义：<strong><code>stream.off()</code> 不只是省流量，它是排障手段</strong>
 （v2.1 的 <code>off()</code> 会<strong>立刻丢弃在途请求</strong>，这是让模块缓冲排空的唯一办法）。</p>
 </blockquote>
-<p><strong>统一帧 39 个通道（<code>UNIFIED_CHANNELS</code>，顺序即列顺序）</strong>：</p>
+<p><strong>统一帧通道（<code>UNIFIED_CHANNELS</code>，顺序即列顺序）</strong> —— <strong>2.0.0 是 39 个，2.3.0 起 49 个</strong>。
+⚠️ <strong>界面与判据都不许写死个数</strong>：数量随上游变（2.0.0 → 39 / 2.3.0 → 49），
+写死的那一处会在升级时<strong>静默出错</strong>（见 §11.15 第五节的 <code>unified</code> 能力位真缺陷）。</p>
 <ul>
 <li><strong>测量量</strong>：<code>ms8</code>、<code>irAdcF1/F2/L/R</code>（原始 ADC）、<code>irF1/F2/L/R</code>（<strong>mm</strong>）、<code>battMv</code>（mV）、
   <code>speedL/speedR</code>（cm/s）、<code>gyroAngle</code>、<code>encAngle</code>、<code>trackL/trackR/cellOdom</code>（<strong>mm</strong>）、<code>pidErr</code></li>
@@ -730,6 +819,12 @@ li{margin:.28em 0}
   <code>motionTask</code>(7b)、<code>irSwitch</code>(1b)、<code>motionStep</code>(4b)、<code>critL/critR/left45/right45</code>(各 1b)</li>
 <li><strong>标志与决策</strong>：<code>flags</code>、<code>posX/posY</code>(各 4b)、<code>goalX/goalY</code>(各 4b)、<code>wallThresh</code>、<code>stackIdx</code>、
   <code>fastwayCount</code>、<code>dropCnt</code></li>
+<li><strong>2.3.0 新增（10 个）</strong>：</li>
+<li><strong>前墙双档</strong>：<code>frontNear</code> / <code>frontFar</code> / <code>frontBoth</code> —— 码表 <code>FRONT_NAMES</code>
+    （0 无墙 / 1 近端(贴脸) / 2 远端(提前量)）；<strong>恒等式 <code>frontNear | frontFar == wallFront</code>，两档互斥</strong>。</li>
+<li><strong>比赛冲刺状态</strong>：<code>spurtMode</code>（码表 <code>SPURT_MODE_NAMES</code>：0 未选 / 1 90_LOW / 2 45_LOW /
+    3 MEDIUM / 4 HIGH）、<code>spurtFlag</code>、<code>goOrBack</code>、<code>spurtTestFlag</code>、<code>objectGoToFlag</code>、
+    <code>goaheadnum</code>、<code>fastwayCount90</code>。⚠️ 这几个是固件<strong>只读镜像</strong>，上位机<strong>设不了</strong>。</li>
 </ul>
 <blockquote>
 <p>⚠️ <strong>两处必须记住的"不能推导"</strong>：① <code>wallThresh</code> 是<strong>运行时侧墙阈值</strong>，会被
@@ -2005,8 +2100,8 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 <td>⑥ 实验</td>
 </tr>
 <tr>
-<td>课程调参实验</td>
-<td><code>GET /lesson/list｜status</code>、<code>POST /lesson/run｜stop｜log｜suggest｜apply</code></td>
+<td>课程调参实验（<strong>2.4.0 上游已删除</strong>）</td>
+<td><code>GET /lesson/list｜status</code>（回 200 + <code>available:false</code> + <code>note</code>）、<code>POST /lesson/run｜stop｜log</code>（回 <strong>409</strong> 明确拒绝）、<code>POST /lesson/suggest｜apply</code>（<strong>照常可用</strong>：算参纯函数已搬到 <code>host/api/calc.py</code>，配生产参数）</td>
 <td>⑥ 实验</td>
 </tr>
 </tbody>
@@ -2646,8 +2741,8 @@ python app.py                             # 打开 http://127.0.0.1:8770
 </tr>
 <tr>
 <td><strong>I16</strong></td>
-<td><strong>参数按 Flash 页与写入通道分开</strong>：38 项必须分成 <code>生产标定</code>(id 1–7, page <strong>115</strong>, <code>mc.params</code>)、<code>红外测量</code>(id 22–32, page 115, <code>mc.params</code>)、<code>电源监控</code>(id 33–38, page 115, <code>mc.params</code>)、<code>课程调参</code>(id 8–21, page <strong>116</strong>, <code>mc.lesson</code>) 四组；生产侧三组<strong>同页同通道</strong>、课程侧另一条</td>
-<td>反例：拍平成一组的表里混着两套（用户改一项就有一半概率走错通道）⇒ FAIL；两组用了同一个通道 ⇒ FAIL；页号还停在 99/100（上游 1.5.4 已把运行数据区上移，旧页号正落在 <code>FLASH_EraseRunData()</code> 的擦除范围内）⇒ FAIL</td>
+<td><strong>参数按 Flash 页与写入通道分开</strong>：全部参数项必须按 <code>生产标定</code>(id 1–7, page <strong>115</strong>, <code>mc.params</code>)、<code>红外测量</code>(id 22–32, page 115, <code>mc.params</code>)、<code>电源监控</code>(id 33–38, page 115, <code>mc.params</code>) 三组分开（<strong>2.4.0 起共 24 项</strong>）；三组<strong>同页同通道</strong>。⚠️ <strong>2.4.0 删掉了课程层</strong>（原 <code>课程调参</code> id 8–21 / page 116 / <code>mc.lesson</code>）⇒ 判据改为<strong>读 <code>caps.param_ids</code></strong>：数目必须与上游 <code>PARAM_IDS</code> <strong>严格相等</strong>、且不含 id 8–21；老板子（≤2.3.x）上四组仍成立</td>
+<td>反例：拍平成一组的表里混着两套（用户改一项就有一半概率走错通道）⇒ FAIL；两组用了同一个通道 ⇒ FAIL；页号还停在 99/100（上游 1.5.4 已把运行数据区上移，旧页号正落在 <code>FLASH_EraseRunData()</code> 的擦除范围内）⇒ FAIL；<strong>2.4.0 上游上仍报出课程那 14 项 / page 116</strong> ⇒ FAIL（那是把已删的组画成了"可写"，比缺数据更坏）</td>
 </tr>
 <tr>
 <td><strong>I17</strong></td>
@@ -2676,12 +2771,12 @@ python app.py                             # 打开 http://127.0.0.1:8770
 </tr>
 <tr>
 <td><strong>I22</strong></td>
-<td><strong>统一帧单流 + 码表零设备访问 + 拉取可控</strong>（2.0.0 立、2.1.0 改判）：<code>/caps</code> 的 <code>streams</code> 键恰好 <code>["unified"]</code>、<code>frames</code> 恰好 <code>["UNIFIED","MAP"]</code>（帧类型 9→2）；<code>/mouse/meas/meta</code> 在<strong>拉取关着</strong>时也答得出 <strong>39 个通道</strong>（与上游 <code>UNIFIED_CHANNELS</code> <strong>逐项一致</strong>）与完整迷宫码表 ⇒ 证明它<strong>零设备访问</strong>；打开拉取后帧<strong>真的在来</strong>（<code>counts.unified</code> 增长且 <code>rx_bps &gt; 0</code>）；<strong>关掉拉取后帧计数必须停止增长</strong>（这是 2.1 的自愈性质，也是"节奏真的在上位机手里"的直接证据）</td>
+<td><strong>统一帧单流 + 码表零设备访问 + 拉取可控</strong>（2.0.0 立、2.1.0 改判）：<code>/caps</code> 的 <code>streams</code> 键恰好 <code>["unified"]</code>、<code>frames</code> 恰好 <code>["UNIFIED","MAP"]</code>（帧类型 9→2）；<code>/mouse/meas/meta</code> 在<strong>拉取关着</strong>时也答得出<strong>全部通道</strong>（与上游 <code>UNIFIED_CHANNELS</code> <strong>逐项一致</strong> —— ⚠️ <strong>不写死个数</strong>：2.0.0 是 39、2.3.0 起是 49；写死会在升级时假红，见 §11.15 第五节）与完整迷宫码表 ⇒ 证明它<strong>零设备访问</strong>；打开拉取后帧<strong>真的在来</strong>（<code>counts.unified</code> 增长且 <code>rx_bps &gt; 0</code>）；<strong>关掉拉取后帧计数必须停止增长</strong>（这是 2.1 的自愈性质，也是"节奏真的在上位机手里"的直接证据）</td>
 <td>反例：仍能读到 <code>SNAP</code> 的域/字段（说明只改了一层皮、旧路径仍可达）⇒ FAIL；拉取关着时码表答不出（未连接时页面画不出"要读什么"）⇒ FAIL；<strong>关掉拉取后帧还在涨</strong>（说明设备仍在自时钟推 ⇒ 缓冲会被灌死）⇒ FAIL；<strong>负向</strong>：<code>/mouse/snap</code>、<code>/mouse/scope/*</code>、<code>/mouse/maze/events</code>、<code>/mouse/maze/snap</code> 必须<strong>真的 404</strong>，有一个还在答话 ⇒ FAIL</td>
 </tr>
 <tr>
 <td><strong>I23</strong></td>
-<td><strong>实验 8 必须答得出"它刚才识别到了什么"</strong>（2.0.0 走<strong>主机差分</strong>）：<code>MAZE RUN</code> 后 <code>maze/state</code> 有 <code>taskName</code>/<code>roadName</code>/<code>posX</code>，<code>changes</code>（相邻帧差分出的迁移序列）<strong>非空</strong>且每条 <code>from != to</code>，<code>summary</code> 给出 <code>task</code> 与 <code>taskSeq</code>，<code>eventsIncomplete</code> 是<strong>布尔</strong>（<code>EVQ</code> 显式，不许 <code>None</code> 蒙混）</td>
+<td><strong>无记忆走迷宫必须答得出"它刚才识别到了什么"</strong>（2.0.0 走<strong>主机差分</strong>）：<code>MAZE RUN</code> 后 <code>maze/state</code> 有 <code>taskName</code>/<code>roadName</code>/<code>posX</code>，<code>changes</code>（相邻帧差分出的迁移序列）<strong>非空</strong>且每条 <code>from != to</code>，<code>summary</code> 给出 <code>task</code> 与 <code>taskSeq</code>，<code>eventsIncomplete</code> 是<strong>布尔</strong>（<code>EVQ</code> 显式，不许 <code>None</code> 蒙混）</td>
 <td>反例：差分序列为空（"识别到了什么"答不出来）⇒ FAIL；<code>EVQ</code> 不报出来、界面假装事件流完整 ⇒ FAIL；<strong>负向</strong>：<code>MAZE EV 31</code> / <code>MAZE RST</code> 必须已被固件删除（回 <code>ERR_VALUE</code>）⇒ 还能执行 ⇒ FAIL</td>
 </tr>
 <tr>
@@ -2701,7 +2796,7 @@ python app.py                             # 打开 http://127.0.0.1:8770
 </tr>
 <tr>
 <td><strong>I27</strong></td>
-<td><strong>实验 8 记录 → 保存 → 读回</strong>往返：文件<strong>自洽</strong>（<code>channels</code> 恰好 39 个、<code>frames</code>/<code>t_ms</code>/<code>integrity.frames</code> 三者一致、<strong>每行长度都等于通道数</strong> —— 列名与值对不齐最容易出且<strong>看着像对的</strong>）；墙图重放出已访问格</td>
+<td><strong>无记忆走迷宫记录 → 保存 → 读回</strong>往返：文件<strong>自洽</strong>（<code>channels</code> 与上游 <code>UNIFIED_CHANNELS</code> <strong>逐项相等</strong>（⚠️ 不写死个数）、<code>frames</code>/<code>t_ms</code>/<code>integrity.frames</code> 三者一致、<strong>每行长度都等于通道数</strong> —— 列名与值对不齐最容易出且<strong>看着像对的</strong>）；墙图重放出已访问格</td>
 <td><strong>负向</strong>：读一个<strong>不存在</strong>的记录必须 <strong>404</strong>（不许静默回空）；<strong>空记录不许落盘</strong>（一帧都没有 ⇒ <code>ok=False</code>、<strong>不新增文件</strong>）—— 零帧文件对复盘没价值，只会留垃圾</td>
 </tr>
 <tr>
@@ -2716,8 +2811,13 @@ python app.py                             # 打开 http://127.0.0.1:8770
 </tr>
 <tr>
 <td><strong>I30</strong></td>
-<td><strong>「实验 8」两条来路同一个纪元</strong>：右栏实时的<strong>常驻决策环</strong>、<code>/mouse/maze/record/live</code> 内存快照、落盘那份 —— <strong>三份逐条相等</strong>（<code>t_ms</code> / <code>kind</code> / 详情逐项比）。依据：回放走的是"从帧序列<strong>重新差分</strong>"，差分是纯函数 ⇒ 起点一致则必然逐条相同</td>
+<td><strong>「无记忆走迷宫」两条来路同一个纪元</strong>：右栏实时的<strong>常驻决策环</strong>、<code>/mouse/maze/record/live</code> 内存快照、落盘那份 —— <strong>三份逐条相等</strong>（<code>t_ms</code> / <code>kind</code> / 详情逐项比）。依据：回放走的是"从帧序列<strong>重新差分</strong>"，差分是纯函数 ⇒ 起点一致则必然逐条相同</td>
 <td><strong>负向</strong>：① <strong>换段不残留</strong> —— 发车（开新纪元）后环里<strong>不许有负 <code>t_ms</code></strong>（旧实现只挪零点不清环 ⇒ 上一段的决策留在环里成了负时间）；② <strong>发车被拒不抹数据</strong> —— <code>restore_epoch()</code> 后环条数必须 <strong>== 发车前</strong>（等不到新鲜帧 ⇒ 如实 <code>None</code>，不当 <code>false</code>）。撤掉修复必须变红（<code>tools/neg_i30.py</code>：现状 0 条负 t / 旧行为 11 条），见 §11.14</td>
+</tr>
+<tr>
+<td><strong>I31</strong></td>
+<td><strong>比赛页的数据面（上游 2.3.0 / 2.4.0）</strong>：<code>/mouse/maze/state</code> 的 <code>spurt</code> 在有新上游时是 dict 且含 7 个键（<code>mode</code>/<code>modeName</code>/<code>spurtFlag</code>/<code>goOrBack</code>/<code>spurtTestFlag</code>/<code>objectGoToFlag</code>/<code>goaheadnum</code>/<code>fastwayCount90</code>）；<code>/mouse/meas/meta</code> 的 <code>spurt.modes</code> 与 <code>spurt.front</code> 两张码表<strong>零设备访问</strong>（拉取关着也答）；<code>timesync/maze_run</code> 传 <code>target="RACE"</code> 在认它的上游上成功、在<strong>不认的上游上回 400 且消息点明"RACE 是 2.4.0 新增的"</strong>（不是 500）</td>
+<td><strong>负向（三态）</strong>：<code>spurt</code> 为 <code>None</code>（老上游没有这个方法）时前端<strong>不许</strong>把它画成"未选 / 0" —— "没选档"与"读不到档"是两件事；<strong>恒等式</strong>：<code>frontNear | frontFar == wallFront</code> 且两档互斥，界面必须<strong>当场</strong>把不一致报出来（<code>#rc-front-ok</code> 非空红字）⇒ 把矛盾静默吞掉 ⇒ FAIL</td>
 </tr>
 </tbody>
 </table>
@@ -4258,6 +4358,209 @@ POST /api/v1/mouse/tare   →  404  {&quot;type&quot;:&quot;KeyError&quot;,&quot
 <li>推论（写进纪律 32）：<strong>后端能算的，不要前端自己攒</strong>；攒出来的一定是第二条来路，
   两条来路就一定会漂。</li>
 </ul>
+<hr />
+<h3 id="1115-230-240">11.15 上游 2.3.0 / 2.4.0 的跟进记录（"取消独立参数标定"与比赛发车）</h3>
+<p>上游在 2026-10-07 连着发布 <strong>2.3.0</strong>（前墙双档 + 比赛状态进帧）与 <strong>2.4.0</strong>
+（压档 + 删课程层 + <code>MAZE RUN [BLIND|RACE]</code>）。这一节记本层怎么跟、以及<strong>被带出来的一个真缺陷</strong>。</p>
+<h4 id="_37">一、先分清用户说的"取消独立参数标定"到底指哪一层</h4>
+<p>用户的原话是"取消独立参数标定部分"。上游这一轮删的是<strong>课程调参整层</strong>
+（<code>lesson_lab.c</code> 751 行、<code>host/api/lesson.py</code> 865 行、<code>host/lesson.py</code> 568 行、
+命令 <code>lesson.start/stop/status</code>、<code>Event.LESSON</code>、<strong>课程 14 项参数 id 8–21</strong>、Flash page 116）。</p>
+<p>⚠️ <strong>不是</strong>「标定例程」那五项（GYRO / 壁距 / 红外逐点 / 角度 / 里程，<code>mc.calib</code>，
+Flash page 115）—— 那是<strong>生产标定</strong>，上游<strong>一行没删</strong>，远程档下照常可跑。
+⇒ 界面上「标定例程」<strong>保留</strong>（它正是"把车调好"的最后一步），只是<strong>并进了</strong>
+「实时状态与参数设定」整页（见第六节）。<strong>先把这件事分清再动手</strong>，否则会把不该删的删掉。</p>
+<h4 id="38-24">二、参数表 38 → 24 项（这条最容易静默出错）</h4>
+<p><code>commands.PARAM_IDS</code> 现在只剩生产命名空间：<code>PARAM_IDS_BASE</code>(1–7) + <code>PARAM_IDS_MEAS</code>(22–38)，
+与固件 <code>LINK_P_NUM = 24</code> <strong>严格相等</strong>。课程那 14 项（8–21）消失了。</p>
+<p>本层的处置：
+- <code>params_grouped()</code> 从"<strong>四组两通道</strong>"改为"<strong>三组单通道</strong>"（生产标定 / 电源监控 / 红外测量），
+  并<strong>保留退回 2.3 的四组分支</strong>（老板子不一定跟着升，整合层要能在两版上游上跑）。
+- <code>set_params_grouped</code> / <code>save_params</code> 同步改。
+- ⚠️ <strong>参数读侧不对称这件事本身没变</strong>：固件 <code>GET</code> 只查生产表。以前课程 14 项"写通读不通"，
+  现在那 14 项<strong>根本不存在了</strong> ⇒ 界面里"值读不到，可写"那段文案<strong>整段删掉</strong>
+  （留着就是给一个不存在的组写的提示）。</p>
+<h4 id="maze-run-blindrace">三、<code>MAZE RUN [BLIND|RACE]</code>：两种跑法，两个页面</h4>
+<p>上游把发车扩成带目标词：<code>BLIND</code>（<code>LESSON_Blind8()</code>，从零无记忆趟迷宫）/ <code>RACE</code>
+（先读 Flash 地图选档/定冲刺，再进主循环）。后端 <code>_timesync_maze_run</code> 支持 <code>target</code>：</p>
+<ul>
+<li><code>target</code> <strong>只在 request body 里给</strong>，不给就是 <code>BLIND</code> —— 与上游"默认省略目标词"同构，
+  于是 v2.3 时代的调用点与日志格式<strong>原样保留</strong>；</li>
+<li>⚠️ <strong>不许把 <code>RACE</code> 拼给不认识它的上游</strong>：老 <code>MazeAPI.run()</code> 是零参的，传 <code>target=</code>
+  会 <code>TypeError</code> ⇒ 冒成 500，看着像"本层拼错了请求"。所以先看能力探测（<code>maze_target</code>），
+  不认就<strong>当场 400 说清楚</strong>（"RACE 是 2.4.0 新增的"）。</li>
+</ul>
+<h4 id="230">四、2.3.0 的前墙双档与比赛冲刺状态（本层此前从未接）</h4>
+<p>统一帧 <strong>39 → 49 通道</strong>，新增 10 个：</p>
+<table>
+<thead>
+<tr>
+<th>量</th>
+<th>含义</th>
+<th>码表</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frontNear</code> / <code>frontFar</code> / <code>frontBoth</code></td>
+<td>前墙双档</td>
+<td><code>FRONT_NAMES</code>：0 无墙 / 1 近端(贴脸) / 2 远端(提前量)</td>
+</tr>
+<tr>
+<td><code>spurtMode</code></td>
+<td>冲刺档位</td>
+<td><code>SPURT_MODE_NAMES</code>：0 未选 / 1 90_LOW / 2 45_LOW / 3 MEDIUM / 4 HIGH</td>
+</tr>
+<tr>
+<td><code>spurtFlag</code> / <code>goOrBack</code> / <code>spurtTestFlag</code> / <code>objectGoToFlag</code> / <code>goaheadnum</code> / <code>fastwayCount90</code></td>
+<td>冲刺状态与计数</td>
+<td>见 <code>codec.py</code> 的 <code>SPURTBF_*</code> 位</td>
+</tr>
+</tbody>
+</table>
+<p><strong>恒等式</strong>：<code>frontNear | frontFar == wallFront</code>，且两档<strong>互斥</strong>。
+⇒ 界面把三个量并排画 + <strong>当场验这条恒等式</strong>（对不上红字）。理由：比赛档靠这一档决定
+"减速还是马上转"，判错就是撞墙；而这两个量都是<strong>固件给的</strong>，界面能做的只有
+"发现它自相矛盾时喊一声"。</p>
+<p>⚠️ <strong>三态</strong>：老上游（≤2.2.1）<code>MazeAPI</code> 没有 <code>spurt()</code> 方法。本层用
+<code>_spurt_of(mc) = getattr(mc.maze, "spurt", None)</code> 兜底，<strong>拿不到回 <code>None</code></strong>。
+前端<strong>不许</strong>把 <code>None</code> 画成"未选 / 0" —— "没选档"与"读不到档"是两件事，
+混起来现场会以为车已经准备好冲了。这是纪律 4（三态不许涂红）的一个新落点。</p>
+<h4 id="unified-false">五、动画出来的真缺陷：<code>unified</code> 能力位静默变 False（<strong>又一个从没红过的闸</strong>）</h4>
+<p><code>_probe_features()</code> 里原来写的是：</p>
+<pre><code class="language-python">f[&quot;unified&quot;] = (len(self._unified_channels) == 39 and callable(decode_unified))
+</code></pre>
+<p>2.0.0 时通道是 39，写死没问题。<strong>2.3.0 起是 49</strong> ⇒ 上游一升级，这条能力位就<strong>静默变 False</strong>。
+而<strong>没有任何判据会红</strong> —— 判据只查 <code>caps.unified_channels</code> 这个<strong>清单</strong>，不查这条<strong>能力位</strong>。</p>
+<p>⇒ 修法：判据改为"<strong>协议层有通道清单 + 有解码器</strong>"：</p>
+<pre><code class="language-python">f[&quot;unified&quot;] = (len(self._unified_channels) &gt; 0 and callable(decode_unified))
+</code></pre>
+<p>数量交给 <code>caps</code> 清单与 <strong>I22</strong>（与上游 <code>UNIFIED_CHANNELS</code> 逐项比对）负责 ——
+<strong>数量是会随上游变的东西，判据不该钉它；该钉的是"这条流存不存在、解析器在不在"。</strong></p>
+<p>同一条纪律落到了判据里：<code>drill.py</code> 的 <strong>I22 / I27</strong> 原写死 <code>len(chans) == 39</code>，
+升到 2.3.0 后这两条会<strong>假红</strong>（判据红而根因不是产品错 —— 纪律 13）。改为与上游
+<code>UNIFIED_CHANNELS</code> <strong>逐项相等</strong>，数字由协议层自己说。</p>
+<h4 id="_38">六、界面：「小车控制」四卡 → 三卡</h4>
+<table>
+<thead>
+<tr>
+<th>卡片</th>
+<th>接的上游</th>
+<th>由原四卡里的谁构成</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① <strong>实时状态与参数设定</strong>（<code>mod_params</code>）</td>
+<td>远程档全部</td>
+<td>原「实时参数」+「运动控制」+「校准例程」</td>
+</tr>
+<tr>
+<td>② <strong>无记忆走迷宫</strong>（<code>mod_maze8</code>）</td>
+<td><code>MAZE RUN BLIND</code></td>
+<td>原「实验 8 · 无记忆走迷宫」（<strong>改名</strong>，内部三栏不变）</td>
+</tr>
+<tr>
+<td>③ <strong>比赛</strong>（<code>mod_race</code>，<strong>新</strong>）</td>
+<td><code>MAZE RUN RACE</code></td>
+<td>新增：读地图选档发车 + 冲刺状态监视</td>
+</tr>
+</tbody>
+</table>
+<p>为什么把「运动控制」「校准例程」并进第①页：上游压到两档之后，"把车调好"
+（看状态 → 调参数 → 手动动一下 → 标定）成了<strong>同一个现场阶段</strong>里的连续动作，
+共用同一组门控（"连上电脑鼠"）；在导航上给它们各开一张卡只是让这件事多两级。</p>
+<p>实现上用的是<strong>区块</strong>而不是嵌套模块：<code>mod_motion.js</code> / <code>mod_calib.js</code> 从
+<code>C.mods.mod_motion</code> / <code>C.mods.mod_calib</code> 改成 <code>C.parts.motion</code> / <code>C.parts.calib</code>，
+由 <code>mod_params.mount()</code> 调 <code>mount(el)</code> 把它们追加进自己的 pane。
+⚠️ 三个区块的 id 前缀必须分开（<code>mp-</code> 读数/参数 / <code>mm-</code> 运动 / <code>mc-</code> 标定）——
+<strong>四个区块合并到同一页之后，"id 不撞"比以前更要紧</strong>。</p>
+<p>⚠️ <strong>并进一页不等于不用守</strong>：判据 <strong>B30</strong> 现在逐 id 检查这一页里
+<code>#mm-go</code> / <code>#mm-estop</code> / <code>#mc-items</code> / <code>#mc-refresh</code> 都在（它们不再有自己的卡片，
+丢了就没人为它报红 —— 这正是改版十二追加 B30 若干 id 的理由）。</p>
+<h4 id="_39">七、判据与校验工具的同批改动</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B24</strong></td>
+<td>小车控制卡片数 <strong>4 → 3</strong></td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B30</strong></td>
+<td>模块清单加入 <code>mod_race</code>；<code>mod_params</code> 追加 <code>#mm-*</code> / <code>#mc-*</code>；新增三个模块的"有内容"判据</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B34</strong></td>
+<td>模块名断言 <code>实时参数</code> → <code>实时状态与参数设定</code></td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B.exp</strong></td>
+<td>课程层已删 ⇒ 原"实验下拉 ≥4 项"改为<strong>两支</strong>：课程层在则 ≥4 项；课程层已删则 <code>#x-lesson-gone</code> 可见且文字点明"2.4.0 已删除"（空白栏不许当正常）</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code> <strong>B14d</strong></td>
+<td>保留（2.3.x 上该按钮可见且需门控）；2.4.0 上它落在收起栏里，<code>disabled</code> 检查仍成立 ⇒ 不假绿</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code> B35/B36 与各 head</td>
+<td>文案 <code>实验 8</code> → <code>无记忆走迷宫</code></td>
+</tr>
+<tr>
+<td><code>tools/drill.py</code> <strong>I22 / I27 / I16</strong></td>
+<td>通道数 <code>== 39</code> → 与上游 <code>UNIFIED_CHANNELS</code> <strong>逐项相等</strong>；<strong>I16</strong> 从"38 项四组、两组不同页不同通道"改为"<strong>24 项三组同页同通道</strong>、且<strong>课程组必须为 0</strong>"（按查询结果现算，不写死项数/组数）</td>
+</tr>
+<tr>
+<td><code>tools/drill.py</code> <strong>I31（新增）</strong></td>
+<td>「比赛」页数据面：<code>meas/meta</code> 的两张 <code>spurt</code> 码表零设备访问、<code>MAZE RUN RACE</code> 的 <code>target</code> 走通、<code>maze/state.spurt</code> 是 dict、<strong>前墙双档恒等式</strong>当场验；老上游如实标"读不到"</td>
+</tr>
+<tr>
+<td><code>tools/drill.py</code> <strong>S7（改写）</strong></td>
+<td>原来"跑课程实验 + 算参"，现在课程层已删 ⇒ 改为"<strong>课程端点必须明确拒绝</strong>（404/409 且消息点明 2.4.0 已删），不是 200 假成功也不是 500"</td>
+</tr>
+<tr>
+<td><code>tools/preflight.py</code> §11</td>
+<td>追加 2.4.0 冻结锚点（<code>实时状态与参数设定</code> / <code>无记忆走迷宫</code> / <code>比赛</code> / <code>MAZE RUN</code> / <code>RACE</code> / <code>取消独立参数标定</code> / <code>前任统一帧通道数写死</code>）</td>
+</tr>
+<tr>
+<td><code>control/adapters/mouse.py</code></td>
+<td><code>_probe_features()</code> 修 <code>unified</code> 位；新增 <code>maze_target</code> / <code>calc</code> / <code>lesson_gone</code> 探测；<code>maze_view()</code> 增 <code>spurt</code>；<code>meas_meta()</code> 增 <code>spurt</code> 码表</td>
+</tr>
+<tr>
+<td><code>control/api/routes.py</code></td>
+<td><code>_timesync_maze_run</code> 支持 <code>target</code>；课程七条路由改为"list/status 200 + <code>available:false</code>"、"run/stop/log 409 拒绝"、"suggest/apply 照常（走 <code>calc</code> 纯函数 + 生产参数）"</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_params.js</code></td>
+<td>重写为「实时状态与参数设定」，挂 <code>C.parts.motion</code> / <code>C.parts.calib</code>，去课程组</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_maze8.js</code></td>
+<td>改名「无记忆走迷宫」（内部一字未动）</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_race.js</code></td>
+<td><strong>新建</strong>：比赛发车 + 前墙双档自校验 + 冲刺状态监视</td>
+</tr>
+<tr>
+<td><code>control/static/views/exp.js</code></td>
+<td>课程半屏按 <code>available</code> 收起成一句说明；算参块保留（走 <code>calc</code> 纯函数）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="suggestapply">八、算参纯函数是<strong>搬家不是重写</strong>（这一条决定了 <code>suggest/apply</code> 还能用）</h4>
+<p><code>theory_track_ratio</code> / <code>theory_gyro_ratio</code> / <code>solve_ratio</code> / <code>error_ratio</code> /
+<code>StepMetrics</code>+<code>step_metrics</code> / <code>StraightMetrics</code>+<code>straightness_metrics</code> /
+<code>IrErrorStats</code>+<code>ir_error_stats</code> / <code>pick_best_position</code> —— 从 <code>host/api/lesson.py</code>
+<strong>原样搬到</strong> <code>host/host/api/calc.py</code>，<code>host.api</code> 仍导出。
+⇒ 本层取这些纯函数改成"多模块兜底"（<code>lesson.py</code> 取不到就 <code>calc.py</code>），
+<code>lesson_suggest</code> 不再要求 <code>mc.lesson</code> 存在。
+<strong>逻辑一字未改</strong> ⇒ 算参与写回这一路的产品行为不变，判据只需保证"取得着"。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

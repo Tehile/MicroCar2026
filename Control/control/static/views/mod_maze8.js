@@ -1,4 +1,10 @@
-/* 小车控制 · 实验 8 无记忆走迷宫（三栏 + 记录 / 复盘）
+/* 小车控制 · 无记忆走迷宫（三栏 + 记录 / 复盘）
+ *
+ * ## 改名（改版十二 · 上游 2.4.0）
+ * 上游把"实验八剖面"正式收进了 `MAZE RUN BLIND`（无记忆走迷宫）这条命令，
+ * 而新增的 `MAZE RUN RACE`（比赛）是**另一种跑法**。⇒ 这一页从「实验 8」
+ * 改叫「无记忆走迷宫」，与「比赛」并列；内部三栏与记录/复盘**一点没动**。
+ *（原来的"实验 8"是下游的叫法，上游 2.4.0 才把这两个目标词显式写进命令。）
  *
  * ## 为什么是三栏
  * 跑迷宫时要同时看三样**不同时间尺度**的东西，缺一样就得来回找：
@@ -73,7 +79,7 @@ C.mods.mod_maze8 = (function () {
   function bind(id, ev, fn) {
     const node = document.querySelector(id) || (el && el.querySelector(id));
     if (!node) {
-      try { console.error('实验 8：界面元素缺失，无法绑定 ' + id); } catch (e) { /* 忽略 */ }
+      try { console.error('无记忆走迷宫：界面元素缺失，无法绑定 ' + id); } catch (e) { /* 忽略 */ }
       return null;
     }
     node[ev] = fn;
@@ -82,7 +88,7 @@ C.mods.mod_maze8 = (function () {
 
     el.innerHTML = `
       <div class="pane">
-        <h4>实验 8 无记忆走迷宫 <span class="hint" id="m8-msg"></span>
+        <h4>无记忆走迷宫 <span class="hint" id="m8-msg"></span>
           <span>
             <button class="mini primary" id="m8-run">发车</button>
             <button class="mini" id="m8-mstop">收车</button>
@@ -472,7 +478,7 @@ C.mods.mod_maze8 = (function () {
            一个残留（见 `loadState()` 的注释），已经修掉；但"不认识的一类"这条**防御**
            要留住 —— 它意味着**前后端版本不一致**，得能诊断，只是不该污染界面。
            ⇒ 界面给一句可读的，细节进 console。 */
-        try { console.warn('实验 8：不认识的决策种类', d); } catch (e) { /* 忽略 */ }
+        try { console.warn('无记忆走迷宫：不认识的决策种类', d); } catch (e) { /* 忽略 */ }
         return '不认识的一类（' + String(d && d.kind) + '）';
     }
   }

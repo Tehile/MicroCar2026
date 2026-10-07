@@ -50,6 +50,29 @@
 窗口 4/6 = 7.15 Hz（只多约 10% 却开始成串丢）。
 ⇒ 可达帧率 = **1/RTT**，**不是软件限速**，且停等比堆在途请求更快（零浪费、零丢失）。
 
+## 关于上游 2.4.0（编译档位 5 → 2 + 删除课程调参整层）
+
+上游把编译档位从 5 档砍到 **2 档**（远程档 `MOUSE_REMOTE` / 按键比赛档"什么都不定义"），
+其中 `MOUSE_LESSON_LAB`（课程剖面引擎）**整层删除** —— 这是本轮对本层影响最大的一条。
+细节见 `docs/上位机整合设计方案.md` §11.15，这里只列**改了什么**：
+
+- **删**：`mc.lesson` 子 API（`host/api/lesson.py` 865 行 + `host/lesson.py` 568 行）、
+  三条命令 `lesson.start`/`lesson.stop`/`lesson.status`、`Event.LESSON` 事件、
+  课程 14 项参数（id 8–21）、Flash page 116。
+- **删（本层）**：⑨ 实验页的"课程调参实验"半屏、`/api/v1/lesson/*` 七条路由、
+  参数表的"课程调参"组。**课程层删了，但"实验页"本身还在**（它还有 `mc.lab` 电机实验）。
+- **新增**：`maze.run` 带**可选目标词** `BLIND|RACE`。`RACE` = 正式比赛代码
+  （先读 Flash 地图选档/定冲刺，再进主循环）—— 这是新增的「比赛」子页面的**唯一**上行入口。
+- **迁移**：算参纯函数（`solve_ratio` / `error_ratio` / `theory_*` …）从 `api/lesson.py`
+  **原样搬到 `host/api/calc.py`**，`host.api` 仍然导出 ⇒ **本层只改 import 路径**。
+  注意 `error_ratio` **不在包的 `__all__` 里**（历史上就只在 lesson.py 内定义），
+  所以取法要"先从模块、再退回包"两条都试 —— 只试包会 AttributeError，
+  而"取不到就置 None"会把错误方向指成"上游缺少算参纯函数"。
+
+⚠️ 版本号：`registry.API_VERSION` → **2.4.0**、`LINK_FW_VER` → **216**、
+`LINK_PROTO_VER` → **5**、设备指纹第 4 字段（TX 环缓冲）256 → **512**。
+本层**照旧不退回信版本号** —— 一律看 features。
+
 ## 关于上游 2.0.0（协议整体替换）
 
 上游把"三通道并存"（周期帧 + `SNAP` 阻塞问答 + `SCOPE`/`DUMP` 双流）**整体替换**为
@@ -61,8 +84,9 @@
 - **改**：`telemetry.latest()` 由 `(fast, mid, slow)` 三元组变为**单个 dict**；
   参数 `GET ALL` 只回**生产命名空间**（24 项），课程 14 项**读侧不对称**（一律 `ERR_NAME`，
   写侧 SET/SETQ 通）；`CAL` 改请求-响应（采完才 ACK，超时 10 s、不重发）。
-- **留**：`TARE`、`mc.move`、`mc.calib`、`mc.lesson`、`mc.lab.capture()`、`mc.maze`（墙图 +
+- **留**：`TARE`、`mc.move`、`mc.calib`、`mc.lab.capture()`、`mc.maze`（墙图 +
   状态从统一帧读）。迷宫的"它刚才识别到了什么"改由**主机差分相邻帧**取得，不再有事件流。
+  ⚠️ **2.4.0 起 `mc.lesson` 连这个"留"字都不算了** —— 课程层整层删除，见上。
 
 ## 关于上游 1.2 / 1.3 / 1.4 的三次更新
 
@@ -80,9 +104,11 @@
 不因为"这次它改对了"就退回信字符串 —— 能力探测多花的是一次 `import`，而信版本号的代价是
 "某天它又忘了改"（这个代价已经付过一次了）。
 
-⚠️ **参数有两套、两个 Flash 页**：生产标定（id 1–7）走 `mc.params.set()`，
-课程调参（id 8–21）走 `mc.lesson.set_params()`。**写错通道会失败**，
-所以 `params_grouped()` 会把"该走哪条路"一并返回，不留给前端猜。
+⚠️ **参数有两套、两个 Flash 页**（**这条在 2.4.0 已作废，留在这里是为了让后人不要再翻回去**）：
+生产标定（id 1–7）走 `mc.params.set()`，课程调参（id 8–21）走 `mc.lesson.set_params()`。
+2.4.0 删掉课程层后**只剩生产命名空间**（24 项，page 115，单通道 `mc.params`）⇒
+`params_grouped()` 不再需要"按组选通道"，但**保留了分组返回的形状**（只是组数 4 → 3），
+免得前端和判据要跟着改一遍形状。
 """
 
 from __future__ import annotations
@@ -260,6 +286,15 @@ class MouseAdapter:
              "soft_reset": False,
              # 2.2.1：发车前**低电硬闸**（上游 `registry.LAUNCH_MIN_MV`，默认 7000 mV）
              "launch_gate": False,
+             # 2.4.0：`maze.run(target=...)` 带**可选目标词** `BLIND|RACE`。
+             # ⚠️ 探测的是**方法签名里有没有 `target`**，不是版本号 ——
+             # 上游 2.3.0 的 `run()` 没有这个形参，传了会 TypeError。
+             "maze_target": False,
+             # 2.4.0：算参纯函数搬到了 `host/api/calc.py`（课程层删除，能力保留）
+             "calc": False,
+             # 2.4.0：课程调参整层**已删除**。这是个**否定式**能力：为 True 表示
+             # "上游还有课程层"（老上游）。界面据此决定要不要画课程那一半。
+             "lesson_gone": False,
              "seq_stats": False}
         mods = {}
         for key, name in (("timesync", "TimeSyncAPI"), ("lab", "MotorLabAPI"),
@@ -269,15 +304,23 @@ class MouseAdapter:
                 f[key] = True
             except Exception:                                 # noqa: BLE001
                 mods[key] = None
-        # 课程参数表（1.3.0 起 PARAM_IDS 7 → 21）
+        # 课程参数表（1.3.0 起 PARAM_IDS 7 → 21；**2.4.0 起课程条目整体删除**）
+        #
+        # ⚠️ 这三个符号在 2.4.0 **已经不存在**，所以这里**只能**用 `getattr` 兜底，
+        #    不能写 `from ... import LESSON_PARAM_IDS` —— 那个 import 会抛 ImportError，
+        #    被 `except` 吞掉之后 `PARAM_IDS` 也一并丢失 ⇒ 参数表整张变空，
+        #    而报出来的现象是"这台设备没有参数"，**完全指错方向**。
         try:
-            from host.protocol.commands import (LESSON_PARAM_IDS,   # noqa: F401
-                                                PARAM_GROUPS, PARAM_IDS)
+            from host.protocol import commands as _cmds
             f["params_grouped"] = True
-            self._param_ids = dict(PARAM_IDS)
+            self._param_ids = dict(getattr(_cmds, "PARAM_IDS", {}) or {})
+            self._lesson_param_ids = dict(getattr(_cmds, "LESSON_PARAM_IDS", {}) or {})
+            self._param_groups = dict(getattr(_cmds, "PARAM_GROUPS", {}) or {})
+            f["lesson_gone"] = not self._lesson_param_ids
         except Exception:                                     # noqa: BLE001
-            LESSON_PARAM_IDS = PARAM_GROUPS = None
             self._param_ids = {}
+            self._lesson_param_ids = {}
+            self._param_groups = {}
         # 时间同步的纯函数（可脱硬件单测的那几个）—— 我们直接复用，不自己写一遍
         if f["timesync"]:
             for fn in ("min_delay_offset", "fit_clock", "drift_ppm", "resolve_ms8"):
@@ -285,33 +328,52 @@ class MouseAdapter:
                     mods[fn] = getattr(__import__("host.api", fromlist=[fn]), fn)
                 except Exception:                             # noqa: BLE001
                     mods[fn] = None
-        # 算参纯函数（实验三/五/六 的自动算参靠它们）—— 同上，复用不重写
+        # 算参纯函数（实验三/五/六 的自动算参靠它们）—— 同上，复用不重写。
         #
-        # ⚠️ 从 `host.api.lesson` **模块**取，不是从 `host.api` 包取：
-        # `error_ratio` 在包的 `__all__` 里**没有**（只在 lesson.py 里定义），
-        # 从包上 getattr 会 AttributeError —— 而"取不到就置 None"会让后面
-        # 报出"上游缺少算参纯函数"这种**指错了方向**的错。这里按模块取，两个都有。
-        if f["lesson"]:
+        # ⚠️ **2.4.0 把家搬了**：课程层删除，这几个函数从 `host.api.lesson` 原样迁到
+        #    `host/api/calc.py`（上游 CHANGELOG「新增：标定算参独立成模块（能力保留）」）。
+        #    所以候选模块要**三个都试**：`host.api.calc`（2.4.0）→ `host.api.lesson`（≤2.3）
+        #    → `host.api` 包。
+        # ⚠️ 还要注意 `error_ratio` **不在包的 `__all__` 里**（历史上就只在 lesson.py 内定义），
+        #    只从包上 getattr 会 AttributeError —— 而"取不到就置 None"会让后面报出
+        #    "上游缺少算参纯函数"这种**指错了方向**的错。多试几个模块正是为了这个。
+        _calc_srcs = []
+        for _mn in ("host.api.calc", "host.api.lesson"):
             try:
-                api_lesson = importlib.import_module("host.api.lesson")
+                _calc_srcs.append(importlib.import_module(_mn))
             except Exception:                                 # noqa: BLE001
-                api_lesson = None
-            for fn in ("solve_ratio", "error_ratio", "theory_track_ratio",
-                       "theory_gyro_ratio"):
-                mods[fn] = None
-                for src in (api_lesson, __import__("host.api", fromlist=[fn])):
-                    if src is not None and hasattr(src, fn):
-                        mods[fn] = getattr(src, fn)
-                        break
+                pass
+        try:
+            _calc_srcs.append(__import__("host.api", fromlist=["*"]))
+        except Exception:                                     # noqa: BLE001
+            pass
+        for fn in ("solve_ratio", "error_ratio", "theory_track_ratio",
+                   "theory_gyro_ratio"):
+            mods[fn] = None
+            for src in _calc_srcs:
+                if hasattr(src, fn):
+                    mods[fn] = getattr(src, fn)
+                    break
+        f["calc"] = all(mods.get(fn) is not None for fn in
+                        ("solve_ratio", "error_ratio",
+                         "theory_track_ratio", "theory_gyro_ratio"))
         try:
             from host import registry
             f["seq_stats"] = True
             self._registry = registry
         except Exception:                                     # noqa: BLE001
             self._registry = None
-        # ---- 2.0.0 统一帧：判据是"协议层有这 39 个通道 + 有解码器"。
+        # ---- 2.0.0 统一帧：判据是"协议层有通道清单 + 有解码器"。
         # 没连接也问得到（`UNIFIED_CHANNELS` / `decode_unified` 都是模块级符号）。
         # 顺带把 `UNIFIED_HZ`（协议常量，2.1.0 起只作参照）一起取来，省得在采样循环里重复 import。
+        #
+        # ⚠️ 通道数**不许写死**。2.0.0 是 **39**、2.3.0 起是 **49**（前墙双档 + 比赛冲刺状态
+        #    各追加了通道，见上游 CHANGELOG 2.3.0 与 `codec.UNIFIED_CHANNELS` 的注释）。
+        #    这里原来写的是 `len(...) == 39`，于是 2.3.0 上游一上来这条能力位就**静默变 False**
+        #    —— 而"统一帧不可用"会让依赖它的界面整块降级，且**没有任何判据会红**
+        #    （判据只查 `caps.unified_channels` 这个列表，不查这条能力位）。
+        #    ⇒ 判据取"清单非空 + 有解码器"；数量对不对由 `caps` 的清单与 drill 的 I22 负责
+        #    （它们都是**从协议层逐项比对**，不是数个数）。
         self._unified_channels: List[str] = []
         self._unified_hz_nominal: Optional[float] = None
         try:
@@ -319,7 +381,7 @@ class MouseAdapter:
                                              UNIFIED_HZ, decode_unified)
             self._unified_channels = list(UNIFIED_CHANNELS)
             self._unified_hz_nominal = float(UNIFIED_HZ)
-            f["unified"] = (len(self._unified_channels) == 39
+            f["unified"] = (len(self._unified_channels) > 0
                             and callable(decode_unified))
         except Exception:                                     # noqa: BLE001
             pass
@@ -368,6 +430,16 @@ class MouseAdapter:
                 f["launch_gate"] = True
             except Exception:                                 # noqa: BLE001
                 pass
+        # ---- 2.4.0 `MAZE RUN [BLIND|RACE]`：判据是**方法签名里有没有 `target`**。
+        # ⚠️ 必须探签名而不是版本号：2.3.0 的 `run()` 是零参的，传 `target=` 会 TypeError，
+        #   而那个 TypeError 会冒成 500，看上去像"本层拼错了请求"。
+        f["maze_target"] = False
+        try:
+            import inspect as _inspect
+            from host.api import MazeAPI
+            f["maze_target"] = ("target" in _inspect.signature(MazeAPI.run).parameters)
+        except Exception:                                     # noqa: BLE001
+            pass
         # ---- 2.0.0 迷宫（实验 8）：**状态从统一帧读**。菜单上的成员缺一不可，
         # 所以逐个 hasattr，而不是只看类存在 —— 上游删了哪一项都不该静默降级。
         # ⚠️ `reset` 在 v2.0 **已删除**（`MAZE RST` 随之取消），所以门槛是
@@ -380,8 +452,10 @@ class MouseAdapter:
         except Exception:                                     # noqa: BLE001
             pass
         self._api = mods
-        self._lesson_param_ids = LESSON_PARAM_IDS
-        self._param_groups = PARAM_GROUPS
+        # ⚠️ 这两个**已经在上面探参数表那段里赋过值**（2.4.0 起用 `getattr` 兜底，
+        # 因为 `LESSON_PARAM_IDS` 可能整个不存在）。这里**不许**再赋一次 ——
+        # 再赋就会把上面那个兜底结果覆盖成 `NameError`/`None`，而症状是
+        # "参数表突然空了、且没有任何报错"。
         self._features = f
         missing = sorted(k for k, v in f.items() if not v)
         if missing:
@@ -576,6 +650,10 @@ class MouseAdapter:
                  t_src="arrival", dev_ms=_dev_ms_of(d))
 
         def on_lesson(m) -> None:
+            """课程调参实验事件。**2.4.0 起上游已删除 `Event.LESSON`**
+            （固件不再发 `LESSON DONE/STATUS` 行）—— 这里留着只是为了"老上游
+            仍有该事件"的兜底，新上游上这个回调**永远不会被调用**。
+            真收到就登记进时间轴：课程实验的 `DONE/STATUS` 是判"跑到哪一步"的依据。"""
             d = m.data or {}
             self.bus.publish("mouse.lesson", d)
             mark("mouse", "mouse.lesson." + str(d.get("kind", "")),
@@ -799,11 +877,15 @@ class MouseAdapter:
         dev = mc.device if mc is not None else {}
         exps = None
         if self._features.get("lesson"):
+            # ⚠️ `LESSON_EXPS` 是课程层的静态表，2.4.0 起**已不存在** ⇒ 必须
+            # `getattr` 兜底。这里先 `self._features.get("lesson")` 判一道，
+            # 所以新上游上根本走不进来 —— 但两道保险都要有：课程层被删时
+            # `LessonAPI` 没了、`LESSON_EXPS` 也没了，两处是**独立**消失的。
             try:
-                from host.api import LESSON_EXPS
+                _api = __import__("host.api", fromlist=["LESSON_EXPS"])
                 exps = [{"no": int(e.no), "name": e.name, "args": list(e.arg_names),
                          "defaults": list(e.defaults), "help": e.help}
-                        for e in LESSON_EXPS.values()]
+                        for e in getattr(_api, "LESSON_EXPS").values()]
             except Exception:                                # noqa: BLE001
                 exps = None
         return {
@@ -851,6 +933,13 @@ class MouseAdapter:
                        if self._registry else None),
             "params": self.params_grouped(refresh=False),
             "lesson_exps": exps,
+            # 2.4.0：`MAZE RUN` 能不能带目标词。界面的「比赛」页**只能**在它为真时
+            # 画出来 —— 老上游上那个按钮按下去是 TypeError，比没有按钮更坏。
+            "maze_target": bool(self._features.get("maze_target")),
+            # 能选的发车目标。上游 `_maze_run()` 只认这两个词（大小写不敏感，
+            # 默认 BLIND 时**省略**目标词）。
+            "maze_targets": (["BLIND", "RACE"]
+                             if self._features.get("maze_target") else ["BLIND"]),
         }
 
     # ============================================================ 时间同步
@@ -929,8 +1018,24 @@ class MouseAdapter:
                              f"确需台架调试，把电脑鼠架离地面后用逃生舱 send_raw 强发。")}
         return {"level": "ok", "batt_mv": mv, "min_mv": mn, "note": ""}
 
-    def maze_run(self) -> dict:
-        """远程发车跑无记忆迷宫（**仅数据收集档实现**，其余固件回 `ERR_VALUE`）。
+    def maze_run(self, target: str = "BLIND") -> dict:
+        """远程发车跑迷宫（**仅远程档 `MOUSE_REMOTE` 实现**，比赛固件回 `ERR_VALUE`）。
+
+        `target` 决定跑哪套剖面（**2.4.0 新增**）：
+
+        | target | 固件路径 | 界面入口 |
+        |---|---|---|
+        | `BLIND`（默认） | `LESSON_Blind8()` 无记忆走迷宫 | 「无记忆走迷宫」页 |
+        | `RACE` | 先 `STATE_LoadMapAndSelectSpeed()` + `STATE_DetermineGoaheadNum()`（读 Flash 地图选档/定冲刺），再进主循环 | 「比赛」页 |
+
+        ⚠️ **`BLIND` 时把目标词省掉**（`MAZE RUN` 而不是 `MAZE RUN BLIND`）—— 与上游
+        `_maze_run()` 的拼装一致，于是 v2.3 时代的调用点与日志格式一字不改。
+        这里**不自己拼字符串**，交给上游的 `MazeAPI.run(target=...)`（它保证同构）。
+
+        ⚠️ `RACE` 需要设备里有一张**有效 Flash 地图**：读到默认空图（`MAZE_Init()` 的
+        `[0][0]=0x11, [1][0]=0x70, 其余 0xF0`）时会规划出 7×7 之外的格子，
+        表现是"卡在越界格"。**这是上游既有的"目标格越界"行为**（上游已决定不改）⇒
+        本层如实转达，不假装它跑对了。
 
         ⚠️ 2.1.1 / 2.2.1 起，这条命令的失败**有三种，处置完全不同**，所以必须分开报
         （以前只有 `ERR_VALUE` 一种说法，把三种混成一句会把现场引到错方向）：
@@ -940,15 +1045,18 @@ class MouseAdapter:
         | `ERR_LOWBATT` | **上位机自己的低电闸**拦下了（压根没发出去，`data.blocked=True`） | 充电/换电；确需台架强发把车架离地面后用 `send_raw` |
         | `ERR_ESTOP` | 急停**锁存中**（固件会接受请求然后被 ISR 每帧清零速度，现场表现为"发了车却不动"） | 先点【解锁急停】 |
         | `ERR_BUSY` | 已经在跑迷宫（发车状态没复位） | 先【收车】（`MAZE STOP`），不行再【救援】 |
-        | `ERR_VALUE` | 该固件档位没有这条命令 | 换数据收集档固件 |
+        | `ERR_VALUE` | 该固件档位没有这条命令 | 换远程档固件 |
 
         ⚠️ `ERR_LOWBATT` **不是设备回的** —— 它是上游在 `send_cmd` 的登记表层拦的，
         所以它连链路都没碰（这也是为什么它带得出实测电压）。本层照样如实转达，
         但文案要说清"**是上位机拦的，不是设备拒绝的**"，否则现场会去查固件。
         """
+        tgt = str(target or "BLIND").strip().upper() or "BLIND"
+        if tgt not in ("BLIND", "RACE"):
+            raise MouseError(f"发车目标只能是 BLIND 或 RACE，收到 {tgt!r}")
         mc = self._need("timesync", "远程发车跑迷宫")
-        r = mc.timesync.maze_run(timeout=3.0)
-        self.store.mark("mouse", "mouse.maze_run", str(r.status), f"ok={r.ok}")
+        r = mc.timesync.maze_run(target=tgt, timeout=3.0)
+        self.store.mark("mouse", "mouse.maze_run", f"{tgt} {r.status}", f"ok={r.ok}")
         if r.ok:
             return {"ok": True, "status": r.status}
         d = r.data if isinstance(r.data, dict) else {}
@@ -1242,28 +1350,31 @@ class MouseAdapter:
             out["note"] = "上游声明支持丢帧统计，但 stats() 里没有 seq_gap —— 上游改了键名"
         return out
 
-    # ============================================================ 参数（两套）
+    # ============================================================ 参数（2.4.0 起只剩一套）
     def params_grouped(self, refresh: bool = True) -> dict:
-        """把参数表按**该走哪条写入通道 / 落在哪一页 Flash** 分组返回。
+        """把参数表按**落哪一页 Flash / 属于哪一类**分组返回。
 
-        四组：生产标定(1–7) / 红外测量(22–32) / 电源监控(33–38) —— **同页 115、同通道
-        `mc.params`**；课程调参(8–21) —— 另一页 116、另一通道 `mc.lesson`。
-        前端如果把它们混在一个表里，用户改一项课程参数就会走错通道而失败（判据 I16）。
+        **2.4.0 起只剩生产命名空间** —— 课程层（id 8–21 / page 116 / `mc.lesson`）整层删除，
+        于是现在有**三组**、**同一页 115**、**同一条通道 `mc.params`**：
+        生产标定(1–7) / 红外测量(22–32) / 电源监控(33–38)，合计 24 项，
+        与固件 `LINK_P_NUM = 24` 严格相等。
 
-        ⚠️ **2.0.0 的读侧不对称**：固件 `GET ALL` 与 `GET <name>` **只查生产表**
-        （24 项），课程 14 项一律回 `ERR_NAME`；而**写侧**（`SET`/`SETQ`）是通的。
-        所以这里：课程组的**值读不到**（`value=None, readable=False`），但**条目照样列出来**
-        ——它确实存在、也确实能写，把它藏起来会让"改课程参数"这条路在界面上消失。
+        ⚠️ 分组**仍然返回**（而不是拍平成一张表）：它是界面的**阅读顺序**，
+        也是判据 I16 的抓手。变了的是——**不再有"选错通道"这回事**了：
+        以前课程参数必须走 `mc.lesson.set_params()`，混着传会写错页；
+        现在 `write_via` 恒为 `mc.params.set`。所以 I16 的断言也随之改了
+        （见 §11.15「判据与校验工具的同批改动」）。
+
+        ⚠️ **读侧不再有不对称**：以前课程 14 项 `GET` 一律回 `ERR_NAME`
+        （值读得到才怪），现在 24 项全都读得到 ⇒ `readable` 恒真。
+        保留这个键是为了让旧前端/旧判据不至于 KeyError。
 
         ⚠️ `refresh=False` 表示**一次设备都不碰**（只用本地快照 + 静态元数据）。
         这一点必须守住：`get_raw()` 是**带 3 s 超时的实时往返**（上游
         `host/api/params.py`），而本方法在 `refresh=False` 时会被 `caps()` 同步调用 ——
-        也就是跑在 **aiohttp 的事件循环上**。逐项各来一次，链路刚断时（比如上游模拟器
-        被收掉、车断电、线被拔）就是几十秒的**整服务冻结**：连纯内存的 `/health`
-        都不答，浏览器那边则是"页面打开了，但一切都是死的"。
-        真踩过 —— 线程栈里明明白白停在 `get_raw → client._wait_pending`。
-        因此：要"现在的值"就传 `refresh=True`（那条路走线程池，慢一点无所谓）；
-        只是想"看看这台设备有哪些参数"就传 `False`（零设备访问）。
+        也就是跑在 **aiohttp 的事件循环上**。逐项各来一次，链路刚断时就是几十秒的
+        **整服务冻结**：连纯内存的 `/health` 都不答。真踩过 ——
+        线程栈里明明白白停在 `get_raw → client._wait_pending`。
         """
         mc = self._mc
         if mc is None:
@@ -1274,7 +1385,7 @@ class MouseAdapter:
             vals = mc.params.get_all(refresh=refresh) if refresh else mc.params.snapshot()
         except Exception as e:                               # noqa: BLE001
             raise MouseError(f"读参数失败：{type(e).__name__}: {e}") from e
-        # 生产命名空间（`GET ALL` 覆盖到的那 24 项）—— 只有它**能**读值、能读 Q16.16。
+        # 生产命名空间（`GET ALL` 覆盖到的 24 项），能读值、能读 Q16.16。
         prod_ids = {}
         try:
             from host.protocol.commands import PRODUCTION_PARAM_IDS   # noqa: F401
@@ -1282,18 +1393,21 @@ class MouseAdapter:
         except Exception:                                     # noqa: BLE001
             prod_ids = set()
         if not prod_ids:
-            # 取不到静态表就退化：按分组标签判"生产侧三组"（它们的值来自 get_all）。
+            # 取不到静态表就退化：`get_all` 覆盖到的就是生产侧。
             prod_ids = set(vals or {})
         groups: Dict[str, Dict[str, dict]] = {
-            "生产标定": {}, "红外测量": {}, "电源监控": {}, "课程调参": {}}
-        # 先把**所有已知名字**铺开（课程项即使读不到值也要在表里出现）。
+            "生产标定": {}, "红外测量": {}, "电源监控": {}}
         names: List[str] = []
         for n in (vals or {}):
             if n not in names:
                 names.append(n)
+        # 老上游上还有课程条目（读不到值），照样列出来并归到"课程调参"组 ——
+        # 这样"从 2.3 退回去"时界面不会突然少一半条目。
         for n in sorted(self._lesson_param_ids or {}):
             if n not in names:
                 names.append(n)
+        if self._lesson_param_ids:
+            groups["课程调参"] = {}
         for name in names:
             v = (vals or {}).get(name)
             g = (self._param_groups or {}).get(name)
@@ -1309,8 +1423,7 @@ class MouseAdapter:
             q = None
             readable = name in prod_ids
             if refresh and readable:
-                # 原始 Q16.16 值**只在明确要求回读、且该名字在 GET 覆盖范围内**时才去问设备
-                # （课程项一问必 ERR_NAME，白等满 3 s 超时 ×14 —— 与"整服务冻结"同类）。
+                # 原始 Q16.16 值只在明确要求回读、且该名字在 GET 覆盖范围内时才去问设备。
                 try:
                     q = mc.params.get_raw(name)
                 except Exception:                            # noqa: BLE001
@@ -1332,7 +1445,9 @@ class MouseAdapter:
             # ⚠️ 这段话会**原样出现在界面上**（`params.js` 把 `note` 直接写进 `#p-top`），
             # 所以它必须遵守界面文案纪律：**不许有 Markdown 标记 / 解释性破折号 / 判据编号**
             # （判据 B13 会扫出来）。这里的行文只能是"状态 + 下一步点哪"。
-            "note": ("参数分四组、落在两个 Flash 页：生产侧 115，课程 116，需分别保存。"
+            "note": ("参数分三组、同落在 Flash page 115，一次整表保存。"
+                     if not self._lesson_param_ids else
+                     "参数分四组、落在两个 Flash 页：生产侧 115，课程 116，需分别保存。"
                      "课程 14 项的值读不到（固件只对生产表答读取），可以写。"),
         }
 
@@ -1340,16 +1455,23 @@ class MouseAdapter:
                            save: bool = False) -> dict:
         """按参数所在组**自动选写入通道**。混着传也行 —— 会拆成两次调用。
 
-        ⚠️ 课程组默认 `readback=False`：2.0.0 的固件 `GET` 只查生产表，课程项回读必
-        `ERR_NAME` ⇒ 带着回读去写会把**成功**的写入报成失败（上游 `set_params` 的回读
-        走的就是 `GET`）。所以课程侧只认 ACK。
+        ⚠️ **2.4.0 起只剩生产侧**，所以 `les` 恒空、走不到 `mc.lesson` 那条分支。
+        这段分流**故意保留**：① 从 2.4 退回 2.3 时界面不用改；
+        ② `mc.lesson` 是**被删的符号**，这里用 `self._features.get("lesson")` 判，
+        绝不直接 `mc.lesson.xxx` —— 那会 AttributeError 冒成 500。
+
+        ⚠️ 课程组默认 `readback=False`：固件 `GET` 历史上只查生产表，课程项回读必
+        `ERR_NAME` ⇒ 带着回读去写会把**成功**的写入报成失败。这条规矩在 2.4 已无对象，
+        但代码留着（同上，为"退回去也能跑"）。
         """
         mc = self._mc
         if mc is None:
             raise MouseError("未连接：请先连接再写参数")
         grp = self._param_groups or {}
-        prod = {k: v for k, v in values.items() if grp.get(k, "生产标定") == "生产标定"}
-        les = {k: v for k, v in values.items() if grp.get(k) == "课程调参"}
+        les_names = set(self._lesson_param_ids or {})
+        prod = {k: v for k, v in values.items()
+                if k not in les_names and grp.get(k, "生产标定") != "课程调参"}
+        les = {k: v for k, v in values.items() if k not in prod}
         out: Dict[str, Any] = {"prod": [], "lesson": []}
         if prod:
             rs = mc.params.set_many(prod, readback=readback)
@@ -1357,7 +1479,11 @@ class MouseAdapter:
                             "status": r.status} for r in rs]
         if les:
             if not self._features.get("lesson"):
-                raise MouseError("上游不支持课程参数写入（缺 mc.lesson）")
+                raise MouseError(
+                    "这些参数属于课程命名空间，但上游已经删掉了课程层（2.4.0）。\n"
+                    f"  · 涉及的项：{sorted(les)}\n"
+                    "  · 课程 14 项（id 8–21）已随整层删除，任何通道都写不了；\n"
+                    "  · 生产 24 项（id 1–7 / 22–38）走 mc.params，不受影响。")
             # 课程侧**不做回读**（见 docstring）；只认 ACK。
             rs = mc.lesson.set_params(les, readback=False, save=save)
             out["lesson"] = [{"name": getattr(r, "name", "?"), "ok": r.ok,
@@ -1376,23 +1502,24 @@ class MouseAdapter:
 
     def save_params(self, group: str = "生产标定",
                     values: Optional[Dict[str, float]] = None) -> dict:
-        """落 Flash。**两套参数是两条命令 / 两个页**，别指望一次存两边。
+        """落 Flash。**2.4.0 起只有一套参数、一个页（115）、一条命令。**
 
-        ⚠️ 课程组的做法在 2.0.0 变了：以前是"读出当前值 → 原样重发 → 落盘"，
-        但固件 `GET` 现在**只查生产表**，课程项的值**读不回来**。所以课程组的 SAVE
-        必须由调用方带上**要落盘的数值**（界面上就是那几个输入框里的值）——
-        没有值时**明确拒绝**，而不是发一次 `{}` 假装成功。
+        ⚠️ 课程组那条路在 2.4 已无对象（课程层删除）。代码保留是为"退回 2.3 也能跑"，
+        且**必须**走能力探测 —— 直接碰 `mc.lesson` 会在新上游上 AttributeError。
         """
         mc = self._mc
         if mc is None:
             raise MouseError("未连接：请先连接再落盘")
         if group == "课程调参":
             if not self._features.get("lesson"):
-                raise MouseError("上游不支持课程参数落盘（缺 mc.lesson）")
+                raise MouseError(
+                    "上游已经删掉了课程调参整层（2.4.0），没有「课程调参」这一组可落盘。\n"
+                    "  · 现在只有生产命名空间 24 项，落在 Flash page 115；\n"
+                    "  · 点生产侧那个 SAVE 即可。")
             vals = {str(k): float(v) for k, v in (values or {}).items()}
             if not vals:
                 raise MouseError(
-                    "课程参数的值**读不回来**（2.0.0 固件 `GET` 只查生产表），"
+                    "课程参数的值**读不回来**（固件 `GET` 只查生产表），"
                     "所以无法「读出当前值再落盘」。\n"
                     "  · 请在参数表里填入要写入的数值，再点这一组的 SAVE —— 它会**写入并落盘**。")
             rs = mc.lesson.set_params(vals, readback=False, save=True)
@@ -1424,10 +1551,16 @@ class MouseAdapter:
         "这条流里有哪些量、路口类型有哪 8 种"画出来。否则未连接时整页空白，
         而这一页的价值恰恰是"连之前就知道要读什么"。
 
-        2.0.0 起**没有 SNAP**：全部测量量都在唯一的那条统一帧里（39 个扁平通道）。
+        2.0.0 起**没有 SNAP**：全部测量量都在唯一的那条统一帧里（**2.0.0 是 39 个、
+        2.3.0 起是 49 个**扁平通道 —— 数量从协议层取，不写死）。
         所以这里的 `channels` 就是这条流的列名 —— 它同时是"界面上能显示些什么"的清单。
+
+        `spurt` 是**比赛冲刺码表**（2.3.0 起有）：冲刺档位的名字。
+        它和 `maze` 一样是**静态表**、零设备访问 —— 于是「比赛」页在**没连上**的时候
+        也能把"要看哪几个量、档位各叫什么"画出来（这一页的价值正在于此）。
         """
         maze: Dict[str, Any] = {}
+        spurt: Dict[str, Any] = {}
         try:
             from host.protocol.codec import (DIR_NAMES, FLAG_NAMES,
                                              MAZE_TASK_NAMES, MOTION_TASK_NAMES,
@@ -1444,6 +1577,18 @@ class MouseAdapter:
             }
         except Exception as e:                                # noqa: BLE001
             maze = {"error": f"{type(e).__name__}: {e}"}
+        try:
+            # `SPURT_MODE_NAMES` 与 `FRONT_NAMES` 都是 2.3.0 才有的符号 ⇒ 一律 getattr 兜底
+            # （老上游上少这两张表**不是故障**，只是那一页画不出名字）。
+            from host.protocol import codec as _cd
+            spurt = {
+                "modes": {str(k): v for k, v in
+                          (getattr(_cd, "SPURT_MODE_NAMES", {}) or {}).items()},
+                "front": {str(k): v for k, v in
+                          (getattr(_cd, "FRONT_NAMES", {}) or {}).items()},
+            }
+        except Exception:                                     # noqa: BLE001
+            spurt = {}
         chans = list(self._unified_channels or [])
         if not chans and self._mc is not None:
             try:
@@ -1461,6 +1606,7 @@ class MouseAdapter:
             "stream": "unified",
             "hz": hz,
             "maze": maze,
+            "spurt": spurt,
             "features": {"unified": self._features.get("unified", False),
                          "maze_state": self._features.get("maze_state", False),
                          "event_seq": self._features.get("event_seq", False)},
@@ -1552,7 +1698,25 @@ class MouseAdapter:
             road_name = None
         return {"state": st, "position": pos, "mazetype": mazetype,
                 "changes": changes, "roadName": road_name,
-                "eventsIncomplete": ev_incomplete}
+                "eventsIncomplete": ev_incomplete,
+                "spurt": self._spurt_of(mc)}
+
+    def _spurt_of(self, mc) -> Optional[Dict[str, Any]]:
+        """**比赛冲刺状态**（上游 2.3.0 起进帧，纯只读监视量）—— 见 `maze.spurt()`。
+
+        为什么单独包一层而不是直接 `mc.maze.spurt()`：
+          · 老上游（≤2.2.1）**没有**这个方法 ⇒ 裸取会 `AttributeError`，而报出来
+            看着像"上游改名了"，指不到方向（纪律 6 / 14）；
+          · 这些量**比赛档固件才有意义**，远程档不跑冲刺时恒为"未选 + 各标志 0" ⇒
+            未连接 / 拿不到时回 `None`（三态：判不了 ≠ 全是 0）。
+        """
+        fn = getattr(mc.maze, "spurt", None)
+        if not callable(fn):
+            return None
+        try:
+            return fn()
+        except Exception:                                     # noqa: BLE001
+            return None
 
     def maze_history(self, n: Optional[int] = None) -> dict:
         """任务**迁移序列**（时间正序）：`(时刻, from, to)`。不发命令。
@@ -1590,6 +1754,12 @@ class MouseAdapter:
         return {"ok": okk, "note": "只清本层的任务迁移差分缓冲（固件侧无统计可清）"}
 
     # ============================================================ 电机实验 / 课程实验
+    # ⚠️ 2.4.0 起上游把**课程调参实验整层删了**，只剩下「电机实验」（`mc.lab`）。
+    #    下面 `lesson_*` 那一组**故意保留**（不是死代码，是"退回 2.3 也能跑"的兼容面）：
+    #      · 每个入口第一句都是 `if not self._features.get("lesson")` ⇒ 新上游上
+    #        **一行上游代码都不碰**，直接回一句解释得清楚的错；
+    #      · 绝不写 `mc.lesson.xxx` 裸取 —— 那是**被删的符号**，会 AttributeError，
+    #        报出来看着像"上游改名了"，指不到方向（纪律 6 / 14）。
     def guard(self, what: str) -> None:
         """**需要电机转动的前置检查**（上游 `mc.motor_guard`）。
 
@@ -1675,14 +1845,26 @@ class MouseAdapter:
         if not self._features.get("lesson"):
             return []
         try:
-            from host.api import LESSON_EXPS
+            _api = __import__("host.api", fromlist=["LESSON_EXPS"])
             return [{"no": int(e.no), "name": e.name, "args": list(e.arg_names),
                      "defaults": list(e.defaults), "help": e.help}
-                    for e in LESSON_EXPS.values()]
+                    for e in getattr(_api, "LESSON_EXPS").values()]
         except Exception:                                    # noqa: BLE001
             return []
 
+    #: 课程层被上游删除时，所有课程口统一回这一句 —— 便于现场一眼认出来。
+    _LESSON_GONE = (
+        "上游 RemoteControl 2.4.0 已**删除课程调参实验整层**（编译档位 5 → 2，"
+        "`MOUSE_LESSON_LAB` 连同 `lesson_lab.c` 751 行一并移除）。\n"
+        "  · 三条命令 lesson.start / lesson.stop / lesson.status 已退出登记表；\n"
+        "  · 课程 14 项参数（id 8–21）与 Flash page 116 一并释放；\n"
+        "  · `Event.LESSON` 事件不再由固件发出。\n"
+        "  · 算参纯函数（solve_ratio / error_ratio / theory_*）**保留**，"
+        "已迁到 host/api/calc.py，本层的自动算参照常可用。")
+
     def lesson_status(self) -> dict:
+        if not self._features.get("lesson"):
+            return {"available": False, "reason": self._LESSON_GONE}
         mc = self._need("lesson", "课程实验")
         return dict(mc.lesson.status())
 
@@ -1694,7 +1876,13 @@ class MouseAdapter:
         "回传往返" —— `fetch_log`/`realtime_hz` 两个参数随之消失。
 
         ⚠️ 需要电机，所以先过 guard。固件侧每个实验都自带时间护栏。
+
+        ⚠️ **2.4.0 起这条路对上游不存在了**（课程层删除）。这里显式拒绝并说清原因 ——
+        不返回空壳，也不抛一个 `AttributeError: 'MouseClient' object has no attribute 'lesson'`
+        （那种报错看着像"上游改名了"，**指不到方向**）。
         """
+        if not self._features.get("lesson"):
+            raise MouseError(self._LESSON_GONE)
         self.guard(f"课程实验 {exp}")
         mc = self._need("lesson", "课程实验")
         # ⚠️ 记 timeline 时**必须把回调剔除**：`json.dumps` 遇到函数会抛
@@ -1716,6 +1904,8 @@ class MouseAdapter:
         return out
 
     def lesson_stop(self) -> dict:
+        if not self._features.get("lesson"):
+            raise MouseError(self._LESSON_GONE)
         mc = self._need("lesson", "课程实验")
         r = mc.lesson.stop()
         self.store.mark("mouse", "lesson.stop", "", f"ok={r.ok} {r.status}")
@@ -1756,12 +1946,19 @@ class MouseAdapter:
         ⚠️ 实验 2/5 修正的是 **TRACKL/TRACKR/GYRORATIO，属于生产标定参数**
         （不在课程命名空间里）⇒ 写回必须走 `mc.params.set_many`。
         上游 CHANGELOG 专门提过这条：`mc.lesson.set_params()` 只接受课程命名空间。
+        ⚠️ **2.4.0 之后这个口仍然有用，而且更要紧**：它算的是 TRACKL/TRACKR/GYRORATIO，
+        **全部属生产标定参数**（走 `mc.params`），与课程层毫无关系 ——
+        上游把算参函数专门从 lesson.py 迁到 `api/calc.py` 就是为了保住这条能力。
+        所以这里**不再要求 `mc.lesson` 存在**，只要算参纯函数在（`calc` 能力）。
         """
-        mc = self._need("lesson", "课程实验")
+        mc = self._ensure()
         solve = (self._api or {}).get("solve_ratio")
         errp = (self._api or {}).get("error_ratio")
         if solve is None or errp is None:
-            raise MouseError("上游缺少算参纯函数（solve_ratio / error_ratio）")
+            raise MouseError(
+                "上游缺少算参纯函数（solve_ratio / error_ratio）。\n"
+                "  · 2.4.0 起它们在 host/api/calc.py（包也导出）；\n"
+                "  · 取不到说明上游版本过老或源码不完整。")
         out: Dict[str, Any] = {"exp": int(exp), "truth": float(truth), "items": {}}
         try:
             if int(exp) == 2:
