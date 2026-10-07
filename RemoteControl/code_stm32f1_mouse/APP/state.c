@@ -14,7 +14,9 @@
 /* 搜索状态机跨周期持久状态 */
 #include "state.h"
 static int lTopSpeedH, L45TopSpeedh, BackTopSpeedh; /* 返回起点速度暂存 */
-static uchar spurtmode;								/* 冲刺速度档, 跨准备段/主任务状态机共享 */
+uchar spurtmode; /* 冲刺速度档, 跨准备段/主任务状态机共享。
+                  * v2.3: 由 static 改为全局 —— **只加可见性, 逻辑一字未改**。
+                  * 链路层(link.c)要把它只读镜像进统一帧, 而 static 量读不到。 */
 /* 搜索状态机跨周期状态封装(static, 仅本模块可见) */
 typedef struct
 {

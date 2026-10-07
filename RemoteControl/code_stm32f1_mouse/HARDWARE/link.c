@@ -1147,6 +1147,8 @@ static void link_SendUnified(void)
 {
 	u8 pl[LINK_UNIFIED_LEN];
 	u8 sa, sb, sc;
+	u8 fr, sp, sm;
+	long dmin;
 
 	/* ---- 测量量 ----
 	 * 时间戳取"组帧这一刻"的毫秒时基低 8 位。因为现在是请求驱动, 帧的发送时刻
@@ -1205,6 +1207,56 @@ static void link_SendUnified(void)
 	pl[LINK_U_STACKIDX] = mazeState.stackIdx;
 	pl[LINK_U_FASTWAY] = mazeState.fastwayCount;
 	pl[LINK_U_DROP] = (u8)(linkDrop & 0xFFu);
+
+	/* ---- v2.3 新增: 纯只读监视量 ----
+	 * 这一段**不改变任何决策**, 只把固件内部已经能区分、但接口上看不到的量搬出来。 */
+
+	/* 前墙双档(*派生量*): 原 `wallSns.front` 由 ISR 按"4 个条件取或"写死,
+	 * 这里不再碰它, 只用同一组阈值把结果**拆成近端/远端**:
+	 *     frontNear = 有墙 且 min(f1,f2) < thrFrontNear   (贴脸, 必须处理)
+	 *     frontFar  = 有墙 且 min(f1,f2) >= thrFrontNear  (提前量, 可用于提前决策)
+	 * 恒等式 frontNear | frontFar == wallSns.front(两者互斥), 因此
+	 * maze.c/isr.c/motion.c/lesson.c 里 5 个读 `wallSns.front` 的点**一行都不用改**。
+	 * 另把原式①②的"双传感器互证"单独记一位(frontBoth), 便于上位机区分
+	 * "两路都看到墙"与"单路贴脸兜底"。 */
+	dmin = (irDist.f1 < irDist.f2) ? irDist.f1 : irDist.f2;
+	fr = 0u;
+	if (wallSns.front)
+	{
+		if (dmin < (long)irCfg.thrFrontNear)
+			fr |= LINK_FRONT_NEAR;
+		else
+			fr |= LINK_FRONT_FAR;
+	}
+	if ((irDist.f1 < (long)irCfg.thrFrontLo && irDist.f2 < (long)irCfg.thrFrontHi)
+	    || (irDist.f2 < (long)irCfg.thrFrontMid && irDist.f1 < (long)irCfg.thrFrontHi))
+		fr |= LINK_FRONT_BOTH;
+	pl[LINK_U_FRONT] = fr;
+
+	/* 比赛冲刺选档/状态(只读镜像; 这些量在比赛固件 [5] 里才有意义,
+	 * 测试档不跑冲刺时恒为 0/未选, 上位机据此判断"现在是不是在冲刺、用哪一档")。 */
+	sm = 0u;
+	if (spurtmode == SPURT_SPEED_90_LOW)
+		sm = 1u;
+	else if (spurtmode == SPURT_SPEED_45_LOW)
+		sm = 2u;
+	else if (spurtmode == SPURT_SPEED_MEDIUM)
+		sm = 3u;
+	else if (spurtmode == SPURT_SPEED_HIGH)
+		sm = 4u;
+	sp = (u8)(sm & 0x07u);
+	if (taskSt.spurtFlag)
+		sp |= LINK_SPURTBF_FLAG;
+	if (taskSt.goOrBack)
+		sp |= LINK_SPURTBF_GOBACK;
+	if (mazeState.spurtTestFlag)
+		sp |= LINK_SPURTBF_TEST;
+	if (mazeState.objectGoToFlag)
+		sp |= LINK_SPURTBF_OBJECT;
+	pl[LINK_U_SPURT] = sp;
+
+	pl[LINK_U_GOAHEAD] = taskSt.goaheadnum;
+	pl[LINK_U_FASTWAY90] = mazeState.fastwayCount90;
 
 	link_SendFrame(LINK_TYPE_UNIFIED, pl, LINK_UNIFIED_LEN);
 }

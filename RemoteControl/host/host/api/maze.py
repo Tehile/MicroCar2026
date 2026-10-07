@@ -36,6 +36,7 @@ from ..protocol.codec import (
     MOTION_TASK_NAMES,
     ROAD_KINDS,
     ROAD_NAMES,
+    SPURT_MODE_NAMES,
     WALL_DOWN_OPEN,
     WALL_LEFT_OPEN,
     WALL_RIGHT_OPEN,
@@ -82,6 +83,12 @@ class MazeAPI:
             "wallLeft": int(f.get("wallLeft", 0)),
             "wallFront": int(f.get("wallFront", 0)),
             "wallRight": int(f.get("wallRight", 0)),
+            # v2.3: 前墙拆成两档(互斥, 恒等式 near|far == wallFront)。
+            # "有墙" 用 wallFront(任一档); "贴脸该处理" 用 frontNear。
+            "frontNear": int(f.get("frontNear", 0)),
+            "frontFar": int(f.get("frontFar", 0)),
+            "frontBoth": int(f.get("frontBoth", 0)),
+            "frontName": str(f.get("frontName", "无墙")),
             "motion": int(f.get("motionTask", 0)),
             "motionName": MOTION_TASK_NAMES.get(int(f.get("motionTask", 0)), "?"),
             "motionStep": int(f.get("motionStep", 0)),
@@ -91,6 +98,28 @@ class MazeAPI:
             "roadName": str(f.get("roadName", "NONE")),
             "roadKind": ROAD_KINDS.get(str(f.get("roadName", "NONE")), "未判定"),
             "evDropped": bool(f.get("evq", False)),
+        }
+
+    def spurt(self) -> Optional[Dict[str, Any]]:
+        """比赛冲刺状态(v2.3, 只读)。无数据时 None。
+
+        这些量来自固件**只读镜像**(比赛固件 [5] 才有意义; 测试档不跑冲刺时
+        恒为 `mode=0(未选)` 且各标志 0)。它们**不能**由上位机设置 ——
+        冲刺入口是比赛流程里"人工贴墙选档"那一段(红线, 刻意不动)。
+        """
+        f = self._frame()
+        if not f:
+            return None
+        mode = int(f.get("spurtMode", 0))
+        return {
+            "mode": mode,
+            "modeName": SPURT_MODE_NAMES.get(mode, "?"),
+            "spurtFlag": int(f.get("spurtFlag", 0)),
+            "goOrBack": int(f.get("goOrBack", 0)),
+            "spurtTestFlag": int(f.get("spurtTestFlag", 0)),
+            "objectGoToFlag": int(f.get("objectGoToFlag", 0)),
+            "goaheadnum": int(f.get("goaheadnum", 0)),
+            "fastwayCount90": int(f.get("fastwayCount90", 0)),
         }
 
     def road(self) -> int:

@@ -94,6 +94,101 @@ def test_static() -> None:
 
     _test_firmware_mode_gates()
     _test_protocol_constants_vs_firmware()
+    _test_enum_tables_vs_firmware()
+
+
+def _test_enum_tables_vs_firmware() -> None:
+    """S7: 上位机的**动作名表**必须与固件枚举逐项对齐(v2.3 新增)。
+
+    为什么必须自动化: 这是**同一份枚举的两处实现**, 手工维护必然漂移 ——
+    实测(v2.3 之前)主机 `MOTION_TASK_NAMES` **漏了 9 个码**(12/13/14/15/16/18/29/31/40)
+    又**多出 8 个幽灵码**(46-53, 正好是那些缺项的"错位影子")。后果是真机跑到
+    `TURNLEFTFAST(14)` / `EMERGENCY(16)` / `EDGESTRAIGHT(40)` 时上位机显示 `?` 或错名,
+    **现场无法判读比赛动作** —— 而 `mouse_sim` 只产生 `motion_task ∈ {0,2,32}`,
+    测试根本覆盖不到这些码, 所以这个缺陷一直没被任何套件发现。
+
+    判据: **数值集合严格相等**(既不能缺、也不能多), 名称在归一化后逐项相等。
+    归一化只抹平命名风格(去掉下划线、大写、去掉 `MOTION_TASK_`/`MAZE` 前缀),
+    数值映射仍须严格一致。
+    """
+    print("\n[S7] 动作名表 vs 固件枚举")
+
+    import os
+    import re
+
+    from host.protocol import codec as _c
+
+    fw = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code_stm32f1_mouse")
+    core_h = open(os.path.join(fw, "HARDWARE", "core.h"), encoding="utf-8").read()
+    maze_h = open(os.path.join(fw, "STRATEGY", "maze.h"), encoding="utf-8").read()
+    link_h = open(os.path.join(fw, "HARDWARE", "link.h"), encoding="utf-8").read()
+
+    def _norm(name: str) -> str:
+        s = name.upper().replace("_", "")
+        for p in ("MOTIONTASK", "MAZE"):
+            if s.startswith(p):
+                s = s[len(p):]
+        return s
+
+    # ---- MotionTask_t(core.h) ----
+    m = re.search(r"typedef\s+enum\s*\{(.*?)\}\s*MotionTask_t\s*;", core_h, re.S)
+    if not m:
+        check("core.h 解析到 MotionTask_t 枚举体", False)
+        return
+    body = re.sub(r"/\*.*?\*/", " ", m.group(1), flags=re.S)
+    body = re.sub(r"//[^\n]*", " ", body)
+    fw_motion = {int(v): n for n, v in re.findall(r"(\w+)\s*=\s*(\d+)", body)}
+
+    check(f"core.h MotionTask_t 解析出 {len(fw_motion)} 个码",
+          len(fw_motion) > 0, str(len(fw_motion)))
+    miss = sorted(set(fw_motion) - set(_c.MOTION_TASK_NAMES))
+    extra = sorted(set(_c.MOTION_TASK_NAMES) - set(fw_motion))
+    check(f"MOTION_TASK_NAMES 数值集合与 core.h 完全一致({len(fw_motion)} 码)",
+          not miss and not extra,
+          f"缺 {miss} | 多 {extra}")
+    nm_bad = [f"{k}: 固件 {fw_motion[k]} != 主机 {_c.MOTION_TASK_NAMES[k]}"
+              for k in sorted(fw_motion)
+              if k in _c.MOTION_TASK_NAMES and _norm(fw_motion[k]) != _norm(_c.MOTION_TASK_NAMES[k])]
+    check("MOTION_TASK_NAMES 名称逐项一致(归一化后)", not nm_bad, " | ".join(nm_bad))
+
+    # ---- mouseTask 六个宏(maze.h) ----
+    macro_names = ["WAIT", "START", "MAZESEARCH", "SPURT", "SPURT_45", "SPURT_90"]
+    fw_maze = {}
+    for n in macro_names:
+        mm = re.search(r"#define\s+" + n + r"\s+(\d+)\b", maze_h)
+        if mm:
+            fw_maze[int(mm.group(1))] = n
+    check(f"maze.h 解析出 {len(fw_maze)}/{len(macro_names)} 个 mouseTask 宏",
+          len(fw_maze) == len(macro_names), str(sorted(fw_maze)))
+    miss = sorted(set(fw_maze) - set(_c.MAZE_TASK_NAMES))
+    extra = sorted(set(_c.MAZE_TASK_NAMES) - set(fw_maze))
+    check("MAZE_TASK_NAMES 数值集合与 maze.h 完全一致",
+          not miss and not extra, f"缺 {miss} | 多 {extra}")
+    nm_bad = [f"{k}: 固件 {fw_maze[k]} != 主机 {_c.MAZE_TASK_NAMES[k]}"
+              for k in sorted(fw_maze)
+              if k in _c.MAZE_TASK_NAMES and _norm(fw_maze[k]) != _norm(_c.MAZE_TASK_NAMES[k])]
+    check("MAZE_TASK_NAMES 名称逐项一致(归一化后)", not nm_bad, " | ".join(nm_bad))
+
+    # ---- v2.3 新增位宏: 主机 FRONT_*/SPURTBF_* <-> 固件 LINK_FRONT_*/LINK_SPURTBF_* ----
+    def _macro(name: str):
+        mm = re.search(r"#define\s+" + re.escape(name) + r"\s+(0[xX][0-9a-fA-F]+|\d+)", link_h)
+        return int(mm.group(1), 0) if mm else None
+
+    bad = []
+    for hn in ("FRONT_NEAR", "FRONT_FAR", "FRONT_BOTH",
+               "SPURTBF_FLAG", "SPURTBF_GOBACK", "SPURTBF_TEST", "SPURTBF_OBJECT"):
+        fv = _macro("LINK_" + hn)
+        if fv != getattr(_c, hn):
+            bad.append(f"{hn}: 主机 {getattr(_c, hn)} != 固件 {fv}")
+    check(f"前墙/冲刺位宏 {7} 项与固件一致", not bad, " | ".join(bad))
+
+    # ---- 冲刺档位映射(0..4)覆盖固件 SpurtSpeed_t 的 60..63 ----
+    spurt_h = open(os.path.join(fw, "MOTION", "spurt.h"), encoding="utf-8").read()
+    fw_modes = sorted(int(v) for v in re.findall(r"SPURT_SPEED_\w+\s*=\s*(\d+)", spurt_h))
+    check(f"固件 SpurtSpeed_t 解析出 4 档(60..63) == {fw_modes}",
+          fw_modes == [60, 61, 62, 63], str(fw_modes))
+    check("SPURT_MODE_NAMES 覆盖 0..4(0=未选 + 4 个固件档)",
+          sorted(_c.SPURT_MODE_NAMES) == [0, 1, 2, 3, 4], str(sorted(_c.SPURT_MODE_NAMES)))
 
 
 def _test_protocol_constants_vs_firmware() -> None:
@@ -750,6 +845,11 @@ def _payload_unified() -> bytes:
         # ---- 坐标 / 决策 ----
         "posX": 3, "posY": 4, "goalX": 7, "goalY": 7,
         "wallThresh": 140, "stackIdx": 2, "fastwayCount": 9, "dropCnt": 1,
+        # ---- v2.3: 前墙双档 / 比赛冲刺状态 ----
+        "frontNear": 1, "frontFar": 0, "frontBoth": 0,
+        "spurtMode": 3, "spurtFlag": 1, "goOrBack": 0,
+        "spurtTestFlag": 1, "objectGoToFlag": 0,
+        "goaheadnum": 5, "fastwayCount90": 7,
     })
     return pack_unified(d)
 

@@ -2,6 +2,10 @@
 #define _STATE_H_
 #include "main.h"
 
+/* v2.3: `state.c` 的冲刺速度档(SpurtSpeed_t 取值, 0 表示未选)。
+ * 由 static 改为全局**仅为可见性** —— 链路层组帧时只读镜像, 不写。 */
+extern uchar spurtmode;
+
 void STATE_InitSearchSm(void);
 void STATE_DetermineGoaheadNum(void);
 void STATE_LoadMapAndSelectSpeed(void);

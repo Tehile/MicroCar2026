@@ -30,12 +30,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .errors import Result, clamp_timeout
 from .events import Event
+from ..protocol.codec import FRAME_OVERHEAD, UNIFIED_LEN
 
 if TYPE_CHECKING:  # pragma: no cover
     from .client import MouseClient
 
-#: 统一帧的线上字节数(45B 载荷 + 8B 开销)
-_FRAME_BYTES = 53
+#: 统一帧的线上字节数(载荷 + 8B 开销) —— 由协议常量派生, 勿写死。
+_FRAME_BYTES = FRAME_OVERHEAD + UNIFIED_LEN
 
 #: 红外四路的通道名(与固件 link_MinIr 的顺序一致)
 _IR_CHANNELS = ("F1", "F2", "L", "R")

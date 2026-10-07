@@ -39,14 +39,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..clock import now_monotonic
+from ..protocol.codec import FRAME_OVERHEAD, UNIFIED_LEN
 from .errors import Result, clamp_timeout
 from .events import Event
 
 if TYPE_CHECKING:  # pragma: no cover
     from .client import MouseClient
 
-#: 统一帧的线上字节数(45B 载荷 + 8B 开销) —— v2.0 只有这一种周期帧。
-_FRAME_BYTES = 53
+#: 统一帧的线上字节数(载荷 + 8B 开销) —— v2.0 只有这一种周期帧; 由协议常量派生。
+_FRAME_BYTES = FRAME_OVERHEAD + UNIFIED_LEN
 
 #: 实验结束原因 -> 中文
 _REASON_TEXT = {

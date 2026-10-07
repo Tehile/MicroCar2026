@@ -9,6 +9,99 @@
 
 ---
 
+## [2.3.0] — 2026-10-07
+
+### 新增：前墙拆成"近端 / 远端"两档（只读监视）
+
+前墙这几路红外**本来就分两档**，只是被或成了一个 `wallSns.front`：`isr.c` 的判定式是
+4 个条件取或 —— ①② 是"双传感器互证"（阈值 230/240/245 = 参数 id 25/26/27），
+③④ 是"单路近距"（阈值 80 = 参数 id 28 `IRTHRFNEAR`）。上位机此前只看到一个 bool，
+**"两百多毫米外的远墙"与"贴脸墙"完全不可区分**。
+
+v2.3 不改那个或式，而是在**组帧时**用同一组阈值把它拆开：
+
+```
+frontNear = wallSns.front && min(f1,f2) <  thrFrontNear   # 贴脸: 必须处理
+frontFar  = wallSns.front && min(f1,f2) >= thrFrontNear   # 提前量: 可用于提前决策
+frontBoth = 原式①②的"双传感器互证"成立                     # 调试/后继决策
+```
+
+- **恒等式** `frontNear | frontFar == wallSns.front` 且两者互斥 ⇒ 原来 5 个读
+  `wallSns.front` 的决策点（`maze.c:158/224`、`isr.c:214`、`lesson.c:633`、
+  `motion.c:950/962`）**一行都没改**。
+- **算在链路层（`link.c` 组帧）而不是 `isr.c`** ⇒ `isr.c`/`core.h`/`maze.c`/`motion.c`
+  **一个字节都不用改**，行为变化严格为零。
+
+### 新增：比赛状态量回传 + 动作名表对齐（"监视为主"）
+
+比赛代码此前有两个"看得见内部、接口上看不到"的缺口：
+
+1. **上位机动作名表与固件枚举错位**：`codec.MOTION_TASK_NAMES` **漏了 9 个码**
+   （12/13/14/15/16/18/29/31/40）又**多出 8 个幽灵码**（46–53，正好是那些缺项的
+   "错位影子"）。后果是真机跑到 `TURNLEFTFAST(14)` / `EMERGENCY(16)` /
+   `EDGESTRAIGHT(40)` 时上位机显示 `?` 或错名，**现场无法判读比赛动作** ——
+   而 `mouse_sim` 只产生 `motion_task ∈ {0,2,32}`，所以**没有任何套件能发现它**。
+2. **比赛冲刺的选档量全不出帧**。
+
+本次修正表 + 补回传，但**不新增任何下行命令**（用户明确：除发车/停止等关键命令
+外都不必要）。冲刺那 4 个量是**只读镜像**，上位机**不能设置** —— 冲刺入口仍是
+比赛流程里"人工贴墙选档"那一段（红线，刻意不动）。
+
+### 接口变更（**破坏性**：线格式变了）
+
+- `registry.API_VERSION` 2.2.1 → **2.3.0**。
+- 固件 `LINK_FW_VER` 214 → **215**；**`LINK_PROTO_VER` 3 → 4**（载荷加长 = 线格式变了）。
+- 统一帧：载荷 **45 → 49 B**、帧长 **53 → 57 B**。新增 4 个**纯只读监视**字节：
+
+  | 偏移 | 内容 |
+  |---|---|
+  | 45 | `frontNear`(b0) \| `frontFar`(b1) \| `frontBoth`(b2) \| 预留(b3-7) |
+  | 46 | `spurtMode`(b0-2) \| `spurtFlag`(b3) \| `goOrBack`(b4) \| `spurtTestFlag`(b5) \| `objectGoToFlag`(b6) \| 预留(b7) |
+  | 47 | `goaheadnum`（u8，不截断） |
+  | 48 | `fastwayCount90`（u8） |
+
+- `codec.UNIFIED_LEN` 45→**49**；`UNIFIED_CHANNELS` 39→**49** 项（新增
+  `frontNear/frontFar/frontBoth/spurtMode/spurtFlag/goOrBack/spurtTestFlag/objectGoToFlag/goaheadnum/fastwayCount90`）。
+- `UNIFIED_HZ` 217→**202**（57 B/帧的理论上限）；`_FRAME_BYTES` 由协议常量派生（不再写死 53）。
+- 新增 `codec.SPURT_MODE_NAMES`（0=未选 / 1=90_LOW / 2=45_LOW / 3=MEDIUM / 4=HIGH）
+  与派生 `frontName`/`frontMode`/`spurtModeName`。
+- `MazeAPI.state()` 增 `frontNear/frontFar/frontBoth/frontName`；新增只读 `MazeAPI.spurt()`。
+- CLI：`maze state` 多打一行前墙两档；新增 `maze spurt`（只读）。
+- **命令集一条未加、一条未删**；`flags` 位定义不变。
+
+### 固件改动清单（尽量不动比赛代码）
+
+| 文件 | 改动 | 是否影响比赛逻辑 |
+|---|---|---|
+| `HARDWARE/link.h` | 帧布局 +4 字节、新偏移/位定义、`PROTO_VER`/`FW_VER` 进版 | 否（纯协议） |
+| `HARDWARE/link.c` | `link_SendUnified()` 派生前墙两档 + 打包冲刺量 | 否（纯组帧） |
+| `APP/state.c` | `spurtmode` 由 `static` 改**全局**（只加可见性） | **否（逻辑一字未改）** |
+| `APP/state.h` | 加 `extern uchar spurtmode;` | 否 |
+
+`isr.c` / `core.h` / `maze.c` / `motion.c` / `lesson.c` **零改动**。
+
+### 验证
+
+- 五档编译 **0 Error**。ROM（相对 v2.2.1）：[1] 27720→**28096**（+376）、
+  [2] 28272→**28648**（+376）、[3] 32784→**33168**（+384）、
+  [4] 75660→**75900**（+240）、[5] 90872→**91120**（+248）。
+- 九套件 **562 项全绿**（原 553）。`contract_test` 213→**222**，新增 **S7**：
+  从 `core.h` 解析 `MotionTask_t`、从 `maze.h` 解析六个 `mouseTask` 宏、从 `spurt.h`
+  解析 `SpurtSpeed_t`，与上位机三张表**数值集合严格相等 + 名称归一化后逐项相等**，
+  并比对 v2.3 的 7 个位宏。**从此两份枚举表不可能再漂移。**
+- **真机待验证**（V6/V7/V8）：车头贴墙 → `frontNear=1,frontFar=0`；前方半格~一格
+  有墙 → `frontFar=1,frontNear=0`；前方空旷 → 两者皆 0。
+
+### 仍未做
+
+- `IRFRONTMODE`（id 32）仍是**假配置**（`isr.c:668` 写死均值，全仓零消费点）——
+  接线或删除都属"决策口径"改动，本轮按"尽量不动比赛代码"不做。
+- 上位机**无法让固件进入冲刺态**（`[4]` 档整段跳过选档；`[5]` 靠人工贴墙）。
+  用户明确不需要额外命令，故不做。
+- 前墙 4 个条件仍是结构硬编码，只有阈值可参数化。
+
+---
+
 ## [2.2.1] — 2026-10-05
 
 ### 安全修正：`MCU RESET` 复位前必须先停车（真机事故的直接响应）

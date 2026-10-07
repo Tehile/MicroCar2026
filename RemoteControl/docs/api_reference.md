@@ -1,7 +1,7 @@
 # 上位机可编程接口参考（API Reference）
 
-> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-05 21:00:26
-> API 版本：`2.2.1`　|　包：`host`
+> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-07 18:50:54
+> API 版本：`2.3.0`　|　包：`host`
 
 > 这是「让上位机做一件事 = 调一个方法」的完整接口清单。
 > 每个方法都会等待设备应答（默认 `wait=True` 且带超时），脚本能写直线代码。
@@ -357,6 +357,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `road_debounced` | `(self, samples: 'int' = 2, gap_s: 'float' = 0.02) -> 'str'` | 连续 `samples` 次(每次间隔 `gap_s`)分类一致才认。复刻固件 20ms 去抖的意图。 |
 | `road_name` | `(self) -> 'str'` |  |
 | `run` | `(self, timeout: 'float' = 3.0)` | 远程发车跑无记忆走迷宫(仅 `MOUSE_DATA_LOG` 档; 其余固件回 ERR_VALUE)。 |
+| `spurt` | `(self) -> 'Optional[Dict[str, Any]]'` | 比赛冲刺状态(v2.3, 只读)。无数据时 None。 |
 | `state` | `(self) -> 'Optional[Dict[str, Any]]'` | 统一的迷宫视图(直接来自最新帧)。无数据时 None。 |
 | `stop` | `(self, timeout: 'float' = 3.0)` | 把电脑鼠**带出迷宫**, 复位发车状态并解锁急停（`MAZE STOP`）。 |
 | `summary` | `(self) -> 'Dict[str, Any]'` |  |

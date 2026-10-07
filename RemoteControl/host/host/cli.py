@@ -443,11 +443,28 @@ def cmd_maze(args) -> None:
             print(f"任务 {st['taskName']}  动作 {st['motionName']}  步 {st['motionStep']}  "
                   f"路口 {st['roadKind']}({st['roadName']})  "
                   f"开口(L,F,R)=({st['wallLeft']},{st['wallFront']},{st['wallRight']})")
+            print(f"前墙 {st['frontName']}  "
+                  f"(近端 {st['frontNear']} / 远端 {st['frontFar']} / 双路互证 {st['frontBoth']})")
             print(f"位置 ({st['posX']},{st['posY']}) 朝向 {st['dirName']}  "
                   f"终点 ({st['goalX']},{st['goalY']})  岔路栈 {st['stack']}  "
                   f"快路径计数 {st['fastwayCount']}")
             if st["evDropped"]:
                 print("⚠️ 上行事件有丢弃(链路拥塞): 事件流不完整")
+            return
+
+        if action == "spurt":
+            sp_ = mc.maze.spurt()
+            if getattr(args, "json", False):
+                _emit(sp_ or {}, True)
+                return
+            if sp_ is None:
+                print("（还没收到统一帧。未在拉取?）")
+                return
+            print(f"冲刺档 {sp_['modeName']}({sp_['mode']})  冲刺标志 {sp_['spurtFlag']}  "
+                  f"去/回 {sp_['goOrBack']}")
+            print(f"冲刺前行格数 {sp_['goaheadnum']}  90°路径计数 {sp_['fastwayCount90']}  "
+                  f"冲刺测试 {sp_['spurtTestFlag']}  回坐标中 {sp_['objectGoToFlag']}")
+            print("（只读监视: 冲刺入口由比赛固件里的人工贴墙选档决定, 上位机不能设置）")
             return
 
         if action == "summary":
@@ -588,9 +605,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("maze", help="迷宫: 墙图 + 状态(从统一帧读取)(实验8)")
     sp.add_argument("action", nargs="?", default="map",
-                    choices=["map", "state", "summary", "stop"],
-                    help="map=拉墙图(默认) state=当前迷宫状态 summary=汇总 "
-                         "stop=收车(会停车! 带出迷宫+复位发车状态+解锁急停)")
+                    choices=["map", "state", "spurt", "summary", "stop"],
+                    help="map=拉墙图(默认) state=当前迷宫状态 spurt=比赛冲刺状态(只读) "
+                         "summary=汇总 stop=收车(会停车! 带出迷宫+复位发车状态+解锁急停)")
     sp.add_argument("--out", help="map: 导出 map.json")
     sp.add_argument("--target")
     sp.add_argument("--json", action="store_true")

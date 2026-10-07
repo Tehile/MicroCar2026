@@ -896,6 +896,13 @@ class MouseSim:
 
     def _unified_frame(self) -> bytes:
         """组一帧统一帧 —— 与固件 `link_UnifiedFrame()` 逐字段镜像。"""
+        # v2.3: 前墙双档是**派生量**(恒等式 frontNear|frontFar == wallFront)。
+        # 模拟器按与固件 link.c 相同的规则算: 有墙 且 min(f1,f2) < thrFrontNear -> 近端。
+        near_thr = int(self.params[28])          # 28 = IRTHRFNEAR
+        fmin = min(self.ir[0], self.ir[1])
+        wf = (self.wall_bits >> 2) & 0x01
+        front_near = 1 if (wf and fmin < near_thr) else 0
+        front_far = 1 if (wf and not front_near) else 0
         d = {
             "ms8": self.link_time_ms & 0xFF,
             "irAdcF1": self._ir_adc(0), "irAdcF2": self._ir_adc(1),
@@ -926,6 +933,13 @@ class MouseSim:
             "stackIdx": 0,
             "fastwayCount": 0,
             "dropCnt": 0,
+            # ---- v2.3: 前墙双档 / 冲刺状态(模拟器不跑冲刺, 全 0) ----
+            "frontNear": front_near,
+            "frontFar": front_far,
+            "frontBoth": front_far,   # 模拟器近似: 远端档即"两路都看到"
+            "spurtMode": 0, "spurtFlag": 0, "goOrBack": 0,
+            "spurtTestFlag": 0, "objectGoToFlag": 0,
+            "goaheadnum": 0, "fastwayCount90": 0,
         }
         pl = pack_unified(d)
         assert len(pl) == UNIFIED_LEN, len(pl)

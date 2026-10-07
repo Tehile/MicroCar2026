@@ -40,8 +40,17 @@
 /*---------------------------------------  D E F I N I T I O N  ---------------------------------------*/
 
 /* ---- 协议版本 ---- */
-#define LINK_PROTO_VER 3 /* v2.1: 命令集变了(STREAM ON/OFF -> TELEM), 故协议号进一位 */
-#define LINK_FW_VER 214  /* 2.14 —— v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。
+#define LINK_PROTO_VER 4 /* v2.3: **统一帧载荷加长**(45 -> 49 B, 帧 53 -> 57 B) —— 线格式变了, 故协议号进一位。
+                          *        加长的是 4 个纯**只读监视**字节: 前墙双档 / 冲刺档位与标志 /
+                          *        冲刺前行格数 / 90°路径动作计数。命令集与命令文本一字未动。 */
+#define LINK_FW_VER 215  /* 2.15 —— v2.3.0: 前墙拆"近端/远端"两档 + 比赛状态量回传。
+                          *        固件侧只在**链路层**做两件事: ① 组帧时由 `wallSns.front` +
+                          *        两组前墙阈值**派生**出 frontNear/frontFar(恒等式
+                          *        near|far == front, 故 5 个既有决策消费点一字未改);
+                          *        ② 把比赛的冲刺选档量(spurtmode/taskSt/…)只读镜像进帧。
+                          *        另把 `APP/state.c` 的 `spurtmode` 由 static 改为全局
+                          *        (**只加可见性, 逻辑一字未改**) —— 它是文件静态量, 否则链路层读不到。
+                          *        214 = v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。
                           *        真机事故 2026-10-05: 首版只置倒计时未停车, 现场
                           *        出现"复位后电机继续转、且对红外障碍物不再响应",
                           *        操作者被迫强行断电。现在先走 `link_StopMotion()`
@@ -81,7 +90,7 @@
 
 /* ================= 统一帧 =================
  * 见 docs/传输模式重构设计方案.md §4 / docs/传输模式接口设计.md §1。
- * 形态: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(45) | CRC16(2)  ->  53 B
+ * 形态: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(49) | CRC16(2)  ->  57 B
  *
  * **拉取式(v2.1)**: 收到一条 `TELEM` 就发一帧, 没有任何周期任务、没有开流开关。
  *   于是设备端**不存在"自己发多了"的可能** —— 上限完全由上位机的请求窗口决定。
@@ -98,7 +107,7 @@
  *   锚不会陈旧, 失锁能立刻自愈。
  *   ⚠️ `TELEM` **不参与幂等重放簿记**(既不查也不写 linkLastSeq) —— 它是持续流量,
  *   若参与就会把待重放的真实命令(如 MOVE/CAL)冲掉, 使重发变成重复执行。见 link.c。 */
-#define LINK_UNIFIED_LEN 45
+#define LINK_UNIFIED_LEN 49
 
 /* 载荷偏移(与上位机 codec.UNIFIED_CHANNELS 逐字段对齐; 改动须同步) */
 #define LINK_U_MS8 0       /* u8     设备毫秒时基低 8 位        */
@@ -123,8 +132,13 @@
 #define LINK_U_STACKIDX 42 /* u8     岔路栈深度                 */
 #define LINK_U_FASTWAY 43  /* u8     路径动作计数               */
 #define LINK_U_DROP 44     /* u8     累计丢帧低 8 位            */
+/* ---- v2.3 新增(纯只读监视, 不改任何决策) ---- */
+#define LINK_U_FRONT 45    /* 位打包: 前墙双档 + 双路互证(见下) */
+#define LINK_U_SPURT 46    /* 位打包: 冲刺档位与标志(见下)      */
+#define LINK_U_GOAHEAD 47  /* u8     冲刺前行格数(taskSt.goaheadnum) */
+#define LINK_U_FASTWAY90 48 /* u8    90°路径动作计数(mazeState.fastwayCount90) */
 
-/* 位打包明细(偏移 35/36/37/39/40) */
+/* 位打包明细(偏移 35/36/37/39/40/45/46) */
 /*  35 状态A: bit0-1 dir(0=UP 1=RIGHT 2=DOWN 3=LEFT)
  *            bit2-4 mazeTask(0=WAIT 1=START 2=SEARCH 3=SPURT 4=SPURT45 5=SPURT90)
  *            bit5   wallLeft   bit6 wallFront   bit7 wallRight        */
@@ -133,6 +147,13 @@
  *            bit6   left45                       bit7 right45          */
 /*  39        bit0-3 posX(0-6)                     bit4-7 posY(0-6)     */
 /*  40        bit0-3 goalX                         bit4-7 goalY         */
+/*  45 前墙  : bit0 frontNear  bit1 frontFar  bit2 frontBoth  bit3-7 预留
+ *            ⚠️ **派生量**, 由 wallSns.front + irCfg.thrFrontNear 在组帧时算出;
+ *              恒等式 `frontNear | frontFar == wallSns.front` 且两者互斥 ⇒
+ *              "墙落在哪一档"可直接读, 而 wallSns.front 的既有消费点一字未改。 */
+/*  46 冲刺  : bit0-2 spurtMode(0=未选 1=90LOW 2=45LOW 3=MED 4=HIGH)
+ *            bit3 spurtFlag  bit4 goOrBack  bit5 spurtTestFlag
+ *            bit6 objectGoToFlag   bit7 预留                          */
 
 /* 位宽与值域上限(供组帧裁剪与上位机静态断言共用) */
 #define LINK_UB_DIR_W 2
@@ -143,6 +164,20 @@
 #define LINK_UB_MOTIONSTEP_W 4
 #define LINK_UB_POS_W 4
 #define LINK_UB_GOAL_W 4
+
+/* ---- v2.3 新增位定义 ----
+ * 前墙双档(偏移 45): 三者互斥性由构造保证 —— near/far 二选一(有墙时),
+ * both 是"原双传感器互证式成立"(与 near/far 正交, 供调试与后继决策)。 */
+#define LINK_FRONT_NEAR 0x01 /* 贴脸: 任一路 < irCfg.thrFrontNear */
+#define LINK_FRONT_FAR 0x02  /* 提前: 有墙但两路都还没进近距档 */
+#define LINK_FRONT_BOTH 0x04 /* 原式条件①/②(双传感器互证)成立 */
+/* 冲刺档位与标志(偏移 46) */
+#define LINK_UB_SPURTMODE_W 3
+#define LINK_UB_SPURTMODE_MAX 4 /* 见 spurt.h SpurtSpeed_t(60..63 -> 1..4) */
+#define LINK_SPURTBF_FLAG 0x08   /* taskSt.spurtFlag */
+#define LINK_SPURTBF_GOBACK 0x10 /* taskSt.goOrBack(去/回) */
+#define LINK_SPURTBF_TEST 0x20   /* mazeState.spurtTestFlag */
+#define LINK_SPURTBF_OBJECT 0x40 /* mazeState.objectGoToFlag(回坐标中) */
 
 /* ---- 时间同步基准灯(相对独立于校准与各测试档) ----
  * 毫秒时基 linkTimeMs 由 SysTick 每 1ms 自增(u32, 49 天不绕), 上电起走。
@@ -166,7 +201,7 @@
 
 /* ---- 缓冲区尺寸(TX 环为 2 的幂, 便于位运算取模) ----
  * v2.0: SNAP 删除后不再有"一条 250B 文本必须整体入队"的需求,
- * 256B 足够(一帧 53B + printf 文本), 省 256B RAM。 */
+ * 256B 足够(一帧 57B + printf 文本), 省 256B RAM。 */
 #define LINK_TX_BUF_SIZE 256 /* TX 环形缓冲(必须是 2 的幂) */
 
 /* ---- 事件行(上行异常) ----

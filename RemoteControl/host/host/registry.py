@@ -32,7 +32,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.2.1"
+API_VERSION = "2.3.0"
 
 
 # ---------------------------------------------------------------- 命令表

@@ -23,6 +23,7 @@ from ..clock import now_monotonic
 from ..model.ring import TelemetryStore
 from ..protocol.codec import (
     FRAME_OVERHEAD,
+    UNIFIED_HZ,
     UNIFIED_LEN,
     Frame,
     FrameStreamParser,
@@ -391,9 +392,9 @@ class Link:
         return s
 
     # v2.0 起固件**自时钟发送**: 无 Hz 上限, 帧率由链路能力决定。
-    # 理论上限 = 115200-8-N-1 = 11520 B/s; 一帧 53 B → 额定 ≈217 Hz / ≈11501 B/s。
+    # 理论上限 = 115200-8-N-1 = 11520 B/s; 一帧 57 B → 额定 ≈202 Hz / ≈11501 B/s。
     _THEORETICAL_BPS = 11520.0
-    _FRAME_BYTES = FRAME_OVERHEAD + UNIFIED_LEN  # 53
+    _FRAME_BYTES = FRAME_OVERHEAD + UNIFIED_LEN  # 57
 
     def self_check(self) -> Dict[str, object]:
         """链路自检(仅**诊断**, 不再给出"降级速率"建议)。
@@ -403,7 +404,7 @@ class Link:
         未堵死), 且 v2.0 已删除 `RATE` 命令, 故本方法只回答一个问题:
         "实测吞吐离物理天花板有多远"。低 = 链路/波特率/驱动有问题, 与固件无关。
         """
-        need = self._FRAME_BYTES * 217.0  # ≈11501 B/s
+        need = self._FRAME_BYTES * UNIFIED_HZ  # ≈11501 B/s
         got = self.tp.bps
         if got <= 1.0:
             return {"need_bps": need, "got_bps": got, "level": "unknown",
