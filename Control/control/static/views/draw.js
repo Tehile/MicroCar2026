@@ -234,12 +234,15 @@ C.draw = (function () {
      把"不知道"画成"没有墙"是本层明令禁止的那种错（三态纪律：判不了 ≠ 不通过）——
      现场会据此以为"这条路能走"，而设备其实从没看过那一面。
 
-     ## 前墙双档（上游 2.3.0）—— 只在当前格那道前边上单独画
+     ## 前墙双档（上游 2.3.0）—— **两档落在不同的边上**
      上游把前墙拆成互斥两档（`frontNear | frontFar == wallFront`）：
-       · **近端墙** = 前方最近一个有墙（贴脸，< 80 mm）⇒ 加粗暖红，"必须处理"；
-       · **远端墙** = 当前方向**下一个判断**有墙（提前量，一格以内）⇒ 短划琥珀，"提前减速"。
-     这两档是**传感器读数**、不是地图属性 ⇒ 只画在车**当前格**的那道前边上，
+       · **近端墙** = 前方最近一个有墙（贴脸，< 80 mm）⇒ 画在**本格前沿**，加粗暖红；
+       · **远端墙** = 当前方向**下一个判断**有墙（提前量，一格以内）⇒ 画在**外一格前沿**，
+         短划琥珀。
+     这两档是**传感器读数**、不是地图属性 ⇒ 只画在这两条前沿上，
      不写进 `known`/`wall` 位掩码（写进去就变成"地图里的一堵墙"，而那堵墙可能还没进格）。
+     ⚠️ 两档**必须分开画**：早先都落在同一条前沿上，"贴脸"看起来却像隔了一格，
+     照图判断会误以为"还有一格能走"。
 
      ## 起点角（(0,0) 画在左下）
      上游不变量：**发车前电脑鼠必须物理摆在左下角格、车头朝上（dir=0）**。
@@ -259,6 +262,9 @@ C.draw = (function () {
      "上(+Y)"朝画面上方 —— 与现场摆车的方向一致（见函数体内的详注）。 */
   function maze(cv, o) {
     o = o || {};
+    /* 出口标记（本函数自己写、图例自己读）：先清零再画 —— 同一份入参若被复用两次
+       绘制，第二次绝不能读到上一次的残留（那会让图例报一个这次没画的档位）。 */
+    o._frontDrawn = null;
     const r = fit(cv, o.height || 360);
     const g = r.g, w = r.w, h = r.h;
     const n = Math.max(1, o.n || 7);
@@ -321,11 +327,15 @@ C.draw = (function () {
     // ---- 墙：实线=有墙 / 虚线=不知道 / 不画=确认通
     //
     // 位序是**固件的绝对方向**：bit0=上(N)=+Y / bit1=右(E)=+X / bit2=下(S)=−Y / bit3=左(W)=−X。
-    // 因为屏幕 y 已翻转（见 `PY`），所以：
-    //   · bit0（上/N，+Y）= 该格在屏幕上的**顶边** = `PY(y+1)` 那条横线；
-    //   · bit2（下/S，−Y）= 屏幕的**底边** = `PY(y)`；
-    //   · bit1（右/E）= 右边竖线（`PX(x+1)`）；bit3（左/W）= 左边竖线（`PX(x)`）。
-    // 每道边只画一次：遍历每格的**顶边与左边**，再补最右列（bit1）与最底行（bit2）。
+    // ⚠️ **格 (x,y) 的屏幕纵向范围是 `[PY(y), PY(y)+cs]`** —— `PY` 把固件 y 翻成了屏幕 y，
+    //   所以 `PY(y)` 是这一格的**上**沿（不是下沿）。四条边因此是：
+    //   · bit0（上/N，+Y）= 该格**上**沿横线 `PY(y)`（与格 y+1 的共享边）；
+    //   · bit2（下/S，−Y）= 该格**下**沿横线 `PY(y)+cs`（与格 y−1 的共享边）；
+    //   · bit1（右/E）= 右边竖线 `PX(x+1)`；bit3（左/W）= 左边竖线 `PX(x)`，
+    //     两条竖线都跨该格**整高** `PY(y)`→`PY(y)+cs`。
+    // ⚠️ 这里曾把 bit0 画在 `PY(y+1)`、竖线跨 `PY(y)`→`PY(y+1)`（**整体上移了整整一格**）
+    //   ⇒ 墙画进了上一格的格子里，而**最底行一格竖线都没有**（现场报"最下面一行缺少画线格"）。
+    // 每道边只画一次：遍历每格的**上沿与左沿**，再补最右列（bit1）与最底行（bit2）。
     // 依赖"位掩码是**双向**的"（后端 `MazeWallMap._set()` 写一格时同时写邻居的反向）——
     // 所以从任一侧读同一个 `bit()` 都得到同一个答案，不必在两格之间做或运算。
     const drawEdge = function (ax, ay, bx, by, known, has) {
@@ -341,20 +351,20 @@ C.draw = (function () {
     g.lineCap = 'butt';
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
-        // 顶边 = 固件的"上"（bit0）：`PY(y+1)`
-        drawEdge(PX(x), PY(y + 1), PX(x + 1), PY(y + 1),
+        // 上沿 = 固件的"上"（bit0）：本格的上边线 `PY(y)`
+        drawEdge(PX(x), PY(y), PX(x + 1), PY(y),
                  bit(o.known, x, y, 0), bit(o.wall, x, y, 0));
-        // 左边 = 固件的"左"（bit3）：`PX(x)`
-        drawEdge(PX(x), PY(y), PX(x), PY(y + 1),
+        // 左沿 = 固件的"左"（bit3）：`PX(x)`，跨本格整高
+        drawEdge(PX(x), PY(y), PX(x), PY(y) + cs,
                  bit(o.known, x, y, 3), bit(o.wall, x, y, 3));
-        // 最右列补右边 = 固件的"右"（bit1）：`PX(n)`
+        // 最右列补右边 = 固件的"右"（bit1）：`PX(n)`，跨本格整高
         if (x === n - 1) {
-          drawEdge(PX(n), PY(y), PX(n), PY(y + 1),
+          drawEdge(PX(n), PY(y), PX(n), PY(y) + cs,
                    bit(o.known, x, y, 1), bit(o.wall, x, y, 1));
         }
-        // 最底行（y=0）补底边 = 固件的"下"（bit2）：`PY(0)`
+        // 最底行（y=0）补下沿 = 固件的"下"（bit2）：`PY(0)+cs`（= 画布下边界）
         if (y === 0) {
-          drawEdge(PX(x), PY(0), PX(x + 1), PY(0),
+          drawEdge(PX(x), PY(0) + cs, PX(x + 1), PY(0) + cs,
                    bit(o.known, x, y, 2), bit(o.wall, x, y, 2));
         }
       }
@@ -398,47 +408,69 @@ C.draw = (function () {
       g.restore();
     }
 
-    /* ---- 前墙双档（2.3.0）：**只在当前格的前方那道边**上区分画出
-          · 近端墙（`frontNear`，前方最近一个有墙）= 加粗实线、暖红 —— "必须处理"
-          · 远端墙（`frontFar`，当前方向下一个判断有墙）= 细实线 + 短划、琥珀 —— "提前量"
+    /* ---- 前墙双档（2.3.0）：**近端画本格前沿、远端画外一格前沿**
+          · 近端墙（`frontNear`，前方最近一个有墙，< 80 mm 贴脸）= 加粗实线、暖红；
+          · 远端墙（`frontFar`，当前方向下一个判断有墙，≥ 80 mm 提前量）= 短划、琥珀。
          为什么要**在这张图上**画这两档：中栏回答的是"它认为世界长什么样"，
          而近/远两档决定的正是**下一步该怎么走**（减速还是马上转）。
          只在实际读到那一档时才画 —— 读不到（老上游）就什么都不画，不猜。 */
     if (o.pos && o.pos[0] != null && o.front) {
       const x = o.pos[0], y = o.pos[1];
       const d = (o.dir == null ? 0 : o.dir) & 3;
-      /* ⚠️ 屏幕 y 已翻转 ⇒ 与墙位掩码同一套对应：
-         d=0(UP,+Y)=顶边 `PY(y+1)`；d=2(DOWN,−Y)=底边 `PY(y)`；
-         d=1(RIGHT)=右边 `PX(x+1)`；d=3(LEFT)=左边 `PX(x)`。 */
-      let ax, ay, bx, by;
-      if (d === 0) { ax = PX(x); ay = PY(y + 1); bx = PX(x + 1); by = PY(y + 1); }
-      else if (d === 2) { ax = PX(x); ay = PY(y); bx = PX(x + 1); by = PY(y); }
-      else if (d === 1) { ax = PX(x + 1); ay = PY(y); bx = PX(x + 1); by = PY(y + 1); }
-      else { ax = PX(x); ay = PY(y); bx = PX(x); by = PY(y + 1); }
-      if (o.front.near) {
-        g.setLineDash([]);
-        g.strokeStyle = '#ff7a5c'; g.lineWidth = 3.4; g.lineCap = 'round';
-      } else if (o.front.far) {
-        g.setLineDash([5, 3]);
-        g.strokeStyle = '#e8b03c'; g.lineWidth = 2.4; g.lineCap = 'butt';
-      } else {
-        g.setLineDash([]); g.lineWidth = 0;
-      }
-      if (g.lineWidth > 0) {
-        g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      /* ⚠️ 屏幕 y 已翻转，且格 (x,y) 的纵向范围是 `[PY(y), PY(y)+cs]` ⇒ 与墙位掩码
+         同一套对应（格自身的边）：
+           d=0(UP,+Y)   = 上沿 `PY(y)`；      d=2(DOWN,−Y) = 下沿 `PY(y)+cs`；
+           d=1(RIGHT)   = 右边 `PX(x+1)`；    d=3(LEFT)    = 左边 `PX(x)`。
+         **两档必须落在不同的边上**（这是本轮修的真缺陷）：
+           · 近端墙（`frontNear`，< 80 mm 贴脸）= **本格**前沿 —— 就在车头这一格边上；
+           · 远端墙（`frontFar`，≥ 80 mm 提前量）= 沿 d **再往前一格**的前沿。
+         早先两档都画在同一条边（`PY(y+1)` / `PY(y)`），于是近端墙看起来"隔了一格"，
+         与"贴脸"这个语义正好相反 ⇒ 现场照着图判断"还有一格能走"就撞了。 */
+      const front = function (k) {
+        // k=0 → 本格前沿；k=1 → 外一格前沿
+        if (d === 0) { const yy = PY(y) - k * cs; return [PX(x), yy, PX(x + 1), yy]; }
+        if (d === 2) { const yy = PY(y) + cs + k * cs; return [PX(x), yy, PX(x + 1), yy]; }
+        if (d === 1) { const xx = PX(x + 1) + k * cs; return [xx, PY(y), xx, PY(y) + cs]; }
+        const xx = PX(x) - k * cs; return [xx, PY(y), xx, PY(y) + cs];
+      };
+      /* 远端墙那一格的前沿可能落在**画布外**（车贴着最外一行、还朝着外面走）⇒
+         这时画了也看不见，只剩左栏报"远端"而图上什么都没有 = 静默。
+         ⇒ 判是否整段落在网格内（`x0..x0+size` / `y0..y0+size`），落在外面就**不画**
+         （图例也不列，左栏那行仍如实报档位）。 */
+      const inside = function (e) {
+        const m = 1;   // 容 1 px：线宽一半落在格线上也不丢
+        return e[0] >= x0 - m && e[2] <= x0 + size + m &&
+               e[1] >= y0 - m && e[3] <= y0 + size + m;
+      };
+      const want = o.front.near ? 'near' : (o.front.far ? 'far' : null);
+      let e = want ? front(want === 'near' ? 0 : 1) : null;
+      if (e && !inside(e)) e = null;
+      if (e) {
+        if (want === 'near') {
+          g.setLineDash([]);
+          g.strokeStyle = '#ff7a5c'; g.lineWidth = 3.4; g.lineCap = 'round';
+        } else {
+          g.setLineDash([5, 3]);
+          g.strokeStyle = '#e8b03c'; g.lineWidth = 2.4; g.lineCap = 'butt';
+        }
+        g.beginPath(); g.moveTo(e[0], e[1]); g.lineTo(e[2], e[3]); g.stroke();
       }
       g.setLineDash([]); g.lineCap = 'butt';
+      // 画出来的那一条供图例复用（画在画布外就不进图例 —— 否则满图找那条线）
+      o._frontDrawn = e ? want : null;
     }
 
     // ---- 图例（每种边各什么意思，必须画出来 —— 否则读者只能猜）
-    // ⚠️ 前墙两档**只在图上真的画了**时才进图例（老上游读不到这两档时，
-    //    列一条"从不出现的图例"只会让人到处找那条线）。
+    // ⚠️ 前墙两档**只在图上真的画了**时才进图例：① 老上游读不到这两档时不画，
+    //    列一条"从不出现的图例"只会让人到处找；② 远端墙那一格前沿落在画布外
+    //    （车贴着最外一行还朝外走）时也不画 —— 这里判 `o._frontDrawn`（**画出来了什么**），
+    //    不是判"传进来了什么"。
     g.font = '10px Consolas,monospace';
     let lx = x0, ly = y0 + size + 15;
     const legend = [['#e8e8ea', [], '有墙'], ['#333a47', [3, 3], '未知'],
                     ['#1b2231', [], '走过']];
-    if (o.front && o.front.near) { legend.push(['#ff7a5c', [], '近端墙']); }
-    else if (o.front && o.front.far) { legend.push(['#e8b03c', [5, 3], '远端墙']); }
+    if (o._frontDrawn === 'near') { legend.push(['#ff7a5c', [], '近端墙']); }
+    else if (o._frontDrawn === 'far') { legend.push(['#e8b03c', [5, 3], '远端墙']); }
     legend.forEach(function (it) {
       g.strokeStyle = it[0]; g.lineWidth = 2; g.setLineDash(it[1]);
       g.beginPath(); g.moveTo(lx, ly - 4); g.lineTo(lx + 14, ly - 4); g.stroke();

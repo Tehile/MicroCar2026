@@ -158,6 +158,7 @@ li{margin:.28em 0}
 <li><a href="#1118">11.18 底栏信息集成栏 + 界面文字纪律收紧（改版十五）</a></li>
 <li><a href="#1119-250-24-41">11.19 上游 2.5.0：参数表 24 → 41（+「运动控制」组）与说明列上界面（改版十六）</a></li>
 <li><a href="#1120">11.20 删除「标定例程」整块（改版十七）</a></li>
+<li><a href="#1121">11.21 迷宫墙图画错一格：近端墙偏移 + 最底行没有格线（改版十八）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -505,6 +506,15 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 实验 ⑥→⑤、波形 ⑦→⑥、调试台 ⑧→⑦、数据 ⑨→⑧），<code>EXPECTED_VIEWS</code> 9 → 8。
 ① 场地页的坐标系换算与"坐标未标定"水印<strong>保留</strong>（定位基础，非标定例程）。判据 I8 删除。
 细节见 §11.20。</p>
+<p><strong>改版记录 2026-10-08（十八）</strong>：<strong>修「无记忆走迷宫」中栏墙图画错一格</strong>（两条现场问题，
+同一个 off-by-one）。用户原话：<em>近端墙的显示位置应当是前方直接下一个墙的位置</em>；
+<em>最下面一行不知道为何缺少画线格</em>。① <strong>根因</strong>：<code>PY(y)</code> 是格 y 的<strong>上沿</strong>
+（该格纵向范围 <code>[PY(y), PY(y)+cs]</code>），早先当成"下一格的上沿"用 ⇒ 墙位掩码
+<strong>整体上移一格</strong>，<strong>最底行一条竖线都没有</strong>；② 前墙两档<strong>必须分边</strong>：
+近端墙（贴脸）落<strong>本格</strong>前沿、远端墙（提前量）落<strong>外一格</strong>前沿——早先两档同边，
+"贴脸"看着像隔了一格；③ 远端墙落在画布外时不画（图例也不列），图例改判"图上真的
+画出来了什么"。判据<strong>新增 B40</strong>（像素级 + 两条负向）。⚠️ <strong>§11.16 §二 原文写的
+就是错的</strong>（"bit0 = 顶边 = <code>PY(y+1)</code>"）⇒ 已回改。细节见 §11.21。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -5127,6 +5137,159 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <p>删「④ 标定」后编号顺延：③ 参数 / <strong>④ 发车</strong> / <strong>⑤ 实验</strong> / <strong>⑥ 波形</strong> / <strong>⑦ 调试台</strong>，
 底栏 <strong>⑧ 数据</strong>。<code>EXPECTED_VIEWS</code> 9 → 8；<code>browser_check</code> 的 <code>TAB_MOUSE</code>、B14 判据标签、
 <code>depart/exp/scope/console/data.js</code> 的 h2 与头注释同步重排。</p>
+<hr />
+<h3 id="1121">11.21 迷宫墙图画错一格：近端墙偏移 + 最底行没有格线（改版十八）</h3>
+<p>现场两条，都是"看图就能发现"的：</p>
+<ul>
+<li><strong>近端墙的显示位置不对</strong> —— 应当是<strong>前方直接下一个墙的位置</strong>；
+  （远端墙的位置本身是对的，不动。）</li>
+<li><strong>最下面一行缺少画线格。</strong></li>
+</ul>
+<p>结论：<strong>两条是同一个 off-by-one</strong>，出在 <code>draw.js</code> 对 <code>PY</code> 的语义理解上。</p>
+<h4 id="pyy-y">一、根因：<code>PY(y)</code> 是格 y 的<strong>上沿</strong>，不是下沿</h4>
+<p><code>maze()</code> 里 <code>PY(y) = y0 + (n-1-y)*cs</code>（把固件 y 翻成屏幕 y）。于是</p>
+<blockquote>
+<p>格 <code>(x,y)</code> 的屏幕纵向范围是 <code>[PY(y), PY(y)+cs]</code> —— <strong><code>PY(y)</code> 是这一格的上沿。</strong></p>
+</blockquote>
+<p>早先（§11.16 那一版）把 <code>PY(y)</code> 当成"下一格的上沿"，于是：</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>早先画在</th>
+<th>应该是</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>bit0（上/N，+Y）</td>
+<td><code>PY(y+1)</code></td>
+<td><code>PY(y)</code></td>
+<td>每条横边往上挪一格</td>
+</tr>
+<tr>
+<td>左/右竖线</td>
+<td>跨 <code>PY(y)</code>→<code>PY(y+1)</code></td>
+<td>跨 <code>PY(y)</code>→<code>PY(y)+cs</code></td>
+<td><strong>整体上移一格</strong></td>
+</tr>
+<tr>
+<td>最底行补的 bit2 底边</td>
+<td><code>PY(0)</code></td>
+<td><code>PY(0)+cs</code></td>
+<td>画成了底格的<strong>上</strong>沿</td>
+</tr>
+</tbody>
+</table>
+<p>复算（n=7、网格纵向 <code>13→307</code>、<code>cs=42</code>，车在 <code>(0,0)</code>）：</p>
+<ul>
+<li>格 <code>(0,0)</code> 本体在 <code>[265, 307]</code>；早先画的 y=0 竖线跨 <code>265→223</code>
+  ⇒ <strong>完全落在底行之外</strong> ⇒ <strong>最底行一条竖线都没有</strong>（= 现场"最下面一行缺少画线格"）。</li>
+<li>bit0 画在 <code>PY(1)=223</code> = 格 <code>(0,1)</code> 的上沿 ⇒ 墙画进了上一格的格子里。</li>
+</ul>
+<p>⚠️ <strong>这类错天生不自洽</strong>：拓扑没错、不会抛异常、判据也不红（判据当时只读左栏文字与
+画布尺寸）。只有把"格子的屏幕范围"当第一性的东西算一遍才发现。
+⚠️ <strong>方案文本自己也写错了</strong>：§11.16 §二 当时写的就是"bit0 = 顶边 = <code>PY(y+1)</code>"
+—— 推理链是"<code>PY</code> 是翻转后的屏幕 y，所以顶边在 <code>y+1</code>"，从没回头算一遍区间。
+<strong>文本是唯一真相 ⇒ 这一节已回改 §11.16 的两处对应关系。</strong></p>
+<h4 id="_55">二、前墙双档必须<strong>分边</strong>（这是另一条独立的错）</h4>
+<p>改版十三（§11.16）把两档画在<strong>同一条边</strong>上，只是换笔（暖红加粗 / 琥珀短划）。但两档的
+物理含义不同（§11.16 §一）：</p>
+<table>
+<thead>
+<tr>
+<th>档</th>
+<th>含义</th>
+<th>该画在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>近端墙 <code>frontNear</code></td>
+<td>前方最近一个有墙，<strong>已进车头 80 mm</strong></td>
+<td><strong>本格</strong>前沿（就在车头这一格边上）</td>
+</tr>
+<tr>
+<td>远端墙 <code>frontFar</code></td>
+<td>当前方向<strong>下一个判断</strong>有墙（一格以内）</td>
+<td><strong>外一格</strong>前沿（沿 d 再往前一格）</td>
+</tr>
+</tbody>
+</table>
+<p>两档同边 ⇒"贴脸"看着像<strong>隔了一格</strong> ⇒ 照图判断"还有一格能走"就撞了。
+⇒ 引入 <code>front(k)</code> 助手：<code>k=0</code> 本格前沿、<code>k=1</code> 外一格前沿；
+<code>d=0</code> 取 <code>PY(y)-k*cs</code>、<code>d=2</code> 取 <code>PY(y)+cs+k*cs</code>、<code>d=1</code> 取 <code>PX(x+1)+k*cs</code>、<code>d=3</code> 取 <code>PX(x)-k*cs</code>。</p>
+<p>⚠️ <strong>远端墙可能落在画布外</strong>（车贴着最外一行还朝外走）⇒ 判"整段是否在网格内"，
+落在外面就<strong>不画</strong>（图例也不列）；左栏那行仍如实报档位，不静默。
+图例判据从"<code>o.front</code> 有没有那档"改成"<strong>图上真的画出来了什么</strong>"（<code>o._frontDrawn</code>），
+函数入口先清零（同一份入参复用两次画时，第二次不许读到上次的残留）。</p>
+<h4 id="b40">三、判据 B40（像素级，含两条负向）</h4>
+<p>B37 只读<strong>左栏文字</strong>与画布尺寸 ⇒ 看不见"画在哪"。B40 改成<strong>像素级</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>手法</th>
+<th>为什么这么选</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网格框从<strong>像素本身</strong>量：画布被 <code>clearRect</code> 清成透明，<strong>只有迷宫那块被填成深色</strong> ⇒ "深色像素<strong>成片</strong>出现的那一块"就是网格框</td>
+<td><strong>不复制绘图端的几何公式</strong>（复制了就变成"改实现它跟着变、永远绿"）</td>
+</tr>
+<tr>
+<td>前墙那条线用<strong>逐像素相减</strong>摘出来（与"没有前墙"那张比）</td>
+<td>不按颜色认 —— 琥珀色小车与起点圈会混进来</td>
+</tr>
+<tr>
+<td>白线<strong>按间距聚类</strong>成一条，不按阈值直接数列</td>
+<td>线宽 2.2 px 跨 3~4 列，而<strong>抗锯齿</strong>让边缘列的混合色偏暗 ⇒ 阈值法时过时不通过（第一版数出 14 条竖线 / 12 条横线）</td>
+</tr>
+</tbody>
+</table>
+<p>探网格框踩的两个坑（都"报红但根因在判据"，一并记下）：</p>
+<ol>
+<li><strong>别用白格线认框</strong>：最外两条白线会被<strong>后画的</strong> <code>strokeRect</code> 外框盖住 ⇒ 只数得到
+   <code>n-1</code> 条，判据会假红。（第一版就是这样。）</li>
+<li><strong>别直接取"所有深色像素的外接矩形"</strong>：图例里"走过"那一笔（<code>#1b2231</code>）也是深蓝、
+   又画在框<strong>下方</strong> ⇒ 下边界被一路拉到画布底（第一版得到"宽 292 高 305"这么个不方的框）。
+   ⇒ 按行/列数深色像素，<strong>只认占满半幅的那些行列</strong>。</li>
+</ol>
+<p>（最外一圈被外框盖住 ⇒ 量出的盒子比真实小 1 px；这一圈误差由格距 <code>cs</code> 按比例吸收，
+格线上的落点差 &lt; 1.5 px，远小于 3 px 的容差。）</p>
+<p>断言：近端墙 <code>y ≈ PY(0)</code>、远端墙 <code>y ≈ PY(0)-cs</code>、两档不同边、<strong>逐行竖线数相等</strong>且都 ≥ <code>n-1</code> 条。
+⚠️ 逐行那条取<strong>相对</strong>（各行是否一样多），不取绝对值 —— 最外两条竖线同样会被外框盖住，
+而"缺一行"是<strong>比值</strong>上的塌陷（旧码里最底行是 0 条、其余行 8 条）。
+<strong>负向①</strong>：拿"只有远端墙"那张按"近端墙该在本格前沿"验 ⇒ 必须判红（证明这条区分得开两档）。
+<strong>负向②</strong>：自绘一张故意不画最底行竖线的图，用同一探测器验 ⇒ 必须报缺（证明探测器认得出缺）。</p>
+<h4 id="_56">四、同批改动</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/static/views/draw.js</code></td>
+<td>墙位掩码四条边全部改到"本格的边"（<code>PY(y)</code> / <code>PY(y)+cs</code> / 竖线跨整高）；前墙双档引入 <code>front(k)</code> + 画布内守卫；图例改判 <code>_frontDrawn</code>；函数入口清零该标记；三处坐标注释重写</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code></td>
+<td><strong>新增 B40</strong>（像素级 + 两条负向）</td>
+</tr>
+<tr>
+<td><code>docs/上位机整合设计方案.md</code></td>
+<td>回改 §11.16 的两处对应关系（原文写的是 <code>PY(y+1)</code>）；新增本节</td>
+</tr>
+<tr>
+<td><code>tools/preflight.py</code></td>
+<td>补本节锚点</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

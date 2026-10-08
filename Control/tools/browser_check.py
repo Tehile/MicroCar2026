@@ -1506,25 +1506,26 @@ async def run(args) -> int:
                    if b37_ok else
                    f"**前墙双档 / 起点角显示不对**：{b37_bad[:4]}")
 
-            # ── B40：迷宫绘图落位 —— 前墙两档**分边** + 最底行不缺竖线（改版十八） ──
+            # ── B40：迷宫绘图落位 —— 前墙两档**分边** + 每行都不缺竖线（改版十八） ──
             # 守的是现场报的两条（都是"看图就能发现"的错，而 B37 只读左栏文字与画布
             # 尺寸，**看不见画在哪** ⇒ 必须像素级判据才钉得住）：
             #   ① 近端墙（`frontNear`，< 80 mm 贴脸）落在**本格**前沿 `PY(y)`；
             #      远端墙（`frontFar`，≥ 80 mm 提前量）落在**外一格**前沿 `PY(y)-cs`
-            #      —— 两档**必须分边**。早先两档都落在 `PY(y+1)`，于是"贴脸"看着像隔了一格，
-            #      照图判断"还有一格能走"就撞了。
+            #      —— 两档**必须分边**。早先两档都落在 `PY(y+1)`，于是"贴脸"看着像隔了
+            #      一格，照图判断"还有一格能走"就撞了。
             #   ② 每一行的竖线都在本格**整高** `PY(y)`→`PY(y)+cs` 内。格 (x,y) 的屏幕
             #      纵向范围就是 `[PY(y), PY(y)+cs]`；早先竖线跨 `PY(y)→PY(y+1)`
             #      （整体上移一格）⇒ **最底行一条竖线都没有**。
             # 手法（**不复制绘图端的几何公式**，否则改实现它跟着变、永远绿）：
-            #   · 先渲染一张"每格四面全有墙"的图 ⇒ 白格线自己把网格位置暴露出来，
-            #     `PY(0)` 就是第 `n-1` 条横线（底格上沿），外一格就是第 `n-2` 条；
+            #   · 网格框从**像素本身**量：画布被 clearRect 清成透明，只有迷宫那块被填成
+            #     深色 ⇒ "深色像素的最小外接矩形"**就是**网格框（不靠格线认框：最外两条
+            #     白线会被后画的 `strokeRect` 外框盖住 ⇒ 依它认框会少两条，第一版就这样）；
             #   · 前墙那条线用**逐像素相减**摘出来：与"没有前墙"那一张比，差异像素
             #     **就是**那条线本身（不按颜色认，免得和琥珀色小车/起点圈混淆）。
             # 负向（两条都要"造得出来"）：
-            #   ① 拿**只有远端墙**那张去按"近端墙应落在本格前沿"验 ⇒ 必须判红；
-            #   ② 自绘一张**故意不画最底行竖线**的图，用同一个探测器验 ⇒ 必须报缺。
-            head("2i-2. 迷宫绘图：前墙两档分边 + 每行不缺竖线（像素级，含负向）")
+            #   ① 拿**只有远端墙**那张按"近端墙应落在本格前沿"验 ⇒ 必须判红；
+            #   ② 自绘一张**故意不画最底行竖线**的图，用同一探测器验 ⇒ 必须报缺。
+            head("2i-2. 迷宫绘图：前墙两档分边 + 每行都不缺竖线（像素级，含负向）")
             b40_bad, b40_got = [], []
             b40 = {}
             try:
@@ -1538,52 +1539,68 @@ async def run(args) -> int:
                     document.body.appendChild(c); return c; };
                   const cv = mk(), cv2 = mk();
                   try {
-                    /* 画一张"四面全有墙"的迷宫：白线即格线，位置由画布自己给出 */
                     const draw = function(c, front){ C.draw.maze(c, {
                         height:320, n:N, known:ALL, wall:ALL, visited:null,
                         pos:[0,0], dir:0, front:front, label:''});
                       return c.getContext('2d').getImageData(0,0,c.width,c.height); };
-                    /* 网格线白 = #e8e8ea（近白、低饱和）；小车/起点圈是琥珀、地面是深蓝
-                       ⇒ 都不算（不靠"是不是白色"认墙，避免把图例文字算进来） */
+                    /* 格线白 = #e8e8ea（近白、低饱和）；小车/起点圈是琥珀、地面是深蓝 */
                     const isW = function(d,i){ const r=d[i],g=d[i+1],b=d[i+2];
                       return r>195 && g>195 && b>195
                              && (Math.max(r,g,b)-Math.min(r,g,b)) < 24; };
-                    /* 把"每列/每行有多少白像素"聚类成一条线。
-                       ⚠️ 不能"阈值以上就算一条"：线宽 2.2 px 在整数像素上跨 3~4 列，
-                       而**抗锯齿**让边缘列的混合色偏暗 ⇒ 时过时不通过（第一版就这样
-                       数出 14 条竖线/12 条横行）。按间距聚类对半深边缘不敏感。 */
+                    /* 迷宫底色：深蓝（#0b0d12 框底 / #101419 未走访 / #1b2231 已走访）。
+                       画布其余部分是透明 ⇒ 这类像素的**最小外接矩形就是网格框**。
+                       （外框 strokeRect 的 #4a5468 与图例文字都不满足 r,g<40） */
+                    const isF = function(d,i){ return d[i+3] > 8
+                      && d[i] < 40 && d[i+1] < 40 && d[i+2] < 62; };
+                    /* 把一串**升序**像素下标按间距聚成一条线，返回每条线中心。
+                       ⚠️ 必须按**像素值差**聚（不是下标差），且不能"阈值以上各算一条"：
+                       线宽 2.2 px 在整数像素上跨 3~4 列，抗锯齿边缘列时过时不通过
+                       ⇒ 不聚会数出 14 条（第一版两次都栽在这里）。 */
                     const cluster = function(a, gap){
-                      const out = []; let s = -1, p = -1;
+                      const out = []; let sum = 0, n = 0, last = -1e9;
                       for (let i=0;i<a.length;i++){
-                        if (s < 0) { s = i; p = i; continue; }
-                        if (a[i] - p <= gap) { p = i; continue; }
-                        out.push(Math.round((a[s] + a[p]) / 2));
-                        s = i; p = i;
+                        if (n && a[i] - last <= gap) { sum += a[i]; n++; }
+                        else { if (n) out.push(Math.round(sum / n)); sum = a[i]; n = 1; }
+                        last = a[i];
                       }
-                      if (s >= 0) out.push(Math.round((a[s] + a[p]) / 2));
+                      if (n) out.push(Math.round(sum / n));
                       return out; };
-                    const scan = function(im){ const w=im.width,h=im.height,d=im.data;
+                    /* 网格框 = 迷宫底色（深蓝）**成片**出现的那一块。
+                       ⚠️ 不能直接取"所有深色像素的外接矩形"：图例里"走过"那一笔
+                       （`#1b2231`，也是深蓝）画在框**下方** ⇒ 会把下边界一路拉到
+                       画布底（第一版就得到"宽 292 高 305"这么个不方的框）。
+                       ⇒ 先按行/列数深色像素，只认**占满半幅**的那些行列。
+                       （最外一圈被后画的 `strokeRect` 外框盖住 ⇒ 盒子比真实小 1 px，
+                        这一圈误差由格距 `cs` 按比例吸收，格线上的落点差 < 1.5 px。） */
+                    const bbox = function(im){ const w=im.width,h=im.height,d=im.data;
                       const cols=new Int32Array(w), rows=new Int32Array(h);
-                      for (let y=0;y<h;y++) for (let x=0;x<w;x++){
-                        if (isW(d,(y*w+x)*4)) { cols[x]++; rows[y]++; } }
-                      /* 间隙 >4 px 才算两条不同的线（格距 ≈40 px，远大于 4
-                         ⇒ 绝不会把相邻格线并成一条） */
-                      const pick = function(a){ let m=0;
+                      for (let y=0;y<h;y++) for (let x=0;x<w;x++)
+                        if (isF(d,(y*w+x)*4)) { cols[x]++; rows[y]++; }
+                      const span = function(a){ let m=0;
                         for (let i=0;i<a.length;i++) if (a[i]>m) m=a[i];
-                        const idx=[]; for (let i=0;i<a.length;i++)
-                          if (a[i] >= m*0.6) idx.push(i);
-                        return cluster(idx, 4); };
-                      return { xs:pick(cols), ys:pick(rows) }; };
-                    const dbox = function(a,b){ const w=a.width;
+                        let s=-1, t=-1;
+                        for (let i=0;i<a.length;i++) if (a[i] >= m*0.5) {
+                          if (s<0) s=i; t=i; }
+                        return [s,t]; };
+                      const cx=span(cols), cy=span(rows);
+                      return { x0:cx[0], x1:cx[1], y0:cy[0], y1:cy[1] }; };
+                    /* 两张图逐像素相减 ⇒ 差异像素**就是**新画出来的那条线。
+                       ⚠️ 只数**网格框以内**的差异：图例（框下方那一行）也会随档位
+                       增减，它是"框外的差异"，算进来会把线的位置带偏
+                       （第一版就报"近端墙 y≈289、远端 y≈278"，实际都在框外那截上）。 */
+                    const dbox = function(a,b,box){ const w=a.width;
                       let mnx=1e9,mxx=-1,mny=1e9,mxy=-1,c=0,sy=0;
                       for (let i=0;i<a.data.length;i+=4){
                         if (a.data[i]!==b.data[i] || a.data[i+1]!==b.data[i+1]
                             || a.data[i+2]!==b.data[i+2]){
-                          const p=(i>>2), x=p%w, y=(p/w)|0; c++; sy+=y;
+                          const p=(i>>2), x=p%w, y=(p/w)|0;
+                          if (box && (x<box.x0 || x>box.x1 || y<box.y0 || y>box.y1))
+                            continue;
+                          c++; sy+=y;
                           if (x<mnx) mnx=x; if (x>mxx) mxx=x;
                           if (y<mny) mny=y; if (y>mxy) mxy=y; } }
                       return { n:c, my: c ? sy/c : -1, x0:mnx, x1:mxx, y0:mny, y1:mxy }; };
-                    /* 这一行里数"竖线有几条"（按白像素段聚类，一条线可能占好几列） */
+                    /* 这一行里数"竖线有几条"（白像素聚成线，一条线可能占好几列） */
                     const vlinesInRow = function(im,y){ const w=im.width,d=im.data;
                       const idx=[]; for (let x=0;x<w;x++)
                         if (isW(d,(y*w+x)*4)) idx.push(x);
@@ -1592,109 +1609,132 @@ async def run(args) -> int:
                     const S = function(v){ return v / D; };
 
                     const base = draw(cv, null);
-                    const L = scan(base), xs = L.xs, ys = L.ys;
+                    const B = bbox(base);
                     R.w = base.width; R.h = base.height;
-                    R.nx = xs.length; R.ny = ys.length;
-                    if (xs.length !== N+1 || ys.length !== N+1) {
-                      R.fatal = '白格线聚类得到竖线 ' + xs.length + ' 条、横线 ' + ys.length
-                              + ' 条（应各 ' + (N+1) + ' 条）';
-                      return R;
-                    }
-                    R.csx = Math.round((xs[xs.length-1]-xs[0]) / N);
-                    R.csy = Math.round((ys[ys.length-1]-ys[0]) / N);
-                    R.expNearY = ys[N-1];      // = PY(0)      本格（底格）上沿
-                    R.expFarY  = ys[N-2];      // = PY(0)-cs   外一格上沿
+                    if (B.x0 > B.x1 || B.y0 > B.y1) { R.fatal = '找不到迷宫底色（外接矩形为空）';
+                      return R; }
+                    R.box = [B.x0, B.y0, B.x1, B.y1];
+                    const sizeY = B.y1 - B.y0 + 1, sizeX = B.x1 - B.x0 + 1;
+                    R.sizeX = sizeX; R.sizeY = sizeY;
+                    if (Math.abs(sizeX - sizeY) > 3) {
+                      R.fatal = '网格框不是方的（宽 ' + sizeX + ' 高 ' + sizeY + '）';
+                      return R; }
+                    const cs = sizeY / N;
+                    R.cs = Math.round(cs * 10) / 10;
+                    /* PY(y) = y0 + (n-1-y)*cs  ⇒  PY(0) = 框底上移一格，外一格再上移一格 */
+                    R.expNearY = B.y1 + 1 - cs;
+                    R.expFarY  = R.expNearY - cs;
 
-                    const nD = dbox(draw(cv, {near:true, far:false}), base);
-                    const fD = dbox(draw(cv, {near:false, far:true }), base);
+                    const nD = dbox(draw(cv, {near:true, far:false}), base, B);
+                    const fD = dbox(draw(cv, {near:false, far:true }), base, B);
                     const r1 = function(v){ return Math.round(v*10)/10; };
                     R.near = { n:nD.n, my:r1(nD.my), y0:nD.y0, y1:nD.y1 };
                     R.far  = { n:fD.n, my:r1(fD.my), y0:fD.y0, y1:fD.y1 };
 
-                    /* 每一行都得有 n+1 条竖线（缺格线就是这里少） */
+                    /* 逐行数竖线：每一格带的中点各数一次 ⇒ "哪一行缺格线"直接看得出来。
+                       ⚠️ 断言取**相对**（各行是否一样多），不取绝对值：最外两条竖线会被
+                       外框盖住，绝对值会少 2；而"缺一行"是**比值**上的塌陷，相对判才准。 */
                     R.rowLines = [];
                     for (let y=0; y<N; y++) {
-                      const mid = Math.round((ys[y] + ys[y+1]) / 2);
+                      const top = B.y0 + (N-1-y) * cs;
+                      const mid = Math.round(top + cs / 2);
                       R.rowLines.push(vlinesInRow(base, mid));
                     }
+                    R.maxRowLines = Math.max.apply(null, R.rowLines);
                     R.minRowLines = Math.min.apply(null, R.rowLines);
 
                     /* 负向①：把"只有远端墙"那张按"近端墙该落在本格前沿"验 ⇒ 应当判红 */
-                    R.negFrontGap = Math.round(Math.abs(fD.my - ys[N-1]));
+                    R.negFrontGap = Math.round(Math.abs(fD.my - R.expNearY));
 
                     /* 负向②：自绘一张故意不画最底行竖线的图，用同一探测器 ⇒ 应当报缺 */
                     const g2 = cv2.getContext('2d');
                     g2.setTransform(D,0,0,D,0,0);
                     g2.fillStyle = '#101419'; g2.fillRect(0,0,400,320);
                     g2.strokeStyle = '#e8e8ea'; g2.lineWidth = 2;
-                    const csS = S(ys[N] - ys[0]) / N;
-                    for (let k=0;k<=N;k++){ const x = S(xs[0]) + k*csS;
-                      g2.beginPath(); g2.moveTo(x, S(ys[1])); g2.lineTo(x, S(ys[N-1]));
+                    for (let k=0;k<=N;k++){
+                      const x = S(B.x0) + k * (sizeY / N);
+                      const yTop = S(B.y0 + (N-2)*cs);      /* 底行上沿 */
+                      g2.beginPath(); g2.moveTo(x, S(B.y0)); g2.lineTo(x, yTop);
                       g2.stroke(); }
                     const im2 = g2.getImageData(0,0,cv2.width,cv2.height);
-                    R.negBotLines = vlinesInRow(im2, Math.round((ys[N-1]+ys[N])/2));
-                    R.negTopLines = vlinesInRow(im2, Math.round((ys[0]+ys[1])/2));
+                    const midBot = Math.round(B.y0 + (N-1)*cs + cs/2);
+                    const midTop = Math.round(B.y0 + cs/2);
+                    R.negBotLines = vlinesInRow(im2, midBot);
+                    R.negTopLines = vlinesInRow(im2, midTop);
                     return R;
                   } finally { cv.remove(); cv2.remove(); }
                 })()""")
                 b40 = b40 if isinstance(b40, dict) else {}
                 if b40.get("fatal"):
-                    b40_bad.append("白格线探测失败：" + str(b40.get("fatal")))
+                    b40_bad.append("网格框探测失败：" + str(b40.get("fatal")))
                 else:
                     near, far = b40.get("near") or {}, b40.get("far") or {}
                     expN, expF = b40.get("expNearY"), b40.get("expFarY")
-                    cs = b40.get("csy") or 1
+                    cs = b40.get("cs") or 1
                     rows_l = b40.get("rowLines") or []
                     b40_got.append(
-                        f"格距≈{cs}px，近端墙 y≈{near.get('my')}（应 {expN}）、"
-                        f"远端墙 y≈{far.get('my')}（应 {expF}）；"
-                        f"逐行竖线数={rows_l}（最少 {b40.get('minRowLines')}）")
+                        f"网格框={b40.get('box')} 格距≈{cs}px，"
+                        f"近端墙 y≈{near.get('my')}[{near.get('y0')}-{near.get('y1')}]"
+                        f"（应 {round(float(expN),1)}）、"
+                        f"远端墙 y≈{far.get('my')}[{far.get('y0')}-{far.get('y1')}]"
+                        f"（应 {round(float(expF),1)}）；逐行竖线数={rows_l}")
                     if near.get("n", 0) < 5:
-                        b40_bad.append("近端墙几乎没画出来（与'无前墙'那一张的差异像素只有 "
+                        b40_bad.append("近端墙几乎没画出来（与'无前墙'那张的差异像素只有 "
                                        f"{near.get('n')} 个）")
-                    elif abs(float(near.get("my", -999)) - expN) > 3:
+                    elif abs(float(near.get("my", -999)) - float(expN)) > 3:
                         b40_bad.append(
-                            f"**近端墙落错边**：画在 y≈{near.get('my')}，本格前沿在 y={expN}"
-                            f"（差 {round(abs(float(near.get('my')) - expN))} px ≈ "
-                            f"{round(abs(float(near.get('my')) - expN) / float(cs) * 10) / 10} 格）"
+                            f"**近端墙落错边**：画在 y≈{near.get('my')}，本格前沿在 y="
+                            f"{round(float(expN),1)}（差 "
+                            f"{round(abs(float(near.get('my')) - float(expN)),1)} px ≈ "
+                            f"{round(abs(float(near.get('my')) - float(expN)) / float(cs),2)} 格）"
                             " —— 贴脸的墙必须就在车头这一格边上")
                     if far.get("n", 0) < 5:
-                        b40_bad.append("远端墙几乎没画出来（与'无前墙'那一张的差异像素只有 "
+                        b40_bad.append("远端墙几乎没画出来（与'无前墙'那张的差异像素只有 "
                                        f"{far.get('n')} 个）")
-                    elif abs(float(far.get("my", -999)) - expF) > 3:
+                    elif abs(float(far.get("my", -999)) - float(expF)) > 3:
                         b40_bad.append(
-                            f"**远端墙落错边**：画在 y≈{far.get('my')}，外一格前沿在 y={expF}"
-                            f"（差 {round(abs(float(far.get('my')) - expF))} px）")
+                            f"**远端墙落错边**：画在 y≈{far.get('my')}，外一格前沿在 y="
+                            f"{round(float(expF),1)}（差 "
+                            f"{round(abs(float(far.get('my')) - float(expF)),1)} px）")
                     if (near.get("n", 0) >= 5 and far.get("n", 0) >= 5
                             and abs(float(near.get("my")) - float(far.get("my"))) < 3):
                         b40_bad.append("**前墙两档落在同一条边上**（y 坐标相同）"
                                        " —— 贴脸与提前量必须分边，否则看着像隔了一格")
-                    if (b40.get("minRowLines") or 0) < 8:
-                        bad_rows = [i for i, v in enumerate(rows_l) if v < 8]
+                    if not rows_l or (b40.get("maxRowLines") or 0) < 8:
+                        b40_bad.append(f"每一行都数不到竖线（逐行={rows_l}）"
+                                       " —— 网格框或格线探测不可信，本条判据不算数")
+                    elif (b40.get("minRowLines") or 0) < (b40.get("maxRowLines") or 0):
+                        short_rows = [i for i, v in enumerate(rows_l)
+                                      if v < (b40.get("maxRowLines") or 0)]
                         b40_bad.append(
-                            f"**有 {len(bad_rows)} 行竖线不足 8 条**（自下往上第 "
-                            f"{[r + 1 for r in bad_rows][:4]} 行，最少 "
-                            f"{b40.get('minRowLines')} 条）—— 格 (x,y) 的纵向范围是 "
+                            f"**有行缺竖线**：自下往上第 {[r + 1 for r in short_rows][:4]} 行只有 "
+                            f"{[rows_l[r] for r in short_rows][:4]} 条（其余行 "
+                            f"{b40.get('maxRowLines')} 条）—— 格 (x,y) 的纵向范围是 "
                             "[PY(y), PY(y)+cs]，竖线跨错一格 ⇒ 那一行看起来没有格线")
                     if not b40_bad:
-                        b40_got.append(f"负向①「拿远端墙当近端墙验」如期判红"
+                        b40_got.append("负向①「拿远端墙当近端墙验」如期判红"
                                        f"（差 {b40.get('negFrontGap')} px）")
                         if int(b40.get("negFrontGap") or 0) <= 3:
                             b40_bad.append("负向①失效：远端墙恰好落在本格前沿上，"
                                            "这条判据区分不出两档（等于没钉住）")
                         else:
+                            neg_bot = b40.get("negBotLines")
                             b40_got.append("负向②自绘图缺最底行竖线，探测器报 "
-                                           f"{b40.get('negBotLines')} 条"
+                                           f"{neg_bot} 条"
                                            f"（顶行 {b40.get('negTopLines')} 条）")
-                            if int(b40.get("negBotLines") or 99) >= 8:
-                                b40_bad.append("负向②失效：那张故意缺最底行竖线的图，"
-                                               "探测器却数出了 ≥8 条 ⇒ 探测器认不出缺线")
+                            # ⚠️ 不能写 `x or 99`：负向②**正确**的结果恰恰是 0
+                            #    （0 是 falsy ⇒ 会被当成"缺字段"而误判"探测器失效"）
+                            if neg_bot is None:
+                                b40_bad.append("负向②拿不到结果（探测器没返回 negBotLines）")
+                            elif int(neg_bot) > 0:
+                                b40_bad.append(f"负向②失效：那张故意缺最底行竖线的图，"
+                                               f"探测器却数出 {neg_bot} 条竖线 ⇒ 认不出缺线")
             except Exception as e:                            # noqa: BLE001
                 b40_bad.append(f"做像素级前墙/格线断言时抛异常：{type(e).__name__}: {e}")
             b40_ok = not b40_bad
             record("B40", "PASS" if b40_ok else "FAIL",
                    f"迷宫图上前墙两档**分边**（近端墙落在本格前沿、远端墙落在外一格前沿）"
-                   f"且逐行不缺竖线（{'；'.join(b40_got)}）"
+                   f"且逐行都不缺竖线（{'；'.join(b40_got)}）"
                    if b40_ok else
                    f"**迷宫绘图的落位/格线不对**：{b40_bad[:4]}")
 
