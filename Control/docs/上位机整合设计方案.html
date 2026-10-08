@@ -156,6 +156,7 @@ li{margin:.28em 0}
 <li><a href="#1116">11.16 前墙双档显示 + 起点角显示（改版十三）</a></li>
 <li><a href="#1117">11.17 无记忆走迷宫的五个现场小改（改版十四）</a></li>
 <li><a href="#1118">11.18 底栏信息集成栏 + 界面文字纪律收紧（改版十五）</a></li>
+<li><a href="#1119-250-24-41">11.19 上游 2.5.0：参数表 24 → 41（+「运动控制」组）与说明列上界面（改版十六）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -345,8 +346,8 @@ li{margin:.28em 0}
 · <strong>算参纯函数搬家</strong>：从 <code>api/lesson.py</code> <strong>原样</strong>搬到 <code>host/host/api/calc.py</code>
   （<code>theory_track_ratio</code>/<code>solve_ratio</code>/<code>step_metrics</code>/<code>straightness_metrics</code>/
   <code>ir_error_stats</code>/<code>pick_best_position</code> …），<code>host.api</code> 仍导出 ⇒ <strong>逻辑一字未改</strong>。
-· <strong>版本</strong>：<code>registry.API_VERSION</code> = <strong>2.4.0</strong>、<code>LINK_FW_VER</code> = <strong>216</strong>、<code>LINK_PROTO_VER</code> = <strong>5</strong>、
-  设备指纹 <code>PONG 5 216 7 512 &lt;rst&gt;</code>（TX 环缓冲 256 → 512）。
+· <strong>版本</strong>：<code>registry.API_VERSION</code> = <strong>2.5.0</strong>、<code>LINK_FW_VER</code> = <strong>217</strong>、<code>LINK_PROTO_VER</code> = <strong>6</strong>、
+  设备指纹 <code>PONG 6 217 7 1024 &lt;rst&gt;</code>（TX 环缓冲 512 → <strong>1024</strong>，因 41 项 GET ALL ≈700 B）。
 · 另含 <strong>2.3.0</strong>（本层此前从未接）：统一帧 <strong>39 → 49 通道</strong>，新增前墙双档
   <code>frontNear</code>/<code>frontFar</code>/<code>frontBoth</code> 与比赛冲刺状态 <code>spurtMode</code>/<code>spurtFlag</code>/<code>goOrBack</code>/
   <code>spurtTestFlag</code>/<code>objectGoToFlag</code>/<code>goaheadnum</code>/<code>fastwayCount90</code>。</p>
@@ -482,6 +483,18 @@ STOP 命令 / 任务跑完）<strong>推不出来</strong> —— 它在帧里�
 EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 怎么做"）保留</strong> ——
 删的是"为什么 / 是什么"，不是"下一步点哪"。
 新增判据 <strong>B39</strong> 守底栏（① + ②），B36/B38 等既有判据<strong>核对过未依赖被删文案</strong>。</p>
+<p><strong>改版记录 2026-10-08（十六）</strong>：上游 RemoteControl 发布 <strong>2.5.0</strong>（参数表 24 → 41）。
+<strong>界面结构零改动</strong>（分组、说明列、SAVE 按钮本来就全部现算），这一轮只做"接住"：</p>
+<p><strong>① 参数表多第四组「运动控制」</strong>（id 39–55，17 项，仅远程档生效）。分组标签逐项取自
+上游 <code>PARAM_GROUPS</code>（不写死组名/组数）；<code>params_grouped()</code> 的 note 组数现算。</p>
+<p><strong>② 每项参数的「说明」列直接显示上游 <code>PARAM_META</code> 的功能短句</strong> —— 用户要求
+"参照参数设置表在界面上简短介绍这个参数的功能"。上游已按《参数名称-功能-调整表》
+写好说明（功能句 + 默认值 + 覆写警示）；本层过 <code>_short_desc()</code> 只清洗字符
+（⚠️ 警示符 / —— / 反引号），内容不改写 —— 现场不用翻文档就知道这个参数管什么、
+默认多少、会不会被覆写。</p>
+<p><strong>③ 判据 I16 改为与上游现算比对</strong>（组名/项数/id/页/通道逐项对 + desc 纪律断言），
+不再写死 24 项三组 —— 上游 2.4.0 就把 38 改 24 红过一次，这条不再写死（铁律同 I22）。
+版本锚：<code>API_VERSION</code> 2.5.0 / <code>PONG 6 217 7 1024</code> / TX 环 1024。细节见 §11.19。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -5029,6 +5042,67 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 </tr>
 </tbody>
 </table>
+<hr />
+<h3 id="1119-250-24-41">11.19 上游 2.5.0：参数表 24 → 41（+「运动控制」组）与说明列上界面（改版十六）</h3>
+<h4 id="_49">一、上游这一轮改了什么（本层的适配面）</h4>
+<ul>
+<li><strong>参数表 24 → 41 项</strong>：课件《电脑鼠参数调整表》除速度表外的参数全量入表
+  （<code>PARAM_IDS_MOTION</code>，id 39–55 共 17 项，分组「运动控制」）。<strong>仅远程档固件生效</strong>
+  （比赛档运动代码读编译期常量，不吃参数表）——赛前调参闭环只对远程档成立。</li>
+<li><strong>TX 环缓冲 512 → 1024</strong>（41 项 <code>GET ALL</code> ≈700 B 会超 512 触发环满丢弃）；
+  三宏门控 <code>LINK_P_NUM</code>(41/24)、<code>LINK_PROTO_VER</code>(6/5)、<code>LINK_FW_VER</code>(217/216)，
+  设备指纹变为 <code>PONG 6 217 7 1024 &lt;rst&gt;</code>。</li>
+<li>权威表：上游新文档 <code>docs/参数名称-功能-调整表.md</code>（课件三列结构 +
+  链路 id/默认值/覆写警示列）；每项的 <code>PARAM_META</code> 说明列已由上游写好。</li>
+</ul>
+<h4 id="_50">二、本层做了什么（为什么前端近乎零改动）</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>adapters/mouse.py</code> · <code>params_grouped()</code></td>
+<td>初始组 dict 加「运动控制」（只定<strong>阅读顺序</strong>；组标签逐项取自上游 <code>PARAM_GROUPS</code>，<strong>不写死组名/组数</strong>，上游再加组自动跟随）；<code>note</code> 组数<strong>现算</strong>；docstring 更新</td>
+</tr>
+<tr>
+<td><code>adapters/mouse.py</code> · <code>_short_desc()</code> 新增</td>
+<td>上游 <code>PARAM_META</code> 说明列的<strong>界面版</strong>：只清洗字符（⚠️ 警示符 / <code>——</code> 破折号 / 反引号 → 界面允许的标点，压空白），<strong>内容不改写</strong>——功能句、默认值、覆写警示全保留。理由：B13/B23 扫的是<strong>可见文本</strong>，不区分"我们写的"和"透传的"</td>
+</tr>
+<tr>
+<td><code>static/views/mod_params.js</code></td>
+<td><strong>零结构改动</strong>：分组、说明列、SAVE 按钮页合并本来就全部现算；只补头部注释。每项「说明」列经 <code>desc</code> 字段自动获得新 17 项的功能短句</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_51">三、判据与工具的同批改动</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/drill.py</code> · <strong>I16</strong></td>
+<td>从写死"7+11+6=24 项三组"改为<strong>与上游 <code>PARAM_GROUPS</code> 逐组逐项现算比对</strong>（组名集合、各组项数、参数 id、page 115、单写入通道），并新增两条断言：<code>count</code> 与上游 <code>PARAM_IDS</code> 总数相等；<strong>每项 <code>desc</code> 非空且无界面禁字符</strong>（守 <code>_short_desc()</code> 不回退）。I22 的同款约定：取不到上游静态表就如实 FAIL，不猜</td>
+</tr>
+<tr>
+<td><code>docs/接口对照表.md</code> §1c</td>
+<td>标题与说明更新到 2.5.0（四组 41 项、TX 环、指纹、<code>_short_desc</code>）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ <strong>覆写警示的传达</strong>：上游决定"允许覆写 + 文档警示"（TURNP/TURND/TURNDELAY/SPDTURN
+的覆写都在冲刺路径，远程档不进冲刺；SPDSEARCH 转弯后回落固定 70 是<strong>会触发的</strong>）。
+这些警示句在 <code>PARAM_META</code> 里，经 <code>_short_desc()</code> 原样保留上界面 —— 现场不看文档
+也能看到"这个参数会不会被改写"；完整覆写表在 §六，不复制进界面。</p>
+</blockquote>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

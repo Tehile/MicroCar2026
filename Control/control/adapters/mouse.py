@@ -106,8 +106,10 @@
 
 ⚠️ **参数有两套、两个 Flash 页**（**这条在 2.4.0 已作废，留在这里是为了让后人不要再翻回去**）：
 生产标定（id 1–7）走 `mc.params.set()`，课程调参（id 8–21）走 `mc.lesson.set_params()`。
-2.4.0 删掉课程层后**只剩生产命名空间**（24 项，page 115，单通道 `mc.params`）⇒
-`params_grouped()` 不再需要"按组选通道"，但**保留了分组返回的形状**（只是组数 4 → 3），
+2.4.0 删掉课程层后**只剩生产命名空间**（page 115，单通道 `mc.params`；v2.4.0 时 24 项，
+**v2.5.0 起扩到 41 项**，+「运动控制」组 id 39–55，仅远程档生效）⇒
+`params_grouped()` 不再需要"按组选通道"，但**保留了分组返回的形状**（组数 4 → 3，
+2.5.0 起上游自己加回第四组「运动控制」），
 免得前端和判据要跟着改一遍形状。
 """
 
@@ -1354,10 +1356,14 @@ class MouseAdapter:
     def params_grouped(self, refresh: bool = True) -> dict:
         """把参数表按**落哪一页 Flash / 属于哪一类**分组返回。
 
-        **2.4.0 起只剩生产命名空间** —— 课程层（id 8–21 / page 116 / `mc.lesson`）整层删除，
-        于是现在有**三组**、**同一页 115**、**同一条通道 `mc.params`**：
-        生产标定(1–7) / 红外测量(22–32) / 电源监控(33–38)，合计 24 项，
-        与固件 `LINK_P_NUM = 24` 严格相等。
+        **2.4.0 起只剩生产命名空间** —— 课程层（id 8–21 / page 116 / `mc.lesson`）整层删除；
+        **2.5.0 起参数表扩到 41 项**（+17 项「运动控制」id 39–55，`PARAM_IDS_MOTION`）。
+        于是现在有**四组**、**同一页 115**、**同一条通道 `mc.params`**：
+        生产标定(1–7) / 红外测量(22–32) / 电源监控(33–38) / 运动控制(39–55)，合计 41 项，
+        与固件 `LINK_P_NUM = 41` 严格相等。⚠️ 2.5.0 的 17 项**只对远程档固件生效**
+        （比赛档运动代码读编译期常量，不吃参数表）—— 分组名**不写死**：
+        组标签逐项取自上游 `PARAM_GROUPS`，上游再加组时这里自动跟随（初始 dict
+        只定**阅读顺序**）。
 
         ⚠️ 分组**仍然返回**（而不是拍平成一张表）：它是界面的**阅读顺序**，
         也是判据 I16 的抓手。变了的是——**不再有"选错通道"这回事**了：
@@ -1366,8 +1372,13 @@ class MouseAdapter:
         （见 §11.15「判据与校验工具的同批改动」）。
 
         ⚠️ **读侧不再有不对称**：以前课程 14 项 `GET` 一律回 `ERR_NAME`
-        （值读得到才怪），现在 24 项全都读得到 ⇒ `readable` 恒真。
+        （值读得到才怪），现在 41 项全都读得到 ⇒ `readable` 恒真。
         保留这个键是为了让旧前端/旧判据不至于 KeyError。
+
+        ⚠️ **`desc` 是上游 `PARAM_META` 的说明列，但**过一遍 `_short_desc()` 清洗
+        （去 ⚠️ 警示符 / 破折号 / 反引号，压空白）—— 那是写给文档看的标点，
+        原样上界面会违反界面文案纪律（判据 B13/B23 扫得到）。内容**不改写**：
+        功能句、默认值、覆写警示全部保留（与上游《参数名称-功能-调整表》同源）。
 
         ⚠️ `refresh=False` 表示**一次设备都不碰**（只用本地快照 + 静态元数据）。
         这一点必须守住：`get_raw()` 是**带 3 s 超时的实时往返**（上游
@@ -1396,7 +1407,7 @@ class MouseAdapter:
             # 取不到静态表就退化：`get_all` 覆盖到的就是生产侧。
             prod_ids = set(vals or {})
         groups: Dict[str, Dict[str, dict]] = {
-            "生产标定": {}, "红外测量": {}, "电源监控": {}}
+            "生产标定": {}, "红外测量": {}, "电源监控": {}, "运动控制": {}}
         names: List[str] = []
         for n in (vals or {}):
             if n not in names:
@@ -1432,24 +1443,38 @@ class MouseAdapter:
                 "value": v, "q": q, "readable": readable,
                 "unit": (meta[0] if meta else ""),
                 "decimals": (meta[1] if meta else None),
-                "desc": (meta[2] if meta else ""),
+                "desc": self._short_desc(meta[2] if meta else ""),
                 "id": self._param_ids.get(name),
                 "write_via": ("mc.lesson.set_params" if g == "课程调参"
                               else "mc.params.set"),
                 "flash_page": (FLASH_PAGE_LESSON if g == "课程调参" else FLASH_PAGE_PROD),
             }
+        live = {k: v for k, v in groups.items() if v}
         return {
-            "groups": {k: v for k, v in groups.items() if v},
-            "count": sum(len(v) for v in groups.values()),
+            "groups": live,
+            "count": sum(len(v) for v in live.values()),
             "connected": True,
             # ⚠️ 这段话会**原样出现在界面上**（`params.js` 把 `note` 直接写进 `#p-top`），
             # 所以它必须遵守界面文案纪律：**不许有 Markdown 标记 / 解释性破折号 / 判据编号**
             # （判据 B13 会扫出来）。这里的行文只能是"状态 + 下一步点哪"。
-            "note": ("参数分三组、同落在 Flash page 115，一次整表保存。"
+            # 组数**现算**，不写死（2.4.0 是三组 24 项、2.5.0 起四组 41 项，上游还会加）。
+            "note": (f"参数分{len(live)}组、同落在 Flash page 115，一次整表保存。"
                      if not self._lesson_param_ids else
                      "参数分四组、落在两个 Flash 页：生产侧 115，课程 116，需分别保存。"
                      "课程 14 项的值读不到（固件只对生产表答读取），可以写。"),
         }
+
+    @staticmethod
+    def _short_desc(raw: str) -> str:
+        """上游 `PARAM_META` 说明列的**界面版**：只清洗字符，不改写内容。
+
+        上游的 desc 是仿《参数名称-功能-调整表》"变量功能"列写的（功能句 +
+        默认值 + 覆写警示），信息全部要保留 —— 但 ⚠️ 是图形标记、`——` 是
+        界面禁用破折号（判据 B13/B23 扫的是**可见文本**，不区分"我们写的"
+        和"透传的"）。功能句/默认值/警示原样保留，标点换成界面允许的。
+        """
+        s = (raw or "").replace("⚠️", " ").replace("——", "，").replace("`", "'")
+        return " ".join(s.split())
 
     def set_params_grouped(self, values: Dict[str, float], readback: bool = True,
                            save: bool = False) -> dict:
@@ -1483,7 +1508,7 @@ class MouseAdapter:
                     "这些参数属于课程命名空间，但上游已经删掉了课程层（2.4.0）。\n"
                     f"  · 涉及的项：{sorted(les)}\n"
                     "  · 课程 14 项（id 8–21）已随整层删除，任何通道都写不了；\n"
-                    "  · 生产 24 项（id 1–7 / 22–38）走 mc.params，不受影响。")
+                    "  · 生产参数（id 1–7 / 22 起，2.5.0 起 41 项）走 mc.params，不受影响。")
             # 课程侧**不做回读**（见 docstring）；只认 ACK。
             rs = mc.lesson.set_params(les, readback=False, save=save)
             out["lesson"] = [{"name": getattr(r, "name", "?"), "ok": r.ok,
@@ -1514,7 +1539,7 @@ class MouseAdapter:
             if not self._features.get("lesson"):
                 raise MouseError(
                     "上游已经删掉了课程调参整层（2.4.0），没有「课程调参」这一组可落盘。\n"
-                    "  · 现在只有生产命名空间 24 项，落在 Flash page 115；\n"
+                    "  · 生产参数（2.5.0 起 41 项）都落在 Flash page 115；\n"
                     "  · 点生产侧那个 SAVE 即可。")
             vals = {str(k): float(v) for k, v in (values or {}).items()}
             if not vals:

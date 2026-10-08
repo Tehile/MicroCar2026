@@ -364,39 +364,62 @@ def _mouse_sections(base: str, args, sim) -> None:
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
 
-    # ---- I16：参数必须按 Flash 页/通道分组（**不写死项数** —— 上游 2.4.0 删掉课程层，
-    #          参数从 38 项四组降到 24 项三组：生产 7 + 红外 11 + 电源 6，全在 page 115、同一条写入通道）
+    # ---- I16：参数分组必须与**上游 PARAM_GROUPS / PARAM_META 现算一致**（**不写死组数/项数**
+    #          —— 2.4.0 是 24 项三组、2.5.0 起 41 项四组（+「运动控制」id 39–55，仅远程档
+    #          生效）。组名、项数、参数 id 全部从上游 host.protocol.commands 现取，
+    #          上游再扩容时这条判据不用动（I22 的同款约定）。
     g, c, _ = api(base, "/api/v1/mouse/params/grouped")
     d = g.get("data") or {}
     groups = d.get("groups") or {}
-    prod, les = groups.get("生产标定") or {}, groups.get("课程调参") or {}
-    meas_ir = groups.get("红外测量") or {}
-    meas_batt = groups.get("电源监控") or {}
+    les = groups.get("课程调参") or {}
+    # 课程组（只老上游有）不参与比对；其余组与上游逐组逐项对。
+    got = {k: v for k, v in groups.items() if k != "课程调参"}
     pages = {k: (list(v.values())[0].get("flash_page") if v else None)
-             for k, v in groups.items()}
+             for k, v in got.items()}
     vias = {k: (list(v.values())[0].get("write_via") if v else None)
-            for k, v in groups.items()}
-    # 页号是**固件分区**的事实：上游 1.5.4 把运行数据区上移后 99/100 → 115
-    # （原值正落在 FLASH_EraseRunData 的擦除范围内，会被连标定一起抹掉）。
-    # 2.4.0 起课程层整层删除 ⇒ 只剩生产侧三组，7+11+6=24 项**同页同通道**，共用一次 SAVE。
-    # 判据按"组数/项数从上一次查询现算"写，**不写死 38/24 或组名个数**（跟着上游走）。
-    total = d.get("count")
-    prod_only = prod and not les and not groups.get("课程调参")
-    ok = (c == 200
-          and len(prod) == 7 and len(meas_ir) == 11 and len(meas_batt) == 6
-          and (total in (24, len(prod) + len(meas_ir) + len(meas_batt)))
-          and pages.get("生产标定") == 115
-          and pages.get("红外测量") == 115 and pages.get("电源监控") == 115
-          and vias.get("红外测量") == vias.get("生产标定")
-          and (total != 24 or
-               (vias.get("电源监控") == vias.get("生产标定") and not les)))
+            for k, v in got.items()}
+    # 上游静态表（`host_dir` 的取法与 I22 同一处真相）。
+    want, want_ids, want_meta = None, {}, {}
+    try:
+        host_dir = ROOT.parent / "RemoteControl" / "host"
+        if str(host_dir) not in sys.path:
+            sys.path.insert(0, str(host_dir))
+        from host.protocol.commands import (                 # type: ignore
+            PARAM_GROUPS as _PG, PARAM_IDS as _PI, PARAM_META as _PM)
+        want, want_ids, want_meta = {}, _PI, _PM
+        for n, gn in _PG.items():
+            want.setdefault(gn, []).append(n)
+    except Exception as e:                                    # noqa: BLE001
+        record("I16", "FAIL", f"取不到上游 `PARAM_GROUPS`：{type(e).__name__}: {e}")
+    # 页号是**固件分区**的事实：生产侧 4 组同落 page 115（2.4.0 起单页）。
+    # 说明列：上游 PARAM_META 的 desc 经后端清洗后**每项非空**、且不得残留
+    # ⚠️ 警示符 / —— 破折号 / 反引号（它们会原样上界面，违反界面文案纪律）。
+    bad_desc = [(n, it.get("desc") or "")
+                for gn in got.values() for n, it in gn.items()
+                if (not (it.get("desc") or "").strip()
+                    or "⚠" in (it.get("desc") or "")
+                    or "——" in (it.get("desc") or "")
+                    or "`" in (it.get("desc") or ""))]
+    ok = (c == 200 and want is not None and les == {})
+    if want is not None:
+        ok = (ok
+              and set(got) == set(want)                       # 组名一致
+              and all(set(got.get(gn) or {}) == set(ns) for gn, ns in want.items())
+              and all((got.get(gn) or {}).get(n, {}).get("id") == want_ids[n]
+                      for gn, ns in want.items() for n in ns)  # 参数 id 逐项一致
+              and all(p == 115 for p in pages.values() if p is not None)
+              and len(set(v for v in vias.values() if v)) <= 1  # 同一条写入通道
+              and not bad_desc
+              and d.get("count") == sum(len(ns) for ns in want.values()))
+    parts = " + ".join(f"{gn} {len(got.get(gn) or {})}" for gn in (want or {}))
     record("I16", "PASS" if ok else "FAIL",
-           f"{total} 项 = 生产 {len(prod)} + 红外 {len(meas_ir)} + 电源 {len(meas_batt)}"
-           + (f" + 课程 {len(les)}" if les else "（课程层：2.4.0 已删除，本层不再出现）")
-           + f"（page {pages.get('生产标定')}，同一写入通道 {vias.get('生产标定')}）"
-           f"⇒ 剩余三组同页同通道"
-           if ok else f"HTTP {c}；生产 {len(prod)} / 红外 {len(meas_ir)} / 电源 {len(meas_batt)}"
-                      f" / 课程 {len(les)}（应 0）；pages={pages} vias={vias}")
+           f"{d.get('count')} 项 {len(got)} 组（{parts}），与上游 PARAM_GROUPS 逐组逐项一致；"
+           f"page 115 同一条写入通道；说明列来自上游 PARAM_META 且无界面禁字符"
+           if ok else
+           f"HTTP {c}；实际组 {sorted(got)} / 期望组 {sorted(want or {})}；"
+           f"各组项数 {{{', '.join(f'{k}: {len(v)}' for k, v in got.items())}}}；"
+           f"pages={pages} vias={vias}"
+           + (f"；说明列违规 {bad_desc[:3]}" if bad_desc else ""))
 
     # ---- 发车 + 时间同步
     a, c, _ = api(base, "/api/v1/timesync/arm", "POST", {})
@@ -1943,7 +1966,7 @@ def main(argv=None) -> int:
         head("14b. 判据 I15 / I16 / I17：跟上游更新（需要模拟器）")
         if not args.sim:
             for cid, why in (("I15", "帧时间必须说清是哪一种（send / arrival）"),
-                             ("I16", "参数必须按 Flash 页分组且写入通道一致（2.4.0 起 24 项三组）"),
+                             ("I16", "参数分组必须与上游 PARAM_GROUPS 逐组逐项一致（2.5.0 起 41 项四组）"),
                              ("I17", "丢帧必须可回答（seq_lost 不是 None）")):
                 record(cid, "SKIP", f"{why} —— 加 --sim 才验（需要一条活链路）")
             _skip_mouse_sections = True

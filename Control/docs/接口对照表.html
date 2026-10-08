@@ -77,7 +77,7 @@ li{margin:.28em 0}
 <li><a href="#0">0. 通用 / 时钟 / 日志</a></li>
 <li><a href="#1-a">1. 鼠（模块 A）</a></li>
 <li><a href="#1b-a-140">1b. 时间同步 / 发车（模块 A，上游 1.4.0）</a></li>
-<li><a href="#1c-240-a-130-240">1c. 参数（2.4.0 起三组 / 单写入通道，模块 A，上游 1.3.0 → 2.4.0）</a></li>
+<li><a href="#1c-250-a-130-250">1c. 参数（2.5.0 起四组 / 单写入通道，模块 A，上游 1.3.0 → 2.5.0）</a></li>
 <li><a href="#1d-a-200">1d. 统一帧遥测与迷宫状态机（模块 A，上游 2.0.0）</a></li>
 <li><a href="#1e-a-120-130">1e. 电机实验 / 课程调参实验（模块 A，上游 1.2.0 / 1.3.0）</a></li>
 <li><a href="#2-b">2. 相机（模块 B）</a></li>
@@ -405,7 +405,7 @@ li{margin:.28em 0}
 </tr>
 </tbody>
 </table>
-<h2 id="1c-240-a-130-240">1c. 参数（<strong>2.4.0 起三组 / 单写入通道</strong>，模块 A，上游 1.3.0 → 2.4.0）</h2>
+<h2 id="1c-250-a-130-250">1c. 参数（<strong>2.5.0 起四组 / 单写入通道</strong>，模块 A，上游 1.3.0 → 2.5.0）</h2>
 <blockquote>
 <p>⚠️ <strong>页号会随固件分区调整而变</strong>。上游 1.5.4 把运行数据区上移后：
 生产标定页 99 → <strong>115</strong>、课程参数页 100 → <strong>116</strong>（原值正落在 <code>FLASH_EraseRunData()</code>
@@ -414,7 +414,13 @@ li{margin:.28em 0}
 <p>⚠️ <strong>写入通道（2.4.0 起只剩一条）</strong>：生产命名空间（id 1–7 <strong>+ 1.5.0 新增的 22–38</strong>）
 走 <code>mc.params.set()</code>。<strong>2.4.0 删掉了课程调参整层</strong>（lesson_lab.c / LessonAPI（<strong>这些符号已被上游删除，故此处不加反引号</strong>） /
 <code>Event.LESSON</code> / <code>lesson.start·stop·status</code> / <strong>课程 14 项参数 id 8–21</strong> / Flash page 116）
-⇒ <code>mc.lesson.set_params()</code> 这条路<strong>没有了</strong>，参数表由 38 项变为 <strong>24 项</strong>
+⇒ <code>mc.lesson.set_params()</code> 这条路<strong>没有了</strong>，参数表由 38 项变为 <strong>24 项</strong>。
+<strong>2.5.0 再扩到 41 项</strong>（+17 项「运动控制」id 39–55，来自课件《电脑鼠参数调整表》除速度表外的
+全量入表；<strong>仅远程档固件生效</strong>——比赛档运动代码读编译期常量）。上游随之把 TX 环缓冲
+512 → <strong>1024</strong>（41 项 GET ALL ≈700 B 会超 512），设备指纹变为 <code>PONG 6 217 7 1024 &lt;rst&gt;</code>。
+每项的<strong>功能短句</strong>来自上游 <code>PARAM_META</code> 说明列（权威表：
+<code>RemoteControl/docs/参数名称-功能-调整表.md</code>），本层在 <code>adapters/mouse.py</code> 的
+<code>_short_desc()</code> 里只清洗字符（去 ⚠️ 警示符 / —— 破折号 / 反引号）不改写内容，原样上界面。
 （与固件 <code>LINK_P_NUM</code> 严格相等），三组同页同通道。老板子（≤2.3.x）上四组仍成立 ⇒
 本层按<strong>能力探测</strong>（<code>caps.param_ids</code> 是否含 id 8–21）分流。</p>
 <p>⚠️ <strong>算参纯函数只是搬家</strong>：<code>solve_ratio</code> / <code>error_ratio</code> / <code>step_metrics</code> /
@@ -435,7 +441,7 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/mouse/params/grouped</code></td>
 <td>A</td>
 <td><code>ParamsAPI.get_all</code>、<code>ParamsAPI.meta</code>、<code>ParamsAPI.get_raw</code></td>
-<td>按「生产标定 / 红外测量 / 电源监控」<strong>三组</strong>返回（2.4.0 起共 24 项），并带 <code>flash_page</code> / <code>write_via</code>；分组标签来自上游 <code>PARAM_GROUPS</code>。老板子上仍会回四组</td>
+<td>按「生产标定 / 红外测量 / 电源监控 / 运动控制」<strong>四组</strong>返回（2.5.0 起共 41 项；组名逐项取自上游 <code>PARAM_GROUPS</code>，不写死），并带 <code>flash_page</code> / <code>write_via</code> / <code>desc</code>；老板子上仍会回老组名</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/mouse/params/grouped</code></td>
