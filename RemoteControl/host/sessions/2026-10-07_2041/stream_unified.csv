@@ -1,5 +1,0 @@
-t_host_ms,dev_ms,seq,ms8,irAdcF1,irAdcF2,irAdcL,irAdcR,irF1,irF2,irL,irR,battMv,speedL,speedR,gyroAngle,encAngle,trackL,trackR,cellOdom,pidErr,dir,mazeTask,wallLeft,wallFront,wallRight,motionTask,irSwitch,motionStep,critL,critR,left45,right45,flags,posX,posY,goalX,goalY,wallThresh,stackIdx,fastwayCount,dropCnt,frontNear,frontFar,frontBoth,spurtMode,spurtFlag,goOrBack,spurtTestFlag,objectGoToFlag,goaheadnum,fastwayCount90
-1791376916282,,0,18,842,842,2486,158,179,179,42,236,7627,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,0,0,7,7,160,0,0,0,0,1,1,0,0,0,0,0,0,0
-1791376916312,,1,30,842,842,2510,158,179,179,40,236,7632,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,0,0,7,7,160,0,0,0,0,1,1,0,0,0,0,0,0,0
-1791376916343,11,3,81,842,878,2510,158,179,176,40,236,7618,48,48,0,0,1,1,1,0,0,2,1,1,0,32,0,0,1,0,0,0,0,0,0,7,7,110,0,0,0,0,1,1,0,0,0,0,0,0,0
-1791376916372,21,4,91,902,866,2474,158,174,177,43,236,7620,66,66,0,0,7,7,7,0,0,2,1,1,0,32,0,0,1,0,0,0,0,0,0,7,7,110,0,0,0,0,1,1,0,0,0,0,0,0,0

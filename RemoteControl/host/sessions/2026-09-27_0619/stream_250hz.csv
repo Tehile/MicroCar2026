@@ -1,3 +1,0 @@
-t_host_ms,dev_ms,seq,task,volt,speedL,speedR,gyroAngle,pidErr,speedTargetL,speedTargetR
-1790461172335,,0,32,7.5,67,67,-29,-29,68,68
-1790461172534,,0,2,7.5,27,-27,-64,-64,26,-26
