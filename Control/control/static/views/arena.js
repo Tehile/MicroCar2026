@@ -234,8 +234,6 @@ C.views.arena = (function () {
         if (st) st.textContent = m.id + ' ' + m.state + ' ' + m.done + '/' + m.total +
           ' 有效 ' + m.valid + ' 无效 ' + m.invalid;
         if (m.state === 'done' || m.state === 'aborted') { loadTrack(); C.toast('复算 ' + m.state + '：' + m.done + ' 帧', 'ok'); }
-      } else if (m.type === 'arena.changed') {
-        live.arena = m; draw();
       }
     },
 

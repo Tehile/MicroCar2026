@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Tuple
 
 
 @dataclass
@@ -112,7 +112,7 @@ class Arena:
                        ) -> Tuple[float, float, float]:
         """固件格号 vs 视觉归一化位置 → 连续格坐标下的残差（单位：格）。
 
-        判据 I8 用的是它的模长：标定正确时 < 0.3 格；`y_flip` 反了时残差会是
+        残差 < 0.3 格说明当前 flip 配置正确；`y_flip` 反了时残差会是
         **整场量级**（≈ grid − something），一眼可辨。
         """
         fx, fy = self.norm_to_fw(*vis_xy)
@@ -150,64 +150,3 @@ def from_config(cfg: Any) -> Arena:
     )
 
 
-# ---------------------------------------------------------------- 标定求解
-
-@dataclass
-class CalibObservation:
-    """一次"鼠放在已知格"的观测。"""
-
-    fw_xy: Tuple[int, int]              # 固件自述 (posX, posY)
-    vis_xy: Tuple[float, float]         # 视觉归一化 (x, y)
-    vis_theta_deg: Optional[float] = None
-    fw_theta_deg: Optional[float] = None
-    note: str = ""
-
-
-def solve_flips(observations: Sequence[CalibObservation], grid: int = 8
-                ) -> Dict[str, Any]:
-    """用 4 种 flip 组合试解，挑**总残差最小**的那种。
-
-    为什么穷举也值得写：这里只有 4 种组合，穷举的代价几乎为零，而它把
-    "猜 flip"这件事变成了"实测 flip" —— 这正是 §7.4 Step 3 的意义。
-    **只有一个观测点时不足以定 flip**（几种组合残差可能相近），
-    所以要检查 `margin`：最优与次优的差距太小就明确要求再测一个点。
-    """
-    obs = list(observations)
-    if not obs:
-        raise ValueError("没有任何观测点，无法解 flip。至少要 2 个（对角格最好）")
-    g = float(grid)
-    results: List[dict] = []
-    for yf in (True, False):
-        for xf in (True, False):
-            residues = []
-            for o in obs:
-                xx, yy = o.vis_xy
-                if xf:
-                    xx = 1.0 - xx
-                if yf:
-                    yy = 1.0 - yy
-                fx = xx * g - 0.5
-                fy = yy * g - 0.5
-                residues.append(math.hypot(fx - o.fw_xy[0], fy - o.fw_xy[1]))
-            results.append({
-                "y_flip": yf, "x_flip": xf,
-                "rms_cells": math.sqrt(sum(r * r for r in residues) / len(residues)),
-                "max_cells": max(residues),
-                "per_point": [round(r, 3) for r in residues],
-            })
-    results.sort(key=lambda d: d["rms_cells"])
-    best, second = results[0], results[1]
-    margin = second["rms_cells"] - best["rms_cells"]
-    confident = margin > 0.5 * g * 0.15        # 差距 > 15% 场宽才算有区分度
-    return {
-        "best": best,
-        "second": second,
-        "margin_cells": round(margin, 3),
-        "confident": confident,
-        "all": results,
-        "warning": None if confident else (
-            "最优与次优的残差只差 %.2f 格：区分度不足，不应落盘。"
-            "请把鼠放到对角格再测一次：只有一个观测点或"
-            "两点过近时，flip 在几何上无法区分。" % margin),
-        "n_points": len(obs),
-    }

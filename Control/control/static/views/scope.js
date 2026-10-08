@@ -1,4 +1,4 @@
-/* ⑦ 波形 —— 直接画**唯一那条统一帧**（上游 2.0.0 / 2.1.0）。
+/* ⑥ 波形 —— 直接画**唯一那条统一帧**（上游 2.0.0 / 2.1.0）。
 
    ## 一次改版：从两块变一块
    旧版是两块：
@@ -31,7 +31,7 @@ C.views.scope = (function () {
   function mount(host) {
     el = host;
     el.innerHTML = `
-      <h2>⑦ 波形</h2>
+      <h2>⑥ 波形</h2>
       <div class="gatehint" id="s-link-hint"></div>
       <div class="pane">
         <h4>实时 · 统一帧

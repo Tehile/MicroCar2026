@@ -1,4 +1,4 @@
-/* 小车控制 · 实时状态与参数设定 —— 「把车调好」的那一段（四个区块）。
+/* 小车控制 · 实时状态与参数设定 —— 「把车调好」的那一段（三个区块）。
 
    ## 改版十六（上游 2.5.0）：参数表 24 → 41，多了「运动控制」一组
    上游把课件《电脑鼠参数调整表》除速度表外的参数全量入表（id 39–55，17 项，
@@ -13,14 +13,9 @@
      · 实时读数（唯一那条统一帧的全部通道）
      · 参数表（生产命名空间 24 项）
      · 手动运动   ← 原「运动控制」卡，现挂 `C.parts.motion`
-     · 标定例程   ← 原「校准例程」卡，现挂 `C.parts.calib`
-   后两个原先是独立模块，现在**并进这一页**：它们与参数设定是同一个现场阶段里的连续动作，
+   手动运动原先是独立模块，现在**并进这一页**：它与参数设定是同一个现场阶段里的连续动作，
    共用同一组门控（"连上电脑鼠"）。合成一页之后顺序就是现场顺序：
-   先看状态 → 再调参数 → 需要就手动动一下 → 标定。
-
-   ⚠️ 「取消独立参数标定」指的是上游删掉的**课程调参整层**（`lesson_lab.c`，
-   课程 14 项死参数）—— 不是这里的「标定例程」。生产标定（GYRO / 壁距 / 红外逐点 /
-   角度 / 里程，Flash page 115）上游一行没删，远程档下照常可跑，**保留**。
+   先看状态 → 再调参数 → 需要就手动动一下。
 
    ## 一次改版（上游 2.0.0「传输模式重构」）
    原先这里是**两个**模块：「实时参数」读 fast/mid/slow 三档流 + 参数表；
@@ -336,11 +331,10 @@ C.mods.mod_params = (function () {
     el.querySelector('#mp-groups').addEventListener('input', function (e) {
       if (e.target.dataset.name) dirty[e.target.dataset.name] = e.target.value;
     });
-    /* 两个**区块**（原「运动控制」「校准例程」两张卡）挂进本页 ——
-       它们已经是 `C.parts.*`，各自 mount 时**追加自己的 pane**，
-       与上面的读数/参数共享同一个 `el`（所以 id 前缀 mm-/mc- 必须与 mp- 不撞）。 */
+    /* 「手动运动」区块（原「运动控制」卡）挂进本页 ——
+       它已经是 `C.parts.motion`，mount 时**追加自己的 pane**，
+       与上面的读数/参数共享同一个 `el`（所以 id 前缀 mm- 必须与 mp- 不撞）。 */
     if (C.parts.motion) C.parts.motion.mount(el);
-    if (C.parts.calib) C.parts.calib.mount(el);
     loadMeta();
     renderAll();
     load();
@@ -503,10 +497,9 @@ C.mods.mod_params = (function () {
     if (d) msg('已写入 page ' + C.util.fmt(d.flash_page) + (d.backup ? (' · 备份 ' + d.backup) : ''));
   }
 
-  /* 把一次 health 广播转给两个区块 —— 它们是独立挂载的，收不到本页的 onHealth。 */
+  /* 把一次 health 广播转给「手动运动」区块 —— 它是独立挂载的，收不到本页的 onHealth。 */
   function fanHealth() {
     if (C.parts.motion && C.parts.motion.onHealth) C.parts.motion.onHealth();
-    if (C.parts.calib && C.parts.calib.onHealth) C.parts.calib.onHealth();
   }
 
   return {
@@ -514,10 +507,8 @@ C.mods.mod_params = (function () {
     activate: function () {
       if (!meta) loadMeta();
       if (!Object.keys(groups).length) load();
-      if (C.parts.calib && C.parts.calib.activate) C.parts.calib.activate();
     },
     onMsg: function (m) {
-      if (C.parts.calib && C.parts.calib.onMsg) C.parts.calib.onMsg(m);
       if (m.type !== 'mouse.telemetry') return;
       noteMsg();                 // 界面 FPS 由**前端自己数**到达时刻（最诚实）
       renderAll();

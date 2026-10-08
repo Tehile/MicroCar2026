@@ -84,7 +84,7 @@
 - **改**：`telemetry.latest()` 由 `(fast, mid, slow)` 三元组变为**单个 dict**；
   参数 `GET ALL` 只回**生产命名空间**（24 项），课程 14 项**读侧不对称**（一律 `ERR_NAME`，
   写侧 SET/SETQ 通）；`CAL` 改请求-响应（采完才 ACK，超时 10 s、不重发）。
-- **留**：`TARE`、`mc.move`、`mc.calib`、`mc.lab.capture()`、`mc.maze`（墙图 +
+- **留**：`TARE`、`mc.move`、`mc.lab.capture()`、`mc.maze`（墙图 +
   状态从统一帧读）。迷宫的"它刚才识别到了什么"改由**主机差分相邻帧**取得，不再有事件流。
   ⚠️ **2.4.0 起 `mc.lesson` 连这个"留"字都不算了** —— 课程层整层删除，见上。
 
@@ -546,9 +546,6 @@ class MouseAdapter:
                 if kind == "move":
                     ref = str(d.get("kind", ""))
                     note = _short(d)
-                elif kind == "calib":
-                    ref = str(d.get("kind", ""))
-                    note = _short(d)
                 elif kind == "map":
                     ref = "map"
                     note = f"mazetype={d.get('mazetype')} pos=({d.get('posX')},{d.get('posY')})"
@@ -683,7 +680,6 @@ class MouseAdapter:
             mc.on(Event.PARAM, on_param),
             mc.on(Event.SESSION, on_session),
             mc.on(Event.MOVE, on_event("move")),
-            mc.on(Event.CALIB, on_event("calib")),
             mc.on(Event.MAP, on_event("map")),
             mc.on(Event.ADVICE, on_advice),
         ]
@@ -921,7 +917,6 @@ class MouseAdapter:
             "stream_hz_nominal": {"unified": self._unified_hz_nominal},
             "unified_channels": (mc.telemetry.channels() if mc
                                  else list(self._unified_channels)),
-            "calib_items": mc.calib.items() if mc else [],
             # ⚠️ **这里故意不给"候选连接目标"**（`mc.conn.targets()`）。
             # 那个列表每次都要枚举一遍串口（Windows 上 `list_ports` 是同步慢调用），
             # 而本方法是被 `GET /api/v1/caps` **同步**调用、跑在事件循环上的 ——

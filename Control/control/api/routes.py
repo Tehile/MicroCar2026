@@ -19,7 +19,6 @@ import aiohttp
 from aiohttp import web
 
 from .. import __version__
-from ..arena import CalibObservation, solve_flips
 from ..clock import anchor_snapshot, mono_to_ms, now_ms
 from ..decode import decode_y
 from ..store import new_session_id
@@ -88,9 +87,6 @@ def register(app: web.Application, ctx: Any) -> None:
     # 统一帧的**静态码表**（通道清单 + 迷宫码表）：零设备访问，未连接也答得出。
     r.add_get("/api/v1/mouse/meas/meta", _mouse_meas_meta)
     r.add_post("/api/v1/mouse/move", _mouse_move)
-    # ⚠️ 静态路径必须**先**注册：aiohttp 按注册顺序匹配，{item} 会吞掉 "report"
-    r.add_post("/api/v1/mouse/calib/report", _mouse_calib_report)
-    r.add_post("/api/v1/mouse/calib/{item}", _mouse_calib)
     r.add_post("/api/v1/mouse/tare", _mouse_tare)
     r.add_post("/api/v1/mouse/stop", _mouse_stop)
     r.add_post("/api/v1/mouse/estop", _mouse_estop)
@@ -180,10 +176,6 @@ def register(app: web.Application, ctx: Any) -> None:
 
     # ---- 场地
     r.add_get("/api/v1/arena", _arena_get)
-    r.add_post("/api/v1/arena/observations", _arena_obs_post)
-    r.add_get("/api/v1/arena/observations", _arena_obs_get)
-    r.add_post("/api/v1/arena/solve", _arena_solve)
-    r.add_post("/api/v1/arena/calibrate", _arena_calibrate)
 
     r.add_get("/ws", ws_handler)
 
@@ -806,53 +798,6 @@ async def _mouse_move(request: web.Request) -> web.Response:
     r = await loop.run_in_executor(None, fn)
     ctx.store.mark("mouse", f"move.{kind}", "", json.dumps(d, ensure_ascii=False))
     return ok({"result": _res(r), "task": mc.move.current_task()})
-
-
-async def _mouse_calib(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    mc = _need_mouse(ctx)
-    item = str(request.match_info["item"])
-    d = await body_json(request)
-    loop = asyncio.get_running_loop()
-    acts = {"gyro": mc.calib.gyro, "wall_distance": mc.calib.wall_distance,
-            "ir_data": lambda **kw: mc.calib.ir_data(**kw),
-            "angle": lambda **kw: mc.calib.angle(**kw),
-            "track": lambda **kw: mc.calib.track(**kw),
-            "step": lambda **kw: mc.calib.step(item, str(d.get("act") or "START"), **kw)}
-    fn = acts.get(item)
-    if fn is None:
-        raise ApiError(404, f"没有这个标定项 {item!r}。可选：{sorted(acts)}（+ step）")
-    kwargs = {k: v for k, v in d.items() if k not in ("act",)}
-    try:
-        r = await loop.run_in_executor(None, lambda: fn(**kwargs))
-    except TypeError as e:
-        raise ApiError(400, f"标定项 {item} 的参数不对：{e}") from e
-    if isinstance(r, list):
-        out = [_res(x) for x in r]
-    elif hasattr(r, "ok"):
-        out = _res(r)
-    else:
-        out = r
-    ctx.store.mark("mouse", f"calib.{item}", "", json.dumps(d, ensure_ascii=False))
-    return ok({"result": out, "items": mc.calib.items(),
-               "note": "结果写入会话的 mouse/calib/report.md"})
-
-
-async def _mouse_calib_report(request: web.Request) -> web.Response:
-    """把标定报告写进会话的 `mouse/calib/report.md`（上游 `calib.report`）。"""
-    ctx = request.app["ctx"]
-    mc = _need_mouse(ctx)
-    d = await body_json(request, required=True)
-    lines = d.get("lines")
-    if isinstance(lines, str):
-        lines = [x for x in lines.splitlines() if x.strip()]
-    if not lines:
-        raise ApiError(400, "lines 是空的")
-    p = await asyncio.get_running_loop().run_in_executor(
-        None, lambda: mc.calib.report(list(lines)))
-    ctx.store.mark("mouse", "calib.report", "", f"{len(lines)} 行 → {p}")
-    return ok({"path": p or None,
-               "note": "报告落在 mouse/calib/report.md"})
 
 
 async def _session_note(request: web.Request) -> web.Response:
@@ -2026,83 +1971,3 @@ async def _arena_get(request: web.Request) -> web.Response:
         [[a[0], a[1]], [b[0], b[1]]] for a, b in ctx.arena.grid_lines()],
         "fw_position": fw, "vis": loc or None, "delta": delta,
         "clock": ctx.clock.snapshot()})
-
-
-async def _arena_obs_post(request: web.Request) -> web.Response:
-    """加一个标定观测点："把鼠放在某个已知格"，然后取当前的固件格号 + 视觉位置。
-
-    `fw_xy` 不给就自动从固件读（鼠必须连着）；`vis_xy` 不给就取最近一次定位结果。
-    """
-    ctx = request.app["ctx"]
-    d = await body_json(request)
-    fw = d.get("fw_xy")
-    if fw is None:
-        mc = ctx.mouse.mc
-        if mc is None or not mc.is_connected:
-            raise ApiError(409, "未连接电脑鼠：请连接或手动传入 fw_xy=[x,y]")
-        pos = mc.maze.position()
-        if pos is None:
-            raise ApiError(409, "固件尚未上报位置")
-        fw = [int(pos[0]), int(pos[1])]
-    vis = d.get("vis_xy")
-    if vis is None:
-        loc = ctx.last_loc
-        if not loc or loc.get("x") is None:
-            raise ApiError(409, "无有效定位结果：请先启动在线定位")
-        vis = [float(loc["x"]), float(loc["y"])]
-    obs = getattr(ctx, "_calib_obs", [])
-    obs.append({"fw_xy": [int(fw[0]), int(fw[1])], "vis_xy": [float(vis[0]), float(vis[1])],
-                "note": str(d.get("note") or "")})
-    ctx._calib_obs = obs
-    return ok({"observations": obs, "n": len(obs)})
-
-
-async def _arena_obs_get(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    return ok({"observations": getattr(ctx, "_calib_obs", [])})
-
-
-async def _arena_solve(request: web.Request) -> web.Response:
-    """穷举 4 种 flip 组合，挑残差最小的那种（§7.4 Step 3）。"""
-    ctx = request.app["ctx"]
-    d = await body_json(request)
-    raw = d.get("observations") or getattr(ctx, "_calib_obs", [])
-    if not raw:
-        raise ApiError(400, "无观测点：至少需要 2 个")
-    obs = [CalibObservation(fw_xy=(int(o["fw_xy"][0]), int(o["fw_xy"][1])),
-                            vis_xy=(float(o["vis_xy"][0]), float(o["vis_xy"][1])))
-           for o in raw]
-    sol = solve_flips(obs, grid=ctx.arena.grid)
-    if d.get("apply") and sol["confident"]:
-        b = sol["best"]
-        ctx.save_arena(y_flip=b["y_flip"], x_flip=b["x_flip"],
-                       marker_offset_mm=list(ctx.arena.fw_to_arena.marker_offset_mm),
-                       theta_offset_deg=ctx.arena.fw_to_arena.theta_offset_deg,
-                       camera_height_mm=ctx.arena.camera_height_mm,
-                       nadir_xy=list(ctx.arena.nadir_xy), calibrated=True,
-                       note=f"由 {sol['n_points']} 个观测点解出，margin={sol['margin_cells']} 格")
-        sol["applied"] = True
-    elif d.get("apply"):
-        sol["applied"] = False
-        sol["apply_refused"] = "区分度不足，拒绝落盘（落错不报错，只会导致整图镜像）"
-    return ok(sol)
-
-
-async def _arena_calibrate(request: web.Request) -> web.Response:
-    """直接落盘一组标定值（界面上的向导表单提交到这里）。"""
-    ctx = request.app["ctx"]
-    d = await body_json(request, required=True)
-    need = ("y_flip", "x_flip")
-    if not all(k in d for k in need):
-        raise ApiError(400, f"至少要给 {need}（其余可选）")
-    res = ctx.save_arena(
-        y_flip=bool(d["y_flip"]), x_flip=bool(d["x_flip"]),
-        marker_offset_mm=list(d.get("marker_offset_mm")
-                              or ctx.arena.fw_to_arena.marker_offset_mm),
-        theta_offset_deg=float(d.get("theta_offset_deg",
-                                     ctx.arena.fw_to_arena.theta_offset_deg)),
-        camera_height_mm=_f(d, "camera_height_mm"),
-        nadir_xy=d.get("nadir_xy"),
-        calibrated=bool(d.get("calibrated", True)),
-        note=str(d.get("note") or ""))
-    return ok(res)

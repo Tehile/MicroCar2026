@@ -1,7 +1,7 @@
-/* ⑥ 实验 —— 电机实验（`mc.lab`）+ 台面算参（2.4.0 起走 `host.api.calc` 纯函数）。
+/* ⑤ 实验 —— 电机实验（`mc.lab`）+ 台面算参（2.4.0 起走 `host.api.calc` 纯函数）。
  *
  * 这是「小车 · 测试发车」里的**台面实验**那一半：标定位、调参、算系数都在这里做，
- * 和 ⑤ 发车（场地上真的跑）是两套流程，所以分开两页。
+ * 和 ④ 发车（场地上真的跑）是两套流程，所以分开两页。
  *
  * ## ⚠️ 上游 2.4.0 把"课程调参实验"整层删了
  * `lesson_lab.c`(751 行) + `host/api/lesson.py`(865 行) + 命令 `lesson.start/stop/status`
@@ -28,7 +28,7 @@ C.views.exp = (function () {
   function mount(host) {
     el = host;
     el.innerHTML = `
-      <h2>⑥ 实验</h2>
+      <h2>⑤ 实验</h2>
 
       <div class="pane">
         <h4>前置状态

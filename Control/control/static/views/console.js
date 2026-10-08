@@ -1,4 +1,4 @@
-/* ⑧ 调试台 —— 设备文本流 + 原始命令逃生舱 + 服务日志尾。 */
+/* ⑦ 调试台 —— 设备文本流 + 原始命令逃生舱 + 服务日志尾。 */
 
 C.views.console = (function () {
   let el, device, service, hist = [], hi = -1;
@@ -6,7 +6,7 @@ C.views.console = (function () {
   function mount(host) {
     el = host;
     el.innerHTML = `
-      <h2>⑧ 调试台</h2>
+      <h2>⑦ 调试台</h2>
       <div class="grid2">
         <div class="pane">
           <h4>设备文本流 · printf

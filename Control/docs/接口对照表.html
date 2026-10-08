@@ -83,7 +83,7 @@ li{margin:.28em 0}
 <li><a href="#2-b">2. 相机（模块 B）</a></li>
 <li><a href="#3-c">3. 定位（模块 C）</a></li>
 <li><a href="#4">4. 统一会话 / 时间轴</a></li>
-<li><a href="#5">5. 场地标定</a></li>
+<li><a href="#5-flip-configyaml">5. 场地（改版十七：标定端点已删除，flip 值改 config.yaml 静态配置）</a></li>
 <li><a href="#6-websocket">6. WebSocket</a></li>
 <li><a href="#7">7. 明确不映射到上游的端点（本层自研）</a></li>
 <li><a href="#8">8. 校验</a></li>
@@ -299,18 +299,6 @@ li{margin:.28em 0}
 <td>A</td>
 <td><code>MoveAPI.forward</code>、<code>MoveAPI.rotate</code>、<code>MoveAPI.servo</code></td>
 <td></td>
-</tr>
-<tr>
-<td><code>POST /api/v1/mouse/calib/report</code></td>
-<td>A</td>
-<td><code>CalibAPI.report</code></td>
-<td>⚠️ 这条路由必须<strong>先于</strong> <code>{item}</code> 注册，否则会被它吞掉</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/mouse/calib/{item}</code></td>
-<td>A</td>
-<td><code>CalibAPI.gyro</code>、<code>CalibAPI.wall_distance</code>、<code>CalibAPI.ir_data</code>、<code>CalibAPI.angle</code>、<code>CalibAPI.track</code>、<code>CalibAPI.step</code></td>
-<td angle_="angle," gyro_="gyro," ir_95_data_="ir_data," step="step" track_="track," wall_95_distance_="wall_distance,">item ∈</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/mouse/tare</code></td>
@@ -1078,7 +1066,7 @@ li{margin:.28em 0}
 </tr>
 </tbody>
 </table>
-<h2 id="5">5. 场地标定</h2>
+<h2 id="5-flip-configyaml">5. 场地（<strong>改版十七：标定端点已删除</strong>，flip 值改 <code>config.yaml</code> 静态配置）</h2>
 <table>
 <thead>
 <tr>
@@ -1093,34 +1081,14 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/arena</code></td>
 <td>A</td>
 <td><code>MazeAPI.position</code></td>
-<td>归一化场地 + 固件当前位置 + 最近一次定位</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/arena/observations</code></td>
-<td>A</td>
-<td><code>MazeAPI.position</code></td>
-<td>记一次"此刻鼠在哪个已知格"的观测</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/arena/observations</code></td>
-<td>—</td>
-<td>—</td>
-<td>读回已记的观测</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/arena/solve</code></td>
-<td>—</td>
-<td>—</td>
-<td>穷举 4 种 flip，只在 margin &gt; 15% 场宽时才敢下结论</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/arena/calibrate</code></td>
-<td>—</td>
-<td>—</td>
-<td>手工写死 flip + 天底点 + 相机高度</td>
+<td>归一化场地 + 固件当前位置 + 最近一次定位 + Δpos 残差</td>
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p>已删除：<code>POST /api/v1/arena/observations</code>、<code>GET /api/v1/arena/observations</code>、
+<code>POST /api/v1/arena/solve</code>、<code>POST /api/v1/arena/calibrate</code>（自动标定整块下线）。</p>
+</blockquote>
 <h2 id="6-websocket">6. WebSocket</h2>
 <table>
 <thead>

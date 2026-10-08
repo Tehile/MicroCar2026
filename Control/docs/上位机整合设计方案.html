@@ -127,7 +127,7 @@ li{margin:.28em 0}
 <li><a href="#71-configyaml">7.1 config.yaml</a></li>
 <li><a href="#72">7.2 上游导入方式（不复制代码）</a></li>
 <li><a href="#73">7.3 线程与异步模型</a></li>
-<li><a href="#74">7.4 场地标定流程（一次性，交互式）</a></li>
+<li><a href="#74">7.4 场地标定（改版十七已删除：不再需要自动标定）</a></li>
 </ul>
 </li>
 <li><a href="#8">8. 现场操作流（一键化）</a><ul>
@@ -157,6 +157,7 @@ li{margin:.28em 0}
 <li><a href="#1117">11.17 无记忆走迷宫的五个现场小改（改版十四）</a></li>
 <li><a href="#1118">11.18 底栏信息集成栏 + 界面文字纪律收紧（改版十五）</a></li>
 <li><a href="#1119-250-24-41">11.19 上游 2.5.0：参数表 24 → 41（+「运动控制」组）与说明列上界面（改版十六）</a></li>
+<li><a href="#1120">11.20 删除「标定例程」整块（改版十七）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -495,6 +496,15 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 <p><strong>③ 判据 I16 改为与上游现算比对</strong>（组名/项数/id/页/通道逐项对 + desc 纪律断言），
 不再写死 24 项三组 —— 上游 2.4.0 就把 38 改 24 红过一次，这条不再写死（铁律同 I22）。
 版本锚：<code>API_VERSION</code> 2.5.0 / <code>PONG 6 217 7 1024</code> / TX 环 1024。细节见 §11.19。</p>
+<p><strong>改版记录 2026-10-08（十七）</strong>：<strong>删除「标定例程」整块</strong>（用户：现已不再需要自动标定）。
+① 「实时状态与参数设定」里的标定区块（<code>mod_calib.js</code>）与综合运动台的「④ 标定」页
+（<code>calib.js</code>）下线；② 后端 6 条标定端点（<code>/api/v1/mouse/calib/*</code> 两条 +
+<code>/api/v1/arena/{observations,solve,calibrate}</code> 四条）删除；③ <code>arena.py</code> 的
+<code>solve_flips</code>/<code>CalibObservation</code> 与 <code>ctx.save_arena</code> 删除——场地 flip 值改为
+<code>config.yaml</code> 静态配置，不再现场自动求解。删后页签<strong>重排</strong>（④ 标定删 → 发车 ⑤→④、
+实验 ⑥→⑤、波形 ⑦→⑥、调试台 ⑧→⑦、数据 ⑨→⑧），<code>EXPECTED_VIEWS</code> 9 → 8。
+① 场地页的坐标系换算与"坐标未标定"水印<strong>保留</strong>（定位基础，非标定例程）。判据 I8 删除。
+细节见 §11.20。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -556,7 +566,7 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
         │「综合运动台」进去后 = 原有的两栏并排
         ▼
 ┌─ 场地 · 相机 ────── ① 场地   ② 采集                        ← 左栏
-├─ 小车 · 控制 ────── ③ 参数  ④ 标定  ⑤ 发车  ⑥ 实验  ⑦ 波形  ⑧ 调试台   ← 右栏
+├─ 小车 · 控制 ────── ③ 参数  ④ 发车  ⑤ 实验  ⑥ 波形  ⑦ 调试台   ← 右栏
 └─ 整合（可收纳）──── 准备清单 · 会话 · ⑨ 数据                ← 底栏
 </code></pre>
 <p><strong>布局四条硬规则</strong>：</p>
@@ -1405,7 +1415,7 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 <h3 id="31">3.1 总图</h3>
 <pre><code>┌──────────────────────────── 浏览器（唯一 UI）─────────────────────────────┐
 │  单页应用 · 原生 JS + Canvas · 无构建步骤                                  │
-│  ①场地 ②波形 ③参数 ④标定 ⑤采集 ⑥数据 ⑦调试台                            │
+│  ①场地 ②波形 ③参数 ⑤采集 ⑥数据 ⑦调试台                              │
 └───────────────────────────────┬──────────────────────────────────────────┘
                                 │ HTTP REST + WS（JSON 事件 + 二进制数组帧）
 ┌───────────────────────────────┴──────────────────────────────────────────┐
@@ -1847,11 +1857,6 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 </tr>
 <tr>
 <td>POST</td>
-<td><code>/api/v1/mouse/calib/{item}</code></td>
-<td><code>mc.calib.*</code>（<code>gyro</code>/<code>track</code>/<code>angle</code>/<code>wall_distance</code>/<code>ir_data</code>/<code>step</code>）—— 2.0.0 起 <code>CAL</code> 是<strong>请求-响应</strong>（超时 10 s、<code>no_retry</code>）</td>
-</tr>
-<tr>
-<td>POST</td>
 <td><code>/api/v1/mouse/tare｜stop｜estop</code></td>
 <td>对应<strong>登记名</strong>（<code>tare</code> / <code>stop</code> / <code>estop</code>，线上文本 <code>TARE</code> / <code>STOP</code> / <code>ESTOP</code>）。⚠️ 这三个曾经因为<strong>把线上文本当登记名</strong>而一直是 404，见 §11.12</td>
 </tr>
@@ -1867,6 +1872,9 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 <code>/api/v1/mouse/snap</code>、<code>/api/v1/mouse/scope/{start|stop|fetch|last}</code>、
 <code>/api/v1/mouse/maze/events</code>（GET + POST）、<code>/api/v1/mouse/maze/snap</code>。
 判据 <strong>I22</strong> 会把"它们真的 404"与"新端点真的在答"两头一起验（负向验证）。</p>
+<p><strong>改版十七删除的标定端点（不再需要自动标定）</strong>：<code>/api/v1/mouse/calib/report</code>、
+<code>/api/v1/mouse/calib/{item}</code>、<code>/api/v1/arena/observations</code>（GET + POST）、
+<code>/api/v1/arena/solve</code>、<code>/api/v1/arena/calibrate</code>。场地 flip 值改 <code>config.yaml</code> 静态配置。</p>
 <p><strong>实验/课程两个旧参数的替代</strong>：<code>lab/run</code> 的 <code>fetch_log</code> → <strong><code>sample_hz</code></strong>；
 <code>lesson/run</code> 的 <code>fetch_log</code>/<code>realtime_hz</code> → <strong><code>capture</code> / <code>sample_hz</code></strong>。
 <code>POST /api/v1/lab/log</code> 保留但语义变为"<strong>按 50 Hz 采 2 s 最新快照</strong>"；
@@ -2076,11 +2084,6 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 <td><code>/api/v1/session/export?kind=zip｜csv｜jsonl</code></td>
 <td>导出</td>
 </tr>
-<tr>
-<td>POST</td>
-<td><code>/api/v1/arena/calibrate</code></td>
-<td>场地标定（§7.4），写回 <code>Control/config.yaml</code> 的 <code>arena</code> 段</td>
-</tr>
 </tbody>
 </table>
 <p><strong>WS <code>/ws</code></strong>（单一上行通道）</p>
@@ -2200,7 +2203,7 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 │   ↑ 四个标签都是**按钮**：点它开该设备的窗口（设参数 / 连接 / 看配对码）        │
 │                                          [开始记录] [停止] [急停] [WS]        │
 ├───────────────────────────────┬───────────────────────────────────────────────┤
-│ 场地 · 相机  ①场地 ②采集       │ 小车 · 控制 ③参数 ④标定 ⑤发车 ⑥实验 ⑦波形 ⑧调试台│
+│ 场地 · 相机  ①场地 ②采集       │ 小车 · 控制 ③参数 ④发车 ⑤实验 ⑥波形 ⑦调试台│
 │                               │ 快捷：开流 PING STOP TARE 拉墙图 清差分        │
 │                               │                                               │
 │   左栏视图（拍得到什么）        │   右栏视图（车会动的那一套）                    │
@@ -2269,7 +2272,7 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 两栏 + 底部整合栏。</p>
 </blockquote>
 <pre><code>┌─ 场地 · 相机 ────── ① 场地   ② 采集                      ← 左栏
-├─ 小车 · 控制 ────── ③ 参数  ④ 标定  ⑤ 发车  ⑥ 实验  ⑦ 波形  ⑧ 调试台   ← 右栏
+├─ 小车 · 控制 ────── ③ 参数  ④ 发车  ⑤ 实验  ⑥ 波形  ⑦ 调试台   ← 右栏
 └─ 整合（可收纳）──── 准备清单 · 会话 · ⑨ 数据              ← 底栏
 </code></pre>
 <p>三条切分理由：</p>
@@ -2322,14 +2325,7 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 - 写入默认带回读校验（<code>set(..., readback=True)</code>），界面显示"ACK + 回读值 + 是否一致"
 - <code>derive_speed</code> 开关（<code>TRACK*</code> 变更时自动派生 <code>SPEED*</code>，因为 <code>SPEED* ≡ TRACK*/100</code>）
 - <code>SAVE</code>（写 Flash，<strong>前自动 <code>backup()</code></strong>）/ <code>RESET</code>（擦参数页，<strong>提示"重启后生效"</strong>）</p>
-<p><strong>④ 标定（Calib）</strong> —— 6 项 + 相机/场地标定
-- 6 项物理系数：<code>GYRO</code>（静止 1.5 s）/ <code>WALLDIST</code>（平行贴左墙）/ <code>IRDATA</code>（4 个摆位）/ <code>GYRORATIO</code>+<code>ENCANGLE</code>（<strong>必须在迷宫角格</strong>，否则找不到两个相邻红外极小值）
-- <strong>本节新增的相机/场地标定</strong>（这三项没做完，场地页就是错的）：
-  1. <strong>相机高度</strong> <code>camera.parallax.camera_height_mm</code>（<strong>上游 <code>config.yaml</code> 里是 <code>null</code>，必填</strong>）—— 卷尺量镜头光心离地高度，±20% 精度即可
-  2. <strong>天底点</strong> <code>camera.parallax.nadir_xy</code>（相机正下方那块场地的归一化位置；<code>from_intrinsics: true</code> 且有内参时可自动求）
-  3. <strong>坐标系对齐</strong>：把鼠放在<strong>已知格</strong>，同时读固件 <code>posX/posY</code> 与视觉 <code>(x, y, theta)</code> ⇒ 解出 <code>y_flip</code> / <code>x_flip</code> / <code>marker_offset</code>
-- 每项都给"摆放说明 + 预期现象 + 结果"，沿用现有向导的形态；报告写进 <code>sessions/&lt;sid&gt;/mouse/calib/report.md</code></p>
-<p><strong>⑤ 发车（Depart）—— 时间同步 + 远程发车 + 链路完整性</strong>（新增，跟上游 1.4.0）</p>
+<p><strong>④ 发车（Depart）—— 时间同步 + 远程发车 + 链路完整性</strong>（新增，跟上游 1.4.0）</p>
 <p>这一页是「测试发车」那套系统的入口，它回答发车前的三个前置问题：</p>
 <ul>
 <li><strong>现在能不能发车</strong>：链路活不活、急停是否锁存、固件是哪一档</li>
@@ -2341,7 +2337,7 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 以及<strong>急停</strong>与<strong>解锁急停</strong>（锁存语义：不解锁就一切运动命令都被拒）。</p>
 <p><strong>为什么这三件事必须在同一个动作之前一起看</strong>：它们是同一次发车的前置条件。
 发车后再发现"时间没对上、还少了几帧"，那时已经无法补救了 —— 唯一能做的就是重跑。</p>
-<p><strong>⑥ 实验（Experiment）—— 电机实验 + 课程调参实验</strong>（新增，跟上游 1.2.0 / 1.3.0）</p>
+<p><strong>⑤ 实验（Experiment）—— 电机实验 + 课程调参实验</strong>（新增，跟上游 1.2.0 / 1.3.0）</p>
 <ul>
 <li><strong>电机实验（<code>mc.lab</code>）</strong>：<code>sp_l/sp_r/ms/ir_mm</code> + 双流（运动时实时流、停止后整块回传
   1kHz 日志）。停止原因由固件的<strong>双护栏</strong>决定（时间 + 红外），固件明细行 + <code>explain()</code></li>
@@ -2361,12 +2357,12 @@ bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 - 门控 <code>gate.status</code> 三态原样透出（<code>incomplete</code> <strong>不是</strong>通过）
 - 熔断状态显式命名（<code>aborted_no_space</code> → 显示为「空间不足熔断」），并说明<strong>回传不受影响</strong>
 - 配对：二维码（<code>qr_matrix</code> 前端自己画，或 <code>qr_png_b64</code>）+ 网址 + token。⚠️ <strong>这一页要看 token，别投屏</strong></p>
-<p><strong>⑨ 数据（Data）</strong>
+<p><strong>⑧ 数据（Data）</strong>
 - 统一时间轴（事件带 / 甘特）：三路事件按 <code>t_pc_ms</code> 排列，可缩放
 - 会话浏览器：列表 + 打开 + 导出（zip / CSV / JSONL）
 - 轨迹对比：在线（稀疏）vs 离线（全量）叠加，显式标注权威性
 - 无效帧分类计数（把 <code>reason</code> 做条形统计：<code>corner_markers_missing</code> / <code>target_marker_missing</code> / <code>square_check_failed</code> …）</p>
-<p><strong>⑧ 调试台（Console）</strong>
+<p><strong>⑦ 调试台（Console）</strong>
 - 设备文本流（<code>Event.TEXT</code>，含 printf）
 - <strong>原始命令逃生舱</strong>：<code>POST /mouse/raw</code> ⇒ <code>mc.send_raw(cmd, wait=True)</code>，直接显示 Result 与回读
 - Control 服务日志尾</p>
@@ -2595,28 +2591,18 @@ from hostlink import HostLink, HostLinkError
 所以断线日志<strong>只报这一次故障的第一条</strong>，之后按 <code>2→4→8→15 s</code> 退避并在第 15 次报一条心跳，
 恢复时再报一条。实测：改之前 20 s 内日志就被同一条 warn 刷了 10 条，800 行的日志环
 半小时内会被它填满、把真正的现场事件全挤出去 —— 对一个"靠日志排查"的工具来说等于没有日志。</p>
-<h3 id="74">7.4 场地标定流程（一次性，交互式）</h3>
-<pre><code>POST /api/v1/arena/calibrate
-  Step 1  量相机高度        用户输入 mm  → camera.parallax.camera_height_mm
-  Step 2  定天底点          两种方式：
-                            a) 用户输入归一化 (nx, ny)
-                            b) 有内参时 from_intrinsics: true 自动求
-  Step 3  坐标系对齐        ★ 关键一步
-          &quot;把鼠放到【左下角格】并让它的车头朝【+x 场地轴】&quot;
-          → 读固件 (posX, posY)
-          → 读视觉 (x, y, theta)
-          → 解 y_flip / x_flip / marker_offset / theta_offset
-  Step 4  验证              &quot;把鼠放到对角格&quot; → 检查预测与实际一致（残差 &lt; 1 格）
-  Step 5  落盘              arena.calibrated = true，写回 config.yaml
-</code></pre>
-<p><strong>为什么必须做成交互式</strong>：<code>y_flip</code> 与 <code>x_flip</code> 是<strong>布尔量，猜错就是整张图镜像</strong>，而它错了不会报任何错（图看着正常，只是左右反了）。用一次实测把它钉死，代价 2 分钟，收益是后面所有数据都不用返工。</p>
+<h3 id="74">7.4 场地标定（<strong>改版十七已删除</strong>：不再需要自动标定）</h3>
+<p>原先的交互式标定向导（量相机高度 → 定天底点 → 解 flip → 落盘）整块下线。
+现在 flip 值（<code>y_flip</code>/<code>x_flip</code>/<code>marker_offset_mm</code>/<code>theta_offset_deg</code>）与相机高度/天底点
+一律走 <code>Control/config.yaml</code> 的 <code>arena</code> 段（§2.3），由人<strong>静态配置</strong>；坐标系换算
+（<code>arena.py</code>）与"坐标未标定"水印保留。相机高度未填的影响见 U2 / R3。</p>
 <hr />
 <h2 id="8">8. 现场操作流（一键化）</h2>
 <h3 id="81">8.1 首次</h3>
 <pre><code class="language-bash">cd Control
 python tools/preflight.py                 # 三模块可 import？依赖齐？串口空闲？相机服务在跑？
 python app.py                             # 打开 http://127.0.0.1:8770
-# 界面内：① 连接鼠（或先连模拟器 TCP 5555 空跑一遍）  ② 连相机服务  ③ 做一次场地标定
+# 界面内：① 连接鼠（或先连模拟器 TCP 5555 空跑一遍）  ② 连相机服务  ③ 配好场地 flip（config.yaml）
 </code></pre>
 <h3 id="82">8.2 每次跑车</h3>
 <pre><code>1. 开相机服务：PhoneCamera/pc/start_service.cmd（或让 Control 代起）
@@ -2786,11 +2772,6 @@ python app.py                             # 打开 http://127.0.0.1:8770
 <td><strong>I7</strong></td>
 <td>赛后批量定位的 <code>results.jsonl</code> 行数 == 该会话交付帧数（<code>frames_verified_on_pc</code>）；<code>valid=false</code> 的帧<strong>也在</strong>（带 <code>reason</code>）</td>
 <td>反例：跳过无效帧 ⇒ FAIL</td>
-</tr>
-<tr>
-<td><strong>I8</strong></td>
-<td>坐标一致性：场地标定后，把鼠放到已知格，固件位置与视觉位置的<strong>格距残差 &lt; 0.3 格</strong></td>
-<td>反例：<code>y_flip</code> 反了（那台机器上残差会是整场量级）⇒ 必须判否</td>
 </tr>
 <tr>
 <td><strong>I9</strong></td>
@@ -5104,6 +5085,49 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 也能看到"这个参数会不会被改写"；完整覆写表在 §六，不复制进界面。</p>
 </blockquote>
 <hr />
+<h3 id="1120">11.20 删除「标定例程」整块（改版十七）</h3>
+<h4 id="_52">一、删了什么（边界）</h4>
+<p>用户两条诉求：①「实时状态与参数设定」去掉标定部分；②「标定例程的全部都去掉」。
+标定例程 = <strong>鼠侧五项</strong>（GYRO / 壁距 / 红外逐点 / 角度 / 里程 / 手工单步，<code>mc.calib</code>）
++ <strong>场地/相机几何标定</strong>（观测点 → 解 flip → 落盘相机高度/天底点）+ <strong>标定报告</strong>
+（<code>mouse/calib/report.md</code>）。这与「生产标定」参数组（id 1–7，参数表，<code>mc.params</code>）
+是<strong>两回事</strong>——后者保留。</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>删除</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前端</td>
+<td><code>views/calib.js</code>（综合运动台「④ 标定」页）+ <code>views/mod_calib.js</code>（<code>C.parts.calib</code> 区块）；<code>mod_params.js</code> 的 calib 挂载（mount/onHealth/activate/onMsg）；<code>index.html</code> 的 ④ 标定按钮 + 两个 script；<code>app.js</code> 的 <code>RAIL_OF</code>/<code>TABS</code>/<code>SYS_DEF</code> 描述</td>
+</tr>
+<tr>
+<td>后端</td>
+<td><code>routes.py</code> 六条端点（<code>/api/v1/mouse/calib/report</code>、<code>/api/v1/mouse/calib/{item}</code>、<code>/api/v1/arena/observations</code> GET/POST、<code>/api/v1/arena/solve</code>、<code>/api/v1/arena/calibrate</code>）+ 六个 handler + import；<code>ctx.save_arena</code> + <code>_y</code> 助手；<code>arena.py</code> 的 <code>solve_flips</code>/<code>CalibObservation</code>；<code>mouse.py</code> 的 <code>calib_items</code> caps 字段 + <code>Event.CALIB</code> 监听 + <code>calib</code> 事件分支；<code>ws.py</code> 的 <code>arena.changed</code> 订阅</td>
+</tr>
+<tr>
+<td>判据</td>
+<td><code>drill.py</code> I8（场地标定残差）；<code>browser_check.py</code> calib 探针 + B14g（<code>#c-addobs</code>）+ <code>#mc-*</code> id 清单项</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_53">二、保留了什么（边界外）</h4>
+<ul>
+<li><strong>① 场地页</strong>（<code>views/arena.js</code>）：坐标系换算（<code>arena.py</code> 的 <code>Arena</code>/<code>FwToArena</code>/
+  <code>cell_center</code>/<code>norm_to_px</code>/<code>residual_cells</code>）与"坐标未标定"水印——这是<strong>场地定位</strong>
+  的基础，不是标定例程。<code>GET /api/v1/arena</code> 保留（供场地页读配置 + Δpos 残差）。</li>
+<li><strong><code>config.yaml</code> 的 <code>arena</code> 段</strong>：flip 值改<strong>静态配置</strong>（<code>from_config</code> 照读），
+  不再有运行时落盘入口（<code>save_arena</code> 删除）。</li>
+<li><strong>时钟偏移标定</strong>（手机 vs PC 墙钟、同步脉冲 L1+）：时间同步，与标定例程无关。</li>
+</ul>
+<h4 id="_54">三、页签重排</h4>
+<p>删「④ 标定」后编号顺延：③ 参数 / <strong>④ 发车</strong> / <strong>⑤ 实验</strong> / <strong>⑥ 波形</strong> / <strong>⑦ 调试台</strong>，
+底栏 <strong>⑧ 数据</strong>。<code>EXPECTED_VIEWS</code> 9 → 8；<code>browser_check</code> 的 <code>TAB_MOUSE</code>、B14 判据标签、
+<code>depart/exp/scope/console/data.js</code> 的 h2 与头注释同步重排。</p>
+<hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>
 <thead>
@@ -5113,10 +5137,6 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><strong>I8</strong> 场地标定残差 &lt; 0.3 格</td>
-<td>需要真实场地 + 把鼠放到已知格</td>
-</tr>
 <tr>
 <td><strong>I11</strong> <code>complete=null</code> 的账本</td>
 <td>需要一个真手机 App 才会产出 <code>null</code>（服务端已给出 <code>_complete_meaning</code>）</td>
@@ -5241,7 +5261,7 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 </tr>
 <tr>
 <td>界面长什么样？</td>
-<td>浏览器单页，两栏九页：左栏 场地 / 采集；右栏 参数 / 标定 / 发车 / 实验 / 波形 / 调试台；底栏（可收纳）数据</td>
+<td>浏览器单页，两栏八页：左栏 场地 / 采集；右栏 参数 / 发车 / 实验 / 波形 / 调试台；底栏（可收纳）数据</td>
 </tr>
 <tr>
 <td>定位能多快？</td>

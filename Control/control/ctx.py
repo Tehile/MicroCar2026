@@ -264,7 +264,7 @@ class Ctx:
                 "state": ("手机偏移已标定 ±" + str(cl.get("uncertainty_ms")) + "ms"
                           if cl.get("calibrated") else "手机偏移未标定"),
                 "manual": "手机与电脑的墙钟偏移要标一次；设备时基在发车时对齐（TimeSync）",
-                "action": "④ 标定 · ⑤ 发车 ARM",
+                "action": "④ 发车 ARM",
                 "detail": "",
             },
         ]
@@ -606,59 +606,6 @@ class Ctx:
                         f"run={rid} src={src} out={out_dir}")
         return {"run_id": rid, "src": str(src), "out": out_dir}
 
-    # ------------------------------------------------------------ 场地标定落盘
-    def save_arena(self, *, y_flip: bool, x_flip: bool, marker_offset_mm: List[float],
-                   theta_offset_deg: float, camera_height_mm: Optional[float],
-                   nadir_xy: Optional[List[float]], calibrated: bool,
-                   note: str = "") -> dict:
-        """把场地标定写回 **Control 自己的** config.yaml（逐行改，保注释）。
-
-        ⚠️ **绝不写 `Auto Locate/config.yaml`**：那是上游仓库，改了 `git status` 就脏，
-        判据 I9 会判否。相机高度与天底点改成**运行时注入**（`apply_params`），
-        持久化放在我们自己的配置里。
-        """
-        self.arena.fw_to_arena.y_flip = bool(y_flip)
-        self.arena.fw_to_arena.x_flip = bool(x_flip)
-        self.arena.fw_to_arena.marker_offset_mm = (float(marker_offset_mm[0]),
-                                                   float(marker_offset_mm[1]))
-        self.arena.fw_to_arena.theta_offset_deg = float(theta_offset_deg)
-        self.arena.calibrated = bool(calibrated)
-        if camera_height_mm:
-            self.arena.camera_height_mm = float(camera_height_mm)
-        if nadir_xy:
-            self.arena.nadir_xy = (float(nadir_xy[0]), float(nadir_xy[1]))
-
-        vals = {
-            "arena.fw_to_arena.y_flip": _y(self.arena.fw_to_arena.y_flip),
-            "arena.fw_to_arena.x_flip": _y(self.arena.fw_to_arena.x_flip),
-            "arena.fw_to_arena.marker_offset_mm":
-                f"[{self.arena.fw_to_arena.marker_offset_mm[0]}, "
-                f"{self.arena.fw_to_arena.marker_offset_mm[1]}]",
-            "arena.calibrated": _y(self.arena.calibrated),
-            "arena.camera_height_mm": (f"{self.arena.camera_height_mm}"
-                                       if self.arena.camera_height_mm else "null"),
-            "arena.nadir_xy": f"[{self.arena.nadir_xy[0]}, {self.arena.nadir_xy[1]}]",
-        }
-        res = self.cfg.patch(vals)
-        # 相机高度/天底点**必须同时注入定位器**（运行时），否则标定了但不生效
-        injected: List[str] = []
-        if self.locator.available:
-            try:
-                self.locator.set_params({
-                    "camera.parallax.camera_height_mm": self.arena.camera_height_mm,
-                    "camera.parallax.nadir_xy": list(self.arena.nadir_xy),
-                })
-                injected = ["camera.parallax.camera_height_mm", "camera.parallax.nadir_xy"]
-            except LocatorError as e:
-                note = (note + f"\n注入定位器失败：{e}").strip()
-        self.store.mark("arena", "calibrate", "", f"y_flip={y_flip} x_flip={x_flip} "
-                                                  f"calibrated={calibrated} {note}")
-        self.bus.publish("arena.changed", self.arena.to_dict())
-        self.bus.log("info", f"场地标定已写回 config.yaml：{res}"
-                             f"（注入定位器：{injected or '无'}）")
-        return {"arena": self.arena.to_dict(), "patch": res, "injected": injected,
-                "note": note}
-
     def save_clock(self, offset_ms: Optional[float] = None, uncertainty_ms: Optional[float] = None,
                    source: Optional[str] = None) -> dict:
         if offset_ms is not None or uncertainty_ms is not None or source is not None:
@@ -681,7 +628,3 @@ def _safe(fn) -> Any:
         return fn()
     except (CameraError, LocatorError, MouseError) as e:
         return {"available": False, "error": str(e)}
-
-
-def _y(v: Any) -> str:
-    return "true" if v else "false"

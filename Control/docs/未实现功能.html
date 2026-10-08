@@ -122,8 +122,8 @@ li{margin:.28em 0}
 <tr>
 <td>小车控制</td>
 <td>校准例程</td>
-<td><strong>可用</strong></td>
-<td><code>POST /api/v1/mouse/calib/{item}</code>、<code>POST /api/v1/arena/*</code></td>
+<td><strong>已删除</strong>（改版十七）</td>
+<td>——（自动标定整块下线，flip 值改 <code>config.yaml</code> 静态配置）</td>
 </tr>
 <tr>
 <td>小车控制</td>
@@ -202,8 +202,8 @@ li{margin:.28em 0}
 <code>__all__</code> 未导出（上游明确"v1.x 接口保持冻结"）。消费它要单独 <code>import</code> 并把上游根目录
 加进 <code>sys.path</code>；<strong>不得</strong>把它并进包，也不得改它的源码。</p>
 <h3 id="22">2.2 综合运动（推迟）</h3>
-<p>用户已明确"综合的页面不急着完成"。它当前就是原有的<strong>两栏九页</strong>（①场地 ②采集 ③参数
-④标定 ⑤发车 ⑥实验 ⑦波形 ⑧调试台 ⑨数据），功能完整、继续可用；
+<p>用户已明确"综合的页面不急着完成"。它当前就是原有的<strong>两栏八页</strong>（①场地 ②采集 ③参数
+④发车 ⑤实验 ⑥波形 ⑦调试台 ⑧数据），功能完整、继续可用；
 将来若要按子系统重排，再单独决策。</p>
 <hr />
 <h2 id="3-2026-10-04">3. 与上游能力的对应（2026-10-04 核对）</h2>

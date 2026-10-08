@@ -1,4 +1,4 @@
-/* ⑨ 数据 —— 统一时间轴 / 会话浏览器 / 轨迹对比 / 无效帧统计 / 导出。
+/* ⑧ 数据 —— 统一时间轴 / 会话浏览器 / 轨迹对比 / 无效帧统计 / 导出。
    这一页存在的理由：**任何人拿到一个会话目录，都能按 t_pc_ms 把三路数据排到一条线上。** */
 
 C.views.data = (function () {
@@ -9,7 +9,7 @@ C.views.data = (function () {
   function mount(host) {
     el = host;
     el.innerHTML = `
-      <h2>⑨ 数据</h2>
+      <h2>⑧ 数据</h2>
       <div class="grid2">
         <div class="pane">
           <h4>会话浏览器

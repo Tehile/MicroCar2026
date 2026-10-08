@@ -88,11 +88,10 @@
     <nav class="rail-tabs" id="rail-mouse">
       <span class="rail-name">小车 · 控制</span>
       <button data-tab="params" class="on">③ 参数</button>
-      <button data-tab="calib">④ 标定</button>
-      <button data-tab="depart">⑤ 发车</button>
-      <button data-tab="exp">⑥ 实验</button>
-      <button data-tab="scope">⑦ 波形</button>
-      <button data-tab="console">⑧ 调试台</button>
+      <button data-tab="depart">④ 发车</button>
+      <button data-tab="exp">⑤ 实验</button>
+      <button data-tab="scope">⑥ 波形</button>
+      <button data-tab="console">⑦ 调试台</button>
     </nav>
     <div class="quickbar" id="quickbar">
       <span class="qb-name">快捷</span>
@@ -109,7 +108,7 @@
   </section>
     </div><!-- /#body -->
 
-<!-- 底部「整合」栏：**跨子系统共有的产物**才放这里（准备清单、会话、⑨数据）。
+<!-- 底部「整合」栏：**跨子系统共有的产物**才放这里（准备清单、会话、⑧数据）。
      收纳起来只留一行摘要 —— 平时它挡地方，收工时才需要它。 -->
 <section id="dock" class="off">
   <button id="dock-head">
@@ -266,7 +265,6 @@
 <script src="/static/views/arena.js"></script>
 <script src="/static/views/capture.js"></script>
 <script src="/static/views/params.js"></script>
-<script src="/static/views/calib.js"></script>
 <script src="/static/views/depart.js"></script>
 <script src="/static/views/exp.js"></script>
 <script src="/static/views/scope.js"></script>
@@ -275,7 +273,6 @@
 <!-- 子系统模块：每个是一个「可验证的最小实验」，各自 mount 到所属子系统的 ws 容器 -->
 <script src="/static/views/mod_params.js"></script>
 <script src="/static/views/mod_motion.js"></script>
-<script src="/static/views/mod_calib.js"></script>
 <script src="/static/views/mod_maze8.js"></script>
 <script src="/static/views/mod_race.js"></script>
 <script src="/static/views/mod_cam.js"></script>

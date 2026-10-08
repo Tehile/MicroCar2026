@@ -37,17 +37,17 @@ from control.store import _rmtree_quiet      # noqa: E402  「绝不抛异常」
 
 #: 界面的主区是**两级**：**入口页**只做导航（四个子系统各一组，组内是模块卡片），
 #: 点卡片**单开一个整屏模块界面**，点【← 返回】回入口。**没有选项卡**，也不开新标签。
-#: 「综合运动」进去后是**两栏 + 一个可收纳底栏**：左栏相机、右栏小车、底栏整合（⑨数据）。
+#: 「综合运动」进去后是**两栏 + 一个可收纳底栏**：左栏相机、右栏小车、底栏整合（⑧数据）。
 #: 下面这几张表必须与 index.html 的容器/按钮顺序、control/static/app.js 的 RAIL_OF
-#: 一致，并且 `len(TABS) + len(DOCK_VIEWS) == EXPECTED_VIEWS`（= 9，app.js 里那份）。
+#: 一致，并且 `len(TABS) + len(DOCK_VIEWS) == EXPECTED_VIEWS`（= 8，app.js 里那份）。
 #: 三处一起改，少改一处会当场报出来。
 #:
-#: ⚠️ 逐页断言打的是「综合运动」界面里的九页 —— 它们平时在 `display:none` 的
+#: ⚠️ 逐页断言打的是「综合运动」界面里的八页 —— 它们平时在 `display:none` 的
 #: `#ws-all` 里，**必须先 `C.openMod('all','@all')` 打开**（不可见元素的 `innerText`
 #: 是空字符串，不打开的话每条断言都会读到空）。
 SYS_TABS = ["mouse", "cam", "loc", "all"]    # 入口页分组（顺序 = app.js 的 SYS_DEF / index.html）
 TAB_CAM = ["arena", "capture"]
-TAB_MOUSE = ["params", "calib", "depart", "exp", "scope", "console"]
+TAB_MOUSE = ["params", "depart", "exp", "scope", "console"]
 TABS = TAB_CAM + TAB_MOUSE                   # 两栏 nav 里的按钮（顺序 = index.html）
 DOCK_VIEWS = ["data"]                        # 底部整合栏里的视图（没有按钮，展开即激活）
 RAIL_OF_PY = {t: "cam" for t in TAB_CAM}
@@ -57,7 +57,7 @@ RAIL_OF_PY.update({t: "dock" for t in DOCK_VIEWS})
 
 def tab_click_js(tab: str) -> str:
     """点开某一页 —— 两栏各自有自己的页签，所以要先按归属栏找到那个按钮。
-    底栏的 ⑨数据 没有按钮（它是"展开就激活"），走 `C.activate()`。"""
+    底栏的 ⑧数据 没有按钮（它是"展开就激活"），走 `C.activate()`。"""
     rail = RAIL_OF_PY[tab]
     if rail == "dock":
         return f"C.activate('{tab}')"
@@ -94,8 +94,6 @@ PAGE_PROBES = {
                "return {ok: (hasProd&&hasLes)||gated,"
                " note:(hasProd&&hasLes)?('分组都在，项数标记 '+n)"
                " :'未连鼠 ⇒ 已写明原因（没冒充空表）'};})()"),
-    "calib": ("(()=>{const t=document.querySelector('.view[data-tab=\\\"calib\\\"]').innerText||'';"
-              "return {ok: t.indexOf('flip')>=0||t.length>400, note:'标定向导 '+t.length+' 字'};})()"),
     # 发车页：时间同步面板 + 链路完整性面板都必须有行；
     # 未连鼠时本页会**早退**（时间同步要读设备的帧），那就要求它把原因写在 gatehint 里。
     "depart": ("(()=>{const s=document.querySelector('#d-sync'),"
@@ -148,19 +146,18 @@ PAGE_PROBES = {
 #: 这是一张**判据表**，不是待办清单 —— 以后新加一个"要连设备才能用"的按钮，
 #: 如果忘了在视图里门控它，这里就会红。所以宁可写全一点。
 GATE_CHECKS = [
-    ("B14a", "#d-arm", "mouse", "⑤ 发车（ARM）"),
-    ("B14b", "#d-maze", "mouse", "⑤ 远程发车跑迷宫"),
-    ("B14c", "#x-lab-run", "mouse", "⑥ 电机实验「跑一次」"),
+    ("B14a", "#d-arm", "mouse", "④ 发车（ARM）"),
+    ("B14b", "#d-maze", "mouse", "④ 远程发车跑迷宫"),
+    ("B14c", "#x-lab-run", "mouse", "⑤ 电机实验「跑一次」"),
     # ⚠️ B14d 在 2.4.0 上游上**判的是隐藏的按钮**（课程那栏被 `#x-lesson-body`
     # 整体收起）—— 但**没有删它**：本层是整合层，要能在 2.3.x 上游上跑，
     # 那时这个按钮是可见且需要门控的。`disabled` 检查对隐藏元素照样成立，
     # 所以它不假绿（真未门控时仍然会红）。
-    ("B14d", "#x-lesson-run", "mouse", "⑥ 课程实验「跑实验」（2.4.0 起该栏收起，仍守 2.3.x）"),
+    ("B14d", "#x-lesson-run", "mouse", "⑤ 课程实验「跑实验」（2.4.0 起该栏收起，仍守 2.3.x）"),
     # ⚠️ 原 B14e（`#s-dump`）**已删除**：2.0.0 起没有"拉 dump"这个动作（`SCOPE`/`DUMP`
     # 整套删除），门控一个不存在的按钮等于给自己留一条永远绿的空断言。
     ("B14f", "#p-reload", "mouse", "③ 读全部参数"),
-    ("B14g", "#c-addobs", "mouse", "④ 记一次观测"),
-    ("B14h", "#k-send", "mouse", "⑧ 发原始命令"),
+    ("B14h", "#k-send", "mouse", "⑦ 发原始命令"),
     ("B14i", "#cg-start", "camera", "② 采集 start"),
     ("B14j", "#cg-stop", "camera", "② 采集 stop"),
 ]
@@ -800,7 +797,7 @@ async def run(args) -> int:
                            {"width": args.width, "height": args.height,
                             "deviceScaleFactor": 1, "mobile": False})
 
-            head("2. 打开首页（P0 验收：四灯可点 + 两栏 + 九页）")
+            head("2. 打开首页（P0 验收：四灯可点 + 两栏 + 八页）")
             await cdp.call("Page.navigate", {"url": base + "/"})
             await asyncio.sleep(args.wait)
             title = await cdp.eval("document.title")
@@ -972,7 +969,7 @@ async def run(args) -> int:
                    f"深链 `#/loc/mod_maze` 直接落到「{deep.get('title')}」界面"
                    if b27_ok else f"**深链落不到目标界面**：{deep}")
 
-            # 逐页断言打的是「综合运动」界面里的九页：**先把那个界面打开** ——
+            # 逐页断言打的是「综合运动」界面里的八页：**先把那个界面打开** ——
             # 它在 `#ws-all` 里，入口页模式下是 `display:none`，而不可见元素的
             # `innerText` 是空字符串，不先打开，后面每一条都会读到空。
             allview = await cdp.eval(
@@ -988,7 +985,7 @@ async def run(args) -> int:
                       and allview.get("railViews") == want_views
                       and allview.get("hash") == "#/all/@all")
             record("B28", "PASS" if b28_ok else "FAIL",
-                   f"「综合运动」卡片打开了两栏九页界面（视图容器 {want_views} 个）"
+                   f"「综合运动」卡片打开了两栏八页界面（视图容器 {want_views} 个）"
                    if b28_ok else f"**综合运动界面打不开**：{allview}")
 
             # 三个**模块**（上游 1.5.0 组测发送 / 1.5.5 实验 8 状态机 / 2.4.0 比赛页）必须真的挂上并渲染出控件。
@@ -1005,11 +1002,11 @@ async def run(args) -> int:
                 # 两者读的东西变成了同一条统一帧）⇒ 这一页现在必须同时有
                 # **读数区**（`#mp-live` / `#mp-stream` / `#mp-fault`）与**参数表区**。
                 # 2.4.0（改版十二）：这一页改名「实时状态与参数设定」，并**并入了原
-                # 「运动控制」（#mm-*）与「校准例程」（#mc-*）两张卡的内容 ⇒ 那些 id
-                # 现在也必须在这一页里找得到（它们不再有自己的卡片，丢了没人报红）。
+                # 「运动控制」（#mm-*）卡的内容 ⇒ 那些 id 现在也必须在这一页里
+                # 找得到（它不再有自己的卡片，丢了没人报红）。
                 "mod_params": ["#mp-groups", "#mp-reload", "#mp-saves",
                                "#mp-live", "#mp-stream", "#mp-fault",
-                               "#mm-go", "#mm-estop", "#mc-items", "#mc-refresh"],
+                               "#mm-go", "#mm-estop"],
                 # 无记忆走迷宫（原「实验 8」）改成**三栏**（状态 / 重构 / 历程）
                 # + 记录与回放 ⇒ 断言跟着换：三栏的容器与关键 id 一个都不能少，
                 # 而且**记录/回放那几个控件也要在**（它们不在任何别的清单里，
