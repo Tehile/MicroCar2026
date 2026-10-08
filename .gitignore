@@ -1,2 +1,6 @@
 .workbuddy
 Object
+Control/records
+RemoteControl/host/sessions
+Control/sessions
+Control/.tmp/drill
