@@ -1,2 +1,7 @@
 .workbuddy
 Object
+Control/sessions
+Control/records
+Control/control
+*.pyc
+RemoteControl/host/sessions

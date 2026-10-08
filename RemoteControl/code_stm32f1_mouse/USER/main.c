@@ -12,7 +12,7 @@
 */
 
 #include "main.h"
-#define FLASHSAVE // 运行数据存入Flash
+// #define FLASHSAVE // 运行数据存入Flash
 TaskState taskSt; /* 初值由 TASK_Init 逐字段赋值 */
 
 u16 flashaddr = 0;
