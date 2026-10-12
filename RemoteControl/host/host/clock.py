@@ -10,7 +10,7 @@ NTP 回拨/跳变。对"实时波形窗口"这类只是显示时间轴的场景�
     now_monotonic()  任何"差值/时长/映射"计算
     now_wall_ms()    只有"给人看的时间戳"(文件名、CSV 里的可读时间)才用
 
-参见 `docs/数据收集与时间同步.md`。
+参见 `docs/算法详解.md` §3（时间同步）。
 """
 
 from __future__ import annotations

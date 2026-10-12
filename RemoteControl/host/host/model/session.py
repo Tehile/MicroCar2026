@@ -46,7 +46,7 @@ class Session:
 
         # t_host_ms 便于与外部记录对齐; 时间戳精度到毫秒
         # dev_ms  = "发车(ARM)以来毫秒", 由设备时基换算 —— 它**不受链路抖动影响**,
-        #           是做运动特性分析时真正该用的时间轴(见 docs/数据收集与时间同步.md)。
+        #           是做运动特性分析时真正该用的时间轴(见 docs/算法详解.md §3)。
         #           未发车时为空字符串。
         self._uni_w.writerow(["t_host_ms", "dev_ms", "seq"] + CHANNELS)
 

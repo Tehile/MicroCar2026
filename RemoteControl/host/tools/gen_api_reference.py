@@ -110,7 +110,9 @@ def build() -> str:
 
     L.append("## 3. 命令登记表（`registry.COMMANDS`）")
     L.append("")
-    L.append("新增功能只改这一张表。| name | 线上示例 | args | since | 说明 |")
+    L.append("新增功能只改这一张表。")
+    L.append("")
+    L.append("| name | 线上示例 | args | since | 说明 |")
     L.append("|---|---|---|---|---|")
     for name, spec in sorted(COMMANDS.items()):
         try:

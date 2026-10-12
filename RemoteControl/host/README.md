@@ -1,7 +1,7 @@
 # 电脑鼠蓝牙上位机（host）
 
 配套固件模块 `code_stm32f1_mouse/HARDWARE/link.c`。
-完整设计见 [`../docs/蓝牙上位机设计方案.md`](../docs/蓝牙上位机设计方案.md)。
+算法与设计见 [`../docs/算法详解.md`](../docs/算法详解.md)；线上字节定义见 [`../docs/通信协议规格.md`](../docs/通信协议规格.md)。
 
 ---
 
@@ -26,7 +26,7 @@ python run_host.py
 
 1. 与蓝牙 SPP 模块配对（Windows 会在“设备和打印机”里生成一个**传出** COM 口）
 2. 点“刷新”，下拉框里选带 `[蓝牙]` 标记的那个口
-3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 5 216 7 512 <rst>`
+3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 7 218 7 1024 <rst>`（远程档指纹）
 
 ### 标定 / 采集阶段：不起 GUI，直接看实时数据
 
@@ -46,7 +46,7 @@ python -m host.monitor replay://sessions/2026-09-27_0151   # 回放历史会话
 
 远程档值守态默认 `freemode=1`（电机不输出），只有收到 `MOVE *` / `MAZE RUN` 才会动。
 ⚠️ v2.4 起**不再有「电机绝不可能动」的档** —— 静态标定时请把轮子架离地面。
-详见 [`../docs/双档简化设计方案.md`](../docs/双档简化设计方案.md) §8。
+详见 [`../docs/通信协议规格.md`](../docs/通信协议规格.md) §0。
 
 ### 标定
 
@@ -58,9 +58,10 @@ python -m host.cli calib irdata   --target COM7    # 红外 8 值(4 个摆位逐
 python -m host.cli calib angle    --target COM7    # 角度系数(需电机，安全模式下会被拦下)
 ```
 
-> **安全模式只能做静态的三项**（GYRO / WALLDIST / IRDATA）。需要车动起来的
-> `angle` 与里程系数会被 `mc.motor_guard()` 直接拦下并说明原因，不会傻等 90 秒超时。
-> 能力边界与切换步骤见 [`../docs/安全测试模式与实时监视.md`](../docs/安全测试模式与实时监视.md) 第 3 节。
+> v2.4 起**不再有「电机绝不可能动」的安全档**（旧的 `MOUSE_TEST_NO_MOTOR` 已删除）：
+> `mc.motor_guard()` 仍在（它检查统一帧的 `motors_off` 位），但当前两档都不置该位，
+> 因此"静态三项"与"带电机标定"都由你自行把关 —— 带电机标定请把轮子架离地面。
+> 档位与能力边界见 [`../docs/通信协议规格.md`](../docs/通信协议规格.md) §0。
 
 ### 电机远程控制实验（轮子悬空，双流）
 
@@ -75,7 +76,7 @@ python -m host.motor_test COM7 --estop               # 一键急停(随时可用
 python -m host.cli estop --resume --target COM7      # 解急停/正常停车
 ```
 
-详见 [`../docs/电机远程控制与双流传输.md`](../docs/电机远程控制与双流传输.md)。
+详见 [`../docs/算法详解.md`](../docs/算法详解.md) §7（双护栏与急停锁存）。
 
 ### 数据收集与时间同步（远程发车 + 完整采集）
 
@@ -97,7 +98,7 @@ python -m host.datalog COM7 --no-maze            # 只采集, 不让它自己跑
 `mc.timesync` 用 **min-delay** 估偏移、最小二乘估**频差(ppm)**;
 上行序号(帧与事件**共用**一个 1 字节计数器)的间隙被用来做丢帧/丢事件检测(`mc.stats()['seq_lost']`)。
 
-详见 [`../docs/数据收集与时间同步.md`](../docs/数据收集与时间同步.md)。
+详见 [`../docs/算法详解.md`](../docs/算法详解.md) §3（时间同步）。
 
 #### ⚠️ 发车安全（2026-10-05 真机事故后的硬约束）
 
@@ -164,14 +165,14 @@ python -m host.cli maze stop --target COM7               # 收车(停车+复位�
 ```
 
 上位机 `mc.maze`（墙图拉取 + 状态复刻）；`monitor` 收到统一帧后自动多出一节迷宫面板。
-详见 [`../docs/迷宫状态机回传.md`](../docs/迷宫状态机回传.md)。
+详见 [`../docs/算法详解.md`](../docs/算法详解.md) §8（迷宫与状态复刻）。
 
 ### 自检与回归
 
 ```bash
 python selftest.py          # 协议断言(CRC/Q16.16/帧/自恢复/墙图/落盘)
 python selftest.py --e2e    # 额外拉起模拟器做端到端回归
-python contract_test.py     # 契约断言(登记表↔模拟器逐条对齐; 21 命令 / 2 帧 / 24 参数
+python contract_test.py     # 契约断言(登记表↔模拟器逐条对齐; 24 命令 / 2 帧 / 41 参数
                             #   + [S8]档位宏唯一性、[S9]Flash布局/注释闭合、[S2b]发车目标词)
 python maze_smoke.py        # 迷宫状态断言(路口分类/状态复刻/发车-收车-再发车)
 python motor_lab_smoke.py   # 电机远程控制断言(时间/红外护栏、急停锁存)
@@ -280,7 +281,7 @@ host/
 |---|---|
 | 顶栏 | 连接目标选择 / 状态 / **实测吞吐 vs 需求** / 统一帧计数 / 会话记录开关 |
 | 左栏 · 实时状态 | 转速、姿态与误差、坐标、红外/墙位、电源与安全模式位（大字读数） |
-| 右栏 · 统一帧查看 | 帧率与缓冲占用、最新一帧全部 39 通道、导出历史 CSV |
+| 右栏 · 统一帧查看 | 帧率与缓冲占用、最新一帧全部 49 通道、导出历史 CSV |
 | 右栏 · 迷宫 | 7x7 网格、已探索区域、墙、当前位置与朝向三角、探索轨迹 |
 | 右栏 · 标定向导 | 5 项，逐项给出摆放说明与结果 |
 | 右栏 · 参数 | 7 项标定参数，十进制与 Q16.16 互显；写入自动回读校验；SAVE 前自动备份旧值 |
@@ -297,7 +298,7 @@ sessions/2026-09-25_0132/
 ├── meta.json               会话元数据(时间、固件版本、实测吞吐、计数)
 ├── text.log                原始 printf 文本流 + 时间戳
 ├── events.log              上行事件行(STOPPED / ESTOP TRIP) + 时间戳
-├── stream_unified.csv      统一帧历史(t_host_ms, dev_ms, seq, 39 通道)
+├── stream_unified.csv      统一帧历史(t_host_ms, dev_ms, seq, 49 通道)
 ├── calib/report.md         标定报告
 ├── calib/params_before_*.csv  写 Flash 前的旧值备份
 └── raw.bin                 原始字节流 —— 协议改了也能用新解析器重跑全部历史数据
@@ -320,7 +321,9 @@ df.plot(x="t_host_ms", y=["speedL", "speedR", "gyroAngle", "pidErr"])
 若完全无回应，见设计文档 §11 的模块探测方法。
 
 **吞吐显示偏低**
-顶栏显示“实测/需求”。统一帧 53 B/帧，**由主机按需拉取**（`TELEM`，严格停等）。可达帧率 = 1/RTT，**真机实测约 4.4~6.5 Hz**（≈230 B/s 载荷）—— 瓶颈是蓝牙透传的转发延迟，不是串口带宽；速率档 `RATE` 已删除，也没有软件限速。
+顶栏显示“实测/需求”。统一帧 57 B/帧（49 B 载荷），**默认由主机按需拉取**（`TELEM`，严格停等）。可达帧率 = 1/RTT，**真机实测约 4.4~6.5 Hz**（≈230 B/s 载荷）—— 瓶颈是蓝牙透传的转发延迟，不是串口带宽。
+v2.6 起固件另支持**自时钟节拍**（`RATE FIX <hz>` 固定节拍压测 / `RATE PULL <n> <t_ms>` PC 主导的批量节拍 / `RATE OFF` 收尾），
+用来绕开单帧停等的 RTT 上限做 MTBF 压测与"事件触发式拉取"（速率档 `RATE` 曾在 v2.0 删除，v2.6 以节拍设置的形态回归）。
 
 **画面刷新慢**
 实时读数页刷新很快；若觉得卡，可关掉右侧『统一帧查看』里那张全通道大表格。
@@ -345,7 +348,7 @@ df.plot(x="t_host_ms", y=["speedL", "speedR", "gyroAngle", "pidErr"])
 | 统一帧长度 49B | `LINK_UNIFIED_LEN` | `codec.UNIFIED_LEN` |
 | 统一帧字段偏移 | `LINK_U_*` | `codec.U_*` |
 | 统一帧标志位 | `LINK_FLAG_*` | `codec.FLAG_*` |
-| 生产参数 id 1..7 + 22..38 | `LINK_P_*` | `commands.PARAM_IDS`（= `PRODUCTION_PARAM_IDS`） |
+| 生产参数 id 1..7 + 22..38 + 39..55（远程档；比赛档到 38） | `LINK_P_*` | `commands.PARAM_IDS`（= `PRODUCTION_PARAM_IDS`） |
 | 档位开关（唯一） | `MOUSE_REMOTE` | 不涉及（主机只看 `PONG` 的 proto/fw） |
 | 时间锚(ms8 同余还原) | 每条 `TELEM` 的 ACK 都带完整 u32 时基(每次刷新) | `store.set_anchor` / `mc.timesync` |
 | 角度基准往复 10 次 | `LINK_SRV_REPS` | `calib_wizard.SRV_REPS` |
