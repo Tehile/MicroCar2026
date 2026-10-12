@@ -5,3 +5,10 @@ RemoteControl/host/sessions
 Control/sessions
 Control/records
 .liuru
+
+# ---- RemoteControl/host: 测试产物(可复现, 不入库) ----
+# 逐帧/逐周期 CSV 与汇总文本是跑一次就产生的中间产物; 本体是 *.py 工具与 docs/。
+# 例外: requirements.txt 是依赖清单, 必须入库(已跟踪文件其实不受忽略影响, 这里写明意图)。
+RemoteControl/host/*.csv
+RemoteControl/host/*.txt
+!RemoteControl/host/requirements.txt
