@@ -197,6 +197,18 @@ static u8 linkMazeTarget; /* 本次发车目标(LINK_MAZE_BLIND / LINK_MAZE_RACE
                            *    LINK_MazeTarget() 读 —— 只在远程档存在。 */
 #endif
 
+#ifdef MOUSE_REMOTE
+/* ---- 速率族状态(v2.6) ----
+ * 全部只在 1ms 中断上下文(LINK_Tick / RATE 命令处理)里读写, 无并发问题。 */
+static u8 linkRateOn;     /* 1 = 自时钟遥测已开启(收到 RATE FIX / RATE PULL) */
+static u8 linkPullOn;     /* 1 = PULL 批量节拍模式(PC 指定 n 帧 / t ms 间隔) */
+static u8 linkPullCount;  /* 本批剩余待发帧数 */
+static u16 linkPullPeriod;/* 批内帧间隔(ms) */
+static u16 linkPullTimer; /* 距下一帧的倒计时(ms) */
+static u16 linkRateHzQ;   /* 固定节拍的目标帧率 F, Q8.8(Hz*256) */
+static u32 linkRateAcc;   /* 组帧节拍累加器(单位见 LINK_RATE_FRAME_UNIT) */
+#endif
+
 static s32 linkLastSeq;
 static u16 linkLastCrc;
 static u8 linkLastStatus[14];
@@ -1260,6 +1272,113 @@ static void link_SendUnified(void)
 
 	link_SendFrame(LINK_TYPE_UNIFIED, pl, LINK_UNIFIED_LEN);
 }
+
+#ifdef MOUSE_REMOTE
+/* -------------------------------  速率族: 节拍设置 / 自时钟  ------------------------------- */
+/**
+ * @brief  回到"未开自时钟"的静默态: 清 FIX / PULL 两种模式, 不再组帧
+ * @note   `RATE OFF` 与上电初始化时调用。之后遥测只由 `TELEM` 请求驱动(v2.5 行为)。
+ */
+static void link_RateStop(void)
+{
+	linkRateOn = 0u;
+	linkPullOn = 0u;
+	linkPullCount = 0u;
+	linkPullPeriod = 0u;
+	linkPullTimer = 0u;
+	linkRateHzQ = 0u;
+	linkRateAcc = 0u;
+}
+
+/**
+ * @brief  固定节拍压测: RATE FIX <hz>
+ * @param  hz 目标帧率(整数 Hz, 钳到 [LINK_RATE_FIX_HZ_MIN, LINK_RATE_FIX_HZ_MAX])
+ * @note   置固定模式后, link_RateService 以恒定 F 持续发帧, 直到 RATE OFF(停)
+ *         或新的 RATE PULL(切到批量节拍)为止。
+ *         用途: 以固定 FPS 作通信基准做连续通信/MTBF 压测。
+ */
+static void link_RateFixSet(s32 hz)
+{
+	if (hz < (s32)LINK_RATE_FIX_HZ_MIN)
+		hz = (s32)LINK_RATE_FIX_HZ_MIN;
+	if (hz > (s32)LINK_RATE_FIX_HZ_MAX)
+		hz = (s32)LINK_RATE_FIX_HZ_MAX;
+	linkRateHzQ = (u16)((u32)hz * 256u);
+	linkRateAcc = 0u;
+	linkPullOn = 0u; /* 与 PULL 模式互斥 */
+}
+
+/**
+ * @brief  PULL 批量节拍: `PULL <n> <t_ms>`
+ * @param  n   本批要发的帧数(钳到 [1, LINK_PULL_N_MAX])
+ * @param  tms 批内帧间隔 ms(钳到 [LINK_PULL_T_MS_MIN, LINK_PULL_T_MS_MAX])
+ * @note   置位后**立即发第一帧**(linkPullTimer = 0), 之后每 tms 发一帧, 共 n 帧;
+ *         发完静默等下一条 PULL。收到新 PULL 时本函数被再次调用
+ *         => 旧批次剩余帧**作废**(抢占, 不计入丢帧), 按新参数从头发。
+ *         这是"事件触发式拉取(周期 ≡ RTT)"的固件侧载体。
+ */
+static void link_PullSet(s32 n, s32 tms)
+{
+	if (n < 1)
+		n = 1;
+	if (n > (s32)LINK_PULL_N_MAX)
+		n = (s32)LINK_PULL_N_MAX;
+	if (tms < (s32)LINK_PULL_T_MS_MIN)
+		tms = (s32)LINK_PULL_T_MS_MIN;
+	if (tms > (s32)LINK_PULL_T_MS_MAX)
+		tms = (s32)LINK_PULL_T_MS_MAX;
+
+	linkPullCount = (u8)n;
+	linkPullPeriod = (u16)tms;
+	linkPullTimer = 0u; /* 立即发第一帧 */
+	linkPullOn = 1u;    /* 与 RATE FIX 互斥 */
+}
+
+/**
+ * @brief  速率族的每 1ms 服务: 按 FIX / PULL 模式自时钟组帧
+ * @note   在 LINK_Tick(SysTick) 上下文运行, 与命令解析同上下文 ⇒ 无并发。
+ *         未开流(linkRateOn == 0)时为空操作 —— 遥测只由 `TELEM` 请求驱动。
+ *         **没有看门狗/静默停发**: 那属于已删除的 AIMD 自适应(v2.6-exp), 目的是
+ *         "PC 掉线时别灌死蓝牙模块"; 而现在两种模式都不会无界发包 —— PULL 发完
+ *         n 帧就静默等下一条命令, FIX 只在压测时用且由操作者显式 RATE OFF 收尾。
+ *         过载兜底仍由 link_SendFrame 负责(TX 环空间不足则整帧丢弃)。
+ */
+static void link_RateService(void)
+{
+	if (!linkRateOn)
+		return;
+
+	/* ---- PULL 批量节拍模式: 按 PC 指定的 n / t_ms 发帧, 不停发 ----
+	 * 发完 n 帧就静默等待下一条 PULL(不自动续), 这样"突发 + 静默"的占空比
+	 * 完全由上位机掌控; 打断语义 = 新 PULL 直接覆盖本批剩余。 */
+	if (linkPullOn)
+	{
+		if (linkPullCount == 0u)
+			return; /* 本批已发完: 静默等下一条 PULL */
+		if (linkPullTimer > 0u)
+		{
+			linkPullTimer--;
+			if (linkPullTimer > 0u)
+				return; /* 未到下一帧的时刻 */
+		}
+		link_SendUnified();
+		if (linkPullCount)
+			linkPullCount--;
+		linkPullTimer = linkPullPeriod;
+		return;
+	}
+
+	/* ---- 固定节拍(RATE FIX): 恒定 F 持续发帧 ----
+	 * 每 ms 累加 F(Q8.8), 满一帧就发 —— 1000ms 恰好走完 F 帧(见 LINK_RATE_FRAME_UNIT)。
+	 * 无看门狗、不降速、不停发: MTBF 压测要的正是"恒定负载"。 */
+	linkRateAcc += (u32)linkRateHzQ;
+	if (linkRateAcc >= LINK_RATE_FRAME_UNIT)
+	{
+		linkRateAcc -= LINK_RATE_FRAME_UNIT;
+		link_SendUnified();
+	}
+}
+#endif
 
 /*-------------------------------------  运动服务  -------------------------------------*/
 /**
@@ -2673,6 +2792,45 @@ static void link_HandleLine(char *buf, u8 len)
 		return;
 	}
 
+#ifdef MOUSE_REMOTE
+	/* ---- RATE: 自时钟节拍控制, **同样不参与幂等重放簿记** ----
+	 * 与 TELEM 同理: RATE 是**周期性**下发的(事件触发式拉取每周期一条), 一旦让它写
+	 * linkLastSeq/linkLastCrc, 就会把"上一条待重放的真实命令"(如 MOVE)冲掉,
+	 * 那条命令的 ACK 若丢失, 上位机按同 seq 重发时会被**重新执行** —— 真事故。
+	 * 故在这里提前拦截。命令词: OFF / FIX <hz> / PULL <n> <t_ms>。 */
+	if (seq >= 0 && strncmp(buf, "RATE", 4) == 0
+	    && (buf[4] == '\0' || buf[4] == ' '))
+	{
+		char *rp = buf + 4;
+		if (link_TokIs(&rp, "OFF"))
+		{
+			link_RateStop(); /* 关自时钟, 回到纯 TELEM 拉取 */
+			link_Ack(seq, "OK");
+			return;
+		}
+		/* FIX <hz>: 固定节拍压测(恒定 F, 不停发) —— 见 link_RateFixSet。 */
+		if (link_TokIs(&rp, "FIX"))
+		{
+			linkRateOn = 1;
+			link_RateFixSet(link_TokNum(&rp));
+			link_Ack(seq, "OK");
+			return;
+		}
+		/* PULL <n> <t_ms>: 批量节拍(发 n 帧、间隔 t ms、新 PULL 抢占) —— 见 link_PullSet。 */
+		if (link_TokIs(&rp, "PULL"))
+		{
+			s32 pn = link_TokNum(&rp);
+			s32 pt = link_TokNum(&rp);
+			linkRateOn = 1;
+			link_PullSet(pn, pt);
+			link_Ack(seq, "OK");
+			return;
+		}
+		link_Ack(seq, "ERR_NAME");
+		return;
+	}
+#endif
+
 	/* ---- 幂等: 相同 seq 且相同 CRC -> 重放上次应答 ---- */
 	if (seq >= 0 && seq == linkLastSeq && crcRecv == linkLastCrc)
 	{
@@ -2697,6 +2855,10 @@ void LINK_Init(void)
 	linkTxInflight = 0;
 	linkTick = 0;
 	linkSeq = 0;
+#ifdef MOUSE_REMOTE
+	/* 速率族: 上电静默(未收到 RATE FIX / PULL 前不自时钟发帧)。 */
+	link_RateStop();
+#endif
 	/* v2.1 拉取模式: 固件**不再自时钟发帧**, 遥测一律由上位机的 `TELEM` 请求驱动。
 	 * 于是这里没有任何"开流"状态要初始化 —— 上电即静默, 且**永远静默到被请求为止**。
 	 * 为什么放弃自时钟(真机实测教训, 见设计方案 §6.1):
@@ -2864,7 +3026,10 @@ void LINK_Tick(void)
 	if (linkCal.active)
 		link_CalibService(linkCal.item, LINK_ACT_STEP);
 
-	/* 5. (v2.1 起不再有自时钟组帧 —— 遥测完全由上位机的 TELEM 请求驱动) */
+	/* 5. 速率族: 自时钟组帧(FIX / PULL 模式; 未开流时为空操作) */
+#ifdef MOUSE_REMOTE
+	link_RateService();
+#endif
 
 	/* 6. TX 搬运 */
 	link_TxDrain();

@@ -39,19 +39,38 @@
 
 /*---------------------------------------  D E F I N I T I O N  ---------------------------------------*/
 
+/* ================= 速率族命令(v2.6, 远程档常态) =================
+ * 目标: 提高遥测速率, 以捕获 6.5 Hz 停等拉取漏掉的关键帧。
+ * 做法: 固件**按 PC 指定的节拍自时钟发帧**, 由 `RATE` 命令族控制 ——
+ *         `RATE FIX <hz>`         固定节拍(MTBF 压测的通信基准)
+ *         `RATE PULL <n> <t_ms>`  PC 主导的批量节拍(发 n 帧、间隔 t ms、新 PULL 打断)
+ *         `RATE OFF`              关掉自时钟, 回到纯 `TELEM` 拉取
+ * ⚠️ **统一帧长度未变**(49B 载荷 / 57B 帧)。v2.6-exp 曾在帧尾追加 2B 目标帧率
+ *    供 AIMD 反馈读取, 而 AIMD 已被"事件触发式拉取(周期 ≡ RTT)"取代、该字段
+ *    零消费者, 故连同 AIMD 命令一并删除 —— 线上帧格式与 v2.5 完全一致,
+ *    只有命令集增加。
+ * ⚠️ 整段只在 MOUSE_REMOTE(远程档)下编译; 按键比赛档不含自时钟 ⇒ 比赛 hex 不变。 */
+
 /* ---- 协议版本(v2.5 起按档位取值) ----
  * ⚠️ 两档编译**同一份** link.c/link.h: 共享宏不门控必改比赛档产物。
  *     故 P_NUM/PROTO_VER/FW_VER 三个宏都按 MOUSE_REMOTE 取值 ——
  *     比赛档保持 v2.4 语义与**逐字节不变**的产物, 远程档承载新协议。 */
 #ifdef MOUSE_REMOTE
-#define LINK_PROTO_VER 6 /* v2.5: 参数表 24->41 项(课件 29 项中除速度表外全量入表, id 39-55)。
-                          *        表容量变化影响 GET ALL/SAVE 载荷 ⇒ 协议号进位, 旧上位机据此拒配。 */
-#define LINK_FW_VER 217  /* 2.17 —— v2.5.0: 参数表扩容(id 39-55) + IRTHRWALL 覆写恢复点同步。 */
+#define LINK_PROTO_VER 7 /* v2.6: 新增 `RATE` 命令族(FIX/PULL/OFF, 固件自时钟节拍)。
+                          *        **帧格式与参数表均未变**, 进位只因命令集变化
+                          *        (先例: v2.4 给 `MAZE RUN` 加动作词也进了协议号) ——
+                          *        旧上位机据此可判"板上是否支持 RATE 族"。 */
+#define LINK_FW_VER 218  /* 2.18 —— v2.6.0: RATE 族转正(自时钟节拍); AIMD 与帧尾 F 字段删除。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(基线 hex sha256 f0a5f863...)。 */
 #endif
 /* 历史版本记录:
+ *  218 = v2.6.0: `RATE` 命令族转正 —— 固件按 PC 指定节拍自时钟发帧, 作 MTBF 压测
+ *        (`RATE FIX`) 与"事件触发式拉取(周期 ≡ RTT, `RATE PULL`)"的载体。
+ *        **统一帧仍是 49B / 57B**: v2.6-exp 的帧尾 2B 目标帧率随 AIMD(ON/UP/KEEP/DOWN
+ *        + 看门狗)一并删除 —— 该字段唯一消费者是已废弃的 AIMD 反馈。
+ *  217 = v2.5.0: 参数表扩容(id 39-55) + IRTHRWALL 覆写恢复点同步。
  *  216 = v2.4.0: 档位开关由五档压成两档(见 USER/main.h)。
  *        · 远程档 `MOUSE_REMOTE`: 合并原 [2] 的远程运动、[3] 的参数读写、[4] 的远程发车与监视;
  *          去掉课程实验层(APP/lesson_lab.c 整层删除, 含 page116 与 LESSON 命令)。
@@ -59,7 +78,8 @@
  *        另: `LINK_P_NUM` 仍为 24(生产表未动), 但课程表(8-21)连同 page116 一并消失。
  *  215 = v2.3.0: 前墙拆"近端/远端"两档 + 比赛状态量回传。
  *  214 = v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。
- *  协议号: 5 = v2.4 `MAZE RUN` 可选目标词 BLIND|RACE; 4 = v2.3 统一帧 45->49B; 3 = v2.1 TELEM。 */
+ *  协议号: 7 = v2.6 RATE 命令族; 6 = v2.5 参数表 24->41; 5 = v2.4 `MAZE RUN` 可选
+ *          目标词 BLIND|RACE; 4 = v2.3 统一帧 45->49B; 3 = v2.1 TELEM。 */
 
 /* ---- 帧同步头与开销 ----
  * 布局: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(LEN) | CRC16(2,LE)
@@ -102,6 +122,10 @@
  *   ⚠️ `TELEM` **不参与幂等重放簿记**(既不查也不写 linkLastSeq) —— 它是持续流量,
  *   若参与就会把待重放的真实命令(如 MOVE/CAL)冲掉, 使重发变成重复执行。见 link.c。 */
 #define LINK_UNIFIED_LEN 49
+
+/* ---- 统一帧长度 ----
+ * v2.6 起就是 LINK_UNIFIED_LEN 这一个值: v2.6-exp 曾在帧尾追加 2B 目标帧率,
+ * 随 AIMD 一并删除后已无第二个长度。此处不再保留 LINK_UNIFIED_LEN_EXP 别名。 */
 
 /* 载荷偏移(与上位机 codec.UNIFIED_CHANNELS 逐字段对齐; 改动须同步) */
 #define LINK_U_MS8 0       /* u8     设备毫秒时基低 8 位        */
@@ -307,6 +331,36 @@
 #endif
 /* (39-55 的宿主变量 extern 与消费侧门控宏放 core.h/motor.h ——
  *  isr.c/motion.c/motor.c 的 include 链只达 core.h/motor.h, 不达本文件。) */
+
+/* ================= RATE 命令族常量(远程档) =================
+ * 固件按 PC 指定的节拍自时钟发帧。三种模式**互斥**, 共用 link_RateService:
+ *   FIX  —— 固定节拍: 自时钟按**恒定** F 持续发帧, 不看门狗、不降速、不停发,
+ *           直到 RATE OFF。用途: 以固定 FPS 为通信基准做连续通信 / MTBF 压测,
+ *           便于在不同环境下重复测试、比对断连时刻分布。
+ *   PULL —— PC 主导的批量节拍(见下), 事件触发式拉取(周期 ≡ RTT)的载体。
+ *   OFF  —— 关掉自时钟, 回到纯 `TELEM` 拉取(v2.5 行为)。
+ *
+ * 为什么不做 AIMD 自适应(v2.6-exp 的做法, 已删除): 那套"帧尾广播 F + PC 按实收
+ * 速率回 UP/KEEP/DOWN + 固件看门狗静默停发"是为**探索链路容量上限**服务的;
+ * 容量已量清(24~30 Hz 之间), 而实际主力是事件触发式拉取 —— 速率由 `t` 直接算出、
+ * 不需要任何反馈, 于是 ON/UP/KEEP/DOWN 与帧尾广播字段全部成为零消费者, 一并删除。 */
+#ifdef MOUSE_REMOTE
+#define LINK_RATE_FIX_HZ_MIN 1   /* RATE FIX 频率下限(整数 Hz) */
+#define LINK_RATE_FIX_HZ_MAX 30  /* RATE FIX 频率上限(整数 Hz) */
+/* ---- PULL 批量节拍模式(PC 主导的信用/节拍) ----
+ * `PULL <n> <t_ms>`: 单片机按 t_ms 间隔连续发 n 帧, 发完即静默等待下一条 PULL;
+ * 期间收到**新的 PULL** 立即打断, 按新参数重排(旧批次作废)。
+ * 用途: 让上位机直接指定"每次拉取发几帧、间隔多少", 从而
+ *   ① 批量摊薄命令/应答往返(RTT); ② 用 n 与 t 组合制造"突发+静默"工况,
+ *   检验给透传模块留空闲时间能否延长 MTBF; ③ 上位机按实收情况闭环调 t。
+ * 与 RATE FIX 互斥(置 PULL 即退出固定节拍, 反之亦然)。 */
+#define LINK_PULL_N_MAX 16     /* 每次拉取最多帧数 */
+#define LINK_PULL_T_MS_MIN 1   /* 批内帧间隔下限(ms) */
+#define LINK_PULL_T_MS_MAX 5000 /* 批内帧间隔上限(ms) */
+/* 组帧节拍累加器: 每 ms 累加 F(Q8.8), 满 1 帧(256*1000)就发一帧。
+ * 校验: 每 ms 加 F*256, 1000ms 共加 F*256000 => F 帧。 */
+#define LINK_RATE_FRAME_UNIT 256000u
+#endif
 
 /* 参数值域钳制(link_ParamApplyOne 用): 防止写进离谱值把判定打穿 */
 #define LINK_IR_THR_MAX 1000u /* 红外阈值上限 mm(>表长即等价关闭) */

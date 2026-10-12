@@ -85,8 +85,8 @@ def test_static() -> None:
     bad = check_frame_dispatch_is_table_driven(src)
     check("link.py 帧分派走 registry.FRAMES(无硬编码 decode_*)", not bad, "\n".join(bad))
 
-    # S4: 数量基线(与固件实际命令集一致: v2.4 = 21 条命令 / 2 种帧 / 24 参数)
-    check(f"COMMANDS 登记 {len(COMMANDS)} 条(基线 21)", len(COMMANDS) >= 21, str(len(COMMANDS)))
+    # S4: 数量基线(与固件实际命令集一致: v2.6 = 24 条命令 / 2 种帧 / 41 参数)
+    check(f"COMMANDS 登记 {len(COMMANDS)} 条(基线 24)", len(COMMANDS) >= 24, str(len(COMMANDS)))
     check(f"FRAMES 登记 {len(FRAMES)} 种(基线 2)", len(FRAMES) >= 2, str(len(FRAMES)))
     check(f"PARAM_IDS 登记 {len(PARAM_IDS)} 项(基线 24 = 固件 LINK_P_NUM)",
           len(PARAM_IDS) >= 24, str(len(PARAM_IDS)))
@@ -675,6 +675,9 @@ def test_commands_e2e(port: int) -> None:
             # maze.stop 收车并复位发车状态 —— 不加它的话设备会停在"探索中",
             # 而 maze.run 的 busy 判据正是"请求位或运行位"（v2.1 真机缺陷的落点）。
             "arm", "maze.run", "maze.stop",
+            # ---- 速率族(v2.6): 只设节拍, 每条都立刻 OFF 收尾, 免得干扰后续用例 ----
+            # hz 用最低档(见 _EXAMPLE_ARGS), PULL 只发 1 帧。
+            "rate.fix", "rate.off", "rate.pull", "rate.off",
             # ---- 救援: 整机软复位 ----
             # ⚠️ **必须放最后**: 它会把设备打回空闲(等效于重启), 之后的状态
             # 与前面所有用例的前提都不同。放在这里也顺带证明了它自己不会崩链路。
@@ -916,7 +919,8 @@ def test_params_e2e(port: int) -> None:
 # ---------------------------------------------------------------- 示例参数
 
 #: 示例实参 —— 键必须覆盖全部 `CommandSpec.args` 的并集。
-#: v2.0 命令集精简到 18 条后, 与旧帧相关的键(hz/cond/mask/dom/prof)全部删除;
+#: v2.0 命令集精简到 18 条后, 与旧帧相关的键(cond/mask/dom/prof)全部删除;
+#: v2.6 速率族又把 `hz` 带了回来(语义不同: 固定节拍的帧率)。
 #: 若漏删, `{k: _EXAMPLE_ARGS[k] for k in spec.args}` 会 KeyError 而立刻报红,
 #: 所以这里保留的每一项都是"真的还有命令在用"。
 _EXAMPLE_ARGS = {
@@ -937,6 +941,11 @@ _EXAMPLE_ARGS = {
     "ir_mm": 10,
     # ---- 迷宫发车目标(v2.4: `MAZE RUN [BLIND|RACE]`) ----
     "target": "RACE",
+    # ---- 速率族(v2.6) ----
+    # hz 取 1: 硬件用例里 `RATE FIX` 会**真的**开始连续发帧, 用最低档 + 紧跟 rate.off 收尾。
+    "hz": 1,
+    "n": 1,
+    "t_ms": 500,
 }
 
 

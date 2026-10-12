@@ -58,8 +58,8 @@ from ..protocol.codec import (
 )
 
 MAZETYPE = 7
-PROTO_VER = 6  # v2.5: 参数表 24->41 项(运动控制段 39-55 入表)
-FW_VER = 217  # v2.5.0
+PROTO_VER = 7  # v2.6: 新增 RATE 命令族(帧格式与参数表未变)
+FW_VER = 218  # v2.6.0
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {
@@ -303,6 +303,15 @@ class MouseSim:
         # (v2.1 起没有"开流"状态 —— 遥测完全由 TELEM 请求驱动, 见 handle_line)
         #: TELEM 的二进制帧旁路(与 map_reply 同构): 主循环会先发它再发文本 ACK。
         self.telem_reply: bytes | None = None
+        #: 速率族(v2.6)自时钟产生的待发帧(与 telem_reply 同构, 由服务循环搬走)。
+        self.rate_frames: List[bytes] = []
+        self.rate_on = False   # 收到 RATE FIX / RATE PULL 后为真
+        self.rate_fix_hz = 0   # RATE FIX 的目标帧率(整数 Hz)
+        self.rate_acc = 0      # 固定节拍的组帧累加器(Q8.8, 每 ms 加 hz*256)
+        self.pull_on = False   # PULL 批量节拍模式
+        self.pull_count = 0    # 本批剩余待发帧数
+        self.pull_period = 0   # 批内帧间隔(ms)
+        self.pull_timer = 0    # 距下一帧的倒计时(ms)
         self.tick = 0
         self.txbuf = 1024  # v2.5: 41 项参数的 GET ALL ≈ 700B, 512 已不够(与固件远程档同步)
 
@@ -420,8 +429,38 @@ class MouseSim:
         self._drive()
         self._update_ir()
         self._cal_tick()
+        self._rate_tick()
 
     # ---------------------------------------------------------- 运动驱动
+
+    def _rate_tick(self) -> None:
+        """速率族的每 1ms 服务 —— 与固件 `link_RateService` 同构。
+
+        未开流时为空操作。PULL 按 PC 给的 `n` / `t_ms` 连发后静默等下一条;
+        FIX 按恒定 F 连续发。v2.1 起"自时钟"只在 PC 显式下发 RATE FIX / PULL 之后
+        才存在(平时遥测仍完全由 TELEM 请求驱动)—— 这正是 MTBF 压测与事件触发式
+        拉取需要的那条路径, 因此这里不能省: 否则模拟器上无法验证 `rate.*` 三条
+        登记命令(契约要求"每个登记项都必须能被模拟器实际执行")。
+        """
+        if not self.rate_on:
+            return
+        if self.pull_on:
+            if self.pull_count <= 0:
+                return  # 本批已发完: 静默等下一条 PULL
+            if self.pull_timer > 0:
+                self.pull_timer -= 1
+                if self.pull_timer > 0:
+                    return
+            self.rate_frames.append(self._unified_frame())
+            self.up_seq = (self.up_seq + 1) & 0xFF
+            self.pull_count -= 1
+            self.pull_timer = self.pull_period
+            return
+        self.rate_acc += self.rate_fix_hz * 256
+        if self.rate_acc >= 256000:  # 满刻度 = 1 帧/ms(与固件 LINK_RATE_FRAME_UNIT 同口径)
+            self.rate_acc -= 256000
+            self.rate_frames.append(self._unified_frame())
+            self.up_seq = (self.up_seq + 1) & 0xFF
 
     def _drive(self) -> None:
         if self.move_mode == "FWD":
@@ -791,6 +830,12 @@ class MouseSim:
                 self.telem_reply = self._unified_frame()
                 self.up_seq = (self.up_seq + 1) & 0xFF
                 return [f"ACK {seq} OK {self.link_time_ms}\r\n".encode()]
+            # ---- RATE: 自时钟节拍控制, **同样不参与幂等重放簿记**(与固件一致) ----
+            # 事件触发式拉取每周期下发一条 RATE; 若让它写 last_seq/last_crc, 就会把
+            # 待重放的真实命令冲掉 —— 那条命令的 ACK 一丢, 上位机重发时不会被重放,
+            # 而是**重新执行**。
+            if seq >= 0 and (body_s == "RATE" or body_s.startswith("RATE ")):
+                return [r.encode() for r in self._exec(body_s, seq)]
             if seq >= 0 and seq == self.last_seq and crc_rx == self.last_crc:
                 return [f"ACK {seq} {self.last_status}\r\n".encode()]
             self.last_seq, self.last_crc = seq, crc_rx
@@ -1058,6 +1103,39 @@ class MouseSim:
             self.last_seq = -1  # 防止"重发同一条命令"命中缓存里的旧 ACK
             self._cal_start(item, phase)
             return []  # 不立刻回 ACK —— 采集完成由 _cal_tick / _drive 回
+        if c == "RATE":
+            # 速率族(v2.6): OFF / FIX <hz> / PULL <n> <t_ms>。与固件 link.c 的 RATE
+            # 分支逐词对齐; 三个子命令都只做"节拍设置", 实际发帧由 _rate_tick 完成。
+            sub = t[1].upper() if len(t) >= 2 else ""
+            if sub == "OFF":
+                self.rate_on = False
+                self.pull_on = False
+                self.pull_count = 0
+                self.rate_acc = 0
+                return [ack("OK")]
+            if sub == "FIX":
+                try:
+                    hz = int(float(t[2])) if len(t) >= 3 else 2
+                except ValueError:
+                    return [ack("ERR_VALUE")]
+                self.rate_fix_hz = max(1, min(30, hz))
+                self.rate_acc = 0
+                self.rate_on = True
+                self.pull_on = False
+                return [ack("OK")]
+            if sub == "PULL":
+                try:
+                    n = int(t[2]) if len(t) >= 3 else 1
+                    tms = int(t[3]) if len(t) >= 4 else 100
+                except ValueError:
+                    return [ack("ERR_VALUE")]
+                self.pull_count = max(1, min(16, n))
+                self.pull_period = max(1, min(5000, tms))
+                self.pull_timer = 0  # 立即发第一帧
+                self.rate_on = True
+                self.pull_on = True
+                return [ack("OK")]
+            return [ack("ERR_NAME")]
         return [ack("ERR_CMD")]
 
     def _halt(self) -> None:
@@ -1155,14 +1233,17 @@ class MouseSim:
                 if next_tick < now - 0.25:  # 落后太多则重新对齐, 避免追帧风暴
                     next_tick = now + 0.001
 
-            # 事件行在 1ms 节拍里产生, 由服务循环搬到 tx
+            # 事件行 / 自时钟统一帧都在 1ms 节拍里产生, 由服务循环搬到 tx
             with self.lock:
                 for ev in self.ev_out:
                     tx += (ev + "\r\n").encode()
                 self.ev_out.clear()
 
-                # (v2.1 起不再有"自时钟统一帧" —— 遥测完全由上位机的 TELEM 请求驱动,
-                #  见 handle_line 里的 TELEM 分支)
+                # (v2.6: 自时钟帧只在 PC 显式下发 RATE FIX / RATE PULL 后才产生;
+                #  平时的遥测仍完全由上位机的 TELEM 请求驱动 —— 见 handle_line 的 TELEM 分支)
+                for fr in self.rate_frames:
+                    tx += fr
+                self.rate_frames.clear()
 
             mr = self.map_reply
             if mr is not None:

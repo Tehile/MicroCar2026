@@ -21,7 +21,13 @@ v2.0(2026-10-05): 命令集由 41 条精简到 18 条, 帧由 9 种精简到 2 �
 v2.4: 删除课程调参实验整层 —— `lesson.start` / `lesson.stop` / `lesson.status`
     三条命令退出登记表(固件侧 `APP/lesson_lab.c` 已随课时层一并删除)。
     同时 `maze.run` 增加可选目标词 `BLIND|RACE`(默认 BLIND, 省略)。
-    现役命令 21 条。
+
+v2.6: 速率族转正 —— 固件按 PC 指定的节拍**自时钟**发帧, 登记 `rate.fix` /
+    `rate.pull` / `rate.off` 三条(均 no_retry: 周期性下发, 不能走幂等重放簿记,
+    与 `telem` 同理)。v2.0 删掉的旧 RATE 是"PC 报实收速率、固件调 F"的 AIMD
+    自适应; 现在这三条只是**节拍设置**, 反馈回路已挪到上位机自己闭环
+    (事件触发式拉取: 周期 ≡ RTT)。**统一帧长度未变**(49B 载荷 / 57B 帧)。
+    现役命令 24 条。
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.5.0"  # v2.5: 参数表扩容 24->41(运动控制段 39-55), proto 5->6 / fw 216->217
+API_VERSION = "2.6.0"  # v2.6: RATE 族转正(自时钟节拍), proto 6->7 / fw 217->218。帧格式未变
 
 
 # ---------------------------------------------------------------- 命令表
@@ -175,7 +181,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     ),
     # ---- 参数 ----
     "params.get": CommandSpec("params.get", lambda name: f"GET {name}", ("name",), note="回读单个参数(Q16.16)"),
-    "params.get_all": CommandSpec("params.get_all", lambda: "GET ALL", note="回读全部生产参数(24 项)"),
+    "params.get_all": CommandSpec("params.get_all", lambda: "GET ALL", note="回读全部生产参数(远程档 41 项)"),
     "params.setq": CommandSpec(
         "params.setq", lambda name, q: f"SETQ {name} {int(q)}", ("name", "q"),
         note="写精确 Q16.16 定点(推荐路径)",
@@ -225,12 +231,38 @@ COMMANDS: Dict[str, CommandSpec] = {
     "telem": CommandSpec(
         "telem", lambda: "TELEM", no_retry=True, timeout=3.0,
         note=(
-            "**拉取一帧遥测**: 回一帧统一帧(53B) + `ACK <seq> OK <upMs>`(带时间锚)。"
+            "**拉取一帧遥测**: 回一帧统一帧(49B 载荷/57B 帧) + `ACK <seq> OK <upMs>`(带时间锚)。"
             "v2.1 起遥测是**请求-响应**式的 —— 固件不再自时钟发送, 发多少帧完全由上位机决定。"
             "⚠️ 必须**一次只发一条**(严格停等): 固件每 1ms tick 只消费一行命令, 成串发必丢"
             "(实测回收率: 背靠背 2 条仅 50%)。上位机的 `api/stream.py` 已按停等实现，会自动调用它。"
             "不重发: 每次请求都必须真的产生一帧, 重发只会多要一帧。"
         ),
+    ),
+    # ---- 速率族(自时钟节拍, v2.6) ----
+    # 与 `telem` 同类: **周期性**下发, 一律 no_retry —— 重发只会多设一次节拍,
+    # 而且会让固件把"待重放的真实命令"冲掉(见 registry 头部 v2.6 说明)。
+    "rate.fix": CommandSpec(
+        "rate.fix", lambda hz: "RATE FIX %d" % int(hz), ("hz",), no_retry=True,
+        note=(
+            "**固定节拍压测**: 固件按恒定 hz(1..30) 自时钟持续发帧, 不看门狗、不降速、"
+            "不停发, 直到 `rate.off`(或改下 `rate.pull`)。用途: 以固定 FPS 为通信基准做"
+            "连续通信 / MTBF 压测, 便于跨环境比对断连时刻分布。"
+            "⚠️ 跑完**必须** `rate.off` 收尾, 否则帧会一直发。"
+        ),
+    ),
+    "rate.pull": CommandSpec(
+        "rate.pull", lambda n, t_ms: "RATE PULL %d %d" % (int(n), int(t_ms)),
+        ("n", "t_ms"), no_retry=True,
+        note=(
+            "**批量节拍(PC 主导)**: 固件按 t_ms 间隔连发 n 帧(立即发第一帧)后静默, "
+            "等下一条 `rate.pull`; 期间收到新的 PULL 立即打断重排(旧批次剩余帧作废, "
+            "**不计入丢帧**)。n ∈ [1,16], t_ms ∈ [1,5000]。"
+            "这是「事件触发式拉取(周期 ≡ RTT)」的载体 —— 上位机收到本周期第 1 帧就发下一条。"
+        ),
+    ),
+    "rate.off": CommandSpec(
+        "rate.off", lambda: "RATE OFF", no_retry=True,
+        note="关掉自时钟, 回到纯 `telem` 拉取(v2.5 行为)。压测/拉取收尾时下发。",
     ),
     # ---- 标定(请求-响应) ----
     "calib.cal": CommandSpec(
