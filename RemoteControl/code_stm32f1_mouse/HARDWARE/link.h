@@ -56,18 +56,25 @@
  *     故 P_NUM/PROTO_VER/FW_VER 三个宏都按 MOUSE_REMOTE 取值 ——
  *     比赛档保持 v2.4 语义与**逐字节不变**的产物, 远程档承载新协议。 */
 #ifdef MOUSE_REMOTE
-#define LINK_PROTO_VER 7 /* v2.6: 新增 `RATE` 命令族(FIX/PULL/OFF, 固件自时钟节拍)。
-                          *        **帧格式与参数表均未变**, 进位只因命令集变化
-                          *        (先例: v2.4 给 `MAZE RUN` 加动作词也进了协议号) ——
-                          *        旧上位机据此可判"板上是否支持 RATE 族"。 */
-#define LINK_FW_VER 219  /* 2.19 —— v2.6.1: 统一帧 flags 0x08 由"SCOPING(恒0)"改为
-                          * `LINK_FLAG_PULLF1`(批首帧标记), 供上位机读事实判批起点。
-                          * **帧格式与参数表仍未变**(49B/57B), 进位只因标志位语义变了。 */
+#define LINK_PROTO_VER 8 /* v2.7: `CAL` 家族扩展 —— 新增 6 个子命令(ERASEIR/IRSELF/
+                          *        SENSOR/IRCAP/BLOCK/ERASEALL), 把按键菜单 2/4/5/6/7/8
+                          *        项的能力远程化。**帧格式与参数表均未变**, 进位只因
+                          *        命令集变化(先例: v2.4 的 `MAZE RUN`、v2.6 的 RATE 族)。 */
+#define LINK_FW_VER 220  /* 2.20 —— v2.7: ① `CAL` 家族扩展(见 LINK_PROTO_VER 注释);
+                          *        ② 远程档等车循环轮询 BUTTON1, **短按即进按键菜单**
+                          *           (main.c 的 #ifdef MOUSE_REMOTE 段, 见该处注释)。
+                          *        **帧格式与参数表仍未变**(49B/57B/41 项)。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(基线 hex sha256 f0a5f863...)。 */
 #endif
 /* 历史版本记录:
+ *  220 = v2.7: `CAL` 家族扩展 + 远程档按键进菜单。新增子命令(均立即 ACK, 无采集等待):
+ *        `CAL ERASEIR`(擦红外标定页, 菜单 2) / `CAL IRSELF`(红外自检仅传感器段, 菜单 4) /
+ *        `CAL SENSOR`(传感器 4 行, 菜单 5) / `CAL IRCAP <1..4>`(红外 8 值分步标定,
+ *        菜单 6) / `CAL BLOCK`(块数据概览, 菜单 7, 墙图仍走 MAP DUMP) /
+ *        `CAL ERASEALL`(擦迷宫/路径 6 页, 菜单 8, **不休眠**否则远程失联)。
+ *        另: 远程档值守期间短按 BUTTON1 进 `MENU_Run()`(菜单 0/1 项返回后恢复值守态)。
  *  219 = v2.6.1: flags bit3(0x08) 由恒 0 的 SCOPING 改为 `LINK_FLAG_PULLF1` ——
  *        "本帧是收到 PULL 后发出的第一帧"。PULL 分支在组帧前置位、`link_SendUnified`
  *        消费后立刻清(只标一帧)。**帧长与参数表一字未改** ⇒ 旧上位机仍能解全部既有字段,
@@ -85,8 +92,8 @@
  *        另: `LINK_P_NUM` 仍为 24(生产表未动), 但课程表(8-21)连同 page116 一并消失。
  *  215 = v2.3.0: 前墙拆"近端/远端"两档 + 比赛状态量回传。
  *  214 = v2.2.1: `MCU RESET` **复位前先停车**(安全修正)。
- *  协议号: 7 = v2.6 RATE 命令族; 6 = v2.5 参数表 24->41; 5 = v2.4 `MAZE RUN` 可选
- *          目标词 BLIND|RACE; 4 = v2.3 统一帧 45->49B; 3 = v2.1 TELEM。 */
+ *  协议号: 8 = v2.7 CAL 家族扩展; 7 = v2.6 RATE 命令族; 6 = v2.5 参数表 24->41;
+ *          5 = v2.4 `MAZE RUN` 可选目标词 BLIND|RACE; 4 = v2.3 统一帧 45->49B; 3 = v2.1 TELEM。 */
 
 /* ---- 帧同步头与开销 ----
  * 布局: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(LEN) | CRC16(2,LE)
@@ -401,6 +408,32 @@
 #define LINK_CAL_IRDATA 3    /* 红外 8 值 -> 既有 page123 */
 #define LINK_CAL_GYRORATIO 4 /* 陀螺角度系数(以红外极值为物理基准) */
 #define LINK_CAL_ENCANGLE 5  /* 编码器角度系数(同一基准) */
+
+/* ---- v2.7: 按键菜单功能的远程化(仅远程档识别, 比赛档回 ERR_NAME) ----
+ * 动机: 远程档跳过 `MENU_Run()` 后, 原先靠按键菜单做的维护动作(擦红外标定/红外自检/
+ *       显示传感器/计算红外/看块数据/擦运行数据)就没有入口了。这里把它们挂到既有
+ *       `CAL` 命令上, **命名与语义沿用请求-响应模型**, 上位机零新概念。
+ * 实现约束(见 link.c `link_CalMenuRemote`):
+ *   1) 全部**立即 ACK** —— 没有"采完才回"的等待, 也不碰 linkCal 挂起机制;
+ *   2) 全部**不阻塞**(无 DELAY_Ms / 无 while 等按键) —— 命令执行在 SysTick 上下文,
+ *      阻塞会拖垮 1ms 节拍; 原菜单里"等按键确认"的步骤由上位机分条命令替代;
+ *   3) 擦除类**不加固件侧安全门** —— 确认弹窗由上位机做(registry precheck +
+ *      api/calib.py 的 confirm 参数), 与 `maze.run` 的低电闸同一思路。
+ * ⚠️ 这几个宏本身不生成代码, 故无需门控; 但**识别它们的 strcmp 分支**在
+ *     `link_CalItemToId` 里必须门控, 否则比赛档 hex 会变。 */
+#define LINK_CAL_ERASEIR 6  /* 擦除红外标定页(page123) —— 菜单 2 */
+#define LINK_CAL_IRSELF 7   /* 红外自检(**仅传感器段**) —— 菜单 4;
+                             *   原菜单后半段"前向开电机扫 FORWARDIRTEST"不远程化:
+                             *   远程已有 MOVE RUN 双护栏, 没必要复刻一套无护栏动作 */
+#define LINK_CAL_SENSOR 8   /* 显示传感器数据(固定 4 行) —— 菜单 5 */
+#define LINK_CAL_IRCAP 9    /* 红外 8 值**分步**标定, act = 步号 1..4 —— 菜单 6;
+                             *   每步采当前摆位下的传感器值, 第 4 步写 Flash */
+#define LINK_CAL_BLOCK 10   /* 块数据概览: Flash 重载 + 45/90 路径计数 + 红外 8 值
+                             *   —— 菜单 7; 墙图本身仍走 `MAP DUMP`(98B 帧) */
+#define LINK_CAL_ERASEALL 11 /* 擦除迷宫/路径 6 页(BLOCK/BLOCK_POINT/GOPATH/BACKPATH/
+                             *   GOPATH_90/BACKPATH_90) —— 菜单 8;
+                             *   ⚠️ **不休眠**: 原菜单 8 擦完进流水灯死循环, 远程档
+                             *      睡下去就失联了, 必须返回值守态 */
 
 /* ---- 移动/标定子状态 ---- */
 #define LINK_MOVE_NONE 0

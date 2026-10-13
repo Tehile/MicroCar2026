@@ -22,6 +22,14 @@ v2.0(2026-10-05) 交互模型变更
 (`ACK <seq> OK <a> <b> <c>`, 见固件 `link_AckI3`)。
 
 因为一次采集可能数秒, `CAL` 归入 `no_retry`(不重发), 上位机超时给到 10 s 以上。
+
+v2.7(2026-10-14) 按键菜单远程化
+-------------------------------
+固件 `CAL` 家族新增 6 个**立即 ACK** 的子命令(远程档等车循环也支持 BUTTON1
+短按进原菜单), 把按键菜单 2/4/5/6/7/8 的功能搬到链路上:
+`ERASEIR` / `IRSELF` / `SENSOR` / `IRCAP <1..4>` / `BLOCK` / `ERASEALL`。
+与旧五项"采完才 ACK"是两条不同的流, 语义/边界见下面各方法注释;
+擦除类(ERASEIR/ERASEALL)靠 `registry` precheck 要求 `confirm=True`。
 """
 
 from __future__ import annotations
@@ -36,7 +44,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 class CalibAPI:
-    """5 项标定。全部方法默认阻塞到设备 ACK(即采集完成)。"""
+    """5 项标定 + v2.7 的 6 个菜单远程化动作。
+
+    旧五项(gyro/wall_distance/ir_data/angle/track)默认阻塞到设备 ACK
+    (即采集完成); v2.7 六项(erase_ir/ir_self/sensor/ir_cap/block/erase_all)
+    是**立即 ACK** 的维护动作, 语义见各方法。"""
 
     #: 固件支持的标定项(与 `CAL <item>` 的 item 一致)
     ITEMS: Tuple[str, ...] = ("GYRO", "WALLDIST", "IRDATA", "GYRORATIO", "ENCANGLE")
@@ -140,6 +152,173 @@ class CalibAPI:
                 return Result(False, rs.status, {"collected": len(done), "at": name})
             done.append(i)
         return Result(True, "OK", {"item": "IRDATA", "points": len(done)})
+
+    # ------------------------------------------------------------ v2.7 菜单远程化
+
+    #: v2.7 由按键菜单远程化而来的子命令(与上面五项**不同流**: 全部**立即 ACK**,
+    #: 不等采集; 均仅远程档 MOUSE_REMOTE, 运动中/标定中一律 ERR_BUSY)
+    MENU_ITEMS: Tuple[str, ...] = (
+        "ERASEIR", "IRSELF", "SENSOR", "IRCAP", "BLOCK", "ERASEALL",
+    )
+
+    #: `CAL IRCAP` 的 4 个摆位(顺序必须与固件一致: 1 左近墙 / 2 左远墙 /
+    #: 3 前近墙 / 4 前远墙; 第 4 步顺带擦页写 8 个半字)
+    IRCAP_STEPS: Tuple[Tuple[str, str], ...] = (
+        ("左近墙", "车左侧贴墙, 车心到墙约 33mm"),
+        ("左远墙", "车左侧离墙约 94mm"),
+        ("前近墙", "车头距墙约 32mm"),
+        ("前远墙", "车头距墙约 213mm"),
+    )
+
+    def erase_ir(self, confirm: bool = False, timeout: float = 8.0) -> Result:
+        """擦除红外标定页(page123) —— 按键菜单 2 的远程化(`CAL ERASEIR`)。
+
+        ⚠️ **不可逆**: Flash 里的红外 8 值立即作废(内存中的 `irCalib` 与
+        `dataf1..datar` 查表要等下次上电 `CALIB_InitIr` 才重载; 页为空时
+        它回落到内置默认近/远电压)。固件侧**没有**二次确认, 所以上位机
+        要求显式 `confirm=True` —— 不传则登记表 precheck 直接拒绝, 返回
+        `NEED_CONFIRM`(此时应二次弹窗/询问用户, 再带 confirm=True 重调)。
+        """
+        r = self._mc.send_cmd(
+            "calib.cal", item="ERASEIR", act=None, confirm=bool(confirm),
+            timeout=clamp_timeout(timeout, 8.0),
+        )
+        return self._ok("ERASEIR", r)
+
+    def ir_self(self, timeout: float = 8.0) -> Result:
+        """红外自检(**仅传感器段**) —— 按键菜单 4 的远程化(`CAL IRSELF`)。
+
+        原菜单后半段"前向开电机扫 FORWARDIRTEST"**不远程化**: 远程已有
+        `MOVE RUN` 的双护栏(时间+红外), 没必要复刻一套无护栏开环动作。
+        ACK 附加字段 = `OK <l> <r> <ref>`(左右红外距离 / 车心到墙参考值),
+        解析后放在返回 data 的 `ir_l / ir_r / ref` 里。
+        """
+        r = self._mc.send_cmd(
+            "calib.cal", item="IRSELF", act=None, timeout=clamp_timeout(timeout, 8.0),
+        )
+        if not r.ok:
+            return r
+        nums = _ints(r.status)
+        data: Dict[str, Any] = {"item": "IRSELF", "status": r.status}
+        if len(nums) >= 3:
+            data.update(ir_l=nums[0], ir_r=nums[1], ref=nums[2])
+        return Result(True, "OK", data)
+
+    def sensor(self, timeout: float = 8.0) -> Result:
+        """显示传感器数据(固定 4 行) —— 按键菜单 5 的远程化(`CAL SENSOR`)。
+
+        原菜单靠按键切两屏(编码器/红外/陀螺); 远程一次给全, 固件 printf 打
+        4 行。⚠️ 这些值**不在 ACK 里**(只在串口日志), ACK 仅表示"已打印" ——
+        需要结构化取值请用统一遥测帧(`trackL/trackR`/红外/陀螺通道)。
+        """
+        r = self._mc.send_cmd(
+            "calib.cal", item="SENSOR", act=None, timeout=clamp_timeout(timeout, 8.0),
+        )
+        return self._ok("SENSOR", r)
+
+    def ir_cap(self, step: int, timeout: float = 12.0) -> Result:
+        """红外 8 值分步标定的第 `step` 步(1..4) —— 按键菜单 6 的远程化。
+
+        每一步即原来"按一下按键确认"的远程替代。两条固件规矩:
+
+        1. **必须从 1 开始顺序调**(每步摆位不同, 跳步会把数记到错位置);
+           第 1 步随时可重发(等于中止重标)。违规回 `ERR_VALUE`。
+        2. 第 1 步前 IRDATA 页必须为全 FF —— 已标定过就**先 `erase_ir()`**
+           (远程版新增的安全闸, 菜单 6 本身没有这条)。违规回 `ERR_BUSY`。
+
+        每步**立即 ACK**(不等采集), 附加字段 = `OK <a> <b> <step>`; 第 4 步
+        顺带擦页并按读序写 8 个半字, 序列随之复位。
+        """
+        s = int(step)
+        if s < 1 or s > 4:
+            return Result(False, "ERR_VALUE",
+                          {"item": "IRCAP", "step": s, "hint": "step 必须是 1..4"})
+        r = self._mc.send_cmd(
+            "calib.cal", item="IRCAP", act=s, timeout=clamp_timeout(timeout, 12.0),
+        )
+        if not r.ok:
+            return r
+        nums = _ints(r.status)
+        data: Dict[str, Any] = {"item": "IRCAP", "step": s, "status": r.status}
+        if len(nums) >= 3:
+            data.update(a=nums[0], b=nums[1], step_done=nums[2])
+        return Result(True, "OK", data)
+
+    def ir_cap_all(
+        self,
+        on_prompt: Optional[Callable[[int, str, str], bool]] = None,
+        erase_first: bool = False,
+        timeout_per_step: float = 12.0,
+    ) -> Result:
+        """4 步一次跑完(`ir_cap` 的顺序封装)。
+
+        `on_prompt(i, name, desc)` 在摆第 i 点前调用, 返回 False 即中止。
+        `erase_first=True` 时先发 `CAL ERASEIR`(**毁掉旧标定**, 与
+        "菜单 2 → 菜单 6"的手动流程一致); 默认 False —— 页非空时第 1 步会
+        回 `ERR_BUSY`, 此时应提示用户显式选择 `erase_first=True`。
+        """
+        mc = self._mc
+        mc._check_reentrancy("calib.ir_cap_all()")
+        if erase_first:
+            r = self.erase_ir(confirm=True)
+            if not r.ok:
+                return Result(False, r.status, {"item": "IRCAP", "at": "erase_ir",
+                                                "detail": r.data})
+        done: List[int] = []
+        for i, (name, desc) in enumerate(self.IRCAP_STEPS, 1):
+            if on_prompt is not None:
+                try:
+                    if not on_prompt(i - 1, name, desc):
+                        return Result(False, "ABORTED", {"collected": done})
+                except Exception:
+                    return Result(False, "PROMPT_ERROR", {"collected": done})
+            rs = self.ir_cap(i, timeout=timeout_per_step)
+            if not rs.ok:
+                return Result(False, rs.status, {"collected": done, "at": name})
+            done.append(i)
+        return Result(True, "OK", {"item": "IRCAP", "points": len(done)})
+
+    def block(self, timeout: float = 8.0) -> Result:
+        """块数据概览 —— 按键菜单 7 的远程化(`CAL BLOCK`)。
+
+        固件先把 Flash 里的墙图**重载进 `mazeState`** 再回 ACK: 随后发
+        `maze.dump`(`MAP DUMP`) 拿到的就是 Flash 里的图(否则是内存旧图)。
+        ACK 附加字段 = `OK <path45 总项数> <path90 总项数> <红外有效值个数(/8)>`
+        (去/回路径各数前 200 项里非 0xFFFF 的条数; 起终点与墙图本身只在
+        printf 行里, 结构化取墙图请走 `maze.dump`)。原菜单打印上千行,
+        远程只给概览 —— 这是与菜单 7 的有意差异。
+        """
+        r = self._mc.send_cmd(
+            "calib.cal", item="BLOCK", act=None, timeout=clamp_timeout(timeout, 8.0),
+        )
+        if not r.ok:
+            return r
+        nums = _ints(r.status)
+        data: Dict[str, Any] = {"item": "BLOCK", "status": r.status}
+        if len(nums) >= 3:
+            data.update(path45=nums[0], path90=nums[1], ir_valid=nums[2])
+        return Result(True, "OK", data)
+
+    def erase_all(self, confirm: bool = False, timeout: float = 12.0) -> Result:
+        """擦除迷宫/路径 6 页 —— 按键菜单 8 的远程化(`CAL ERASEALL`)。
+
+        擦 `BLOCK / BLOCK_POINT / GOPATH / BACKPATH / GOPATH_90 / BACKPATH_90`
+        6 页。与菜单 8 的两点**有意差异**:
+
+        1. 远程版擦完**返回值守、不休眠**(菜单 8 之后进流水灯死循环 ——
+           远程设备睡下去就失联了);
+        2. **不擦** page101-114 录制区(`FLASH_EraseRunData()` 的 13 页)——
+           那是历史采集数据, 要清请单独提需求。
+
+        6 页擦除约 120-240ms(SysTick 上下文, 与 `CAL GYRO` 落盘同量级),
+        只在车静止时用 —— 运动中/标定中固件回 `ERR_BUSY`。
+        ⚠️ 不可逆, 需显式 `confirm=True`(否则 precheck 返回 `NEED_CONFIRM`)。
+        """
+        r = self._mc.send_cmd(
+            "calib.cal", item="ERASEALL", act=None, confirm=bool(confirm),
+            timeout=clamp_timeout(timeout, 12.0),
+        )
+        return self._ok("ERASEALL", r)
 
     # ------------------------------------------------------------ 角度系数
 

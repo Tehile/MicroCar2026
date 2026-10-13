@@ -28,6 +28,12 @@ v2.6: 速率族转正 —— 固件按 PC 指定的节拍**自时钟**发帧, �
     自适应; 现在这三条只是**节拍设置**, 反馈回路已挪到上位机自己闭环
     (事件触发式拉取: 周期 ≡ RTT)。**统一帧长度未变**(49B 载荷 / 57B 帧)。
     现役命令 24 条。
+
+v2.7: 按键菜单远程化 —— 固件 `CAL` 家族新增 6 个**立即 ACK** 子命令
+    (`ERASEIR` / `IRSELF` / `SENSOR` / `IRCAP <1..4>` / `BLOCK` / `ERASEALL`,
+    与既有五项"采完才 ACK"不同流); 远程档等车循环新增 BUTTON1 短按进菜单。
+    命令文本仍是 `CAL <item> [act]`, 新子命令省略 act 词(IRCAP 的 act = 步号),
+    故 `_cal()` 的 act 允许 None。PROTO 7→8, fw 219→220。命令仍 24 条。
 """
 
 from __future__ import annotations
@@ -43,7 +49,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.6.1"  # v2.6.1: flags bit3 = PULLF1(批首帧标记), fw 218->219。帧格式/命令集未变
+API_VERSION = "2.7.0"  # v2.7: CAL 家族菜单远程化(6 个立即 ACK 子命令) + 远程档按键进菜单; PROTO 8 / fw 220
 
 
 # ---------------------------------------------------------------- 命令表
@@ -71,13 +77,23 @@ def _move_run(sp_l: int, sp_r: int, ms: int = 0, ir_mm: int = 0) -> str:
     return s
 
 
-def _cal(item: str, act: Any = "START") -> str:
-    """`CAL <item> <act>` —— act 可为 START / ABORT, 或 IRDATA 的相位号(0..3)。
+def _cal(item: str, act: Any = "START", **_kw: Any) -> str:
+    """`CAL <item> [act]` —— 省略 act 词时只发 `CAL <item>`。
 
-    v2.0: 标定是**请求-响应**的 —— GYRO/WALLDIST/IRDATA 的 START 不立刻回 ACK,
-    而是等这一步采集完成才回(ACK 即"请摆下一个位置"), 见《方案》§9。
+    两类子命令(线上文本相同, 靠 item 词区分):
+
+    * 既有五项请求-响应标定: act = START / ABORT, 或 IRDATA 的相位号 0..3
+      (v2.0: START 不立刻回 ACK, 等这一步采集完成才回, 见《方案》§9);
+    * v2.7 新增六个菜单远程化子命令: act = None 时**省略 act 词**
+      (`ERASEIR` / `IRSELF` / `SENSOR` / `BLOCK` / `ERASEALL` 立即 ACK;
+      `IRCAP` 的 act = 步号 1..4, 每步立即 ACK)。
+
+    `**_kw` 吞掉 precheck 用的 `confirm`(它只参与安全检查, 不进命令文本)。
     """
-    return f"CAL {str(item).upper()} {act}"
+    s = f"CAL {str(item).upper()}"
+    if act is None or (isinstance(act, str) and act.strip().upper() in ("", "NONE")):
+        return s
+    return f"{s} {act}"
 
 
 def _maze_run(target: str = "BLIND") -> str:
@@ -150,7 +166,7 @@ class CommandSpec:
 LAUNCH_MIN_MV = 7000
 
 
-def _precheck_maze_run(mc: Any):
+def _precheck_maze_run(mc: Any, **_):
     """发车前检查电池。返回 None 放行, 或 (status, data) 拒绝。"""
     try:
         f = mc.telemetry.latest()
@@ -167,6 +183,36 @@ def _precheck_maze_run(mc: Any):
                 "hint": ("电池过低(远低于固件低电阈值), 低电会让红外墙检测与电机行为"
                          "异常, 发车可能失控; 请充电/换电后重试。确需发车请把电脑鼠"
                          "架离地面后用 send_raw('MAZE RUN')"),
+            },
+        )
+    return None
+
+
+#: v2.7: `CAL` 家族里**擦除 Flash** 的子命令(不可逆, 且固件侧**没有**安全门 ——
+#: 远程化的按键菜单本身也没有"再按一次确认", 确认只能由上位机把着)。
+#: 依据用户计划(2026-10-14): "擦除类不加固件侧安全门, 靠上位机 confirm + 二次弹窗"。
+_CAL_ERASE_ITEMS = ("ERASEIR", "ERASEALL")
+
+
+def _precheck_cal_erase(mc: Any, item: str = "", confirm: bool = False, **_):
+    """`CAL ERASEIR` / `CAL ERASEALL` 要求显式 confirm=True 才放行。
+
+    返回 None 放行; 返回 ("NEED_CONFIRM", {...}) 拒绝(调用方拿到后应二次弹窗)。
+    非擦除类子命令照常放行 —— 但 precheck 只在 `calib.cal` 这一条命令上,
+    而旧五项标定的默认 confirm=False 也会走到这里, 故必须按 item 放行。
+    """
+    it = str(item or "").strip().upper()
+    if it not in _CAL_ERASE_ITEMS:
+        return None
+    if not confirm:
+        return (
+            "NEED_CONFIRM",
+            {
+                "item": it,
+                "hint": (
+                    f"{it} 会**不可逆地擦除 Flash 页**(红外标定数据 / 迷宫与路径数据), "
+                    "固件侧没有二次确认; 确认要继续请显式传 confirm=True"
+                ),
             },
         )
     return None
@@ -264,14 +310,21 @@ COMMANDS: Dict[str, CommandSpec] = {
         "rate.off", lambda: "RATE OFF", no_retry=True,
         note="关掉自时钟, 回到纯 `telem` 拉取(v2.5 行为)。压测/拉取收尾时下发。",
     ),
-    # ---- 标定(请求-响应) ----
+    # ---- 标定(请求-响应 + v2.7 菜单远程化) ----
     "calib.cal": CommandSpec(
         "calib.cal", _cal, ("item", "act"), no_retry=True, timeout=10.0, urgent=True,
+        precheck=_precheck_cal_erase,
         note=(
-            "标定项控制: item ∈ {GYRO,WALLDIST,IRDATA,GYRORATIO,ENCANGLE}。"
-            "act ∈ {START,ABORT}, 或 IRDATA 的相位号 0..3。"
-            "**采完才回 ACK**(ACK 即「这一步完成, 请摆下一个位置」); 最坏可能数秒, "
-            "故超时 10s 且不重发。结果值用 `GET` 回读"
+            "标定项控制。**请求-响应五项**(采完才回 ACK): item ∈ "
+            "{GYRO,WALLDIST,IRDATA,GYRORATIO,ENCANGLE}, act ∈ {START,ABORT} 或 "
+            "IRDATA 的相位号 0..3; 最坏可能数秒, 故超时 10s 且不重发。"
+            "**v2.7 菜单远程化六项**(立即 ACK, act=None 省略 act 词): "
+            "ERASEIR=擦红外标定页(菜单2) / IRSELF=红外自检仅传感器段(菜单4) / "
+            "SENSOR=显示传感器数据(菜单5) / IRCAP <1..4>=红外 8 值分步标定, "
+            "须从 1 开始逐步调且第 1 步前页内须为全 FF(菜单6) / BLOCK=块数据概览, "
+            "墙图仍走 maze.dump(菜单7) / ERASEALL=擦迷宫路径 6 页后回值守不休眠(菜单8)。"
+            "⚠️ ERASEIR / ERASEALL 不可逆, 须显式 confirm=True(上位机 precheck); "
+            "全部六项仅远程档支持, 均在运动中回 ERR_BUSY。结果值用 `GET` 回读"
         ),
     ),
     # ---- 墙图 ----

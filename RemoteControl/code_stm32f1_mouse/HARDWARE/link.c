@@ -2169,8 +2169,299 @@ static u8 link_CalItemToId(const char *s)
 		return LINK_CAL_GYRORATIO;
 	if (!strcmp(s, "ENCANGLE"))
 		return LINK_CAL_ENCANGLE;
+#ifdef MOUSE_REMOTE
+	/* v2.7: 按键菜单功能的远程化(见 link.h 的 LINK_CAL_ERASEIR 注释块)。
+	 * ⚠️ 必须门控: 这几个 strcmp 分支会生成代码, 不门控就改比赛档 hex。 */
+	if (!strcmp(s, "ERASEIR"))
+		return LINK_CAL_ERASEIR;
+	if (!strcmp(s, "IRSELF"))
+		return LINK_CAL_IRSELF;
+	if (!strcmp(s, "SENSOR"))
+		return LINK_CAL_SENSOR;
+	if (!strcmp(s, "IRCAP"))
+		return LINK_CAL_IRCAP;
+	if (!strcmp(s, "BLOCK"))
+		return LINK_CAL_BLOCK;
+	if (!strcmp(s, "ERASEALL"))
+		return LINK_CAL_ERASEALL;
+#endif
 	return 0;
 }
+
+#ifdef MOUSE_REMOTE
+/* v2.7: `CAL IRCAP` 的当前步号(0 = 空闲, 1..4 = 已采到第几步)。
+ * 菜单 6 用"等按键确认"推进, 远程版用"一条命令一步"推进 —— 上位机摆好位置发
+ * `CAL IRCAP <n>`, 固件采下当前摆位的传感器值并回报, 第 4 步写 Flash。
+ * `CAL ERASEIR` 会把它清零(标定值作废 ⇒ 序列重新开始)。 */
+static u8 linkIrCapStep;
+
+/**
+ * @brief  v2.7: 按键菜单 2/4/5/6/7/8 项功能的远程实现(仅远程档编译)
+ * @param  item LINK_CAL_ERASEIR .. LINK_CAL_ERASEALL
+ * @param  pp   命令剩余部分的指针的指针(IRCAP 从这里取步号)
+ * @param  seq  命令序号(立即 ACK 用)
+ * @return none
+ * @note   与既有 CAL 五项(GYRO/WALLDIST/IRDATA/GYRORATIO/ENCANGLE)的关系:
+ *         那五项是"采完才 ACK"的请求-响应(linkCal.ackSeq 挂起机制); 本组是
+ *         **立即 ACK** 的维护动作, 不碰 linkCal。三条实现铁律:
+ *         ① **不阻塞** —— 命令执行在 SysTick 上下文, 严禁 DELAY_Ms / while 等按键,
+ *            原菜单里"等按键确认"的步骤由上位机分条命令替代;
+ *         ② **关键值进 ACK 附加字段** —— TX 环满时 printf 行会被静默丢弃
+ *            (v2.0 的 CALSTEP/CALDONE 教训, 见 link_TxPut), 打印行只作诊断;
+ *         ③ **与菜单函数逐行对齐** —— 摆位/采样配对/写 Flash 顺序全部照抄
+ *            APP/calibrate.c, 不"顺手改进"(那是比赛验证过的行为)。
+ *         另: 擦除类**不加固件侧安全门**, 确认弹窗由上位机做(registry precheck)。
+ */
+static void link_CalMenuRemote(u8 item, char **pp, s32 seq)
+{
+	u32 paddr[4];
+	s32 pcnt[4];
+	s32 a, b, c;
+	u16 off;
+	u16 val;
+	u8 x, y;
+	u8 step;
+	u8 i;
+
+	/* 维护动作一律不与运动/进行中的标定并发 —— 否则采到的值没有意义,
+	 * 且运动途中擦 Flash 会直接把正在用的墙图/路径打掉。 */
+	if (link_MotionBusy())
+	{
+		link_Ack(seq, "ERR_BUSY");
+		return;
+	}
+
+	switch (item)
+	{
+	case LINK_CAL_ERASEIR:
+		/* 菜单 2 (CALIB_MenuEraseIrData): 原循环 `flashaddr += 2` 擦 8 次,
+		 * 8 个地址全落进同一页(page123) —— 实际效果就是擦一遍。这里擦一次,
+		 * 效果等同且快 8 倍。⚠️ 只擦 Flash: 内存里的 irCalib 8 值与
+		 * dataf1..datar 查表要等下次上电(CALIB_InitIr)才重载。 */
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_IRDATA);
+		linkIrCapStep = 0; /* 标定值作废 ⇒ 分步序列重新开始 */
+		link_Ack(seq, "OK");
+		return;
+
+	case LINK_CAL_IRSELF:
+		/* 菜单 4 的**传感器段**(左右红外各判一次"距离偏差 -> LED 档位")。
+		 * 原菜单后半段"前向开电机扫 FORWARDIRTEST"不远程化: 远程已有
+		 * MOVE RUN 双护栏, 没必要复刻一套无护栏的开环动作。 */
+		a = (s32)irDist.l;
+		b = (s32)irDist.r;
+		c = (s32)sysCfg.distToWall;
+		printf("IRSELF l=%ld r=%ld ref=%ld\r\n", (long)a, (long)b, (long)c);
+		link_AckI3(seq, "OK", a, b, c);
+		return;
+
+	case LINK_CAL_SENSOR:
+		/* 菜单 5 的两屏(编码器/红外/陀螺), 原版靠按键切屏; 远程一次给全,
+		 * 固定 4 行(与菜单两次 printf 产生的行数一致)。
+		 * ⚠️ 原菜单用 %f 打 trackAbsL/R; 本函数在 SysTick 上下文执行, F1 的
+		 *    软件浮点格式化是毫秒级, 会拖垮 1ms 节拍 ⇒ 取整打印。 */
+		printf("\n");
+		printf("odomStr.trackAbsL:%ld\todomStr.trackAbsR:%ld",
+		       (long)odomStr.trackAbsL, (long)odomStr.trackAbsR);
+		printf("adcf1:%d\t adcf2:%d\t adcl:%d\t adcr:%d\t \r\n",
+		       irCalib.rawf1, irCalib.rawf2, irCalib.rawl, irCalib.rawr);
+		printf("gangle_Rate:%d\t  gyroStr.angle:%d\t  angle_code:%ld \r\n",
+		       gyroStr.raw, gyroStr.angle, (long)odomStr.angle);
+		link_Ack(seq, "OK");
+		return;
+
+	case LINK_CAL_IRCAP:
+		/* 菜单 6 的 4 步(采样配对照抄 APP/calibrate.c):
+		 *   1 左近墙: rawlavrgnear = rawl;  rawravrgfar  = rawr
+		 *   2 左远墙: rawlavrgfar  = rawl;  rawravrgnear = rawr
+		 *   3 前近墙: rawf1avrgnear = rawf1; rawf2avrgnear = rawf2
+		 *   4 前远墙: rawf1avrgfar  = rawf1; rawf2avrgfar  = rawf2
+		 * 第 4 步擦页并按菜单 6 的顺序写 8 个半字(读序见 link_CalibLoad)。 */
+		val = (u16)link_TokNum(pp);
+		if (val < 1u || val > 4u)
+		{
+			printf("IRCAP step must be 1..4 (got %d)\r\n", (int)val);
+			link_Ack(seq, "ERR_VALUE");
+			return;
+		}
+		step = (u8)val;
+		/* 顺序保护: 第 1 步随时可重来(等于中止重标), 其余必须紧接上一步 ——
+		 * 每一步的摆位不同, 跳步会采到错位置的数。 */
+		if (step != 1u && step != (u8)(linkIrCapStep + 1))
+		{
+			printf("IRCAP out of order: got %d, expect %d\r\n",
+			       (int)step, (int)(linkIrCapStep + 1));
+			link_Ack(seq, "ERR_VALUE");
+			return;
+		}
+		/* 远程版**新增**的安全闸(菜单 6 本身没有这条: 它采样完才擦页):
+		 * 页非空 = 已经标定过, 重标必须先显式 ERASEIR(上位机侧有 confirm),
+		 * 避免"顺手把 4 步再跑一遍"把好标定悄无声息地换掉。 */
+		if (step == 1u && FLASH_ReadHalfWord(FLASH_ADDR_IRDATA) != 0xFFFFu)
+		{
+			printf("IRDATA page not blank: CAL ERASEIR first\r\n");
+			link_Ack(seq, "ERR_BUSY");
+			return;
+		}
+		if (step == 1u)
+		{
+			irCalib.rawlavrgnear = irCalib.rawl;
+			irCalib.rawravrgfar = irCalib.rawr;
+			a = (s32)irCalib.rawl;
+			b = (s32)irCalib.rawr;
+		}
+		else if (step == 2u)
+		{
+			irCalib.rawlavrgfar = irCalib.rawl;
+			irCalib.rawravrgnear = irCalib.rawr;
+			a = (s32)irCalib.rawl;
+			b = (s32)irCalib.rawr;
+		}
+		else if (step == 3u)
+		{
+			irCalib.rawf1avrgnear = irCalib.rawf1;
+			irCalib.rawf2avrgnear = irCalib.rawf2;
+			a = (s32)irCalib.rawf1;
+			b = (s32)irCalib.rawf2;
+		}
+		else
+		{
+			irCalib.rawf1avrgfar = irCalib.rawf1;
+			irCalib.rawf2avrgfar = irCalib.rawf2;
+			a = (s32)irCalib.rawf1;
+			b = (s32)irCalib.rawf2;
+		}
+		linkIrCapStep = step;
+		printf("IRCAP %d a=%d b=%d\r\n", (int)step, (int)a, (int)b);
+		if (step < 4u)
+		{
+			link_AckI3(seq, "OK", a, b, (s32)step);
+			return;
+		}
+		/* 第 4 步: 写 Flash(顺序必须与菜单 6 / link_CalibLoad 的读序一致) */
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_IRDATA);
+		off = 0;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawf1avrgnear);
+		off += 2;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawf1avrgfar);
+		off += 2;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawf2avrgnear);
+		off += 2;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawf2avrgfar);
+		off += 2;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawlavrgnear);
+		off += 2;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawlavrgfar);
+		off += 2;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawravrgnear);
+		off += 2;
+		FLASH_Unlock();
+		FLASH_WriteHalfWord(FLASH_ADDR_IRDATA + off, (u16)irCalib.rawravrgfar);
+		linkIrCapStep = 0; /* 序列完成 */
+		link_AckI3(seq, "OK", a, b, 4);
+		return;
+
+	case LINK_CAL_BLOCK:
+		/* 菜单 7 的远程版。原菜单把 16x16 墙图 + 200x4 路径 + 250x4 查表全
+		 * 打印出来(上千行); 远程只给**概览**(4 行), 墙图本身仍走 `MAP DUMP`
+		 * (既有 98B 帧) —— 所以这里先把 Flash 重载进 mazeState, 上位机随后发
+		 * MAP DUMP 拿到的就是 Flash 里的图(否则拿到的是内存里的旧图)。
+		 * ⚠️ 边界照抄 link_SendMap 的 `< MAZETYPE`: 菜单 7 与
+		 *    FLASH_SaveBlockData 的 `< 16` 循环在 MAZETYPE<16 时会踩过
+		 *    mapWall[MAZETYPE][MAZETYPE](既有问题), 远程版不复刻它。 */
+		off = 0;
+		for (x = 0; x < MAZETYPE; x++)
+			for (y = 0; y < MAZETYPE; y++)
+			{
+				mazeState.mapWall[x][y] = (uchar)FLASH_ReadHalfWord(FLASH_ADDR_BLOCK + off);
+				off += 2;
+			}
+		off = 0;
+		mazeState.xStart = (uchar)FLASH_ReadHalfWord(FLASH_ADDR_BLOCK_POINT + off);
+		off += 2;
+		mazeState.yStart = (uchar)FLASH_ReadHalfWord(FLASH_ADDR_BLOCK_POINT + off);
+		off += 2;
+		mazeState.goalX = (char)FLASH_ReadHalfWord(FLASH_ADDR_BLOCK_POINT + off);
+		off += 2;
+		mazeState.goalY = (char)FLASH_ReadHalfWord(FLASH_ADDR_BLOCK_POINT + off);
+
+		/* 45/90 去回路径: 各数前 200 项里"非 0xFFFF"的条数(擦除态 = 0xFFFF) */
+		paddr[0] = FLASH_ADDR_GOPATH;
+		paddr[1] = FLASH_ADDR_BACKPATH;
+		paddr[2] = FLASH_ADDR_GOPATH_90;
+		paddr[3] = FLASH_ADDR_BACKPATH_90;
+		for (i = 0; i < 4; i++)
+		{
+			pcnt[i] = 0;
+			off = 0;
+			for (x = 0; x < 200; x++)
+			{
+				if (FLASH_ReadHalfWord(paddr[i] + off) != 0xFFFFu)
+					pcnt[i]++;
+				off += 2;
+			}
+		}
+		printf("BLOCK start=%d,%d goal=%d,%d\r\n",
+		       (int)mazeState.xStart, (int)mazeState.yStart,
+		       (int)mazeState.goalX, (int)mazeState.goalY);
+		printf("path45 go=%ld back=%ld\r\n", (long)pcnt[0], (long)pcnt[1]);
+		printf("path90 go=%ld back=%ld\r\n", (long)pcnt[2], (long)pcnt[3]);
+
+		/* 红外 8 值(顺序与菜单 6 的写序一致) */
+		printf("irdata:");
+		c = 0;
+		off = 0;
+		for (i = 0; i < 8; i++)
+		{
+			val = FLASH_ReadHalfWord(FLASH_ADDR_IRDATA + off);
+			if (val != 0xFFFFu)
+				c++;
+			printf("%d,", (int)val);
+			off += 2;
+		}
+		printf("\r\n");
+		link_AckI3(seq, "OK", pcnt[0] + pcnt[1], pcnt[2] + pcnt[3], c);
+		return;
+
+	case LINK_CAL_ERASEALL:
+		/* 菜单 8: 擦 BLOCK/BLOCK_POINT/GOPATH/BACKPATH/GOPATH_90/BACKPATH_90
+		 * 6 页, 然后**进流水灯死循环**。远程版擦完必须返回值守态 ——
+		 * 睡下去就失联了(这是本命令与菜单 8 的核心差异)。
+		 * ⚠️ 与菜单 8 的另一点有意差异: 菜单还调 `FLASH_EraseRunData()` 擦
+		 *    13 页录制区(page101-114); 远程版**不擦** —— 那是历史采集数据,
+		 *    要清请单独提需求(见 docs/通信协议规格.md 的命令表)。
+		 * ⚠️ 6 页擦除在本上下文约 120-240ms(与 CAL GYRO 落盘同量级, 先例见
+		 *    link_CalibService 的 GYRO 分支) —— 只应在车静止时用, 上面的
+		 *    link_MotionBusy 闸会拦下运动中/标定中的调用。 */
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_BLOCK);
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_BLOCK_POINT);
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_GOPATH);
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_BACKPATH);
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_GOPATH_90);
+		FLASH_Unlock();
+		FLASH_ErasePage(FLASH_ADDR_BACKPATH_90);
+		link_Ack(seq, "OK");
+		return;
+
+	default:
+		link_Ack(seq, "ERR_NAME");
+		return;
+	}
+}
+#endif
 
 /**
  * @brief  执行一条已通过 CRC 校验的命令
@@ -2665,7 +2956,10 @@ static void link_ExecCmd(char *line, s32 seq)
 	 *     而是把 seq 存进 linkCal.ackSeq, 等采集真的完成/超时再回一次。
 	 *     ACK 本身即"这一步做完了, 请摆下一个位置"(取代旧的 CALSTEP/CALDONE 事件行)。
 	 *   GYRORATIO / ENCANGLE —— 由电机做整周角度扫描, 最长可能 30s, 远超命令层的
-	 *     10s 超时, 故仍**立即 ACK**(结果看 GET / 统一帧)。 */
+	 *     10s 超时, 故仍**立即 ACK**(结果看 GET / 统一帧)。
+	 * v2.7: **菜单功能远程化** —— ERASEIR / IRSELF / SENSOR / IRCAP / BLOCK /
+	 *   ERASEALL 六项(仅远程档), 都是立即 ACK 的维护动作, 走 link_CalMenuRemote;
+	 *   语义与用法见 link.h 的 LINK_CAL_ERASEIR 注释块。 */
 	if (link_TokIs(&p, "CAL"))
 	{
 		u8 item;
@@ -2678,6 +2972,14 @@ static void link_ExecCmd(char *line, s32 seq)
 			link_Ack(seq, "ERR_NAME");
 			return;
 		}
+#ifdef MOUSE_REMOTE
+		/* v2.7: 菜单功能远程化(立即 ACK, 与下面五项"采完才 ACK"不同流) */
+		if (item >= LINK_CAL_ERASEIR)
+		{
+			link_CalMenuRemote(item, &p, seq);
+			return;
+		}
+#endif
 		if (link_TokIs(&p, "ABORT"))
 		{
 			linkCal.ackSeq = -1;

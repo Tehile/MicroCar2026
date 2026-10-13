@@ -60,8 +60,8 @@ from ..protocol.codec import (
 )
 
 MAZETYPE = 7
-PROTO_VER = 7  # v2.6: 新增 RATE 命令族(帧格式与参数表未变)
-FW_VER = 219  # v2.6.1: flags bit3 = LINK_FLAG_PULLF1(批首帧标记)
+PROTO_VER = 8  # v2.7: CAL 家族新增 6 个菜单远程化子命令(帧格式与参数表未变)
+FW_VER = 220  # v2.7: 菜单远程化(ERASEIR/IRSELF/SENSOR/IRCAP/BLOCK/ERASEALL) + 远程档按键进菜单
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {
@@ -376,6 +376,15 @@ class MouseSim:
         self.cal_ticks = 0
         self.srv_start = 0.0
 
+        # ---- v2.7 菜单远程化(立即 ACK, 与固件 link_CalMenuRemote 对齐) ----
+        #: IRCAP 序列进度(0 = 未开始/已完成); ERASEIR 与第 4 步完成时清零
+        self.ir_cap_step = 0
+        #: IRDATA 页 8 个半字(擦除态全 0xFFFF; 固件上电默认即此)
+        self.ir_page = [0xFFFF] * 8
+        #: 去/回路径 4 页(GOPATH/BACKPATH/GOPATH_90/BACKPATH_90)的有效项数,
+        #: 只服务 `CAL BLOCK` 的概览(ERASEALL 清零)
+        self.path_counts = [0, 0, 0, 0]
+
         # 复位原因(由 PING 上报; 模拟器固定 POR —— 真机上可能被 IWDG/SW 改写)
         self.reset_cause = "POR"
 
@@ -672,6 +681,75 @@ class MouseSim:
             self._cal_finish(True)
         else:  # IRDATA: 一个相位 = 一条命令, 采够就 ACK(第 4 相位的 ACK 即"整套完成")
             self._cal_finish(True)
+
+    # ---------------------------------------------------------- v2.7 菜单远程化
+
+    #: v2.7 由按键菜单远程化而来的 6 个子命令(与固件 link_CalItemToId 新分支对应)
+    _CAL_MENU_ITEMS = ("ERASEIR", "IRSELF", "SENSOR", "IRCAP", "BLOCK", "ERASEALL")
+
+    def _cal_menu_remote(self, item: str, t: List[str], seq: int) -> List[str]:
+        """v2.7: 按键菜单 2/4/5/6/7/8 的远程化(全部**立即 ACK**)。
+
+        与固件 `link_CalMenuRemote` 逐条对齐, 含它的两条闸:
+        运动中/标定中一律 `ERR_BUSY`; `IRCAP` 必须从 1 顺序调, 且第 1 步前
+        IRDATA 页必须全 FF(远程版新增的安全闸, 菜单 6 本身没有这条)。
+        """
+
+        def ack(s: str) -> str:
+            self.last_status = s
+            return f"ACK {seq} {s}\r\n"
+
+        if self._motion_busy():
+            return [ack("ERR_BUSY")]
+
+        if item == "ERASEIR":
+            self.ir_page = [0xFFFF] * 8
+            self.ir_cap_step = 0
+            return [ack("OK")]
+
+        if item == "IRSELF":
+            # 固件报 irDist.l/r(mm) 与 distToWall; 模拟器没有距离模型,
+            # 用左右红外通道原值顶位(协议形状一致, 数值不作为判据)。
+            return [ack(f"OK {int(self.ir[2])} {int(self.ir[3])} {int(self.params[7])}")]
+
+        if item == "SENSOR":
+            # 固件打 4 行 printf(值不在 ACK 里), 这里只回 ACK
+            return [ack("OK")]
+
+        if item == "IRCAP":
+            if len(t) < 3:
+                return [ack("ERR_VALUE")]
+            try:
+                step = int(t[2])
+            except ValueError:
+                return [ack("ERR_VALUE")]
+            if step < 1 or step > 4:
+                return [ack("ERR_VALUE")]
+            if step != 1 and step != self.ir_cap_step + 1:
+                return [ack("ERR_VALUE")]
+            if step == 1 and any(v != 0xFFFF for v in self.ir_page):
+                return [ack("ERR_BUSY")]
+            # 采样配对与固件一致: 1/2 步取左右通道, 3/4 步取前向两路
+            a = int(self.ir[2]) if step <= 2 else int(self.ir[0])
+            b = int(self.ir[3]) if step <= 2 else int(self.ir[1])
+            self.ir_cap_step = step
+            if step < 4:
+                return [ack(f"OK {a} {b} {step}")]
+            # 第 4 步: 擦页并按固件写序落 8 个半字, 序列复位
+            self.ir_page = [a, b, a, b, a, b, a, b]
+            self.ir_cap_step = 0
+            return [ack(f"OK {a} {b} 4")]
+
+        if item == "BLOCK":
+            p45 = self.path_counts[0] + self.path_counts[1]
+            p90 = self.path_counts[2] + self.path_counts[3]
+            ir_valid = sum(1 for v in self.ir_page if v != 0xFFFF)
+            return [ack(f"OK {p45} {p90} {ir_valid}")]
+
+        # ERASEALL: 擦迷宫/路径 6 页(**不含** IRDATA 页, 与固件一致);
+        # 固件随后进流水灯死循环, 远程版返回值守 —— 模拟器只做状态清零。
+        self.path_counts = [0, 0, 0, 0]
+        return [ack("OK")]
 
     # ---------------------------------------------------------- MOVE RUN
 
@@ -1092,11 +1170,19 @@ class MouseSim:
             # MAZE EV / MAZE RST 已删除(v2.0) —— 与固件一样回 ERR_VALUE
             return [ack("ERR_VALUE")]
         if c == "CAL":
-            # CAL <item> {START|ABORT|<phase 0..3>}
-            # **请求-响应**: 五项全部延迟 ACK(采完才回), ACK 即"请摆下一个位置"。
+            # CAL <item> [<act>] —— 与固件 link.c 的 CAL 分支同构, 两类子命令:
+            #  * 旧五项请求-响应: act = START/ABORT 或 IRDATA 相位 0..3, 采完才 ACK;
+            #  * v2.7 六项菜单远程化: act 省略, 或 IRCAP 的步号 1..4 —— **立即 ACK**,
+            #    走 _cal_menu_remote(顺序在固件里也是先解析 item 再分流)。
+            if len(t) < 2:
+                return [ack("ERR_VALUE")]
+            item = t[1].upper()
+            if item in self._CAL_MENU_ITEMS:
+                return self._cal_menu_remote(item, t, seq)
+            # 旧五项: 未知 item 一律 ERR_NAME(与固件 link_CalItemToId 的失败路径一致)
             if len(t) < 3:
                 return [ack("ERR_VALUE")]
-            item, act = t[1].upper(), t[2].upper()
+            act = t[2].upper()
             if item not in ("GYRO", "WALLDIST", "IRDATA", "GYRORATIO", "ENCANGLE"):
                 return [ack("ERR_NAME")]
             if act == "ABORT":

@@ -1,7 +1,7 @@
 # 上位机可编程接口参考（API Reference）
 
-> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-13 02:41:09
-> API 版本：`2.6.0`　|　包：`host`
+> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-13 18:44:36
+> API 版本：`2.7.0`　|　包：`host`
 
 > 这是「让上位机做一件事 = 调一个方法」的完整接口清单。
 > 每个方法都会等待设备应答（默认 `wait=True` 且带超时），脚本能写直线代码。
@@ -38,7 +38,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | name | 线上示例 | args | since | 说明 |
 |---|---|---|---|---|
 | `arm` | `ARM` | `—` | 1.0 | 发车: 固件记下发车时刻 + 点亮 1Hz 时间基准灯(50% 占空比), 并回 `ACK <seq> OK <armMs>`(发车时基随 ACK 回, 不再单发 ARMED 行) |
-| `calib.cal` | `CAL GYRO START` | `item, act` | 1.0 | 标定项控制: item ∈ {GYRO,WALLDIST,IRDATA,GYRORATIO,ENCANGLE}。act ∈ {START,ABORT}, 或 IRDATA 的相位号 0..3。**采完才回 ACK**(ACK 即「这一步完成, 请摆下一个位置」); 最坏可能数秒, 故超时 10s 且不重发。结果值用 `GET` 回读 |
+| `calib.cal` | `CAL GYRO START` | `item, act` | 1.0 | 标定项控制。**请求-响应五项**(采完才回 ACK): item ∈ {GYRO,WALLDIST,IRDATA,GYRORATIO,ENCANGLE}, act ∈ {START,ABORT} 或 IRDATA 的相位号 0..3; 最坏可能数秒, 故超时 10s 且不重发。**v2.7 菜单远程化六项**(立即 ACK, act=None 省略 act 词): ERASEIR=擦红外标定页(菜单2) / IRSELF=红外自检仅传感器段(菜单4) / SENSOR=显示传感器数据(菜单5) / IRCAP <1..4>=红外 8 值分步标定, 须从 1 开始逐步调且第 1 步前页内须为全 FF(菜单6) / BLOCK=块数据概览, 墙图仍走 maze.dump(菜单7) / ERASEALL=擦迷宫路径 6 页后回值守不休眠(菜单8)。⚠️ ERASEIR / ERASEALL 不可逆, 须显式 confirm=True(上位机 precheck); 全部六项仅远程档支持, 均在运动中回 ERR_BUSY。结果值用 `GET` 回读 |
 | `estop` | `ESTOP` | `—` | 1.0 | 急停(置 freemode, 并锁存直到 STOP) |
 | `estop.clear` | `STOP` | `—` | 1.0 | `stop` 的同义入口(语义即「停车 + 解急停锁存」), 保留以便书写直观 |
 | `maze.dump` | `MAP DUMP` | `—` | 1.0 | 墙图整块回传(98B) |
@@ -261,14 +261,21 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `apply_angle` | `(self, gyro_ratio: 'float', enc_angle: 'float', readback: 'bool' = True) -> 'List[Result]'` | 写回两个角度系数。 |
 | `apply_angle_and_track` | `(self, gyro_ratio: 'float', enc_angle: 'float', dL: 'int', dR: 'int', measured_mm: 'float') -> 'List[Result]'` | 把角度与里程两项一次写回(界面上"应用"按钮的语义)。 |
 | `apply_track` | `(self, dL: 'int', dR: 'int', measured_mm: 'float', derive_speed: 'bool' = True, readback: 'bool' = True) -> 'List[Result]'` | 应用里程系数, 默认同时派生 SPEEDL/R = TRACKL/R ÷ 100。 |
+| `block` | `(self, timeout: 'float' = 8.0) -> 'Result'` | 块数据概览 —— 按键菜单 7 的远程化(`CAL BLOCK`)。 |
 | `compute_track` | `(dL: 'int', dR: 'int', measured_mm: 'float') -> 'Tuple[float, float]'` | 由『实际跑出的脉冲数』与『尺量距离』算里程系数: 新系数 = 脉冲 / 毫米。 |
+| `erase_all` | `(self, confirm: 'bool' = False, timeout: 'float' = 12.0) -> 'Result'` | 擦除迷宫/路径 6 页 —— 按键菜单 8 的远程化(`CAL ERASEALL`)。 |
+| `erase_ir` | `(self, confirm: 'bool' = False, timeout: 'float' = 8.0) -> 'Result'` | 擦除红外标定页(page123) —— 按键菜单 2 的远程化(`CAL ERASEIR`)。 |
 | `gyro` | `(self, timeout: 'float' = 25.0) -> 'Result'` | 陀螺零偏。要求电脑鼠**静止**; 固件自行采样约 1.5s 并写入既有 Flash 页。 |
+| `ir_cap` | `(self, step: 'int', timeout: 'float' = 12.0) -> 'Result'` | 红外 8 值分步标定的第 `step` 步(1..4) —— 按键菜单 6 的远程化。 |
+| `ir_cap_all` | `(self, on_prompt: 'Optional[Callable[[int, str, str], bool]]' = None, erase_first: 'bool' = False, timeout_per_step: 'float' = 12.0) -> 'Result'` | 4 步一次跑完(`ir_cap` 的顺序封装)。 |
 | `ir_data` | `(self, on_prompt: 'Optional[Callable[[int, str, str], bool]]' = None, timeout_per_point: 'float' = 30.0) -> 'Result'` | 红外 8 值(4 个摆位各采一点)。 |
 | `ir_sample` | `(self, phase: 'int') -> 'Result'` | 采集相位 `phase` ∈ 0..3(每一相位 = 一条命令, 采完才 ACK)。 |
+| `ir_self` | `(self, timeout: 'float' = 8.0) -> 'Result'` | 红外自检(**仅传感器段**) —— 按键菜单 4 的远程化(`CAL IRSELF`)。 |
 | `ir_start` | `(self) -> 'Result'` | 开始红外逐点: 采第 0 个相位(左近墙)。 |
 | `items` | `(self) -> 'List[str]'` |  |
 | `report` | `(self, lines: 'Sequence[str]') -> 'Optional[str]'` | 把标定过程写入 `calib/report.md`(会话未开则为 None)。 |
 | `run_straight` | `(self, pulses: 'int' = 20000, speed: 'int' = 40, timeout: 'Optional[float]' = None) -> 'Result'` | 开环跑一段固定脉冲的直线, 返回停止原因(见 `codec.RUN_REASON_NAMES`)。 |
+| `sensor` | `(self, timeout: 'float' = 8.0) -> 'Result'` | 显示传感器数据(固定 4 行) —— 按键菜单 5 的远程化(`CAL SENSOR`)。 |
 | `step` | `(self, item: 'str', act: 'Any' = 'START', timeout: 'float' = 12.0) -> 'Result'` | 手工单步: `CAL <item> <act>`。 |
 | `track` | `(self, pulses: 'int' = 20000, speed: 'int' = 40, measured_mm: 'Optional[float]' = None, dL: 'Optional[int]' = None, dR: 'Optional[int]' = None, derive_speed: 'bool' = True, timeout: 'Optional[float]' = None) -> 'Result'` | 一步到位: 跑直线 → (给了实测距离与里程差就) 计算并应用。 |
 | `wall_distance` | `(self, timeout: 'float' = 25.0) -> 'Result'` | 车心到墙距离。要求电脑鼠**平行贴住左墙**。结果写 WALLDIST 参数, 回读之。 |
@@ -418,7 +425,7 @@ python -m host.monitor [目标]      # 实时数据仪表盘(标定/回传阶段
 | `get-all` | 读全部参数 |
 | `set` | 写参数(可 --save 落 Flash) |
 | `rescue` | 卡死救援: 整机软复位(`MCU RESET`, 不必断电; 会打断运动) |
-| `calib` | 跑一项标定 |
+| `calib` | 跑一项标定 / v2.7 起兼管按键菜单远程化动作 |
 | `save` | 把参数表写入 Flash(page 115) |
 | `params` | 参数读写族(与 registry 的 params.* 逐条对齐) |
 | `maze` | 迷宫: 墙图 + 状态(从统一帧读取) + 发车/收车 |

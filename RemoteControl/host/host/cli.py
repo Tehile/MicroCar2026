@@ -9,6 +9,12 @@
     python -m host.cli calib gyro --target COM7
     python -m host.cli calib walldist --target COM7 && python -m host.cli save --target COM7
     python -m host.cli calib irdata --target COM7     # 4 个摆位逐点采(交互)
+    python -m host.cli calib ir-self --target COM7    # v2.7 菜单 4: 红外自检(仅传感器段)
+    python -m host.cli calib sensor --target COM7     # v2.7 菜单 5: 传感器 4 行
+    python -m host.cli calib ircap --target COM7      # v2.7 菜单 6: 红外 8 值分步标定
+    python -m host.cli calib block --target COM7      # v2.7 菜单 7: 块数据概览
+    python -m host.cli calib erase-ir --confirm --target COM7   # v2.7 菜单 2(不可逆)
+    python -m host.cli calib erase-all --confirm --target COM7  # v2.7 菜单 8(不可逆)
     python -m host.cli maze --target COM7             # 墙图(默认动作 map)
     python -m host.cli maze state --target COM7       # 迷宫状态(从统一帧读)
     python -m host.cli diagnose COM7
@@ -325,12 +331,46 @@ def cmd_set(args) -> None:
         mc.close()
 
 
+#: v2.7 菜单远程化动作(立即 ACK 的维护动作, 与"跑一项标定"不同流)
+_MENU_ITEMS = ("ERASE-IR", "IR-SELF", "SENSOR", "IRCAP", "BLOCK", "ERASE-ALL")
+
+
+def _run_menu_action(mc, item: str, args) -> "object":
+    """v2.7: 按键菜单 2/4/5/6/7/8 的远程化(全部立即 ACK)。
+
+    擦除两类(ERASE-IR / ERASE-ALL)必须显式 `--confirm` —— 固件侧没有二次
+    确认, 这道闸在 registry precheck 上(不发确认就地返回 NEED_CONFIRM)。
+    """
+    if item == "ERASE-IR":
+        return mc.calib.erase_ir(confirm=args.confirm)
+    if item == "ERASE-ALL":
+        return mc.calib.erase_all(confirm=args.confirm)
+    if item == "IR-SELF":
+        return mc.calib.ir_self()
+    if item == "SENSOR":
+        return mc.calib.sensor()
+    if item == "BLOCK":
+        return mc.calib.block()
+    # IRCAP: 给了 --step 就单步, 否则 4 步连跑(每步前等回车摆位)
+    if getattr(args, "step", 0):
+        return mc.calib.ir_cap(args.step)
+
+    def _ask(i: int, name: str, desc: str) -> bool:
+        print(f"\n第 {i + 1}/4 点 —— {name}: {desc}")
+        if args.yes:
+            return True
+        ans = input("  摆好后回车采集 (输入 c 取消): ").strip().lower()
+        return ans != "c"
+
+    return mc.calib.ir_cap_all(on_prompt=_ask, erase_first=args.erase_first)
+
+
 def cmd_calib(args) -> None:
     from host.api import MouseClient
 
     mc = _open_client(_resolve_target(args))
     try:
-        item = args.item.upper()
+        item = args.item.upper().replace("_", "-")
         if item == "IRDATA":
             # 4 个摆位逐点采: 每点等操作者摆好再采(与固件的 CAL IRDATA SAMPLE 一致)
             def _ask(i: int, name: str, desc: str) -> bool:
@@ -341,6 +381,8 @@ def cmd_calib(args) -> None:
                 return ans != "c"
 
             r = mc.calib.ir_data(on_prompt=_ask)
+        elif item in _MENU_ITEMS:
+            r = _run_menu_action(mc, item, args)
         else:
             fn = {
                 "GYRO": mc.calib.gyro,
@@ -350,7 +392,8 @@ def cmd_calib(args) -> None:
             }.get(item)
             if fn is None:
                 raise SystemExit(
-                    f"未知标定项: {item} (可选 GYRO/WALLDIST/IRDATA/ANGLE/TRACK)"
+                    "未知标定项: {} (可选 GYRO/WALLDIST/IRDATA/ANGLE/TRACK 或 "
+                    "菜单远程化 {})".format(item, "/".join(i.lower() for i in _MENU_ITEMS))
                 )
             r = fn() if item in ("GYRO", "WALLDIST", "ANGLE") else fn(
                 pulses=args.pulses, speed=args.speed
@@ -359,6 +402,14 @@ def cmd_calib(args) -> None:
               getattr(args, "json", False))
         if not r.ok and r.status == "MOTOR_DISABLED":
             print(f"\n提示: {r.data.get('hint', '')}", file=sys.stderr)
+        if not r.ok and r.status == "NEED_CONFIRM":
+            print(f"\n⚠️ {r.data.get('hint', '该操作不可逆, 需要确认')}\n"
+                  f"   确认无误请加 --confirm 重跑。", file=sys.stderr)
+            raise SystemExit(2)
+        if not r.ok and item == "IRCAP" and r.status == "ERR_BUSY":
+            print("\n提示: IRDATA 页非空(已标定过) —— 远程版要求先擦页再重标: "
+                  "`calib erase-ir --confirm`(不可逆)或 `calib ircap --erase-first`。",
+                  file=sys.stderr)
     finally:
         mc.close()
 
@@ -559,12 +610,20 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-verify", action="store_true", help="只发命令, 不复核 rst")
     sp.add_argument("--json", action="store_true")
 
-    sp = sub.add_parser("calib", help="跑一项标定")
-    sp.add_argument("item", help="GYRO/WALLDIST/IRDATA/ANGLE/TRACK")
+    sp = sub.add_parser("calib", help="跑一项标定 / v2.7 起兼管按键菜单远程化动作")
+    sp.add_argument("item",
+                    help="GYRO/WALLDIST/IRDATA/ANGLE/TRACK; v2.7 菜单远程化: "
+                         "erase-ir/ir-self/sensor/ircap/block/erase-all(下划线可写连字符)")
     sp.add_argument("--pulses", type=int, default=20000)
     sp.add_argument("--speed", type=int, default=40)
     sp.add_argument("--yes", action="store_true",
-                    help="IRDATA: 不逐点等回车, 连续采 4 点(自动化用)")
+                    help="IRDATA/IRCAP: 不逐点等回车, 连续采 4 点(自动化用)")
+    sp.add_argument("--step", type=int, default=0, metavar="N",
+                    help="IRCAP 单步(1..4); 省略则 4 步连跑")
+    sp.add_argument("--erase-first", action="store_true",
+                    help="IRCAP: 先擦红外页再采(不可逆, 页非空时必需)")
+    sp.add_argument("--confirm", action="store_true",
+                    help="erase-ir/erase-all: 确认执行不可逆擦除(否则就地拒绝)")
     sp.add_argument("--target")
     sp.add_argument("--json", action="store_true")
 

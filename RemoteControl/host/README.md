@@ -26,7 +26,7 @@ python run_host.py
 
 1. 与蓝牙 SPP 模块配对（Windows 会在“设备和打印机”里生成一个**传出** COM 口）
 2. 点“刷新”，下拉框里选带 `[蓝牙]` 标记的那个口
-3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 7 218 7 1024 <rst>`（远程档指纹）
+3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 8 220 8 1024 <rst>`（远程档指纹）
 
 ### 标定 / 采集阶段：不起 GUI，直接看实时数据
 
@@ -57,6 +57,21 @@ python -m host.cli save           --target COM7    # 需要落 Flash 时再存(p
 python -m host.cli calib irdata   --target COM7    # 红外 8 值(4 个摆位逐点交互采)
 python -m host.cli calib angle    --target COM7    # 角度系数(需电机，安全模式下会被拦下)
 ```
+
+**v2.7 起：按键菜单的功能也能远程调用**（远程档等车时短按 BUTTON1 仍可进原菜单）：
+
+```bash
+python -m host.cli calib ir-self  --target COM7    # 菜单 4: 红外自检(仅传感器段, 回 l/r/ref)
+python -m host.cli calib sensor   --target COM7    # 菜单 5: 传感器 4 行(值在串口日志, 不在 ACK)
+python -m host.cli calib ircap    --target COM7    # 菜单 6: 红外 8 值分步标定(每步回车摆位)
+python -m host.cli calib block    --target COM7    # 菜单 7: 块数据概览(墙图另配 maze map)
+python -m host.cli calib erase-ir     --confirm --target COM7   # 菜单 2(不可逆, 必须 --confirm)
+python -m host.cli calib erase-all    --confirm --target COM7   # 菜单 8(不可逆, 必须 --confirm)
+```
+
+> `ircap` 须从第 1 步顺序调，且第 1 步前红外页必须为空（已标定过就先
+> `erase-ir --confirm`，或加 `--erase-first`）。语义与边界详见
+> [`../docs/通信协议规格.md`](../docs/通信协议规格.md) §6.1。
 
 > v2.4 起**不再有「电机绝不可能动」的安全档**（旧的 `MOUSE_TEST_NO_MOTOR` 已删除）：
 > `mc.motor_guard()` 仍在（它检查统一帧的 `motors_off` 位），但当前两档都不置该位，
@@ -371,7 +386,7 @@ v2.6 起固件另支持**自时钟节拍**（`RATE FIX <hz>` 固定节拍压测 
 
 | 宏 | 自走策略 | 用途 | 上位机入口 |
 |---|---|---|---|
-| `#define MOUSE_REMOTE 1` | 有（`MAZE RUN [BLIND\|RACE]` 触发） | **远程档**：监视 / 参数 / 手动运动 / 远程发车收车 / `MCU RESET` | `monitor` · `calib` · `motor_test` · `cli maze` · `datalog` |
+| `#define MOUSE_REMOTE 1` | 有（`MAZE RUN [BLIND\|RACE]` 触发） | **远程档**：监视 / 参数 / 手动运动 / 远程发车收车 / `MCU RESET` / 按键菜单远程化（等车时短按 BUTTON1 进原菜单；`calib ir-self|sensor|ircap|block|erase-ir|erase-all`） | `monitor` · `calib` · `motor_test` · `cli maze` · `datalog` |
 | 都不定义 | 有（按键启动） | **按键比赛档**（与比赛固件逐字节一致） | — |
 
 > 历史：v2.3 及以前有五档（`MOUSE_TEST_NO_MOTOR` / `MOUSE_TEST_MOTOR_LAB` /

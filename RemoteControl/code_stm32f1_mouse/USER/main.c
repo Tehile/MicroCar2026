@@ -109,11 +109,41 @@ int main()
 	 * 外层再套一层循环: LESSON_Blind8() 在收到 `MAZE STOP` / `ESTOP` 时会返回
 	 * (见 APP/lesson.c 的退出检查), 这里随即 LINK_MazeFinished() 复位发车状态, 回到等待。
 	 * 于是"发车 → 急停 → 收车 → 再发车"不必断电; 修复前发过一次车后
-	 * `MAZE RUN` 会永远回 ERR_BUSY(真机复现 2026-10-05)。 */
+	 * `MAZE RUN` 会永远回 ERR_BUSY(真机复现 2026-10-05)。
+	 *
+	 * v2.7: 值守期间**允许按键进菜单**(远程档此前没有任何按键入口)。
+	 *   · 短按(按下再松开)即进 MENU_Run(), 与比赛档上电后的行为一致;
+	 *   · **不可返回**: 不新增"回远程值守"的菜单项, MENU_Run 既有语义一字不改 ——
+	 *     菜单 0/1 项返回后由下面恢复值守态, 2-8 项照原样不返回(靠电源复位退出);
+	 *   · 链路在菜单期间照常工作(DELAY_Ms 让出时间片给 SysTick), 但菜单 7 之类
+	 *     会 printf 上千行, 超出 TX 环(512B)会按 v2.4 兜底丢字节、遥测帧可能花屏 ——
+	 *     比赛档同一条 UART 本就如此, 属预期;
+	 *   · 改动全部落在本 #ifdef MOUSE_REMOTE 段内: menu.c/calibrate.c 两档共用,
+	 *     碰了比赛档 hex 就变。 */
 	while (1)
 	{
 		while (!LINK_MazeRequested())
+		{
+			if (BUTTON1 == 0) /* 按下(低有效, 见 led.h) */
+			{
+				DELAY_Ms(20); /* 消抖 */
+				if (BUTTON1 == 0)
+				{
+					while (BUTTON1 == 0) /* 等松开, 避免把长按当成多次短按 */
+						DELAY_Ms(10);
+					MENU_Run();
+					/* MENU_Run 会把 freemode 清 0(menu.c 第 108 行), 2-8 项还会置
+					 * sleepmode=1 后进死循环(不返回); 能从 0/1 项返回时, 把值守态
+					 * 整份恢复, 否则电机/链路行为会变。 */
+					speedSt.freemode = 1;   /* 未发车前: 电机输出恒 0 */
+					speedSt.sleepmode = 0; /* 不休眠, 保证传感器/链路持续工作 */
+					wallSns.irSwitch = 1;  /* 打开红外发射 */
+					irCalib.calibMode = 0; /* 关闭红外标定模式 */
+					flashSt.flashenable = 0; /* 运行期间不写 Flash */
+				}
+			}
 			DELAY_Ms(1);
+		}
 
 		LINK_MazeStarted(); /* 消费发车请求位 + 置"已在跑" */
 

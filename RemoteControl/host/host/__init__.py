@@ -6,13 +6,14 @@
 ⚠️ 下面两个版本号必须与实现同步, 否则窗口标题会显示错误版本:
    `__version__`  —— 上位机产品版本, 与 `registry.API_VERSION` 一致;
    `PROTO_VER`    —— 线上协议号, 与固件 `link.h: LINK_PROTO_VER` 一致
-                     (v2.5 因参数表扩容 5->6; v2.6 因新增 RATE 命令族 6->7,
-                      v2.6.1 只改统一帧 flags 的 bit3 语义, 命令集与帧格式都没动
-                      ⇒ **协议号停在 7**, 靠 PONG 的 fw 号(218->219)区分)。
+                     (v2.5 因参数表扩容 5->6; v2.6 因新增 RATE 命令族 6->7;
+                      v2.6.1 只改统一帧 flags 的 bit3 语义 ⇒ 协议号停 7;
+                      v2.7 因 CAL 家族新增 6 个菜单远程化子命令 7->8,
+                      帧格式与参数表仍未变)。
 """
 
-__version__ = "2.6.1"
-PROTO_VER = 7
+__version__ = "2.7.0"
+PROTO_VER = 8
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)
 

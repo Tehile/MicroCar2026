@@ -530,11 +530,14 @@ class MouseClient:
         self._check_reentrancy(f"send_cmd({cmd!r})")
         line = command_line(cmd, **kw)
         spec = spec_of(cmd)
-        # 登记表级**现场安全检查**(如 maze.run 的低电闸)。返回非 None 即拒绝发送,
-        # 不碰链路 —— 放在这里而不是某个 API 方法里, 是为了让脚本/CLI/datalog 等
-        # 所有走 send_cmd 的路径都绕不开(真机事故 2026-10-05 的教训)。
+        # 登记表级**现场安全检查**(如 maze.run 的低电闸、calib.cal 的擦除确认)。
+        # 返回非 None 即拒绝发送, 不碰链路 —— 放在这里而不是某个 API 方法里,
+        # 是为了让脚本/CLI/datalog 等所有走 send_cmd 的路径都绕不开
+        # (真机事故 2026-10-05 的教训)。v2.7 起把 `**kw` 一并传给 precheck,
+        # 使 `confirm=True` 这类"只参与安全检查、不进命令文本"的参数能穿过来
+        # (build 侧用 `**_kw` 吞掉, 见 registry._cal)。
         if spec.precheck is not None:
-            bad = spec.precheck(self)
+            bad = spec.precheck(self, **kw)
             if bad is not None:
                 status, data = bad
                 return Result(False, status, dict(data or {}, cmd=line, blocked=True))
