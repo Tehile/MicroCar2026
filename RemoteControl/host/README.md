@@ -178,15 +178,23 @@ python maze_smoke.py        # 迷宫状态断言(路口分类/状态复刻/发�
 python motor_lab_smoke.py   # 电机远程控制断言(时间/红外护栏、急停锁存)
 python timesync_smoke.py    # 时间同步断言(纯函数/发车/逐帧时间/丢帧/落盘/远程发车)
 python facade_smoke.py      # 门面断言(MouseClient 全功能组 A–J)
+python facade_smoke.py --rtt-ms 300   # 同上, 但给模拟器注入 300ms 应答往返延迟(逼近真机
+                                      #   蓝牙 RTT) —— 用来复现"按快链路写的时序假设"类缺陷
 python monitor_smoke.py     # 实时监视器断言(含 --expect-safe 正/反例、motor_guard 拦截)
 python pull_smoke.py        # 拉取链路断言(停等: 在途恒<=1、停流后彻底不再收帧、锚刷新)
 python uismoke.py           # 离屏构建 GUI、接模拟器、跑通并截图到 ../docs/ui_*.png
+python test_evt_trigger_logic.py  # 事件触发式拉取的纯离线逻辑自测(不接设备、不发任何命令)
 ```
 
 > 上表即「**八套件**」（v2.4 起，原九套件的 `lesson_smoke` 已随课程层删除）。
 > `uismoke.py` 需要 PySide6；未装则跳过，其余七套无需 GUI 依赖。
+> `test_evt_trigger_logic.py` 不接设备、不发命令，可随时离线跑。
 
 > `selftest.py --e2e` 与 `uismoke.py` 会自己拉起模拟器，不需要手动开终端 A。
+>
+> ⚠️ 模拟器默认是**亚毫秒级**链路，而真机蓝牙/CH340 实测 **RTT ≈ 300 ms**。
+> 凡涉及往返时序的判据（连接握手取设备指纹、发车后读状态…），都要用
+> `--rtt-ms 300` 再跑一遍 —— "模拟器绿"不等于"真机正确"。
 
 ---
 
@@ -217,22 +225,21 @@ host/
 ├── monitor_smoke.py         实时监视器冒烟
 ├── pull_smoke.py            遥测拉取链路冒烟(停等不变量/停发自愈)
 ├── uismoke.py               离屏 GUI 冒烟测试 + 截图
+├── test_evt_trigger_logic.py 事件触发式拉取的**纯离线**逻辑自测(不接设备/不发命令)
+│
+│   -- 速率 / 链路实验与压测(接真机; 只发 PING/RATE, 无运动命令) --
+├── link_mtbf_test.py        固定 FPS 连续通信压测(RATE FIX), 记录首次断连时刻
+├── link_pull_pace.py        间隔闭环匀速拉取(RATE PULL, 排程式; 见 docs §10)
+├── link_pull_evt.py         事件触发式拉取(RATE PULL, 周期≡RTT 自锁; 见 docs §14)
+├── analyze_pace_gaps.py     逐帧 CSV 节奏分析(批内/跨批分类 + 75ms 量化)
 │
 │   -- 真机诊断 / 验收脚本(需接真设备; 多数默认只读, 发车类须显式开关) --
-├── maze_launch_probe.py     例程8 诊断/验收: 只读体检 / --launch 发车观察 / --cycle 发车状态复位验收
+├── front_check.py           前墙双档 + 比赛状态只读验收(载荷 45→49 字节核对)
 ├── maze_launch_link_test.py **发车链路最小验收**: BLIND 与 RACE 各发一轮, 只判"链路是否通"(--launch)
-├── raw_ping.py              零依赖探活(裸串口, 不经门面层) —— 区分"链路坏"与"上位机代码坏"
-├── link_check.py            **链路层验收**: 往返顺畅度 / 重复指令(幂等重放) / 停止原因事件
 ├── launch_link_live.py      **运动中链路有效性探针**: 发车后在车运动期间持续收帧 + 主动插 PING(--launch, --target BLIND|RACE)
-├── params_write_test.py     V2 参数验收: GET ALL 完整性 / SETQ 生效 / SAVE 后复位仍生效(--write [--strong])
 ├── params_persist_probe.py  **参数持久化定点探针**: 逐步骤打印 SETQ/SAVE/MCU RESET 的回读, 定位"SAVE 不持久化"
 ├── move_run_guard_test.py   V3 验收: MOVE RUN 双护栏(TIME/IR) + 运动中二次 MOVE 应 ERR_BUSY + ESTOP 锁存/STOP 解锁(--motor; --safe-ir N 给 T1 加保护阈值)
-├── estop_latency.py         急停/停止的**实际生效延迟**测量(含拉取器开/关对照)
-├── maze_relaunch_repro.py   复现/判别「发车→停止→再次发车被拒」(含卡死判别探针)
-├── real_v21.py              v2.1 分阶段真机验证(指纹/单帧/停等拉取/停发自愈)
-├── real_burst.py            成串请求回收率(停等设计的实测依据)
-├── real_discriminate.py     非运动命令探活(定位"失联")
-├── real_throughput.py       吞吐压测
+├── maze_front_capture.py    发车 + 运动期前墙双档采样(恒等式与越界只读核对)
 ├── requirements.txt
 └── host/
     ├── protocol/
@@ -272,6 +279,12 @@ host/
     └── sim/
         └── mouse_sim.py     设备模拟器(协议一致 + 仿真物理 + 迷宫探索 + 时间同步)
 ```
+
+> 一次性排查脚本（`probe_*` / `real_*` / `link_check` / `raw_ping` / `scan_baud` / `live_read` /
+> `jl_*_test` / `estop_latency` / `hardware_e2e_test` / `params_write_test` / `maze_*_repro` /
+> `link_pull_batch` 等）已随 v2.6.1 清理移除。其中「丢帧归属（单片机 TX 环 vs 链路中段）」能力
+> 并入 `link_pull_evt.py` 的 **MCU 丢帧字节**统计，`scan_baud` 能力内化在 `host.api.conn.scan_baud`
+> 与 `host.cli scan-baud`。
 
 ---
 

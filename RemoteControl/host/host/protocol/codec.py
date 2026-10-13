@@ -112,7 +112,11 @@ UNIFIED_HZ = 202.0
 FLAG_FREEMODE = 0x01    # 自由模式 freemode==1: 电机输出被强制为 0(不是"解锁"!)
 FLAG_SLEEP = 0x02       # 休眠
 FLAG_EMERG = 0x04       # 急停生效
-FLAG_SCOPING = 0x08     # [v2.0 恒 0] 已删除的 SCOPE 机制
+FLAG_PULLF1 = 0x08      # v2.6.1(fw 219): 本帧 = 收到 `RATE PULL` 后发出的**第一帧**(批首帧)。
+                        #   固件在 PULL 分支组帧前置位、只标一帧; 比赛档恒 0。
+                        #   ⚠️ 复用原 `FLAG_SCOPING`(0x08) 位 —— 那套 SCOPE 机制 v2.0 已删除,
+                        #   该位自 v2.0 起恒 0 且全树无置位点。改名而非新开位, 因为 flags 字节
+                        #   8 位已满。见 docs/链路MTBF压测方法.md §14.15。
 FLAG_DUMPING = 0x10     # [v2.0 恒 0] 已删除的 dump 机制
 FLAG_MOTOR_OFF = 0x20   # 固件安全测试模式: 电机被物理禁用
 FLAG_ESTOP_LOCK = 0x40  # 急停**锁存**中: 新的 MOVE/CAL 会被拒, 须 STOP 解锁
@@ -122,7 +126,7 @@ FLAG_NAMES: Dict[int, str] = {
     FLAG_FREEMODE: "自由模式(电机停)",
     FLAG_SLEEP: "休眠",
     FLAG_EMERG: "急停",
-    FLAG_SCOPING: "采集中(已废弃)",
+    FLAG_PULLF1: "PULL 批首帧",
     FLAG_DUMPING: "回传中(已废弃)",
     FLAG_MOTOR_OFF: "安全模式(电机禁用)",
     FLAG_ESTOP_LOCK: "急停锁存",
@@ -413,7 +417,7 @@ def decode_unified(p: bytes) -> dict:
     d["freemode"] = bool(flags & FLAG_FREEMODE)
     d["sleep"] = bool(flags & FLAG_SLEEP)
     d["emerg"] = bool(flags & FLAG_EMERG)
-    d["scoping"] = bool(flags & FLAG_SCOPING)
+    d["pullf1"] = bool(flags & FLAG_PULLF1)
     d["dumping"] = bool(flags & FLAG_DUMPING)
     d["motors_off"] = bool(flags & FLAG_MOTOR_OFF)
     d["estop_lock"] = bool(flags & FLAG_ESTOP_LOCK)

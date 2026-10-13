@@ -62,21 +62,28 @@ def simulate(rtt: int, t: int, n: int = 16, mode: str = "frame",
 
     每批恰发 N = min(n, ceil(RTT_eff/t)) 帧(超出部分被新命令抢占, **从未发出**),
     批内间隔恒 = t, 批起点间隔 = RTT_eff − (N−1)·t。
-      * mode="frame": 以 ms8 间隙判据触发;
+      * mode="frame": 以 ms8 间隙判据触发(**推算**; 有 RTT≡0 mod t 的死角);
+      * mode="mark" : 以固件在批首帧打的 `FLAG_PULLF1` 触发(**读事实**, v2.6.1 固件);
       * mode="ack"  : 以本周期 PULL 的 ACK 触发, 周期 = RTT + ack_tx。
     drop(period, j) -> True 表示该帧发出但丢失(不参与判据)。
-    返回 dict(bounds, losses, stalls, periods, frames)。
+    返回 dict(bounds, losses, stalls, periods, frames, periods_ms)。
+      * `bounds`     帧判据口径的"批起点间隔"(= RTT mod t), 仅 mode="frame" 有值;
+      * `periods_ms` **触发到触发**的周期(与真机逐周期表同口径; 自锁时应恒 = RTT)。
     """
     d = rtt // 2
     eff = rtt + (ack_tx if mode == "ack" else 0)
     N = min(n, -(-eff // t))                      # ceil(eff/t)
     if N <= 0:
-        return {"bounds": [], "losses": [], "stalls": 1, "periods": 0, "frames": 0}
+        return {"bounds": [], "losses": [], "stalls": 1, "periods": 0, "frames": 0,
+                "periods_ms": []}
 
     A = eff + d                                   # 第一条命令(0 时刻发)的到达 + 一次 bootstrap
     prev_m8 = None
+    prev_mark = None
+    t_prev = 0.0
     bounds: list[float] = []
     losses: list[float] = []
+    periods_ms: list[float] = []
     frames = 0
     stalls = 0
     # p == 0 是**自举周期**: 它前面没有可比较的帧, 检不出边界, 必须靠外部起步
@@ -93,7 +100,15 @@ def simulate(rtt: int, t: int, n: int = 16, mode: str = "frame",
                 continue                          # 丢失: 不计入判据, 也不更新 prev_m8
             m8 = e & 0xFF
             frames += 1
-            if mode == "frame" and prev_m8 is not None:
+            if mode == "mark" and j == 0:
+                # ★ 批首帧自带固件标记 ⇒ **直接触发**, 不经过任何间隙判据:
+                #   于是"提前触发"与"退化点停摆"这两个毛病在原理上都不存在。
+                if prev_mark is not None:
+                    bounds.append(float((m8 - prev_mark) & 0xFF))
+                prev_mark = m8
+                fired = True
+                A_next = e + rtt                  # 触发 -> 下一条命令在本帧到达 PC 后 RTT 到达
+            elif mode == "frame" and prev_m8 is not None:
                 kind, dv = classify_gap(m8, prev_m8, t, TOL)
                 if kind == "bound":
                     if j == 0:
@@ -112,8 +127,11 @@ def simulate(rtt: int, t: int, n: int = 16, mode: str = "frame",
             A = base + eff                        # ACK 判据: 周期 = RTT + ack_tx(自锁于另一常数)
         else:
             A = A_next if A_next is not None else base + rtt
+        if p >= 1:
+            periods_ms.append(A - t_prev)         # 触发→触发的周期(真机逐周期表的同口径量)
+        t_prev = A
     return {"bounds": bounds, "losses": losses, "stalls": stalls,
-            "periods": len(bounds), "frames": frames}
+            "periods": len(bounds), "frames": frames, "periods_ms": periods_ms}
 
 
 def test_speed_law() -> None:
@@ -270,8 +288,11 @@ def test_rate_table() -> None:
 
 # --------------------------------------------------- 动态 t: t = floor(RTT/N)+1
 def decide_t(rtt: float, N: int) -> int:
-    """动态 t 的**唯一**正确公式(与 link_pull_evt 主循环里那一行逐字等价)。"""
-    return max(1, min(127, int(math.floor(rtt / N)) + 1))
+    """动态 t 的**唯一**正确公式(与 link_pull_evt 主循环里那一行逐字等价)。
+
+    上限 = 固件 `LINK_PULL_T_MS_MAX`(5000), **不是** 127 —— 127 只是帧间隙判据的软上限。
+    """
+    return max(1, min(5000, int(math.floor(rtt / N)) + 1))
 
 
 def firmware_behaviour(rtt: float, t: int):
@@ -287,8 +308,14 @@ def firmware_behaviour(rtt: float, t: int):
 
 
 def effective_N(rtt: float, want_N: int) -> int:
-    """镜像主循环里的 N 下限保护: t 有硬上限 127ms ⇒ N > RTT/127。"""
-    return max(want_N, int(math.floor(rtt / 127.0)) + 1)
+    """N 的**可用档位** —— 2026-10-13 起**没有下限**(恒等函数)。
+
+    旧的 `N > RTT/127` 下限只是 **ms8 帧间隙判据**的需要(`t ≤ 127 ms` 才能把"丢一帧"
+    与 256 折回分开); 默认判据改读固件打的 `FLAG_PULLF1` 标记帧后, 批起点是读事实、
+    与 `t` 无关 ⇒ `--frames 1/2` 直接可用(`N=1` 即先前长期稳定的单帧拉取模式)。
+    仅 `--trigger frame` 仍受 `t ≤ 127` 限制 —— 那条通路在主循环里单独告警。
+    """
+    return want_N
 
 
 def test_dynamic_t_inversion() -> None:
@@ -300,8 +327,8 @@ def test_dynamic_t_inversion() -> None:
     print("动态 t 反演自检  (t = floor(RTT/N)+1 ⇒ N_eff 恰好 = N; 间隔极差 ∈ [1, N] ms):")
     bad, worst, cnt = 0, 0, 0
     for rtt in (120, 150, 200, 225, 280, 300, 301, 305, 350, 400, 456):
-        for want in range(2, 9):
-            N = effective_N(rtt, want)          # 太小会被主循环自动抬到下限
+        for want in range(1, 9):                # 从 N=1 起(下限已取消)
+            N = effective_N(rtt, want)          # 恒等: 不再有 N > RTT/127 下限
             t = decide_t(rtt, N)
             neff, gaps = firmware_behaviour(rtt, t)
             sp = max(gaps) - min(gaps)
@@ -310,19 +337,20 @@ def test_dynamic_t_inversion() -> None:
             in_ok = classify_gap(t, 0, t, TOL)[0] == "in"
             bd = int(round(gaps[-1]))
             bd_ok = (bd >= 1) and (classify_gap(bd, 0, t, TOL)[0] == "bound")
-            if not (neff == N and 1 <= sp <= N and in_ok and bd_ok):
+            # N=1 = 纯单帧拉取: 每批只 1 帧 ⇒ 没有"批内间隔"(极差恒 0), 只查 N_eff 与边界
+            sp_ok = (sp == 0) if N == 1 else (1 <= sp <= N)
+            if not (neff == N and sp_ok and bd_ok and (N == 1 or in_ok)):
                 bad += 1
                 print("  ✗ RTT=%d want_N=%d ⇒ N=%d t=%d N_eff=%d 间隔 %s (in=%s bd=%s)"
                       % (rtt, want, N, t, neff, gaps, in_ok, bd_ok))
     assert bad == 0, "动态 t 反演失败 %d 例" % bad
-    print("  ✓ %d 组 (RTT, want_N) 全部 N_eff == N(含 N 被自动抬高的情形); 最大极差 %d ms"
+    print("  ✓ %d 组 (RTT, want_N=1..8) 全部 N_eff == N; N≥2 极差 ≤ N ms, 最大 %d ms"
           % (cnt, worst))
-    print("    ⚠️ 硬约束 1: t ≤ 127 ms(ms8 只有 8 位) ⇒ **N 有下限** N > RTT/127:")
-    for rtt in (150, 300, 456):
-        nm = int(math.floor(rtt / 127.0)) + 1
-        print("       RTT=%3d ms ⇒ N 最小 %d(≈%.1f Hz); 想更慢只能换 --trigger ack 或固定 --t-ms"
-              % (rtt, nm, nm / (rtt / 1000.0)))
-    print("    ⚠️ 硬约束 2: tol 必须 < 1 ms —— 批起点间隔最多只比 t 短 (t − bd = N − (RTT mod N)),")
+    print("    ✓ N **无下限**(2026-10-13 起): `--frames 1` = 纯单帧拉取(≈1/RTT), 直接可用。")
+    print("       旧下限 `N > RTT/127` 只是 **ms8 帧间隙判据**的需要(t ≤ 127 ms 才能把'丢一帧'")
+    print("       与 256 折回分开); 默认判据改读固件打的 FLAG_PULLF1 标记帧后与 t 无关 ⇒ 取消。")
+    print("       ⚠️ 仅 `--trigger frame` 仍受 t ≤ 127 限制(主循环里单独告警)。")
+    print("    ⚠️ 硬约束(帧判据): tol 必须 < 1 ms —— 批起点间隔最多只比 t 短 (t − bd = N − (RTT mod N)),")
     print("       最坏恰好 = 1 ms; 一旦 tol ≥ 1, 边界就会被判成 'in' 而**漏触发**、环路停摆。")
 
 
@@ -349,7 +377,7 @@ def simulate_dynamic(rtt_series, N, window=8, host_jitter=0.0):
       1. 参照 = median(host_hist)(仅当解缠的并列参照; host_jitter 建模其误差)
       2. 批起点 ms8 差按 **75ms 物理格点**解缠(`unwrap_rtt`, 与实现同一函数)
       3. 合理性闸: 60..900 ms 且(在格点上 或 离参照 ≤80) → 入 rtt_hist
-      4. t = floor(median(rtt_hist)/N)+1, 再套 N 下限保护 (N > RTT/127)
+      4. t = floor(median(rtt_hist)/N)+1(无 N 下限; 见 effective_N)
     返回 [(t, N_eff, 间隔极差, 本轮是否被闸丢样本), ...]
 
     ⚠️ ms8 样本必须"解缠后的值", 不能拿真值直接喂 —— 否则测的就不是解缠逻辑了。
@@ -371,7 +399,7 @@ def simulate_dynamic(rtt_series, N, window=8, host_jitter=0.0):
         if rh:
             med = statistics.median(rh)
             Nt = effective_N(med, N)
-            t = max(1, min(127, int(math.floor(med / Nt)) + 1))
+            t = max(1, min(5000, int(math.floor(med / Nt)) + 1))
         out.append((t_used, neff, max(gaps) - min(gaps), 0 if ok else 1))
     return out
 
@@ -395,7 +423,7 @@ def simulate_legacy_unwrap(rtt_series, N, window=8):
         if rh:
             med = statistics.median(rh)
             Nt = effective_N(med, N)
-            t = max(1, min(127, int(math.floor(med / Nt)) + 1))
+            t = max(1, min(5000, int(math.floor(med / Nt)) + 1))
         out.append((t_used, neff, max(gaps) - min(gaps), 0 if ok else 1))
     return out
 
@@ -512,8 +540,8 @@ def test_fixed_t_is_a_lottery() -> None:
     print("  同一 RTT: 最好 t=%-4d 极差 %3.0f ms  vs  最坏 t=%-4d 极差 %3.0f ms —— 差 %.0f 倍"
           % (best[0], best[2], worst[0], worst[2], worst[2] / max(1.0, best[2])))
     print("  实测印证: 本轮 t=83 ⇒ 极差 32 ms(83,83,83,51); 动态 t=76 ⇒ 极差 4 ms(76,76,76,72)")
-    lo = max(2, int(math.floor(rtt / 127.0)) + 1)
-    print("  动态 t 在同 RTT 下的可用档位(N ≥ %d): %s"
+    lo = 1                                  # N 无下限(2026-10-13): N=1 即纯单帧拉取
+    print("  动态 t 在同 RTT 下的可用档位(N=%d..8, 无下限): %s"
           % (lo, "  ".join("N=%d→t=%d(%.1fHz)"
                            % (N, decide_t(rtt, N), N / (rtt / 1000.0))
                            for N in range(lo, 9))))
@@ -880,6 +908,172 @@ def test_tagging_race() -> None:
     print("        那时发送时刻打标就会在过渡期误判, 所以打标必须等 ACK。")
 
 
+# --------------------------------------------------- CLI 参数推导(N 是唯一旋钮)
+def test_cli_derive_params() -> None:
+    """`link_pull_evt.derive_params`: **N 是唯一旋钮** —— n 与 t 全自动, 显式覆盖才生效。"""
+    from link_pull_evt import (derive_params, T_SEED_INTERNAL, T_FIXED_DEFAULT,
+                               N_MAX, N_AUTO_MIN)
+    print("CLI 参数推导自检  (唯一旋钮 = 每周期帧数 N; n 与 t 全自动, 仅显式给才覆盖):")
+    cases = [
+        # (frames, batch, t_ms, 期望 (want_N, n, t), 说明)
+        (4, 0, 0, (4, N_AUTO_MIN, T_SEED_INTERNAL),
+         "默认(只给 N=4) ⇒ n=max(N+1,8)=8(与历史默认一致), t=内部种子"),
+        (6, 0, 0, (6, N_AUTO_MIN, T_SEED_INTERNAL), "N=6 ⇒ n=max(7,8)=8"),
+        (1, 0, 0, (1, N_AUTO_MIN, T_SEED_INTERNAL), "★ N=1 ⇒ 纯单帧拉取(无下限, 旧版被抬到 3)"),
+        (2, 0, 0, (2, N_AUTO_MIN, T_SEED_INTERNAL), "★ N=2 ⇒ 直接可用(旧版被抬到 3)"),
+        (9, 0, 0, (9, 10, T_SEED_INTERNAL), "N=9 ⇒ n=N+1=10(N+1 在 N≥8 时接管)"),
+        (4, 8, 83, (4, 8, 83), "显式 --batch/--t-ms 覆盖(高级)"),
+        (4, 0, 76, (4, N_AUTO_MIN, 76), "只覆盖 t(当起步种子)"),
+        (4, 8, 0, (4, 8, T_SEED_INTERNAL), "只覆盖 n"),
+        (0, 0, 0, (0, N_AUTO_MIN, T_FIXED_DEFAULT), "固定 t 探针模式(N=0)兜底值"),
+        (0, 0, 45, (0, N_AUTO_MIN, 45), "固定 t 探针模式显式 t"),
+        (0, 5, 0, (0, 5, T_FIXED_DEFAULT), "固定 t 探针模式显式 n"),
+        (99, 0, 0, (N_MAX, N_MAX, T_SEED_INTERNAL), "N 超限钳到 16 ⇒ n 同步钳到 16"),
+        (-3, 0, 0, (0, N_AUTO_MIN, T_FIXED_DEFAULT), "负 N 归 0 ⇒ 退固定模式"),
+    ]
+    for fr, ba, tm, exp, note in cases:
+        got = derive_params(fr, ba, tm)
+        assert got == exp, (fr, ba, tm, got, exp, note)
+        print("  ✓ --frames %-3d --batch %-2d --t-ms %-3d ⇒ N=%-2d n=%-2d t=%-3d   %s"
+              % (fr, ba, tm, got[0], got[1], got[2], note))
+    # 关键不变量: 动态 t 模式下 auto n 必须 >= N
+    #   (否则批内自我发完 ⇒ 单片机在一批内就空闲, 周期尾部白丢时间)
+    for N in range(1, N_MAX + 1):
+        _, n, _ = derive_params(N, 0, 0)
+        assert n >= N, "auto n=%d < N=%d" % (n, N)
+    print("  ✓ 不变量: 动态 t 模式下 auto n >= N 对 N=1..%d 全部成立" % N_MAX)
+    # 零行为变化: N <= 7 时 auto n == 8(与历史验证过的 --batch 8 逐字相同)
+    for N in range(1, N_AUTO_MIN):
+        _, n, _ = derive_params(N, 0, 0)
+        assert n == N_AUTO_MIN, "N=%d 时 auto n=%d ≠ %d(会改变历史行为)" % (N, n, N_AUTO_MIN)
+    print("  ✓ 零行为变化: N=1..%d 的 auto n 恒 = %d(= 历史验证过的 --batch)"
+          % (N_AUTO_MIN - 1, N_AUTO_MIN))
+    # 不变量: 固定 t 探针模式必须给出可用的 t
+    assert derive_params(0, 0, 0)[2] == T_FIXED_DEFAULT
+    print("  ✓ 不变量: N=0(固定 t 探针)仍有兜底 t=%d ms" % T_FIXED_DEFAULT)
+
+
+# --------------------------------------------- 批首帧标记(v2.6.1 固件打的 FLAG_PULLF1)
+def test_pullf1_wire() -> None:
+    """`FLAG_PULLF1`(0x08) 的**线上一致性**: 与固件 link.h 同位、不撞别的位、能过编解码。"""
+    from host.protocol import codec as C
+    print("批首帧标记位自检 (FLAG_PULLF1 = 0x08):")
+    assert C.FLAG_PULLF1 == 0x08, hex(C.FLAG_PULLF1)
+    # 与同字节其它位互不重叠(位被复用自"恒 0 的 SCOPING", 所以必须证明它没撞人)
+    others = {"FREEMODE": 0x01, "SLEEP": 0x02, "EMERG": 0x04, "DUMPING": 0x10,
+              "MOTOR_OFF": 0x20, "ESTOP_LOCK": 0x40, "EVQ": 0x80}
+    for name, bit in others.items():
+        assert not (bit & C.FLAG_PULLF1), (name, hex(bit))
+    assert not hasattr(C, "FLAG_SCOPING"), "旧的 SCOPING 常量应已改名(contract_test 逐个比对名字)"
+    print("  ✓ 0x08, 与同字节其余 7 位(0x01/0x02/0x04/0x10/0x20/0x40/0x80)无重叠")
+
+    # 编解码往返: flags 位必须原样穿过 pack_unified → decode_unified
+    from host.protocol.codec import (decode_unified, pack_unified, UNIFIED_LEN,
+                                     FLAG_ESTOP_LOCK, FLAG_PULLF1 as B)
+    pl = bytearray(UNIFIED_LEN)
+    for f, want_pullf1, want_lock in ((B, True, False), (B | FLAG_ESTOP_LOCK, True, True),
+                                      (FLAG_ESTOP_LOCK, False, True), (0, False, False)):
+        pl[C.U_FLAGS] = f
+        d = decode_unified(bytes(pl))
+        assert d["pullf1"] is want_pullf1, (hex(f), d["pullf1"])
+        assert d["estop_lock"] is want_lock, (hex(f), d["estop_lock"])
+        assert d["flags"] == f, (hex(f), hex(d["flags"]))
+    assert pack_unified(d) == bytes(pl), "回包不一致"
+    print("  ✓ 4 组 flags 往返一致: pullf1/estop_lock 各自独立解码(0x08 不与 0x40 串味)")
+
+    # 与固件源同值(防两侧漂移; 这里直接读 link.h, 不写死)
+    import os
+    import re
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                     "code_stm32f1_mouse", "HARDWARE", "link.h")
+    h = open(p, encoding="utf-8").read()
+    m = re.search(r"#define\s+LINK_FLAG_PULLF1\s+(0x[0-9A-Fa-f]+)", h)
+    assert m, "固件 link.h 里没有 LINK_FLAG_PULLF1"
+    assert int(m.group(1), 16) == C.FLAG_PULLF1, m.group(1)
+    print("  ✓ 与固件 link.h 的 LINK_FLAG_PULLF1 = %s 一致" % m.group(1))
+
+
+def test_mark_trigger() -> None:
+    """标记帧判据 = **读事实**: 退化点不再停摆, 且不可能"提前触发"。
+
+    与 `mode="frame"`(按 ms8 间隙**推算**)对照跑同一 (RTT,t) 矩阵:
+      * 非退化点: 两者都每周期触发一次;
+      * 退化点(RTT ≡ 0 mod t): 间隙判据**永远看不到边界 ⇒ 停摆**, 而标记判据照常
+        (真机 RTT≈150、t=75 就是这种情形 —— 这正是要消灭的失效模式)。
+    另断言自锁: 触发→触发恒 = RTT, 批内帧数恒 = N ⇒ 速率 = N/RTT。
+    """
+    print("标记帧判据自检 (对比'按间隙推算': 退化点停摆 vs 靠标记照常):")
+    bad = 0
+    for rtt in (150, 225, 300, 375):
+        for t in (83, 75, 50, 45, 25):
+            N_exp = math.ceil(rtt / t)
+            deg = (rtt % t == 0)
+            rm = simulate(rtt, t, mode="mark", want_periods=80)
+            rf = simulate(rtt, t, mode="frame", want_periods=80)
+            if rm["stalls"] or rm["periods"] < 80:
+                print("  ✗ RTT=%d t=%d mark: 停摆或周期不足(%d)" % (rtt, t, rm["periods"]))
+                bad += 1
+                continue
+            if max(rm["periods_ms"]) - min(rm["periods_ms"]) > 0.001:
+                print("  ✗ RTT=%d t=%d mark: 周期不恒定 %s" % (rtt, t, rm["periods_ms"][:5]))
+                bad += 1
+                continue
+            if abs(rm["periods_ms"][0] - rtt) > 0.001:
+                print("  ✗ RTT=%d t=%d mark: 周期 %.2f ≠ RTT" % (rtt, t, rm["periods_ms"][0]))
+                bad += 1
+                continue
+            if deg and not rf["stalls"]:
+                print("  ✗ RTT=%d t=%d 是退化点, frame 判据却没停摆?" % (rtt, t))
+                bad += 1
+                continue
+            if not deg and rf["stalls"]:
+                print("  ✗ RTT=%d t=%d 非退化点, frame 判据却停摆?" % (rtt, t))
+                bad += 1
+                continue
+            print("  ✓ RTT=%3d t=%2d%s: mark %3d 周期(周期恒=%.0f ms), 每周期 %d 帧 ⟹ %5.2f Hz%s"
+                  % (rtt, t, "(退化)" if deg else "      ", rm["periods"],
+                     rm["periods_ms"][0], rm["frames"] // rm["periods"],
+                     N_exp / (rtt / 1000.0),
+                     " | frame 判据 0 次触发(停摆) ⇒ 只有标记判据能跑" if deg else ""))
+    assert bad == 0, "标记帧判据自检失败 %d 例" % bad
+
+    # 丢批内帧: 标记判据**完全不受影响**(标记只挂在第 1 帧上, 批内丢帧不动它)
+    rtt, t = 150, 45
+    r = simulate(rtt, t, mode="mark", want_periods=120,
+                 drop=lambda p, j: (j == 1 and p % 2 == 0))
+    assert r["stalls"] == 0 and r["periods"] == 120, r
+    print("  ✓ 隔批丢中间帧(j=1): 120 周期零停摆、零提前触发"
+          "(frame 判据同工况下会把丢帧判成 loss, 一旦丢的是批末帧就直接停摆)")
+    r2 = simulate(rtt, t, mode="mark", want_periods=120,
+                  drop=lambda p, j: j == math.ceil(rtt / t) - 1)
+    assert r2["stalls"] == 0 and r2["periods"] == 120, r2
+    print("  ✓ 丢批末帧(j=N−1): 仍 120 周期零停摆 —— 这是 frame 判据的死穴(它停摆), "
+          "也是 ACK/标记判据的价值所在")
+
+
+def test_absorb_window() -> None:
+    """ACK 兜底后的"迟到标记吸收窗"必须**只吃迟到的自己, 不吃下一批**。
+
+    规则(见 link_pull_evt.py): 用非标记通路触发后开一个 clamp(3×grace, 70ms, 120ms) 的
+    吸收窗, 窗内到达的标记帧只记账不触发。这里证明该窗**恒 < 最小观测 RTT(150 ms)**,
+    所以下一批的正常标记永远落在窗外(否则会被吃掉 ⇒ 永久退回 ACK 通路)。
+    """
+    from link_pull_evt import ABSORB_MIN_S, ABSORB_MAX_S
+    print("迟到标记吸收窗自检 (窗宽必须 < 最小 RTT, 否则会把下一批的正常标记也吃掉):")
+    assert ABSORB_MAX_S < 0.150, ABSORB_MAX_S
+    for grace_ms in (5.0, 20.0, 50.0, 100.0, 500.0):
+        win = min(ABSORB_MAX_S, max(ABSORB_MIN_S, 3.0 * grace_ms / 1000.0))
+        assert win < 0.150, (grace_ms, win)
+        print("  ✓ --mark-grace-ms %-6.1f ⇒ 窗宽 %.0f ms  (最小 RTT 150 ms, 余量 %+.0f ms)"
+              % (grace_ms, win * 1000.0, 150.0 - win * 1000.0))
+    # 真机 F1 相对 ACK 的迟到量实测 ~5~6 ms ⇒ 默认 20ms 的 grace 有 3 倍余量
+    win = min(ABSORB_MAX_S, max(ABSORB_MIN_S, 3.0 * 0.020))
+    assert win >= 0.070, win
+    print("  ✓ 默认 20ms ⇒ 窗 %.0f ms: 既罩得住 F1 的正常迟到(实测 5~6ms), 又远小于 RTT"
+          % (win * 1000.0))
+    print("      (窗是**限时**的, 不是布尔标志 —— 布尔会把下一批的标记也吃掉、永久退回 ACK 通路)")
+
+
 if __name__ == "__main__":
     test_classify()
     print()
@@ -908,6 +1102,14 @@ if __name__ == "__main__":
     test_bootstrap_phase()
     print()
     test_tagging_race()
+    print()
+    test_pullf1_wire()
+    print()
+    test_mark_trigger()
+    print()
+    test_absorb_window()
+    print()
+    test_cli_derive_params()
     print()
     print("全部通过 ✓")
     sys.exit(0)

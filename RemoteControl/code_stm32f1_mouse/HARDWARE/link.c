@@ -205,6 +205,9 @@ static u8 linkPullOn;     /* 1 = PULL 批量节拍模式(PC 指定 n 帧 / t ms 
 static u8 linkPullCount;  /* 本批剩余待发帧数 */
 static u16 linkPullPeriod;/* 批内帧间隔(ms) */
 static u16 linkPullTimer; /* 距下一帧的倒计时(ms) */
+static u8 linkPullF1;     /* v2.6.1: 1 = **正在组的这一帧是"收到 PULL 后发出的第一帧"**。
+                           *  由 link_RateService 的 PULL 分支在组帧前置位,
+                           *  由 link_SendUnified 消费后立刻清(只标一帧), 见 LINK_FLAG_PULLF1。 */
 static u16 linkRateHzQ;   /* 固定节拍的目标帧率 F, Q8.8(Hz*256) */
 static u32 linkRateAcc;   /* 组帧节拍累加器(单位见 LINK_RATE_FRAME_UNIT) */
 #endif
@@ -1137,7 +1140,9 @@ static u8 link_Flags(void)
 	 * (设计方案 §8.3)。丢帧本身另有 dropCnt 上报。 */
 	if (linkEvDrop)
 		f |= LINK_FLAG_EVQ;
-	/* FLAG_SCOPING/FLAG_DUMPING 在 v2.0 恒为 0 —— SCOPE 与 dump 机制已删除。 */
+	/* FLAG_DUMPING 在 v2.0 恒为 0 —— dump 机制已删除。
+	 * v2.6.1: bit3(0x08) 不再是恒 0 的"SCOPING", 而是 `LINK_FLAG_PULLF1`(批首帧标记);
+	 *       它在 link_SendUnified 里按帧 OR 上去(带门控), 不经本函数。 */
 	return f;
 }
 
@@ -1208,6 +1213,17 @@ static void link_SendUnified(void)
 	pl[LINK_U_STATE_B] = sb;
 	pl[LINK_U_STATE_C] = sc;
 	pl[LINK_U_FLAGS] = link_Flags();
+#ifdef MOUSE_REMOTE
+	/* v2.6.1: 批首帧标记 —— link_RateService 的 PULL 分支在本帧组帧前置位, 这里消费后清零,
+	 * 所以**每个 PULL 批恰好只有第 1 帧**带这一位(见 LINK_FLAG_PULLF1 的说明)。
+	 * ⚠️ 必须门控: link_SendUnified 两档共用, 不门控会改比赛档产物(hex 基线会变)。
+	 * ⚠️ 不放进 link_Flags(): 那个函数是**只读**状态镜像(两档共用), 放进它会引入副作用。 */
+	if (linkPullF1)
+	{
+		pl[LINK_U_FLAGS] |= LINK_FLAG_PULLF1;
+		linkPullF1 = 0u;
+	}
+#endif
 	/* posX/posY 各 4 bit; goalX/goalY 同为 char(初值 7), 4 bit 覆盖 0..15 */
 	pl[LINK_U_POS] = (u8)(((u8)mazeState.mousePos.cX & 0x0Fu)
 	                      | (((u8)mazeState.mousePos.cY & 0x0Fu) << 4));
@@ -1286,6 +1302,7 @@ static void link_RateStop(void)
 	linkPullCount = 0u;
 	linkPullPeriod = 0u;
 	linkPullTimer = 0u;
+	linkPullF1 = 0u;
 	linkRateHzQ = 0u;
 	linkRateAcc = 0u;
 }
@@ -1353,15 +1370,26 @@ static void link_RateService(void)
 	 * 完全由上位机掌控; 打断语义 = 新 PULL 直接覆盖本批剩余。 */
 	if (linkPullOn)
 	{
+		u8 firstFrame;
 		if (linkPullCount == 0u)
 			return; /* 本批已发完: 静默等下一条 PULL */
+		/* ---- 批首帧判据(v2.6.1, 供 LINK_FLAG_PULLF1) ----
+		 * link_PullSet() 把 linkPullTimer 置 0(= 下一 tick 就发), 而**每发一帧**都会把它
+		 * 重置为 linkPullPeriod(>= LINK_PULL_T_MS_MIN = 1) ⇒ "带 timer==0 进入本分支"
+		 * 当且仅当这是**本批第一帧**。新 PULL 抢占时 timer 同样被置 0 —— 那正是"新批首帧",
+		 * 也正是要标的。
+		 * ⚠️ 必须在**倒计时之前**取值: 批内最后一帧的 timer 恰好减到 0, 事后再看就分不清了
+		 *    (会把批内末帧误标成批首 ⇒ 上位机提前触发 ⇒ 多发命令, 正是要消灭的缺陷)。 */
+		firstFrame = (linkPullTimer == 0u) ? 1u : 0u;
 		if (linkPullTimer > 0u)
 		{
 			linkPullTimer--;
 			if (linkPullTimer > 0u)
 				return; /* 未到下一帧的时刻 */
 		}
+		linkPullF1 = firstFrame; /* 只影响本帧组帧, 由 link_SendUnified 消费后清零 */
 		link_SendUnified();
+		linkPullF1 = 0u;
 		if (linkPullCount)
 			linkPullCount--;
 		linkPullTimer = linkPullPeriod;

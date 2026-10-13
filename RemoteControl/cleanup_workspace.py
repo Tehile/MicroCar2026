@@ -56,7 +56,7 @@ STALE_SCRIPTS = (
     "host/real_window_sweep.py",    # 扫的是已删除的 AIMD 窗口机制
     "host/real_tick_latency.py",
     "host/real_latency_breakdown.py",
-    "host/real_pull.py",            # 与 real_v21.py 功能重叠
+    "host/real_pull.py",            # 与早期 real_* 真机脚本功能重叠(那些已随 v2.6.1 移除)
 )
 
 

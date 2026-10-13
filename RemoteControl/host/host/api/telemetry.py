@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover
 STREAM = "unified"
 
 _FLAG_KEYS = (
-    "freemode", "sleep", "emerg", "scoping", "dumping",
+    "freemode", "sleep", "emerg", "pullf1", "dumping",
     "motors_off", "estop_lock", "evq",
 )
 

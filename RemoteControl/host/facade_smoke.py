@@ -220,10 +220,16 @@ def _run_impl(port: int) -> None:
 
         # 模拟一个"卡死现场": 让它在迷宫里跑起来, 然后执行救援
         mc.maze.run()
-        time.sleep(0.3)
-        check("救援前: 设备处于非空闲态",
-              (mc.maze.state() or {}).get("taskName") not in (None, "WAIT"),
-              str((mc.maze.state() or {}).get("taskName")))
+        # ⚠️ 不能写死 `sleep(0.3)` 后就断言: 慢链路(`--rtt-ms 300`)下主机读到的
+        #    最新帧本身带 ~300ms 延迟, 那一刻仍是发车前的 WAIT。改成轮询等状态翻转。
+        deadline = time.time() + 5.0
+        task = None
+        while time.time() < deadline:
+            task = (mc.maze.state() or {}).get("taskName")
+            if task not in (None, "WAIT"):
+                break
+            time.sleep(0.05)
+        check("救援前: 设备处于非空闲态", task not in (None, "WAIT"), str(task))
 
         rr = mc.conn.soft_reset(verify=True, timeout=6.0)
         check("soft_reset 复核通过", rr.ok, f"{rr.status} {rr.data}")
@@ -242,18 +248,27 @@ def _run_impl(port: int) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="MouseClient 门面冒烟测试")
     ap.add_argument("--port", type=int, default=0, help="已运行模拟器的端口(默认自动拉起)")
+    ap.add_argument("--rtt-ms", type=float, default=0.0,
+                    help="给模拟器注入应答往返延迟(ms)。默认 0(亚毫秒) —— "
+                         "但真机蓝牙链路实测 RTT≈300ms, 用 --rtt-ms 300 才能复现"
+                         "'按快链路写的时序假设'类缺陷(如连接握手的 50ms 等待)")
     args = ap.parse_args()
 
     print("=" * 66)
     print("电脑鼠上位机 门面冒烟测试")
+    if args.rtt_ms > 0:
+        print(f"  ⚠ 慢链路模式: 模拟器应答延迟 {args.rtt_ms:.0f} ms(逼近真机蓝牙)")
     print("=" * 66)
     test_n1_headless()
 
     port = args.port or _free_port()
     proc = None
     if not args.port:
+        sim_cmd = [sys.executable, "-m", "host.sim.mouse_sim", "--port", str(port), "--no-auto"]
+        if args.rtt_ms > 0:
+            sim_cmd += ["--rtt-ms", str(args.rtt_ms)]
         proc = subprocess.Popen(
-            [sys.executable, "-m", "host.sim.mouse_sim", "--port", str(port), "--no-auto"],
+            sim_cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

@@ -60,12 +60,19 @@
                           *        **帧格式与参数表均未变**, 进位只因命令集变化
                           *        (先例: v2.4 给 `MAZE RUN` 加动作词也进了协议号) ——
                           *        旧上位机据此可判"板上是否支持 RATE 族"。 */
-#define LINK_FW_VER 218  /* 2.18 —— v2.6.0: RATE 族转正(自时钟节拍); AIMD 与帧尾 F 字段删除。 */
+#define LINK_FW_VER 219  /* 2.19 —— v2.6.1: 统一帧 flags 0x08 由"SCOPING(恒0)"改为
+                          * `LINK_FLAG_PULLF1`(批首帧标记), 供上位机读事实判批起点。
+                          * **帧格式与参数表仍未变**(49B/57B), 进位只因标志位语义变了。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(基线 hex sha256 f0a5f863...)。 */
 #endif
 /* 历史版本记录:
+ *  219 = v2.6.1: flags bit3(0x08) 由恒 0 的 SCOPING 改为 `LINK_FLAG_PULLF1` ——
+ *        "本帧是收到 PULL 后发出的第一帧"。PULL 分支在组帧前置位、`link_SendUnified`
+ *        消费后立刻清(只标一帧)。**帧长与参数表一字未改** ⇒ 旧上位机仍能解全部既有字段,
+ *        只是 bit3 会由"恒 0"变成"批首帧"语义; 新上位机据此把批起点判据从"推算"改成
+ *        "读事实"(见 host/link_pull_evt.py 与 docs/链路MTBF压测方法.md §14.15)。
  *  218 = v2.6.0: `RATE` 命令族转正 —— 固件按 PC 指定节拍自时钟发帧, 作 MTBF 压测
  *        (`RATE FIX`) 与"事件触发式拉取(周期 ≡ RTT, `RATE PULL`)"的载体。
  *        **统一帧仍是 49B / 57B**: v2.6-exp 的帧尾 2B 目标帧率随 AIMD(ON/UP/KEEP/DOWN
@@ -205,13 +212,21 @@
 #define LINK_TIME_DIV 1000 /* 基准灯周期(ms) = 1Hz */
 
 /* ---- 统一帧 flags 位 ----
- * ⚠️ SCOPING(0x08) / DUMPING(0x10) 在 v2.0 **恒为 0**: 它们描述的是已删除的
- *    SCOPE/dump 机制。位定义保留, 以免上位机的位解释漂移。
+ * ⚠️ DUMPING(0x10) 在 v2.0 **恒为 0**: 它描述的是已删除的 dump 机制。
+ *    位定义保留, 以免上位机的位解释漂移。
  *    bit7 由已废弃的 RUNLOG 改为 EVQ —— 见设计方案 §8.3 的"状态帧 EVQ 位"。 */
 #define LINK_FLAG_FREEMODE 0x01 /* 自由模式 freemode==1: 电机输出被强制为 0(不是"解锁"!) */
 #define LINK_FLAG_SLEEP 0x02    /* 休眠(sleepmode==1) */
 #define LINK_FLAG_EMERG 0x04    /* 急停生效(本次上电以来触发过一次, 由 emergMon.active 镜像) */
-#define LINK_FLAG_SCOPING 0x08  /* [v2.0 恒 0] 示波器采集中 */
+#define LINK_FLAG_PULLF1 0x08   /* v2.6.1: **本帧 = 收到 PULL 后发出的第一帧**(批首帧)。
+                                 *  远程档专属: 由 link_RateService 的 PULL 分支在组帧前置位,
+                                 *  只标一帧; 比赛档没有 PULL ⇒ 恒 0。
+                                 *  占用原 SCOPING(0x08) 位 —— 那套示波器机制 v2.0 已删除,
+                                 *  该位自 v2.0 起恒 0、全树无置位点、无消费者, 故可安全复用。
+                                 *  动机: 上位机(host/link_pull_evt.py)"批起点"判据原先只能靠
+                                 *  ms8 帧间隙**推算**, 四类误判(归档错/折回/换档/1ms 刀锋)都
+                                 *  会让它**提前触发** ⇒ 多发命令 ⇒ 速率顶过链路容量。现在
+                                 *  判据直接读这一位 = 读事实。见 docs/链路MTBF压测方法.md §14.15。 */
 #define LINK_FLAG_DUMPING 0x10  /* [v2.0 恒 0] dump 传输中 */
 #define LINK_FLAG_MOTOR_OFF 0x20 /* [保留恒 0] 曾用于"安全测试模式(电机禁用)"; v2.4 取消该档后无发送方 */
 #define LINK_FLAG_ESTOP_LOCK 0x40 /* 急停**锁存**中: 新的 MOVE/CAL 会被拒(ERR_ESTOP), 须 STOP 解锁 */
@@ -353,7 +368,9 @@
  * 用途: 让上位机直接指定"每次拉取发几帧、间隔多少", 从而
  *   ① 批量摊薄命令/应答往返(RTT); ② 用 n 与 t 组合制造"突发+静默"工况,
  *   检验给透传模块留空闲时间能否延长 MTBF; ③ 上位机按实收情况闭环调 t。
- * 与 RATE FIX 互斥(置 PULL 即退出固定节拍, 反之亦然)。 */
+ * 与 RATE FIX 互斥(置 PULL 即退出固定节拍, 反之亦然)。
+ * ★ v2.6.1: 每批的**第 1 帧**带 `LINK_FLAG_PULLF1`(统一帧 flags bit3) —— 上位机的
+ *   "批起点"判据直接读这一位(读事实), 不再靠 ms8 帧间隙推算(见 link.h 的 flags 位说明)。 */
 #define LINK_PULL_N_MAX 16     /* 每次拉取最多帧数 */
 #define LINK_PULL_T_MS_MIN 1   /* 批内帧间隔下限(ms) */
 #define LINK_PULL_T_MS_MAX 5000 /* 批内帧间隔上限(ms) */

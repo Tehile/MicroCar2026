@@ -41,7 +41,7 @@ from .codec import (  # noqa: F401
     FLAG_FREEMODE,
     FLAG_SLEEP,
     FLAG_EMERG,
-    FLAG_SCOPING,
+    FLAG_PULLF1,
     FLAG_DUMPING,
     FLAG_MOTOR_OFF,
     FLAG_ESTOP_LOCK,

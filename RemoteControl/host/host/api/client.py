@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ..model.ring import TelemetryStore
 from ..model.session import Session
 from ..protocol.codec import parse_event_line, q1616_to_float
-from ..protocol.commands import CommandClient
+from ..protocol.commands import CommandClient, CommandError
 from ..registry import command_line, spec_of
 from ..transport.link import Link, LinkState, Target, explain_open_error
 from .analyze import AnalyzeAPI
@@ -239,14 +239,24 @@ class MouseClient:
             return False
         if self.auto_session:
             self.open_session()
+        # ★ 先取设备指纹, 再开流 —— 这两个的顺序不能反。
+        #   固件每 1ms tick 只消费一行命令(严格停等, 在途 ≤1): 若 PING 与拉取器的
+        #   首条 `TELEM` 背靠背发出, 后发的 PING 会被丢弃 ⇒ device 只能等
+        #   `TIMEOUT_S`(2.5s) 超时重发才拿到, 而 monitor 顶栏与 `reset_cause` 是在
+        #   连接后**立刻**读 `mc.device` 的(真机实测: 前 ~2.5s 恒为空)。
+        #   用 wait=True 自适应等应答(真机实测 RTT≈300ms)取代原先写死的
+        #   `sleep(0.05)` —— 那个值短于真机 RTT, 即使 PING 没丢也读不到 PONG。
+        try:
+            self.cmd.send("PING", wait=True, timeout=self.cmd.TIMEOUT_S)
+        except CommandError:
+            # 指纹拿不到不应阻断连接; 后续 `send_cmd("ping")` 或自动重发会补齐。
+            pass
+        self.bus.pump()
         if self.auto_stream:
             # v2.1 拉取模式: 不在固件侧"开流", 而是**本机开始循环请求** TELEM。
             # 非阻塞 —— 首发一条请求就返回, 应答里的完整 u32 时基作为第一次时间锚
             # (之后每次拉取都会刷新它)。见 host/api/stream.py 的说明。
             self.stream.on()
-        self.cmd.send("PING")  # 取 proto/fw/mazetype/txbuf/rst
-        time.sleep(0.05)  # 给 PING 一点往返时间, 让 device 信息尽快可用
-        self.bus.pump()
         return True
 
     def _absorb_anchor(self, ok: bool, status: str) -> None:

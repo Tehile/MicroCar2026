@@ -28,7 +28,8 @@
 ----------------------------------------
 固件 `PULL n t` 的语义是"立即发第 1 帧, 之后每 t ms 一帧, 共 n 帧, 发完静默";
 且**收到新 PULL 会丢弃本批剩余帧**(抢占式)。若 PC **等本批收齐再发下一条**
-(`link_pull_batch.py` 的老做法), 则每批多出一个"命令往返 + 轮询"的窟窿:
+(早期 `RATE PULL` 工具的老做法, 该脚本已随 v2.6.1 移除), 则每批多出一个
+"命令往返 + 轮询"的窟窿:
 
     收帧:  F F  ................  F F  ................
            |83ms|   ~280ms 静默     |83ms|
@@ -108,6 +109,7 @@ class FrameLog:
         self.times: list[float] = []
         self.ms8s: list[int] = []             # 帧内单片机毫秒时基低 8 位(判定均匀性的真值)
         self.drops: list[int] = []            # 帧内 MCU 丢帧字节(逐帧)
+        self.flags: list[int] = []            # 帧内 flags 字节(逐帧; bit3 = FLAG_PULLF1 批首帧)
         self.batches: list[int] = []          # 每帧归属的"第几次 PULL"(主循环发送前写入)
         self.cur_batch = 0                    # 主循环维护的当前批号(钩子在读线程里读它)
         self._drop = None                     # 最近一帧的 MCU 丢帧字节
@@ -120,6 +122,7 @@ class FrameLog:
                     self.times.append(float(rec.get("_rx_mono") or time.monotonic()))
                     self.ms8s.append(int(rec.get("ms8", 0)) & 0xFF)
                     self.drops.append(int(rec.get("mcuDrop", 0)) if "mcuDrop" in rec else -1)
+                    self.flags.append(int(rec.get("flags", 0)) & 0xFF)
                     self.batches.append(self.cur_batch)
                     if "mcuDrop" in rec:
                         self._drop = rec["mcuDrop"]
@@ -147,6 +150,20 @@ class FrameLog:
     def ms8_of(self, i: int):
         with self._lock:
             return self.ms8s[i] if 0 <= i < len(self.ms8s) else None
+
+    def flags_of(self, i: int):
+        """第 i 帧的 flags 字节; 越界/未到返回 None。
+
+        v2.6.1: `flags & 0x08`(FLAG_PULLF1) = "这一帧是收到 PULL 后发出的第一帧" ——
+        事件触发式拉取的**批起点判据直接读它**(读事实), 不再靠 ms8 帧间隙推算。
+        """
+        with self._lock:
+            return self.flags[i] if 0 <= i < len(self.flags) else None
+
+    def dump_flags(self):
+        """flags 全量快照(与 dump_batches 同源同序)。"""
+        with self._lock:
+            return list(self.flags)
 
     def times_from(self, i: int):
         with self._lock:

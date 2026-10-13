@@ -28,6 +28,7 @@ v2.0(2026-10-05) 与旧版的关键差别(见《传输模式重构设计方案�
 用法:
     python -m host.sim.mouse_sim               # 默认监听 127.0.0.1:5555
     python -m host.sim.mouse_sim --port 5556 --no-auto
+    python -m host.sim.mouse_sim --rtt-ms 300  # 注入 ~300ms 往返延迟, 逼近真机蓝牙链路
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from ..protocol.codec import (
     FLAG_EVQ,
     FLAG_FREEMODE,
     FLAG_MOTOR_OFF,
+    FLAG_PULLF1,
     FLAG_SLEEP,
     MAZE_TASK_NAMES,
     ROAD_NAMES,
@@ -59,7 +61,7 @@ from ..protocol.codec import (
 
 MAZETYPE = 7
 PROTO_VER = 7  # v2.6: 新增 RATE 命令族(帧格式与参数表未变)
-FW_VER = 218  # v2.6.0
+FW_VER = 219  # v2.6.1: flags bit3 = LINK_FLAG_PULLF1(批首帧标记)
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {
@@ -243,12 +245,18 @@ def wall_byte(vwall, hwall, x: int, y: int, n: int) -> int:
 # ---------------------------------------------------------------- 模拟器
 
 class MouseSim:
-    def __init__(self, auto_explore: bool = True, seed: int = 20260925, safe: bool = False) -> None:
+    def __init__(self, auto_explore: bool = True, seed: int = 20260925,
+                 safe: bool = False, rtt_ms: float = 0.0) -> None:
         self.n = MAZETYPE
         self.vwall, self.hwall = build_maze(self.n, seed)
         self.auto_explore = auto_explore
         #: 安全测试模式: 模拟"固件已禁用电机"的板子(flags 置 MOTOR_OFF, 速度恒 0)
         self.safe = safe
+        #: 命令→应答的整趟往返延迟(秒)。模拟真机的蓝牙/CH340 转发 —— 默认 0(亚毫秒)。
+        #: 真机实测 RTT ≈ 300 ms; 上位机里"按快链路写的时序假设"(例如连接握手只
+        #: sleep 50 ms 就取设备指纹)只有在注入这个延迟后才能离线复现,
+        #: 见 `facade_smoke.py --rtt-ms`。
+        self.rtt_s = max(0.0, float(rtt_ms) / 1000.0)
 
         # 运行时参数
         self.params: Dict[int, float] = dict(PARAM_DEFAULTS)
@@ -312,6 +320,7 @@ class MouseSim:
         self.pull_count = 0    # 本批剩余待发帧数
         self.pull_period = 0   # 批内帧间隔(ms)
         self.pull_timer = 0    # 距下一帧的倒计时(ms)
+        self.pull_f1 = False   # v2.6.1: 正在组的这一帧是否为"收到 PULL 后发出的第一帧"
         self.tick = 0
         self.txbuf = 1024  # v2.5: 41 项参数的 GET ALL ≈ 700B, 512 已不够(与固件远程档同步)
 
@@ -447,11 +456,17 @@ class MouseSim:
         if self.pull_on:
             if self.pull_count <= 0:
                 return  # 本批已发完: 静默等下一条 PULL
+            # 批首帧判据 —— 与固件 link_RateService 逐步同构: link_PullSet 把 timer 置 0,
+            # 而每发一帧都会重置为 pull_period(>=1) ⇒ "带 timer==0 进来"当且仅当本批第 1 帧。
+            # ⚠️ 必须在**倒计时之前**取值(批内末帧的 timer 恰好减到 0, 事后再看就分不清了)。
+            first_frame = self.pull_timer == 0
             if self.pull_timer > 0:
                 self.pull_timer -= 1
                 if self.pull_timer > 0:
                     return
+            self.pull_f1 = first_frame          # 只影响本帧组帧, 组完立刻清(与固件同序)
             self.rate_frames.append(self._unified_frame())
+            self.pull_f1 = False
             self.up_seq = (self.up_seq + 1) & 0xFF
             self.pull_count -= 1
             self.pull_timer = self.pull_period
@@ -570,8 +585,10 @@ class MouseSim:
         """统一帧 flags 字节 —— 与固件 `link_Flags()` 位定义逐位一致。
 
         单一来源: 遥测帧与(曾经的)SNAP 各算一遍会让两侧不一致, 故抽成方法。
-        v2.0: bit3/bit4(SCOPING/DUMPING)恒 0 —— 那两套机制已删除;
+        v2.0: bit4(DUMPING)恒 0 —— dump 机制已删除;
         bit7 由 RUNLOG 改为 **EVQ**(有事件行被丢弃 -> 事件流不完整)。
+        ⚠️ 本方法**只读状态镜像**, 不碰 PULLF1 —— 那一位是**按帧**的(只有批首帧带),
+           由 `_rate_tick` 在组帧前后置/清(见那里的注释), 与固件的门控 OR 同构。
         """
         f = 0
         if self.freemode:
@@ -586,6 +603,8 @@ class MouseSim:
             f |= FLAG_ESTOP_LOCK
         if self.ev_drop:
             f |= FLAG_EVQ
+        if self.pull_f1:
+            f |= FLAG_PULLF1   # v2.6.1: 批首帧(仅 PULL 批的第 1 帧)
         return f
 
     # ---------------------------------------------------------- 上行事件
@@ -1111,6 +1130,7 @@ class MouseSim:
                 self.rate_on = False
                 self.pull_on = False
                 self.pull_count = 0
+                self.pull_f1 = False
                 self.rate_acc = 0
                 return [ack("OK")]
             if sub == "FIX":
@@ -1193,8 +1213,14 @@ class MouseSim:
         next_tick = time.perf_counter()
         tx = bytearray()
         last_flush = time.perf_counter()
+        #: 待释放的应答 [(到期时刻, 字节)] —— 仅在 `rtt_s > 0` 时使用(按到期时刻递增)。
+        delayed: List[Tuple[float, bytes]] = []
 
         while True:
+            # 本轮新产生的全部字节: 命令应答 + 事件行 + 自时钟帧。
+            # 先攒进 pending, 再按 `rtt_s` 决定直接入 tx 还是延迟释放 ——
+            # 这样"链路往返延迟"对**所有**下行命令的应答一致生效。
+            pending = bytearray()
             # ---- 收 ----
             conn.settimeout(0.0)
             try:
@@ -1220,10 +1246,10 @@ class MouseSim:
                     # TELEM: 先发帧、再发 ACK(与固件的入队顺序一致)
                     tr = self.telem_reply
                     if tr is not None:
-                        tx += tr
+                        pending += tr
                         self.telem_reply = None
                     for r in reps:
-                        tx += r
+                        pending += r
 
             # ---- 物理与遥测 ----
             now = time.perf_counter()
@@ -1233,22 +1259,39 @@ class MouseSim:
                 if next_tick < now - 0.25:  # 落后太多则重新对齐, 避免追帧风暴
                     next_tick = now + 0.001
 
-            # 事件行 / 自时钟统一帧都在 1ms 节拍里产生, 由服务循环搬到 tx
+            # 事件行 / 自时钟统一帧都在 1ms 节拍里产生, 由服务循环搬到 pending
             with self.lock:
                 for ev in self.ev_out:
-                    tx += (ev + "\r\n").encode()
+                    pending += (ev + "\r\n").encode()
                 self.ev_out.clear()
 
                 # (v2.6: 自时钟帧只在 PC 显式下发 RATE FIX / RATE PULL 后才产生;
                 #  平时的遥测仍完全由上位机的 TELEM 请求驱动 —— 见 handle_line 的 TELEM 分支)
                 for fr in self.rate_frames:
-                    tx += fr
+                    pending += fr
                 self.rate_frames.clear()
 
             mr = self.map_reply
             if mr is not None:
-                tx += mr
+                pending += mr
                 self.map_reply = None
+
+            # ---- 链路往返延迟(`--rtt-ms`): 模拟蓝牙/CH340 转发 ----
+            if pending:
+                if self.rtt_s > 0.0:
+                    delayed.append((time.perf_counter() + self.rtt_s, bytes(pending)))
+                else:
+                    tx += pending
+            if delayed:
+                t_now = time.perf_counter()
+                if delayed[0][0] <= t_now:  # 队首已到期才扫描, 常态零开销
+                    rest = []
+                    for rel, data in delayed:
+                        if rel <= t_now:
+                            tx += data
+                        else:
+                            rest.append((rel, data))
+                    delayed = rest
 
             # ---- 发送(约 5ms 一批, 降低 syscall 开销) ----
             if tx and (time.perf_counter() - last_flush > 0.005 or len(tx) > 4096):
@@ -1270,8 +1313,13 @@ def main() -> None:
     ap.add_argument("--safe", action="store_true",
                     help="安全测试模式: 置'电机禁用'标志且速度恒 0(对齐 MOUSE_TEST_NO_MOTOR 固件)")
     ap.add_argument("--seed", type=int, default=20260925)
+    ap.add_argument("--rtt-ms", type=float, default=0.0,
+                    help="给每条命令的应答注入整趟往返延迟(ms), 模拟真机的蓝牙/CH340 转发; "
+                         "默认 0(亚毫秒)。真机实测约 300 —— 用它可以离线复现"
+                         "'按快链路写的时序假设'类缺陷(如连接握手只等 50 ms)")
     args = ap.parse_args()
-    sim = MouseSim(auto_explore=not args.no_auto, seed=args.seed, safe=args.safe)
+    sim = MouseSim(auto_explore=not args.no_auto, seed=args.seed, safe=args.safe,
+                   rtt_ms=args.rtt_ms)
     try:
         sim.run(args.host, args.port)
     except KeyboardInterrupt:

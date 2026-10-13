@@ -32,9 +32,12 @@ JL="C:/Program Files/SEGGER/JLink_V976a/JLink.exe"
 "C:/Keil_v5/ARM/ARMCC/Bin/fromelf.exe" --text -s USER/Object/Mouse.axf | grep -i linkFastDiv
 ```
 
-## 两个决定性实验（见 host/ 下的 Python 封装）
+## 两个决定性实验（J-Link 直读外设寄存器）
 
-1. **绕过固件写 `USART1->DR`** → `host/jl_tx_loopback_test.py`
+> 这两个一次性实验的 Python 封装（`host/jl_tx_loopback_test.py` / `host/jl_wire_test.py`）
+> 已随 **v2.6.1 清理移除**。下面是方法本身，需要时照此重做：
+
+1. **绕过固件直接写 `USART1->DR`**（PC 侧在同一 UART 上收）
    收到 = 物理层好，问题在固件；收不到 = 物理层不通，与固件无关
-2. **从 PC 发数据，读设备接收缓冲** → `host/jl_wire_test.py`
+2. **从 PC 发数据，再用 J-Link 读设备接收缓冲（`USART1->DR` / RX 环）**
    配合上一项，可判定是"双向通"还是"单向接线问题"

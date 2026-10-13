@@ -43,7 +43,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.6.0"  # v2.6: RATE 族转正(自时钟节拍), proto 6->7 / fw 217->218。帧格式未变
+API_VERSION = "2.6.1"  # v2.6.1: flags bit3 = PULLF1(批首帧标记), fw 218->219。帧格式/命令集未变
 
 
 # ---------------------------------------------------------------- 命令表
