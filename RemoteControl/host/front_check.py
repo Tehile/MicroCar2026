@@ -64,7 +64,7 @@ def _fw_expect():
     ⚠️ 故意**不写死** —— 写死的话每次升版本都得来改测试，久了就变成
     "改测试让它过"而不是"发现两侧漂移"（与 pull_smoke 同一做法）。
     注意 `PONG` 的第 4 个字段是 TX 环缓冲大小，它**随档位变**
-    （远程档 512 / 比赛档 256），所以不参与核对。
+    （远程档 1024 / 比赛档 256），所以不参与核对。
     """
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "..", "code_stm32f1_mouse", "HARDWARE", "link.h")
