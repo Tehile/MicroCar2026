@@ -9,10 +9,13 @@
                      (v2.5 因参数表扩容 5->6; v2.6 因新增 RATE 命令族 6->7;
                       v2.6.1 只改统一帧 flags 的 bit3 语义 ⇒ 协议号停 7;
                       v2.7 因 CAL 家族新增 6 个菜单远程化子命令 7->8,
-                      帧格式与参数表仍未变)。
+                      帧格式与参数表仍未变;
+                      v2.8 只改**发车时 LED 的点亮行为**(远程档 MAZE RUN 瞬间
+                      全 4 灯亮 LINK_LAUNCH_MARK_MS 后释放), 命令集/帧格式/
+                      参数表一字未动 ⇒ 协议号仍停 8, 靠 PONG 的 fw 号区分)。
 """
 
-__version__ = "2.7.0"
+__version__ = "2.8.0"
 PROTO_VER = 8
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)

@@ -60,8 +60,8 @@ from ..protocol.codec import (
 )
 
 MAZETYPE = 7
-PROTO_VER = 8  # v2.7: CAL 家族新增 6 个菜单远程化子命令(帧格式与参数表未变)
-FW_VER = 220  # v2.7: 菜单远程化(ERASEIR/IRSELF/SENSOR/IRCAP/BLOCK/ERASEALL) + 远程档按键进菜单
+PROTO_VER = 8  # v2.7: CAL 家族新增 6 个菜单远程化子命令(帧格式与参数表未变); v2.8 亦未变
+FW_VER = 221  # v2.8: 远程档 MAZE RUN 瞬间点亮全部 4 个 LED(LINK_LAUNCH_MARK_MS=300ms)后释放
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {
@@ -1154,6 +1154,9 @@ class MouseSim:
                 self.maze_target = goal
                 self.maze_requested = True
                 self.maze_running = True   # 模拟器没有"主循环等待"一说, 直接开跑
+                # v2.8: 真固件在此刻还会**点亮全部 4 个 LED**(LINK_LAUNCH_MARK_MS)
+                # 作为录像对轴用的发车标记。模拟器没有 LED 引脚, 故不外显 ——
+                # 这里只留注释, 使"固件有、模拟器无"的差异是有意且可查的。
                 self.mouse_task = 2        # MAZESEARCH
                 # MAZE RUN 是**显式**发车命令, 因此不受 --no-auto 影响
                 self.move_mode = "EXPLORE"

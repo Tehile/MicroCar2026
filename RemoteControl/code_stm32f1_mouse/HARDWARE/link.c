@@ -195,6 +195,9 @@ static u8 linkMazeAbort; /* 1 = 收到"退出迷宫"请求, 请 LESSON_Blind8() 
 static u8 linkMazeTarget; /* 本次发车目标(LINK_MAZE_BLIND / LINK_MAZE_RACE)。
                            *    由 `MAZE RUN [BLIND|RACE]` 写, 由 main() 经
                            *    LINK_MazeTarget() 读 —— 只在远程档存在。 */
+static u32 linkLaunchMarkEnd; /* v2.8: 发车标记灯**结束时刻**(linkTimeMs 读数);
+                               *     0 = 标记未激活。见 LINK_LAUNCH_MARK_MS
+                               *     与 LINK_Tick 的 0b 段。 */
 #endif
 
 #ifdef MOUSE_REMOTE
@@ -2776,6 +2779,17 @@ static void link_ExecCmd(char *line, s32 seq)
 				return;
 			}
 			linkMazeReq = 1;
+			/* v2.8: 收到发车命令的**同一时刻**点亮全部 4 个 LED, 给录像一个
+			 * 无歧义的发车时间标记(时长见 LINK_LAUNCH_MARK_MS)。
+			 * 直接写引脚而不走 LED_On(): 后者在 ledBeaconLock 置位时(先 ARM
+			 * 再发车的常规流程)会直接返回, 而本标记必须无论如何都亮。
+			 * 这里只写一次引脚 + 记下结束时刻; 窗口内由 LINK_Tick 的 0b 段
+			 * 持续保持, 窗口一过即释放, 之后的 LED 行为与本改动前完全一致。 */
+			LED1 = 0;
+			LED2 = 0;
+			LED3 = 0;
+			LED4 = 0;
+			linkLaunchMarkEnd = linkTimeMs + LINK_LAUNCH_MARK_MS;
 			link_Ack(seq, "OK");
 			return;
 #endif
@@ -3222,6 +3236,9 @@ void LINK_Init(void)
 	linkMazeReq = 0;
 	linkMazeRun = 0;
 	ledBeaconLock = 0; /* 未发车前 LED 照常充当状态灯 */
+#ifdef MOUSE_REMOTE
+	linkLaunchMarkEnd = 0; /* v2.8: 上电时标记灯未激活 */
+#endif
 
 	/* ================= 复位原因(在设计方案 §10.2, 由 PING 上报) =================
 	 * RCC->CSR 的各位是**边沿锁存**的: 只要发生过就一直是 1, 直到写 RMVF 清掉。
@@ -3331,6 +3348,36 @@ void LINK_Tick(void)
 				LED4 = 1;
 		}
 	}
+
+#ifdef MOUSE_REMOTE
+	/* 0b. 发车标记灯(v2.8): 收到 `MAZE RUN` 起 LINK_LAUNCH_MARK_MS 毫秒内,
+	 *     强制点亮全部 4 个 LED —— 作为录像/外部设备可见的**发车时刻**标记。
+	 *     放在基准灯(0)之后: 窗口内基准灯对 LED4 的写入被本段压过, 所以即使
+	 *     走"先 ARM 再发车"的常规流程, 4 个灯也是齐亮的; 窗口一过本段不再介入,
+	 *     基准灯与常规状态灯立刻恢复原行为(即"此后的 LED 功能不变")。
+	 *     每 1ms 重写一次还顺带压过窗口期内迷宫代码对灯的操作 —— 菜单/状态灯
+	 *     写的正是这 4 个引脚, 不持续重写就守不住这段标记窗口。 */
+	if (linkLaunchMarkEnd)
+	{
+		if ((s32)(linkTimeMs - linkLaunchMarkEnd) < 0)
+		{
+			LED1 = 0;
+			LED2 = 0;
+			LED3 = 0;
+			LED4 = 0;
+		}
+		else
+		{
+			linkLaunchMarkEnd = 0;
+			LED1 = 1; /* 释放: 熄灭 4 灯, 交还常规灯逻辑 */
+			LED2 = 1;
+			LED3 = 1;
+			linkTimeLed = 0xFF; /* 0xFF 不等于任何 lv(0/1) ⇒ 基准灯下一拍必然重写 LED4 */
+			if (!linkArmed)
+				LED4 = 1;
+		}
+	}
+#endif /* MOUSE_REMOTE */
 
 	/* 1. 消费接收行。RX ISR 优先级低于 SysTick, 不会打断本段, 故读-解析-清空天然原子。
 	 *    若忘记消费 USART_RX_STA 的 bit7, 一行收完后后续所有字节会被 usart.c 直接丢弃。 */

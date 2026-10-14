@@ -26,7 +26,7 @@ python run_host.py
 
 1. 与蓝牙 SPP 模块配对（Windows 会在“设备和打印机”里生成一个**传出** COM 口）
 2. 点“刷新”，下拉框里选带 `[蓝牙]` 标记的那个口
-3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 8 220 8 1024 <rst>`（远程档指纹）
+3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 8 221 8 1024 <rst>`（远程档指纹）
 
 ### 标定 / 采集阶段：不起 GUI，直接看实时数据
 
@@ -98,6 +98,11 @@ python -m host.cli estop --resume --target COM7      # 解急停/正常停车
 固件烧**远程档**（`#define MOUSE_REMOTE 1`；含自走策略 + 远程发车）。
 `ARM` 让电脑鼠从发车命令开始以 **1Hz 闪 LED** 并回传毫秒时基；上位机据此把**每一个接收到的
 样本**都换算成"发车以来毫秒"—— 蓝牙链路抖动不再污染数据的时间轴。
+
+> **录像对轴（v2.8，远程档 fw 221）**：收到 `MAZE RUN` 的**同一时刻**固件点亮**全部 4 个 LED**
+> 并保持 300 ms（`link.h: LINK_LAUNCH_MARK_MS`），窗口过后灯行为与从前完全一致。
+> 于是录像里「4 灯齐亮」的那一帧就是发车帧，可直接与数据的时间轴对齐。
+> 细节见 [`../docs/通信协议规格.md`](../docs/通信协议规格.md) §1.7。
 
 ```bash
 python -m host.datalog COM7                      # 完整流程: 发车 -> 跑迷宫 -> 采集 -> 报告
@@ -386,7 +391,7 @@ v2.6 起固件另支持**自时钟节拍**（`RATE FIX <hz>` 固定节拍压测 
 
 | 宏 | 自走策略 | 用途 | 上位机入口 |
 |---|---|---|---|
-| `#define MOUSE_REMOTE 1` | 有（`MAZE RUN [BLIND\|RACE]` 触发） | **远程档**：监视 / 参数 / 手动运动 / 远程发车收车 / `MCU RESET` / 按键菜单远程化（等车时短按 BUTTON1 进原菜单；`calib ir-self|sensor|ircap|block|erase-ir|erase-all`） | `monitor` · `calib` · `motor_test` · `cli maze` · `datalog` |
+| `#define MOUSE_REMOTE 1` | 有（`MAZE RUN [BLIND\|RACE]` 触发） | **远程档**：监视 / 参数 / 手动运动 / 远程发车收车 / `MCU RESET` / 按键菜单远程化（等车时短按 BUTTON1 进原菜单；`calib ir-self|sensor|ircap|block|erase-ir|erase-all`）/ 发车瞬间**全 4 灯亮 300 ms**（录像对轴，v2.8） | `monitor` · `calib` · `motor_test` · `cli maze` · `datalog` |
 | 都不定义 | 有（按键启动） | **按键比赛档**（与比赛固件逐字节一致） | — |
 
 > 历史：v2.3 及以前有五档（`MOUSE_TEST_NO_MOTOR` / `MOUSE_TEST_MOTOR_LAB` /

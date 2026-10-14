@@ -34,6 +34,12 @@ v2.7: 按键菜单远程化 —— 固件 `CAL` 家族新增 6 个**立即 ACK**
     与既有五项"采完才 ACK"不同流); 远程档等车循环新增 BUTTON1 短按进菜单。
     命令文本仍是 `CAL <item> [act]`, 新子命令省略 act 词(IRCAP 的 act = 步号),
     故 `_cal()` 的 act 允许 None。PROTO 7→8, fw 219→220。命令仍 24 条。
+
+v2.8: **发车标记灯**(固件侧, 远程档) —— `MAZE RUN` 被接受的同一时刻固件直接写
+    引脚点亮 LED1-4, 保持 `LINK_LAUNCH_MARK_MS`(300ms)后释放, 给录像一个无歧义的
+    发车时刻标定; 窗口过后 LED 行为一字未改。**上位机侧零改动**(不加命令、不加
+    字段、不改帧): 标记体现在**物理灯**上而非协议里, 故协议号仍停 8, 只有固件
+    fw 220→221 与上位机产品版本 2.7.0→2.8.0。命令仍 24 条。
 """
 
 from __future__ import annotations
@@ -49,7 +55,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.7.0"  # v2.7: CAL 家族菜单远程化(6 个立即 ACK 子命令) + 远程档按键进菜单; PROTO 8 / fw 220
+API_VERSION = "2.8.0"  # v2.8: 固件发车标记灯(远程档 MAZE RUN 瞬间点亮全部 4 个 LED); 上位机侧零协议改动, PROTO 仍 8 / fw 221
 
 
 # ---------------------------------------------------------------- 命令表
@@ -347,7 +353,10 @@ COMMANDS: Dict[str, CommandSpec] = {
             "固件只置请求位, 真正的 while(1) 迷宫由主循环执行 —— "
             "所以下达后命令通道与遥测都不会被阻塞。 "
             "⚠️ 已在跑时回 `ERR_BUSY`, 急停锁存中回 `ERR_ESTOP`; "
-            "收车用 `maze.stop`(或 `system.reset`), 之后才能再次发车"
+            "收车用 `maze.stop`(或 `system.reset`), 之后才能再次发车。 "
+            "v2.8(远程档 fw 221): 命令被接受的**同一时刻固件点亮全部 4 个 LED**, "
+            "保持 `LINK_LAUNCH_MARK_MS`(300ms)后释放 —— 录像时以「4 灯齐亮」那一帧"
+            "对齐发车时刻; 窗口过后 LED 行为与从前一致(本命令的协议文本/应答均未变)"
         ),
     ),
     "maze.stop": CommandSpec(
