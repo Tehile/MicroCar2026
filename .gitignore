@@ -12,3 +12,6 @@ Control/records
 RemoteControl/host/*.csv
 RemoteControl/host/*.txt
 !RemoteControl/host/requirements.txt
+
+# ---- 手工维护的工程备份副本(用户本地保留, 不入库) ----
+* - 副本/
