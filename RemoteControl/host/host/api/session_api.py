@@ -43,10 +43,12 @@ class SessionAPI:
 
     @property
     def is_open(self) -> bool:
+        """会话是否已打开(有 `Session` 对象即视为已开)。"""
         return self._mc.session_obj is not None
 
     @property
     def path(self) -> Optional[str]:
+        """当前会话目录路径(帧/事件落盘处); 未开会话时为 `None`。"""
         s = self._mc.session_obj
         return None if s is None else s.path
 

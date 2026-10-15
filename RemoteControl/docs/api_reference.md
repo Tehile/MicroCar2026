@@ -1,6 +1,6 @@
 # 上位机可编程接口参考（API Reference）
 
-> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-15 08:37:13
+> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-15 12:45:45
 > API 版本：`2.9.0`　|　包：`host`
 
 > 这是「让上位机做一件事 = 调一个方法」的完整接口清单。
@@ -149,7 +149,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `event_health` | `(self) -> 'Dict[str, Any]'` | 上行消息序号连续性的累计统计(丢帧/丢事件的可检测证据)。 |
 | `events_incomplete` | `(属性)` | 事件流是否出现过丢弃(帧 flags bit7 = EVQ)。None = 还没收到帧。 |
 | `events_queue` | `(self, maxsize: 'Optional[int]' = None)` | 拿到一个线程安全队列, 所有事件都会投递进去。 |
-| `is_connected` | `(属性)` |  |
+| `is_connected` | `(属性)` | 链路是否已连通(`LinkState.OPEN` 且后端已建立)。 |
 | `motor_disabled` | `(属性)` | 设备是否处于『电机已禁用』安全测试模式。 |
 | `motor_guard` | `(self, what: 'str') -> "'Optional[Result]'"` | 需要电机转动的前置检查。 |
 | `on` | `(self, kind: "'Event | str'", cb: 'Callable[[EventMsg], None]') -> 'Callable[[], None]'` | 订阅事件。回调在**调度线程**执行(见模块 docstring 的线程契约)。 |
@@ -160,9 +160,9 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `send_async` | `(self, cmd: 'str', **kw: 'Any')` | 发送但不等待（返回 Pending）。需要自己 `wait(lambda: p.done)`。 |
 | `send_cmd` | `(self, cmd: 'str', timeout: 'Optional[float]' = None, **kw: 'Any') -> 'Result'` | 按 `registry.COMMANDS` 里的名字执行一条登记命令，并等待应答。 |
 | `send_raw` | `(self, line: 'str', timeout: 'float' = 3.0) -> 'Result'` | 逃生舱: 直接发一条原始命令（不经过登记表）。 |
-| `session_obj` | `(属性)` |  |
-| `state` | `(属性)` |  |
-| `state_detail` | `(属性)` |  |
+| `session_obj` | `(属性)` | 当前会话对象(`Session`); 未开会话时为 `None`。 |
+| `state` | `(属性)` | 链路状态字符串(`LinkState`): `closed`/`connecting`/`open`/`error`。 |
+| `state_detail` | `(属性)` | 状态的人读补充: 失败原因/最近一次连接错误; 为空串表示无附加信息。 |
 | `stats` | `(self) -> 'Dict[str, Any]'` |  |
 | `wait` | `(self, pred: 'Callable[[], Any]', timeout: 'float' = 10.0, interval: 'float' = 0.01) -> 'bool'` | 阻塞直到 `pred()` 为真或超时。脚本写同步代码用。 |
 | `wait_event` | `(self, kind: "'Event | str'", pred: 'Optional[Callable[[EventMsg], bool]]' = None, timeout: 'float' = 10.0, since: 'Optional[float]' = None) -> 'Optional[EventMsg]'` | 阻塞直到出现满足条件的事件, 返回它; 超时返回 None。 |
@@ -176,6 +176,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `bluetooth_port` | `(self) -> 'str'` | 猜一个蓝牙端口名(优先传出端口), 没有则返回空串。 |
 | `connect` | `(self, target: 'Any' = None, **kw) -> 'bool'` |  |
 | `disconnect` | `(self) -> 'None'` |  |
+| `is_connected` | `(属性)` | 链路是否已连通(同 `MouseClient.is_connected`)。 |
 | `is_degraded` | `(self) -> 'bool'` |  |
 | `port_labels` | `(self) -> 'List[str]'` |  |
 | `ports` | `(self) -> 'List[PortInfo]'` | 枚举串口。返回值已按『可用 > 有线 > 蓝牙传出 > 蓝牙传入』排序。 |
@@ -185,7 +186,10 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `scan_baud` | `(self, port: 'str', bauds: 'Optional[List[int]]' = None, seconds: 'float' = 1.0) -> 'List[Dict[str, Any]]'` | 逐个波特率试读。用于确认电脑侧蓝牙模块的 UART 速率。 |
 | `self_check` | `(self) -> 'Dict[str, Any]'` | 链路自检: {need_bps, got_bps, level, suggest_rate}。 |
 | `soft_reset` | `(self, verify: 'bool' = True, timeout: 'float' = 8.0) -> 'Result'` | **整机软复位**(发 `MCU RESET` → 固件 `Sys_Soft_Reset()`) —— 卡死救援口。 |
+| `state` | `(属性)` | 链路状态字符串: `closed`/`connecting`/`open`/`error`。 |
+| `state_detail` | `(属性)` | 状态的人读补充(失败原因); 为空串表示无附加信息。 |
 | `stats` | `(self) -> 'Dict[str, Any]'` |  |
+| `target` | `(属性)` | 当前连接的 `Target`(端口/地址信息); 未连接时为 `None`。 |
 | `targets` | `(self) -> 'List[Target]'` | 候选连接目标: 已排序的串口 + 两个模拟器端口。 |
 | `wait_open` | `(self, timeout: 'float' = 3.0) -> 'bool'` | 等到链路真的可用(read 线程已起来)。 |
 
@@ -238,11 +242,13 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 
 ### 7.5 `mc.stream` — 遥测流控制
 
-遥测拉取控制: PC 侧**停等**拉取器(`TELEM` 请求-响应)。
+遥测拉取控制: **停等**(`TELEM` 请求-响应, ~4Hz) 与 **批式**(`RATE PULL n t`, 默认 10Hz) 两种互斥模式。
 
 | 方法 | 签名 | 说明 |
 |---|---|---|
 | `anchor` | `(self)` | 当前时间锚 `(本机单调秒, 设备 ms)`; 未建立时 None。 |
+| `is_on` | `(属性)` | 拉取器是否在跑(明确的内部状态, 不再靠"最近有没有帧"猜)。 |
+| `mode` | `(属性)` | 当前拉取模式: `"off"` / `"stopwait"` / `"pace"`。 |
 | `off` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 停止拉取。**立刻停发** —— 这是让蓝牙模块缓冲排空的唯一手段。 |
 | `on` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 开始**停等式**拉取遥测(首条应答即建立时间锚)。非阻塞。 |
 | `pace` | `(self, n: 'Optional[int]' = None, t_ms: 'Optional[int]' = None, timeout: 'float' = 3.0) -> 'Result'` | 切换到**批式**拉取(`RATE PULL n t`, 默认 n=3/t=100ms = 10Hz)。 |
@@ -392,9 +398,11 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 |---|---|---|
 | `close` | `(self, extra: 'Optional[dict]' = None) -> 'Optional[str]'` |  |
 | `counts` | `(self) -> 'Dict[str, int]'` |  |
+| `is_open` | `(属性)` | 会话是否已打开(有 `Session` 对象即视为已开)。 |
 | `list_sessions` | `(root: 'str' = 'sessions') -> 'List[Dict[str, Any]]'` | 列出历史会话目录及其 meta(按时间倒序)。供 CLI 与回放选择。 |
 | `note` | `(self, text: 'str') -> 'None'` | 写一条备注。会话未开启时先暂存, 开启后补写。 |
 | `open` | `(self, name: 'Optional[str]' = None) -> 'Optional[str]'` | 开启会话, 返回目录路径。已开启则直接返回当前路径。 |
+| `path` | `(属性)` | 当前会话目录路径(帧/事件落盘处); 未开会话时为 `None`。 |
 | `report` | `(self, lines: 'List[str]') -> 'Optional[str]'` | 追加写入 `calib/report.md`。 |
 
 ### 7.13 `host.api.calc` — 标定算参(纯函数)

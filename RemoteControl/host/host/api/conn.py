@@ -122,18 +122,22 @@ class ConnAPI:
 
     @property
     def is_connected(self) -> bool:
+        """链路是否已连通(同 `MouseClient.is_connected`)。"""
         return self._mc.link.is_open
 
     @property
     def state(self) -> str:
+        """链路状态字符串: `closed`/`connecting`/`open`/`error`。"""
         return self._mc.link.state
 
     @property
     def state_detail(self) -> str:
+        """状态的人读补充(失败原因); 为空串表示无附加信息。"""
         return self._mc.state_detail
 
     @property
     def target(self) -> Optional[Target]:
+        """当前连接的 `Target`(端口/地址信息); 未连接时为 `None`。"""
         return self._mc.link.target
 
     # ------------------------------------------------------------ 统计

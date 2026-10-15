@@ -332,14 +332,17 @@ class MouseClient:
 
     @property
     def is_connected(self) -> bool:
+        """链路是否已连通(`LinkState.OPEN` 且后端已建立)。"""
         return self.link.is_open
 
     @property
     def state(self) -> str:
+        """链路状态字符串(`LinkState`): `closed`/`connecting`/`open`/`error`。"""
         return self.link.state
 
     @property
     def state_detail(self) -> str:
+        """状态的人读补充: 失败原因/最近一次连接错误; 为空串表示无附加信息。"""
         return self.link.state_detail or self._last_conn_error
 
     @property
@@ -607,6 +610,7 @@ class MouseClient:
 
     @property
     def session_obj(self) -> Optional[Session]:
+        """当前会话对象(`Session`); 未开会话时为 `None`。"""
         return self._session
 
     def _persist(self, msgs: List[EventMsg]) -> None:

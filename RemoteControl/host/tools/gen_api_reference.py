@@ -31,25 +31,29 @@ def _first_line(doc: str) -> str:
     return doc.strip().splitlines()[0].strip()
 
 
-def _public_methods(cls) -> list:
-    out = []
-    for name, fn in inspect.getmembers(cls, predicate=inspect.isfunction):
+def _subapi(cls):
+    """返回 (类名, 模块 docstring 首行, [(成员名, 签名, 说明), ...])
+
+    成员 = 方法 + **属性**。v2.9 起补上了属性: `mc.stream.mode` / `mc.stream.is_on`
+    这类 property 就是门面的真接口(此前只有 §7.1 的 `MouseClient` 本体列属性,
+    子 API 段漏掉了它们, 导致"新加的三态 mode"在参考文档里查不到)。
+    """
+    methods = []
+    for name, obj in inspect.getmembers(cls):
         if name.startswith("_"):
             continue
-        if getattr(fn, "__module__", "").startswith("host."):
-            out.append((name, fn))
-    return out
-
-
-def _subapi(cls):
-    """返回 (类名, 模块 docstring 首行, [(方法名, 签名, 说明), ...])"""
-    methods = []
-    for name, fn in _public_methods(cls):
-        try:
-            sig = str(inspect.signature(fn))
-        except (ValueError, TypeError):
-            sig = "(...)"
-        methods.append((name, sig, _first_line(fn.__doc__)))
+        owner_mod = getattr(getattr(obj, "fget", obj), "__module__", "")
+        if not owner_mod.startswith("host."):
+            continue
+        if isinstance(obj, property):
+            methods.append((name, "(属性)", _first_line(obj.__doc__)))
+            continue
+        if inspect.isfunction(obj):
+            try:
+                sig = str(inspect.signature(obj))
+            except (ValueError, TypeError):
+                sig = "(...)"
+            methods.append((name, sig, _first_line(obj.__doc__)))
     return cls.__name__, _first_line(inspect.getmodule(cls).__doc__ or ""), methods
 
 
