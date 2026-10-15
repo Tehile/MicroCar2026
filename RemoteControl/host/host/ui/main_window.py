@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
 
         ⚠️ 绝不一次发多条: 固件每 1ms tick 只消费一行命令(见 `link.c`),
         成串发会丢第二条(实测背靠背 2 条的回收率仅 50%)。
-        与 `host/api/stream.py` 的 `PullRequester` 是同一条纪律。
+        与 `host/api/stream.py` 的 `TelemetryPuller` 是同一条纪律。
         """
         if not self._pulling or not self.link.is_open:
             return

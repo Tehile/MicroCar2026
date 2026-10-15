@@ -1,7 +1,7 @@
 # 上位机可编程接口参考（API Reference）
 
-> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-15 12:45:45
-> API 版本：`2.9.0`　|　包：`host`
+> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-15 20:53:33
+> API 版本：`2.10.0`　|　包：`host`
 
 > 这是「让上位机做一件事 = 调一个方法」的完整接口清单。
 > 每个方法都会等待设备应答（默认 `wait=True` 且带超时），脚本能写直线代码。
@@ -154,7 +154,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `motor_guard` | `(self, what: 'str') -> "'Optional[Result]'"` | 需要电机转动的前置检查。 |
 | `on` | `(self, kind: "'Event | str'", cb: 'Callable[[EventMsg], None]') -> 'Callable[[], None]'` | 订阅事件。回调在**调度线程**执行(见模块 docstring 的线程契约)。 |
 | `open_session` | `(self, name: 'Optional[str]' = None) -> 'Optional[Session]'` |  |
-| `reanchor` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 重新索要时间锚(发一条 `TELEM`, 应答即带完整 u32 时基)。 |
+| `reanchor` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 重新索要时间锚(注入一条 `TELEM`, 应答即带完整 u32 时基)。 |
 | `recent_events` | `(self, n: 'int' = 50) -> 'List[EventMsg]'` |  |
 | `reset_cause` | `(属性)` | 上次复位原因(POR/SW/IWDG/PIN), 来自 PING 应答。未知时 None。 |
 | `send_async` | `(self, cmd: 'str', **kw: 'Any')` | 发送但不等待（返回 Pending）。需要自己 `wait(lambda: p.done)`。 |
@@ -242,21 +242,23 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 
 ### 7.5 `mc.stream` — 遥测流控制
 
-遥测拉取控制: **停等**(`TELEM` 请求-响应, ~4Hz) 与 **批式**(`RATE PULL n t`, 默认 10Hz) 两种互斥模式。
+遥测拉取控制: 统一拉取器 `TelemetryPuller` —— 一条命令取回 n 帧, `n=1` 退化为停等(`TELEM` 回复门控), `n≥2` 为批式(`RATE PULL n t` 网格调度)。
 
 | 方法 | 签名 | 说明 |
 |---|---|---|
 | `anchor` | `(self)` | 当前时间锚 `(本机单调秒, 设备 ms)`; 未建立时 None。 |
+| `configure` | `(self, n: 'int', t_ms: 'int') -> 'Dict[str, Any]'` | 纯设参(不启动): 记下批式档 `(n, t_ms)` 并校验(v2.10 新增)。 |
 | `is_on` | `(属性)` | 拉取器是否在跑(明确的内部状态, 不再靠"最近有没有帧"猜)。 |
 | `mode` | `(属性)` | 当前拉取模式: `"off"` / `"stopwait"` / `"pace"`。 |
 | `off` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 停止拉取。**立刻停发** —— 这是让蓝牙模块缓冲排空的唯一手段。 |
 | `on` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 开始**停等式**拉取遥测(首条应答即建立时间锚)。非阻塞。 |
 | `pace` | `(self, n: 'Optional[int]' = None, t_ms: 'Optional[int]' = None, timeout: 'float' = 3.0) -> 'Result'` | 切换到**批式**拉取(`RATE PULL n t`, 默认 n=3/t=100ms = 10Hz)。 |
 | `pace_off` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 退出批式拉取(固件侧发 `RATE OFF` 停发)。 |
+| `refresh_anchor` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 立即索要一条时间锚(注入 `TELEM` 等回复)。`mc.reanchor()` 调它。 |
 | `resume` | `(self) -> 'None'` | 恢复被 `suspend()` 暂停的拉取(仅当它原本在跑时才恢复)。 |
 | `stats` | `(self) -> 'Dict[str, Any]'` | 拉取器状态: 在途数/收发计数/实测帧率 + 门面层模式。 |
 | `suspend` | `(self) -> 'None'` | **给命令通道让路**: 暂停拉取并等线上静默(由 `resume()` 恢复)。 |
-| `tick` | `(self) -> 'None'` | 调度线程 50Hz 调用: 路由到当前活跃的拉取器(两者互斥)。 |
+| `tick` | `(self) -> 'None'` | 调度线程 50Hz 调用: 委派给唯一的拉取器。 |
 | `toggle` | `(self, on: 'bool', timeout: 'float' = 3.0) -> 'Result'` |  |
 | `tune` | `(self, request_timeout: 'Optional[float]' = None, n: 'Optional[int]' = None, t_ms: 'Optional[int]' = None) -> 'Dict[str, Any]'` | 运行期调参(立即生效)。 |
 

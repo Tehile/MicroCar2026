@@ -1254,11 +1254,12 @@ linkPullF1 = 0u;
   ~10 min）RTT 137 ms、240.9 s 死。疑似模块热衰疡，待验证。
 - **自愈假说已证伪**（见 §6）：必须物理断电；`rst=POR` 是判断"是否真复位过"的依据。
 
-### 16.4 v2.9 决策
+### 16.4 v2.9 决策 / v2.10 整合
 
 `PULL 3 100`（基频 3.33 Hz + 每批 3 帧 = **10 Hz**，容量 75%）定为默认工作档：
 传输量 2.5 倍（停等式 ~4 Hz 的 2.5 倍）、交付率 98.6~99.9%、存活 240~300 s。
-已整合为 `mc.stream.pace()`（`host/host/api/stream.py: PacePull`），并带
+已整合为 `mc.stream.pace()`（v2.10 起统一拉取器 `TelemetryPuller`，
+`host/host/api/stream.py`；v2.9 时为独立的 `PacePull` 类），并带
 **断连自动检测**（连续 3 s 无帧 ⇒ `Event.ERROR(kind="link_lost")` 提示物理断电
 复位）—— 因为"保证不断"做不到，能买的只有"断连后多快恢复"。
 

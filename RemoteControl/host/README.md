@@ -202,12 +202,13 @@ python facade_smoke.py --rtt-ms 300   # 同上, 但给模拟器注入 300ms 应�
                                       #   蓝牙 RTT) —— 用来复现"按快链路写的时序假设"类缺陷
 python monitor_smoke.py     # 实时监视器断言(含 --expect-safe 正/反例、motor_guard 拦截)
 python pull_smoke.py        # 拉取链路断言(停等: 在途恒<=1、停流后彻底不再收帧、锚刷新)
-python pace_smoke.py        # 批式拉取断言(v2.9 PacePull: 10Hz/互斥/让路嵌套/断连检测/调参)
+python pace_smoke.py        # 批式拉取断言(10Hz/互斥/让路嵌套/断连检测/调参)
+python stream_unified_smoke.py  # 统一拉取器断言(n=1 退化停等/双向切换/锚刷新/自节流/断连/stats 并集)
 python uismoke.py           # 离屏构建 GUI、接模拟器、跑通并截图到 ../docs/ui_*.png
 python test_evt_trigger_logic.py  # 事件触发式拉取的纯离线逻辑自测(不接设备、不发任何命令)
 ```
 
-> 上表即「**九套件**」（v2.4 起原八套件 + v2.9 新增 `pace_smoke`）。
+> 上表即「**十套件**」（v2.4 起原八套件 + v2.9 新增 `pace_smoke` + v2.10 新增 `stream_unified_smoke`）。
 > `uismoke.py` 需要 PySide6；未装则跳过，其余套件无需 GUI 依赖。
 > `test_evt_trigger_logic.py` 不接设备、不发命令，可随时离线跑。
 
@@ -245,7 +246,8 @@ host/
 ├── facade_smoke.py          门面全功能冒烟
 ├── monitor_smoke.py         实时监视器冒烟
 ├── pull_smoke.py            遥测拉取链路冒烟(停等不变量/停发自愈)
-├── pace_smoke.py            批式拉取冒烟(v2.9 PacePull: 10Hz/互斥/让路/断连检测/调参)
+├── pace_smoke.py            批式拉取冒烟(10Hz/互斥/让路/断连检测/调参)
+├── stream_unified_smoke.py  统一拉取器冒烟(n=1 退化/模式切换/锚刷新/自节流/断连判定/stats 并集)
 ├── uismoke.py               离屏 GUI 冒烟测试 + 截图
 ├── test_evt_trigger_logic.py 事件触发式拉取的**纯离线**逻辑自测(不接设备/不发命令)
 │
@@ -256,6 +258,7 @@ host/
 ├── analyze_pace_gaps.py     逐帧 CSV 节奏分析(批内/跨批分类 + 75ms 量化)
 │
 │   -- 真机诊断 / 验收脚本(需接真设备; 多数默认只读, 发车类须显式开关) --
+├── v210_accept.py           **v2.10 统一拉取器真机验收**(设计 §9.3 五项; A1/A2/A5/A4 只读, A3 运动须 --motor)
 ├── front_check.py           前墙双档 + 比赛状态只读验收(载荷 45→49 字节核对)
 ├── maze_launch_link_test.py **发车链路最小验收**: BLIND 与 RACE 各发一轮, 只判"链路是否通"(--launch)
 ├── launch_link_live.py      **运动中链路有效性探针**: 发车后在车运动期间持续收帧 + 主动插 PING(--launch, --target BLIND|RACE)
@@ -360,16 +363,20 @@ df.plot(x="t_host_ms", y=["speedL", "speedR", "gyroAngle", "pidErr"])
 v2.6 起固件另支持**自时钟节拍**（`RATE FIX <hz>` 固定节拍压测 / `RATE PULL <n> <t_ms>` PC 主导的批量节拍 / `RATE OFF` 收尾），
 用来绕开单帧停等的 RTT 上限做 MTBF 压测与"事件触发式拉取"（速率档 `RATE` 曾在 v2.0 删除，v2.6 以节拍设置的形态回归）。
 
-**想要更高帧率（v2.9）**
+**想要更高帧率（v2.9 起，v2.10 统一拉取器）**
 `mc.stream.pace()` 切到**批式拉取**：稀疏基频命令（3.3 Hz）+ 每批 3 帧 = **10 Hz**（停等式的 2.5 倍），
 依据是链路 ~150 ms 转发量子定位（容量 ≈13.3 Hz，26 Hz 级必死；详见 `docs/链路MTBF压测方法.md` §16）。
+v2.10 起停等与批式合并为单一拉取器 `TelemetryPuller`（`n=1` 字面退化停等，`n≥2` 批式网格调度，
+设计见 `docs/遥测拉取器统一设计方案.md`）；旧类名 `PullRequester`/`PacePull` 已删除。
 ```python
 mc.stream.pace()                 # PULL 3 100 = 10Hz(默认档)
 mc.stream.pace(n=2, t_ms=150)    # 自定义; T=n·t 建议取 75ms 整数倍
-mc.stream.stats()                # mode/帧数/批次/RTT/丢批
+mc.stream.pace(n=1)              # 字面退化: 回到停等(TELEM 回复门控)
+mc.stream.configure(1, 100)      # 纯设参不启动(改默认档)
+mc.stream.stats()                # mode/帧数/批次/RTT/丢批(21 字段两剖面并集)
 mc.stream.pace_off()             # 退回(固件 RATE OFF)
 ```
-断连是模块侧随机故障（任何档位约一半概率 300 s 内死，**必须物理断电复位**）： PacePull 连续 3 s 无帧会发
+断连是模块侧随机故障（任何档位约一半概率 300 s 内死，**必须物理断电复位**）： `TelemetryPuller` 连续 3 s 无帧会发
 `Event.ERROR(kind="link_lost")` 并停止自动重试，听到该事件请断电复位后 `pace()` 恢复。
 
 **画面刷新慢**

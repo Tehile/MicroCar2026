@@ -164,8 +164,8 @@ class MouseClient:
             # 5) 拉取器: 收割在途请求 -> 按窗口补发 -> 自适应窗口深度。
             #    必须放在 bs.pump() 之后 —— Pending 的完成回调由 pump 触发,
             #    先补窗才能把"刚腾出来的槽位"当拍用掉, 否则吞吐会掉一档。
-            #    v2.9: `stream.tick()` 按当前模式路由(停等式 PullRequester /
-            #    批式 PacePull, 二者互斥)。
+            #    v2.10: `stream.tick()` 委派唯一的统一拉取器 `TelemetryPuller`
+            #    (n=1 停等 TELEM / n≥2 批式 RATE PULL, 一个对象两种剖面)。
             self.stream.tick()
         finally:
             self._tick_depth -= 1
@@ -275,8 +275,12 @@ class MouseClient:
                 pass
 
     def reanchor(self, timeout: float = 3.0) -> Result:
-        """重新索要时间锚(发一条 `TELEM`, 应答即带完整 u32 时基)。"""
-        return self.stream.on(timeout=timeout)
+        """重新索要时间锚(注入一条 `TELEM`, 应答即带完整 u32 时基)。
+
+        v2.10 起是真动作: 批式模式下也会注入(旧实现是 `stream.on()` ——
+        已在跑时是空操作, 且会把批式切成停等)。
+        """
+        return self.stream.refresh_anchor(timeout=timeout)
 
     def disconnect(self) -> None:
         """断开链路。**先停拉取** —— 这是让蓝牙模块缓冲排空的唯一手段。
@@ -528,7 +532,7 @@ class MouseClient:
 
         **时间敏感命令**(`CommandSpec.urgent`, 如 `ESTOP`/`STOP`/`MOVE`/`MAZE *`/`CAL`)
         发送前会让遥测拉取器**让路**(`stream.suspend()`), 使命令独占链路, 应答到达后恢复。
-        原因见 `PullRequester.suspend()`: 固件每 1ms 只消费一行命令, 拉取器持续发 `TELEM`
+        原因见 `TelemetryPuller.suspend()`: 固件每 1ms 只消费一行命令, 拉取器持续发命令
         会让急停被丢弃 —— 真机实测"急停不立即生效"就是这个原因。普通读写命令照旧走
         快路径(它们有重发兜底, 且实测在拉取器开着时 8/8 成功)。
         """

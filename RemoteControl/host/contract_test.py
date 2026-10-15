@@ -366,14 +366,15 @@ def _test_firmware_mode_gates() -> None:
     check("solve_ratio 线性标定公式", abs(solve_ratio(62.24, 100.0, 110.0) - 56.58) < 0.02)
     check("error_ratio 相对误差", abs(error_ratio(1091.0, 1080.0) - 1.0185) < 0.01)
 
-    # S8f: `PullRequester.stop()` 必须**先等在途 `TELEM` 收尾**再丢弃它。
+    # S8f: `TelemetryPuller.stop()` 必须**先等在途 `TELEM` 收尾**再丢弃它。
     #      为什么钉死(2026-10-07 真机实测, COM7/蓝牙): `TELEM` 一写出串口就**已经在
     #      线上**了, 固件要等下一个 1 ms tick 才消费它, 期间到达的字节被 `usart.c`
     #      直接丢弃。若 `off()` 立刻返回, 紧接着发来的命令(最自然的"先停流、再发车"
     #      写法)有 **~3/4 概率首发被丢** ⇒ 只能干等 2.5 s 超时重发。实测修复前
     #      223/**2702**/**2700**/**2705** ms, 修复后 0/10。
-    from host.api.stream import PullRequester as _PR
-    check(f"PullRequester.STOP_QUIESCE_MAX_S ≥ 0.3s(实测 RTT ≈300 ms)",
+    #      v2.10 起停等/批式统一为一个类(剖面 n), 契约照旧钉在同一个 stop() 上。
+    from host.api.stream import TelemetryPuller as _PR
+    check(f"TelemetryPuller.STOP_QUIESCE_MAX_S ≥ 0.3s(实测 RTT ≈300 ms)",
           float(getattr(_PR, "STOP_QUIESCE_MAX_S", 0.0)) >= 0.3,
           str(getattr(_PR, "STOP_QUIESCE_MAX_S", None)))
     _src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),

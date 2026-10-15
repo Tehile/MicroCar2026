@@ -16,9 +16,15 @@
                      v2.9 纯上位机: 新增批式拉取 `mc.stream.pace()`(`RATE PULL n t`
                       稀疏命令+每批多帧, 默认 10Hz; 真机压测的 2.5 倍传输量档)与
                       断连自动检测 —— 未新增任何命令/字段 ⇒ 协议号仍停 8。
+                     v2.10 纯上位机: **拉取器统一** —— 停等式(`TELEM` 回复门控)与
+                       批式(`RATE PULL n t`)合并为唯一的 `TelemetryPuller`
+                       (剖面 n: n=1 停等 / n≥2 批式, "后者是前者的拓展"在调度器
+                       层面成立); 顺带补两个缺口: 批中点注入 `TELEM` 刷时间锚
+                       (每 30s)与停等式的断连判定(7s)。命令集/帧格式/参数表
+                       一字未动 ⇒ 协议号仍停 8, fw 仍 221。
 """
 
-__version__ = "2.9.0"
+__version__ = "2.10.0"
 PROTO_VER = 8
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)

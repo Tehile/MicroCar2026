@@ -3,7 +3,7 @@
 给 STM32F103 电脑鼠（竞速迷宫鼠）加一条**双向蓝牙链路**与一整套 **PC 工具链**，
 把"调参、标定、监视、复现"从"串口 printf 肉眼观察"搬到电脑上。
 
-> 当前版本 **v2.9.0**　|　固件远程档 `PROTO 8 / FW 221`，比赛档 `5 / 216`　|　API `2.9.0`
+> 当前版本 **v2.10.0**　|　固件远程档 `PROTO 8 / FW 221`，比赛档 `5 / 216`　|　API `2.10.0`
 >
 > **底线约束**：两档共用同一份固件源码，**比赛档产物必须逐字节不变**
 > （判据是 hex 哈希 `f0a5f8637d96b61def2d…`，不是看代码）。
@@ -12,7 +12,8 @@
 
 ## 1. 这是什么
 
-一条**严格停等**的 115200 串口/蓝牙 SPP 链路 + 一个 Python 上位机，让电脑端可以：
+一条**命令严格停等**的 115200 串口/蓝牙 SPP 链路 + 一个 Python 上位机，让电脑端可以：
+（遥测拉取 v2.10 起统一为 `TelemetryPuller`：`n=1` 停等 ~4-6.5Hz、`n≥2` 批式 10Hz）
 
 | 能力 | 说明 |
 |---|---|
@@ -40,7 +41,7 @@ RemoteControl/
 │   └── docs/                上游原始文档（algorithm/architecture/rename_map）
 ├── host/                    PC 上位机（Python）
 │   ├── run_host.py          启动 GUI
-│   ├── selftest.py 等 8 个套件
+│   ├── selftest.py 等 10 个套件
 │   ├── host/                包：protocol / transport / model / api / ui / sim
 │   └── README.md            ★ 上位机使用指南（装了怎么跑）
 ├── docs/                    ★ 本项目文档（见下）
@@ -62,6 +63,7 @@ RemoteControl/
 | **可编程接口清单**（`mc.*` 方法 + 命令/帧/参数表） | [`docs/api_reference.md`](docs/api_reference.md) |
 | 参数名称-功能-调整速查（仿课件表） | [`docs/参数名称-功能-调整表.md`](docs/参数名称-功能-调整表.md) |
 | **链路稳定性压测**（固定 FPS / MTBF / 环境对比） | [`docs/链路MTBF压测方法.md`](docs/链路MTBF压测方法.md) |
+| **遥测拉取器统一设计**（v2.10：停等/批式合并，n=1 退化） | [`docs/遥测拉取器统一设计方案.md`](docs/遥测拉取器统一设计方案.md) |
 | 上位机怎么跑（CLI / GUI / 标定 / 采集） | [`host/README.md`](host/README.md) |
 | 上游迷宫算法与源码导览 | [`code_stm32f1_mouse/docs/`](code_stm32f1_mouse/docs/) |
 
@@ -83,7 +85,7 @@ python run_host.py               # 终端 B —— 上位机，连接下拉框�
 2. `host/` 里 `python -m host.monitor COM7`（终端仪表盘）；
 3. 或 `python run_host.py` → 选带 `[蓝牙]` 标记的口 → 连接。
 
-连接后第一条命令是 `PING`，应回 `PONG 7 218 7 1024 <rst>`（远程档指纹）。
+连接后第一条命令是 `PING`，应回 `PONG 8 221 7 1024 <rst>`（远程档指纹）。
 
 ### 上位机依赖
 
@@ -108,16 +110,18 @@ python build_all_modes.py        # 编译远程档 + 按键比赛档（收尾停
 - **远程档**：`code_stm32f1_mouse/USER/main.h` 里 `#define MOUSE_REMOTE 1`
 - **按键比赛档**：**什么都不定义**（产物与比赛固件逐字节一致）
 
-### 上位机（八套件，共 556 项）
+### 上位机（十套件，共 702 项）
 
 ```bash
 cd host
 python selftest.py            # 协议断言（CRC/Q16.16/帧/自恢复/墙图/落盘）
-python contract_test.py       # 登记表↔模拟器逐条对齐 + 源码静态断言（253 项）
+python contract_test.py       # 登记表↔模拟器逐条对齐 + 源码静态断言（263 项）
 python facade_smoke.py        # 门面全功能（A–J）
 python maze_smoke.py          # 迷宫状态复刻 / 路口分类
 python monitor_smoke.py       # 实时监视器
 python pull_smoke.py          # 拉取链路（停等不变量 / 停发自愈）
+python pace_smoke.py          # 批式拉取（10Hz / 互斥 / 让路 / 断连检测）
+python stream_unified_smoke.py  # 统一拉取器（n=1 退化 / 自节流 / 锚刷新 / 断连）
 python timesync_smoke.py      # 时间同步（纯函数 / 发车 / 逐帧时间 / 丢帧 / 落盘）
 python motor_lab_smoke.py     # 电机实验（双护栏 / 急停锁存）
 python uismoke.py             # 离屏 GUI（需 PySide6）
@@ -132,7 +136,7 @@ python uismoke.py             # 离屏 GUI（需 PySide6）
 | 项 | 远程档 | 按键比赛档 |
 |---|---|---|
 | 开关 | `#define MOUSE_REMOTE 1` | 什么都不定义 |
-| 指纹 | `PROTO 7 / FW 218` | `PROTO 5 / FW 216` |
+| 指纹 | `PROTO 8 / FW 221` | `PROTO 5 / FW 216` |
 | 参数表 | **41 项** | 24 项 |
 | TX 环 | 1024 B | 256 B |
 | 能力 | 监视 / 参数 / 手动运动 / 远程发车收车 / `MCU RESET` | 与比赛固件一致（按键 + 物理启动） |

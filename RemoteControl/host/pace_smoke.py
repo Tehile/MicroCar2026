@@ -1,6 +1,6 @@
-"""批式拉取(v2.9 `PacePull`)冒烟测试 —— `RATE PULL n t` 稀疏命令+每批多帧。
+"""批式拉取(v2.9 剖面, v2.10 起统一于 `TelemetryPuller`)冒烟测试 —— `RATE PULL n t` 稀疏命令+每批多帧。
 
-为什么单独一个文件: v2.9 新增的第二种拉取模式(与停等式 `PullRequester` 互斥),
+为什么单独一个文件: v2.9 新增的第二种拉取剖面(n≥2 批式; 与 n=1 停等式互斥),
 它直接来自 2026-10-15 的真机压测结论(详见 `docs/链路MTBF压测方法.md` §13-15):
   · 停等式单条 `TELEM` 受 1/RTT 限制只有 ~4Hz;
   · 链路有 ~150ms 转发量子 ⇒ 真实容量 ≈13.3Hz, 26Hz 级必死;
@@ -81,10 +81,10 @@ class _Sim:
 # ---------------------------------------------------------------- 纯参数(无设备)
 
 def p1_params() -> None:
-    from host.api.stream import PacePull
+    from host.api.stream import TelemetryPuller
 
     print("\n[P1] 参数与配置(不需要设备)")
-    p = PacePull(None, 3, 100)
+    p = TelemetryPuller(None, 3, 100)
     check("默认 n=3", p.n == 3, str(p.n))
     check("默认 t=100ms", p.t_ms == 100, str(p.t_ms))
     check("T=300ms", abs(p.T_s - 0.3) < 1e-9, str(p.T_s))
@@ -310,7 +310,7 @@ def main() -> int:
     from host.api import MouseClient  # noqa: F401  (提前暴露 import 错误)
 
     print("=" * 66)
-    print("PacePull 批式拉取冒烟(v2.9, 模拟器)")
+    print("批式拉取冒烟(v2.9 剖面 / v2.10 统一类, 模拟器)")
     print("=" * 66)
     p1_params()
     p2_pull()

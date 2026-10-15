@@ -64,7 +64,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.9.0"  # v2.9: 批式拉取 mc.stream.pace()(RATE PULL n t, 默认 10Hz)+ 断连自动检测; 纯上位机, PROTO 仍 8 / fw 221
+API_VERSION = "2.10.0"  # v2.10: 拉取器统一 TelemetryPuller(停等 TELEM 与批式 RATE PULL n t 合并, n=1 退化为停等)+ 批式锚刷新 + 停等式断连判定; 纯上位机, PROTO 仍 8 / fw 221
 
 
 # ---------------------------------------------------------------- 命令表
