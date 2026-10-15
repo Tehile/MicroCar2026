@@ -159,6 +159,7 @@ li{margin:.28em 0}
 <li><a href="#1119-250-24-41">11.19 上游 2.5.0：参数表 24 → 41（+「运动控制」组）与说明列上界面（改版十六）</a></li>
 <li><a href="#1120">11.20 删除「标定例程」整块（改版十七）</a></li>
 <li><a href="#1121">11.21 迷宫墙图画错一格：近端墙偏移 + 最底行没有格线（改版十八）</a></li>
+<li><a href="#1122-290">11.22 接入上游 2.9.0 批式拉取（改版十九）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -515,6 +516,17 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 "贴脸"看着像隔了一格；③ 远端墙落在画布外时不画（图例也不列），图例改判"图上真的
 画出来了什么"。判据<strong>新增 B40</strong>（像素级 + 两条负向）。⚠️ <strong>§11.16 §二 原文写的
 就是错的</strong>（"bit0 = 顶边 = <code>PY(y+1)</code>"）⇒ 已回改。细节见 §11.21。</p>
+<p><strong>改版记录 2026-10-15（十九）</strong>：<strong>接入上游 2.9.0 的批式拉取</strong>（<code>mc.stream.pace()</code>）。
+上游 v2.6 起 <code>RATE</code> 命令族回归、v2.9 端出门面三件套 ⇒ 遥测从"只能停等"变成
+"停等 / 批式二选一"。本层接入后：① <strong>默认批式</strong>（<code>config.yaml: mouse.stream_mode</code>，
+调试阶段要波形密；比赛不用蓝牙 ⇒ 10 Hz 档是压测出的安全档）；② 新增端点
+<code>POST /api/v1/mouse/stream/mode</code>（pace/stopwait/off 一个端点一条真相来路，
+必须走 <code>run_in_executor</code>——<code>pace()</code> 内部最坏 6 s）；③ 界面按<strong>门面三态</strong>
+<code>stream_mode</code> 分支显示（<strong>不是</strong> <code>stats()["mode"]</code>——后者停等式恒为
+<code>"stop-and-wait"</code>、门面全关时也返回它）；④ <code>link_lost</code> 翻成<strong>可照做</strong>清单；
+⑤ 判据<strong>新增 B41</strong>。⚠️ 两个坑：<code>MouseAdapter</code> 原先没有 <code>features</code> 属性
+（端点门控 500 ⇒ 批式切不过去，B41 当场抓住）；<code>--sim</code> 模式下 B37/B38 的
+假数据会被真帧冲掉 ⇒ 加 SKIP 守卫（判据红先怀疑判据）。细节见 §11.22。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -5290,6 +5302,118 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 </tr>
 </tbody>
 </table>
+<hr />
+<h3 id="1122-290">11.22 接入上游 2.9.0 批式拉取（改版十九）</h3>
+<h4 id="261-290">一、上游变了什么（2.6.1 → 2.9.0）</h4>
+<p><code>host/host/</code> 包 9 个文件 +839/−49，实质只有两组新东西：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>内容</th>
+<th>与本层的关系</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>v2.9</strong></td>
+<td><strong>批式拉取</strong> <code>mc.stream.pace()</code> / <code>pace_off()</code> / <code>mode</code>：走既有 <code>rate.pull</code>（<code>RATE PULL n t</code>），稀疏基频命令 3.3 Hz + 每批 3 帧 = <strong>10 Hz</strong>（停等式 ~4 Hz 的 2.5 倍）。零协议改动</td>
+<td><strong>本轮主题</strong></td>
+</tr>
+<tr>
+<td><strong>v2.9</strong></td>
+<td><strong>断连自动检测</strong>：连续 3 s 无帧 ⇒ <code>Event.ERROR(kind="link_lost")</code></td>
+<td>已透传到集成栏，本轮翻成可照做清单</td>
+</tr>
+<tr>
+<td>v2.7</td>
+<td>CAL 家族 6 个菜单远程化子命令</td>
+<td><strong>无关</strong>（改版十七已删标定整块）</td>
+</tr>
+<tr>
+<td>v2.8</td>
+<td>发车瞬间 4 灯齐亮 300 ms</td>
+<td>纯固件；对相机侧有价值（录像对齐发车时刻的物理标定）</td>
+</tr>
+</tbody>
+</table>
+<p>真机依据（上游 2026-10-15 压测）：链路有 ~150 ms 转发量子 ⇒ 容量 ≈13.3 Hz；
+<strong>10 Hz 档 300 s/240.9 s 存活、交付率 99.9%/98.6%</strong>；顶格 13.3 Hz 只活 176 s，
+26 Hz 级三组全断。</p>
+<h4 id="_57">二、三个"照直觉写就会错"的点</h4>
+<ol>
+<li><strong><code>stats()["mode"]</code> 不能用来判"批式在跑"</strong>：<code>PullRequester.snapshot()</code> 恒返回
+   <code>"stop-and-wait"</code>，<strong>门面全关时也返回它</strong>。⇒ 一律用门面三态 <code>mc.stream.mode</code>
+   （<code>off</code>/<code>stopwait</code>/<code>pace</code>）。批式判死后是第三种态（<code>dead=True</code> 且 <code>stream_mode="off"</code>）。</li>
+<li><strong><code>pace()</code> 最坏 6 s</strong>（内部 <code>cmd.send(wait=True, timeout=2.0)</code> 最多试 3 次）
+   ⇒ 端点与连接流程<strong>必须</strong>在 <code>run_in_executor</code> 里，否则冻住整个服务。</li>
+<li><strong><code>stats()</code> 的返回结构随模式变</strong>：停等式有 <code>inflight</code>，批式换成
+   <code>fps_target</code>/<code>fps_obs</code>/<code>batches</code>/<code>lost_batches</code>/<code>rtt_ms</code>/<code>dead</code>。界面若只读
+   <code>inflight</code> ⇒ 切到批式后那行<strong>静默变成空串</strong>（不崩，但信息丢了）。</li>
+</ol>
+<h4 id="_58">三、本层落点</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/adapters/mouse.py</code></td>
+<td><code>_probe_features</code> 加 <code>pace_pull</code>（门面三件套存在性）；<code>caps()</code> 加顶层 <code>pace_pull</code> 与 <code>stream_mode</code>；<code>link_stats</code> 的 unified 段加 <code>stream_mode</code>；<code>on_error</code> 给 <code>link_lost</code> 配可照做 <code>hint</code>；<code>connect()</code> 末尾按 <code>mouse.stream_mode</code> 切默认模式（失败只 warn、不阻断）；新增 <code>features</code> property</td>
+</tr>
+<tr>
+<td><code>control/api/routes.py</code></td>
+<td>新增 <code>POST /api/v1/mouse/stream/mode</code>（pace/stopwait/off，<code>n</code>/<code>t_ms</code> 有范围校验，<code>pace</code> 要能力位否则 501）；<code>/mouse/stream</code> 的 <code>hz</code> 拒绝文案改为指向新端点</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_params.js</code></td>
+<td>新增「拉取模式」切换条（默认批式、<code>n</code>/<code>t</code> 只读、<code>pace_pull</code> 为假时不画、未连接禁用）；<code>#mp-stream</code> 一行按门面三态分支；新增 <code>#mp-link</code> errbox 显式报 <code>link_lost</code>；<code>activate</code> 每次重读能力位</td>
+</tr>
+<tr>
+<td><code>control/static/views/console.js</code></td>
+<td><code>mouse.error</code> 行带 <code>hint</code>（后端翻的界面动作版清单）</td>
+</tr>
+<tr>
+<td><code>config.yaml</code> / <code>control/config.py</code></td>
+<td>新增 <code>mouse.stream_mode</code>（默认 <code>pace</code>）；SCHEMA 同步</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code></td>
+<td>新增 <strong>B41</strong>；B37/B38 加 <code>--sim</code> SKIP 守卫</td>
+</tr>
+<tr>
+<td><code>docs/接口对照表.md</code></td>
+<td>登记新端点</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_59">四、默认批式是<strong>现场决策</strong>，不是技术结论</h4>
+<p>2026-10-15 用户明确：<strong>调试阶段默认批式，真实比赛不用蓝牙</strong>。⇒ 压测里 10 Hz 档
+300 s 级存活、交付率 99.9%，而停等式 4.4~6.5 Hz 采样密一倍；比赛不走蓝牙 ⇒
+链路容量不是约束。<code>config.yaml</code> 里写成 <code>pace</code> 并注明理由，<strong>改这一个键就能回退</strong>。</p>
+<p><code>n</code>/<code>t_ms</code> <strong>只读不给调</strong>：10 Hz 是压测出的 75% 容量安全档，现场乱调到顶格会断连。</p>
+<h4 id="b41">五、判据 B41（含负向）</h4>
+<ul>
+<li><code>caps.pace_pull</code> 为真（连 2.9.0 上游却探到 False ⇒ 能力位坏了，FAIL）；</li>
+<li><code>caps.stream_mode == "pace"</code>（<strong>默认批式</strong>，连接后立即可读）；</li>
+<li>页面点【停等】/【批式】⇒ 轮询 <code>#mp-stream</code> 那一行变成「停等」/「批式」
+  （<strong>轮询等条件</strong>，不固定 sleep：<code>pace()</code> 最坏 6 s）；</li>
+<li><strong>负向</strong>：伪造 caps 说 <code>pace_pull=false</code> ⇒ <code>#mp-mode</code> 必须<strong>空</strong>
+  （老上游上按下去只会 501，比没有按钮更坏）。手法同 B38：临时换 <code>C.api</code>
+  再 <code>activate()</code>，做完还原。</li>
+</ul>
+<p>⚠️ <strong>B41 当场抓住一个真 bug</strong>：端点里写的是 <code>ctx.mouse.features</code>，而适配器
+原先<strong>没有</strong> <code>features</code> 属性 ⇒ <code>pace</code> 请求 500、<code>stopwait</code> 不走那条检查所以成功
+—— 表现是"能切到停等、切不回批式"。这正是"没红过的闸要用在按钮上"（铁律 29）。</p>
+<h4 id="b37b38-sim-skip">六、B37/B38 在 <code>--sim</code> 下改为 SKIP</h4>
+<p>这两条判据靠"钉住一份假数据"让渲染变确定。<strong>连了模拟器之后</strong>，每秒 10 条真帧
+会把假帧/假应答冲掉（B37 喂的 <code>frontNear=1</code> 在 0.4 s 内被真帧覆盖；B38 喂的
+<code>STOPPED</code> 事件被 <code>loadDecisions()</code> 的真应答覆盖）⇒ 读到的是真状态而不是喂进去的。
+⇒ <strong>判据红先怀疑判据</strong>：确定性前提（未连鼠）不成立就如实标 SKIP，不假装通过。
+<code>--sim</code> 只用于 B41（pace 端到端要真鼠）。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

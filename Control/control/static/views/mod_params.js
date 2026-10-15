@@ -46,9 +46,29 @@
 
    ## `EVQ` 必须显式报出来
    帧 `flags` 的 bit7（`EVQ`）意味着"有事件行被丢弃 ⇒ 事件流不完整"。
-   少了这句话，界面会假装那份事件流是完整的 —— 那比缺数据更坏。 */
+   少了这句话，界面会假装那份事件流是完整的 —— 那比缺数据更坏。
+
+   ## 改版十九（上游 2.9.0）：拉取模式二选一，默认批式
+   上游 v2.9 端出**批式拉取**（`mc.stream.pace()`：稀疏基频命令 + 每批 n 帧，
+   默认 n=3/t=100ms ⇒ 10 Hz，停等式 ~4 Hz 的 2.5 倍）。于是本页多一块
+   「拉取模式」切换（停等 / 批式）：
+     · **默认批式**（2026-10-15 定）：调试阶段要波形密；真实比赛不用蓝牙，
+       压测里 10 Hz 档 300 s 级存活、交付率 99.9%，而顶格 13.3 Hz 只活 176 s。
+     · n/t **只读不给调**：10 Hz 是压测出的安全档，现场乱调到顶格会断连。
+       （真要调压测档时再开放，届时连 `link_stats` 的展示语义一起重审。）
+   ⚠️ 显示必须按 `stream_mode`（门面三态）分支，**不能按 `stats()["mode"]`**：
+   后者停等式恒返回 `"stop-and-wait"`，门面全关时也返回它 ⇒ 照它写会做出
+   "没开流却显示批式信息"的 bug。停等式显「在途 N 条」（真机排障的直接证据），
+   批式显「目标 X Hz · 实测 Y Hz · RTT · 丢批 N」。 */
 C.mods.mod_params = (function () {
   let el, groups = {}, dirty = {}, meta = null;
+  /* 能力位（`/mouse/caps` 的一次性快照）。`pace_pull` 决定画不画模式切换 ——
+     老上游上那两个按钮按下去只会报错，比没有按钮更坏。 */
+  let caps = {};
+  /* `link_lost` 的一次性状态（帧来了就清）。文案由后端给（`hint` 字段）——
+     前端不自己编"下一步"，避免两处文案漂移。 */
+  let linkLost = false;
+  let linkHint = '重新连接电脑鼠';
 
   /* 「实时读数」到底多"实时"：**量出来的**，不是标称的。
      两样分开显示，因为它们回答不同的问题：
@@ -223,9 +243,11 @@ C.mods.mod_params = (function () {
                              : (C.util.fmt(r.age_ms / 1000, 1) + ' s'));
         st.textContent = '统一帧 ' + chans.length + ' 通道 · 实测 ' + hz + nom +
           ' · 最新一帧 ' + age + ' 前 · 合计 ' + C.util.fmt(t.bps, 1) + ' B/s' +
-          (t.streaming ? '' : ' · 流已停');
+          (t.streaming ? '' : ' · 流已停') + ' · ' + modeText(r.stream_mode) +
+          pullDetail(r);
       }
     }
+    renderModeBar(r.stream_mode);
 
     /* 没数据时**也要把"这条流里有什么"列出来**（通道名来自 `meas/meta`，静态表）。
        否则未连接时这一页是空白 —— 而准备阶段恰恰是最该看它的时候。 */
@@ -253,7 +275,12 @@ C.mods.mod_params = (function () {
 
      ⚠️ 2.1.0 的措辞换了：遥测不再是"设备在推、我们收"，而是"**本机逐条去拉**"。
      所以"没数据"的第一嫌疑是**拉取器没在跑**（`mc.stream.on()` 没开），
-     第二才是设备/链路。写成"必须发一次 STREAM ON"会指错方向 —— 那条命令已经不存在了。 */
+     第二才是设备/链路。写成"必须发一次 STREAM ON"会指错方向 —— 那条命令已经不存在了。
+
+     ⚠️ 改版十九（2.9.0）：括弧里的细节按 `stream_mode` 分支 ——
+       · 停等式 = 「在途 N 条」（停等有没有被破坏的直接证据）；
+       · 批式   = 「目标 X Hz · 实测 Y Hz · RTT · 丢批 N」；
+       · 都不认（老上游 / 门面全关）⇒ 空串，不猜。 */
   function renderLag() {
     const t = C.state.telemetry || {};
     const r = (t.rate || {}).unified || {};
@@ -261,10 +288,8 @@ C.mods.mod_params = (function () {
     if (!lag) return;
     if (!t.rate) { lag.textContent = ''; return; }
     if (r.stalled) {
-      const inflight = ((r.pull || {}).inflight);
-      const detail = (inflight == null) ? '' : ('（在途 ' + inflight + ' 条）');
-      lag.textContent = '没有数据在来' + detail + ' ⇒ 先确认已连接，'
-        + '再看顶栏【电脑鼠】窗口里的遥测开关是否打开。';
+      lag.textContent = '没有数据在来' + pullDetail(r)
+        + ' ⇒ 先确认已连接，再看顶栏【电脑鼠】窗口里的遥测开关是否打开。';
     } else if (r.age_ms != null && r.age_ms > 1500) {
       lag.textContent = '最新一帧已是 ' + C.util.fmt(r.age_ms / 1000, 1)
         + ' s 前 ⇒ 拉取停了。'
@@ -272,6 +297,78 @@ C.mods.mod_params = (function () {
     } else {
       lag.textContent = '';
     }
+  }
+
+  /* 拉取细节一行：按门面三态分支（⚠️ 不按 `stats()["mode"]`，见模块头）。
+     取不到的键一律不给 —— 不编"未知"，也不拿另一模式的键硬凑。 */
+  function pullDetail(r) {
+    const mode = r.stream_mode;
+    const pull = r.pull || {};
+    if (mode === 'stopwait') {
+      const inflight = pull.inflight;
+      return (inflight == null) ? '' : ('（在途 ' + inflight + ' 条）');
+    }
+    if (mode === 'pace') {
+      const parts = [];
+      if (pull.fps_target != null) parts.push('目标 ' + C.util.fmt(pull.fps_target, 1) + ' Hz');
+      if (pull.fps_obs != null) parts.push('实测 ' + C.util.fmt(pull.fps_obs, 1) + ' Hz');
+      if (pull.rtt_ms != null) parts.push('RTT ' + C.util.fmt(pull.rtt_ms, 0) + ' ms');
+      if (pull.lost_batches != null) parts.push('丢批 ' + pull.lost_batches);
+      // 判死后 `dead=True` 且门面三态会回 off —— 能走到这里说明还没判死，
+      // 但丢了批就要说清（否则"波形有洞"看起来像设备抖动）。
+      return parts.length ? ('（' + parts.join(' · ') + '）') : '';
+    }
+    return '';
+  }
+
+  /* 门面三态 → 界面词。⚠️ 不显示 `stats()["mode"]`（停等式恒 stop-and-wait，
+     门面全关时也返回它）—— 只认门面三态这一个来路。 */
+  function modeText(mode) {
+    if (mode === 'pace') return '批式';
+    if (mode === 'stopwait') return '停等';
+    if (mode === 'off') return '流已关';
+    return '模式未知';
+  }
+
+  /* 「拉取模式」切换条：停等 / 批式两个按钮 + n/t 只读展示。
+     ⚠️ 只在 `caps.pace_pull` 为真时画（老上游上按下去是 AttributeError）；
+     ⚠️ 未连接时禁用（`C.gate`）；
+     ⚠️ n/t **只读不给调**：10 Hz 是压测出的安全档，乱调到顶格会断连。 */
+  function renderModeBar(mode) {
+    const box = el.querySelector('#mp-mode');
+    if (!box) return;
+    if (!caps.pace_pull) { box.innerHTML = ''; return; }
+    const pull = ((C.state.telemetry || {}).rate || {}).unified || {};
+    const p = pull.pull || {};
+    const nt = (mode === 'pace' && p.fps_target != null)
+      ? ('<span class="hint">每批 ' + (p.n == null ? '—' : p.n) +
+         ' 帧 · 批间隔 ' + (p.t_ms == null ? '—' : C.util.fmt(p.t_ms, 0) + ' ms') +
+         '（只读，勿调）</span>')
+      : '';
+    box.innerHTML =
+      '<span class="hint">拉取模式</span>' +
+      '<button class="mini" data-mode="stopwait"' +
+        (mode === 'stopwait' ? ' disabled' : '') + '>停等</button>' +
+      '<button class="mini" data-mode="pace"' +
+        (mode === 'pace' ? ' disabled' : '') + '>批式</button>' + nt;
+    box.querySelectorAll('[data-mode]').forEach(function (b) {
+      b.onclick = function () { setMode(b.dataset.mode); };
+      C.gate(b, C.needMouse());
+    });
+  }
+
+  /* 切模式：一个端点（/mouse/stream/mode），后端已按 `pace_pull` 收口。
+     ⚠️ `pace()` 内部最多等 3×2 s（cmd.send wait=True）⇒ 这个请求可能几秒才回，
+     期间按钮必须看起来是"在等"而不是"没反应" —— 但**不能**阻塞别的刷新。 */
+  async function setMode(mode) {
+    const d = await C.guard(function () {
+      return C.api('/api/v1/mouse/stream/mode',
+        { method: 'POST', body: { mode: mode } });
+    }, '切换拉取模式');
+    if (!d) return;
+    C.toast('拉取模式已切到' + modeText(d.mode) +
+      (mode === 'pace' ? '（目标 10 Hz，几秒后看实测）' : ''), 'ok', 8000);
+    renderAll();
   }
 
   /* `EVQ`（帧 flags bit7）= 有事件行被丢弃 ⇒ 事件流不完整。
@@ -290,6 +387,17 @@ C.mods.mod_params = (function () {
       + '\n⇒ 复位设备后重跑一次，才能拿到完整过程';
   }
 
+  /* 链路断了（上游 v2.9 `link_lost`：连续 3 s 无帧判死）。
+     ⚠️ 不能只躺在集成栏里 —— 那是"看一眼日志的人"才看得见的地方，
+     而这一页正是"等数据却等不到"的人在看的那一页。⇒ errbox 显式报 + 可照做清单。
+     ⚠️ 只在**真的断过**时显示（`linkLost` 置位），帧恢复后由 `onMsg` 清掉。 */
+  function renderLink() {
+    const f = el.querySelector('#mp-link');
+    if (!f) return;
+    if (!linkLost) { f.textContent = ''; return; }
+    f.textContent = '链路已断（连续 3 s 无遥测帧）\n⇒ ' + linkHint;
+  }
+
   /* 参数表**不是**自动刷新的：只在点【读取全部】时读一次。
      不写这一句的话，现场会把"参数一直不动"当成读失败（真踩过）。 */
   function renderParamAge() {
@@ -301,7 +409,7 @@ C.mods.mod_params = (function () {
     }
   }
 
-  function renderAll() { renderLive(); renderLag(); renderFault(); renderParamAge(); }
+  function renderAll() { renderLive(); renderLag(); renderFault(); renderLink(); renderParamAge(); }
 
   function mount(host) {
     el = host;
@@ -311,7 +419,9 @@ C.mods.mod_params = (function () {
           <span><button class="mini" id="mp-tare">清零 TARE</button></span></h4>
         <div class="hint" id="mp-stream"></div>
         <div class="hint" id="mp-lag"></div>
+        <div class="row wrap" id="mp-mode" style="gap:6px;align-items:center"></div>
         <div class="errbox" id="mp-fault"></div>
+        <div class="errbox" id="mp-link"></div>
         <div id="mp-live"></div>
       </div>
       <div class="pane" style="margin-top:8px">
@@ -340,6 +450,16 @@ C.mods.mod_params = (function () {
     load();
   }
 
+  /* 能力位（零设备访问，未连接也答得出来 —— 探测在装载期就做完了）。
+     只在 `pace_pull` 为真时画模式切换。
+     ⚠️ 走**顶层** `/caps`（里面 `mouse` 段）而不是 `/mouse/...`：这个端点
+     不碰设备、链路刚断时也不会被拖住（app.js 启动链专门为它调过序）。
+     读失败就保持 {} ⇒ 不画（不猜"支持"）。 */
+  async function loadCaps() {
+    const d = await C.guard(function () { return C.api('/api/v1/caps'); }, '读能力');
+    if (d && d.mouse) { caps = d.mouse; renderAll(); }
+  }
+
   /* 码表（静态，零设备访问）：通道清单 + 迷宫/冲刺码表。
      未连接时它是这一页**唯一**能画出来的东西，所以进来就读一次。
 
@@ -354,6 +474,7 @@ C.mods.mod_params = (function () {
     if (sp.modes) meta.spurtModes = sp.modes;
     if (sp.front) meta.frontNames = sp.front;
     applyChans(d && d.channels);
+    loadCaps();
     renderAll();
   }
 
@@ -507,11 +628,28 @@ C.mods.mod_params = (function () {
     activate: function () {
       if (!meta) loadMeta();
       if (!Object.keys(groups).length) load();
+      // 能力位**每次切回本页都重读**：`stream_mode` 是随连接变的（caps 里带当前模式），
+      // 而"刚才在哪一页"期间可能已经连上/断开了。读失败保持旧值（不猜"支持"）。
+      loadCaps();
     },
     onMsg: function (m) {
-      if (m.type !== 'mouse.telemetry') return;
-      noteMsg();                 // 界面 FPS 由**前端自己数**到达时刻（最诚实）
-      renderAll();
+      if (m.type === 'mouse.telemetry') {
+        noteMsg();               // 界面 FPS 由**前端自己数**到达时刻（最诚实）
+        // 帧又来了 ⇒ 链路是通的（`link_lost` 是"连续 3 s 无帧"判的，
+        // 帧恢复就是反证）⇒ 清掉那一格。放在 telemetry 分支里而不是 error 分支，
+        // 因为"恢复"没有专门事件，只能靠这个正信号。
+        if (linkLost) { linkLost = false; }
+        renderAll();
+        return;
+      }
+      if (m.type !== 'mouse.error') return;
+      // v2.9 的 link_lost：显式报 + 后端给的可照做清单（见 renderLink）。
+      // 别的 error 仍只进集成栏（console.js 已带 hint）—— 这一页不堆无关告警。
+      if (m.kind === 'link_lost') {
+        linkLost = true;
+        linkHint = m.hint || linkHint;
+        renderAll();
+      }
     },
     onHealth: function () {
       const why = C.needMouse();
@@ -519,6 +657,8 @@ C.mods.mod_params = (function () {
         C.gate(el.querySelector('#' + id), why);
       });
       el.querySelectorAll('#mp-saves [data-page]').forEach(function (b) { C.gate(b, why); });
+      // 模式切换按钮：现生成的，onHealth 必须也门控一次（断连时按下去只会 409）。
+      el.querySelectorAll('#mp-mode [data-mode]').forEach(function (b) { C.gate(b, why); });
       fanHealth();
     },
   };

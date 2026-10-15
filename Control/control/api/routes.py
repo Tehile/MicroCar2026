@@ -56,6 +56,10 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_post("/api/v1/mouse/params/reset", _mouse_params_reset)
     r.add_post("/api/v1/mouse/params/backup", _mouse_params_backup)
     r.add_post("/api/v1/mouse/stream", _mouse_stream)
+    # 上游 2.9.0：**拉取模式切换**（批式 pace / 停等 stopwait / 全关 off）。
+    # 与 /stream 分开是因为两者语义不同：/stream 是"流开不开"（人工刹车），
+    # /stream/mode 是"怎么拉"（速率形态）。合并会让"关流"和"停等"变成一件事。
+    r.add_post("/api/v1/mouse/stream/mode", _mouse_stream_mode)
     r.add_get("/api/v1/mouse/maze", _mouse_maze)
     # 迷宫（实验 8 无记忆走迷宫，上游 2.0.0）。**状态从统一帧读**，所以只剩
     # "读状态 + 读迁移序列 + 汇总 + 清本层差分缓冲"四条读的路，**没有事件流端点**。
@@ -405,8 +409,8 @@ async def _mouse_stream(request: web.Request) -> web.Response:
 
     上游 2.0.0 删除了 `RATE`；2.1.0 又把"固件自时钟推流"改成"**上位机逐条拉取**"
     （`TELEM`）。所以这个端点现在的语义是"**启停本机拉取器**"，不是"命令设备开流"——
-    但**两边都没有"可下发的速率"**，所以它仍然只接受 `on`（或省略 = 取反），
-    带 `hz` 会明确报错，免得现场以为"降速了"其实什么都没发生。
+    但**这个端点不接收速率**（可调速率走 `/mouse/stream/mode`，上游 v2.9 才有），
+    带 `hz` 会明确报错，免得现场以为"在这里降速了"其实什么都没发生。
 
     ⚠️ 关掉它不只是"停止显示"：v2.1 的 `off()` **立刻丢弃在途请求**，
     这是让蓝牙透传模块缓冲排空的唯一手段（2.0.0 的自时钟曾把那个缓冲灌死、
@@ -417,9 +421,10 @@ async def _mouse_stream(request: web.Request) -> web.Response:
     d = await body_json(request)
     loop = asyncio.get_running_loop()
     if "hz" in d:
-        raise ApiError(400, "没有可下发的速率（`RATE` 已删除）。"
-                            "2.1.0 起遥测由上位机逐条拉取，帧率由链路往返决定；"
-                            "只支持 {\"on\": true|false}。")
+        raise ApiError(400, "这个端点不调速率。v2.9 起可调速率在 "
+                            "/api/v1/mouse/stream/mode（{\"mode\":\"pace\"} 为批式，"
+                            "{\"mode\":\"stopwait\"} 为停等）；"
+                            "帧率由链路往返决定，不能任意指定。")
     if "on" in d:
         r = await loop.run_in_executor(None, lambda: mc.stream.toggle(bool(d["on"])))
     else:
@@ -430,6 +435,62 @@ async def _mouse_stream(request: web.Request) -> web.Response:
     # 真机排障时"在途恒 1"是判断停等有没有被破坏的直接证据。
     return ok({"result": _res(r), "on": bool(mc.stream.is_on),
                "hz": mc.telemetry.hz(),
+               "pull": _pull_stats(mc)})
+
+
+async def _mouse_stream_mode(request: web.Request) -> web.Response:
+    """**拉取模式切换**（上游 v2.9.0 的批式拉取 `mc.stream.pace()`）。
+
+    三种模式，一个端点一条真相来路：
+      · `pace`     批式（`RATE PULL n t`：稀疏基频命令 + 每批 n 帧，默认 n=3/t=100ms = 10 Hz）
+      · `stopwait` 停等（一条一答，帧率 = 1/RTT，真机 4.4~6.5 Hz）
+      · `off`      全关（立刻停发，排空蓝牙缓冲）
+
+    ⚠️ **必须走 `run_in_executor`**：`pace()` 内部 `cmd.send(wait=True, timeout=2.0)`
+    最多试 3 次，最坏 6 秒级；`on()` 也会等在途请求收尾（≤0.6 s）。
+    放在事件循环里会冻住整个服务（端点零同步设备的反面教材）。
+
+    ⚠️ `mode` 回的是**门面三态**（off/stopwait/pace）而不是 `stats()["mode"]`——
+    后者是拉取器自己的字段，停等式恒返回 `"stop-and-wait"`，**门面全关时也返回它**，
+    照它写会做出"没开流却显示批式信息"的 bug。
+    """
+    ctx = request.app["ctx"]
+    mc = _need_mouse(ctx)
+    d = await body_json(request)
+    mode = str(d.get("mode", "")).strip().lower()
+    if mode not in ("pace", "stopwait", "off"):
+        raise ApiError(400, "mode 只接受 pace / stopwait / off。")
+    # 能力位：老上游没有 pace 门面三件套 ⇒ 明确报错，不让现场以为"切成功了"。
+    if mode == "pace" and not ctx.mouse.features.get("pace_pull"):
+        raise ApiError(501, "当前上游不支持批式拉取（没有 mc.stream.pace）。"
+                            "换停等模式，或升级上游。")
+    n = d.get("n")
+    t_ms = d.get("t_ms")
+    if n is not None:
+        n = int(n)
+        if not (1 <= n <= 8):
+            raise ApiError(400, "每批帧数 n 只接受 1~8（上游 PacePull 的约束）。")
+    if t_ms is not None:
+        t_ms = int(t_ms)
+        if not (50 <= t_ms <= 1000):
+            raise ApiError(400, "批间隔 t_ms 只接受 50~1000（上游 75 ms 量化）。")
+    loop = asyncio.get_running_loop()
+
+    def _apply():
+        if mode == "pace":
+            return mc.stream.pace(n=n, t_ms=t_ms)
+        if mode == "stopwait":
+            return mc.stream.on()
+        return mc.stream.off()
+
+    r = await loop.run_in_executor(None, _apply)
+    ctx.store.mark("mouse", "mouse.stream.mode", mode,
+                   f"n={n} t_ms={t_ms} ok={r.ok}")
+    try:
+        now_mode = str(mc.stream.mode or "off")
+    except Exception:                                     # noqa: BLE001
+        now_mode = "off"
+    return ok({"result": _res(r), "mode": now_mode,
                "pull": _pull_stats(mc)})
 
 

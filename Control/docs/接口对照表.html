@@ -286,7 +286,13 @@ li{margin:.28em 0}
 <td><code>POST /api/v1/mouse/stream</code></td>
 <td>A</td>
 <td><code>StreamAPI.on</code>、<code>StreamAPI.off</code>、<code>StreamAPI.toggle</code>、<code>StreamAPI.is_on</code>、<code>StreamAPI.stats</code>、<code>TelemetryAPI.hz</code></td>
-<td><strong>2.1.0 起语义是「启停本机拉取器」</strong>（不再是"命令固件开流"）。<strong>只接受 <code>{"on": true|false}</code></strong>；<code>RATE</code> 已删除 ⇒ 带 <code>hz</code> 一律 <strong>400</strong>（帧率由<strong>链路往返</strong>决定：1/RTT）。应答里 <code>hz</code> 是<strong>实测值</strong>，另给 <code>pull</code>（拉取器状态：<code>mode:"stop-and-wait"</code> / <code>inflight</code> / <code>done</code> / <code>lost</code> / <code>hz</code>）。⚠️ <code>off()</code> 会<strong>立刻丢弃在途请求</strong> —— 这是让蓝牙透传模块缓冲排空的唯一手段</td>
+<td><strong>2.1.0 起语义是「启停本机拉取器」</strong>（不再是"命令固件开流"）。<strong>只接受 <code>{"on": true|false}</code></strong>；速率形态走 <code>/mouse/stream/mode</code> ⇒ 带 <code>hz</code> 一律 <strong>400</strong>（帧率由<strong>链路往返</strong>决定：1/RTT）。应答里 <code>hz</code> 是<strong>实测值</strong>，另给 <code>pull</code>（拉取器状态：<code>mode:"stop-and-wait"</code> / <code>inflight</code> / <code>done</code> / <code>lost</code> / <code>hz</code>）。⚠️ <code>off()</code> 会<strong>立刻丢弃在途请求</strong> —— 这是让蓝牙透传模块缓冲排空的唯一手段</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/stream/mode</code></td>
+<td>A</td>
+<td><code>StreamAPI.pace</code>、<code>StreamAPI.pace_off</code>、<code>StreamAPI.mode</code></td>
+<td><strong>2.9.0 新增：拉取模式切换</strong>。<code>{"mode":"pace"\|"stopwait"\|"off"}</code>，pace 可带 <code>n</code>（每批帧数 1~8）/<code>t_ms</code>（批间隔 50~1000）。⚠️ <strong>必须走 <code>run_in_executor</code></strong>（<code>pace()</code> 内部 <code>cmd.send(wait=True)</code> 最多试 3 次，最坏 6 s 级）。⚠️ 应答 <code>mode</code> 取<strong>门面三态</strong>（<code>mc.stream.mode</code>），<strong>不是</strong> <code>stats()["mode"]</code> —— 后者停等式恒为 <code>"stop-and-wait"</code>、门面全关时也返回它。<code>pace</code> 需要能力位 <code>pace_pull</code>（门面三件套都在才有），否则 <strong>501</strong></td>
 </tr>
 <tr>
 <td><code>GET /api/v1/mouse/maze</code></td>

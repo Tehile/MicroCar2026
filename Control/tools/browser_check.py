@@ -84,15 +84,19 @@ PAGE_PROBES = {
                 "return {ok: !!ov && !!sg && (!!t || gated || rows>0),"
                 " note:'ov='+(ov?1:0)+' sg='+(sg?1:0)+' gated='+(gated?1:0)"
                 "  +' 状态行='+rows+' 账本='+t.length+'字 环境行=「'+o.slice(0,28)+'」'};})()"),
-    # 参数页必须**真的分成两组**（生产标定 7 / 课程调参 14）—— 这是跟上游更新的要点。
-    # 但未连鼠时读不到参数，这时**要求它明确写出原因**，而不是摆一张空表
+    # 参数页必须**真的分成组**（上游 `PARAM_GROUPS`：生产标定 / 红外测量 / 电源监控 /
+    # 运动控制）。⚠️ 原来断言里有"课程调参"那一组 —— 上游 **2.4.0 已删课程调参整层**，
+    # 于是第一支从那时起就永远为假，这条判据一直在靠"未连鼠 ⇒ gated"兜着
+    # （2026-10-15 连模拟器跑 `--sim` 时才暴露）。⇒ 改成"生产标定在 + 另有任一组"。
+    # 未连鼠时读不到参数，这时**要求它明确写出原因**，而不是摆一张空表
     # （"空白"和"没连"是两件事，混起来最费时间）。
     "params": ("(()=>{const t=document.querySelector('#p-groups').innerText||'';"
-               "const hasProd=t.indexOf('生产标定')>=0, hasLes=t.indexOf('课程调参')>=0;"
+               "const hasProd=t.indexOf('生产标定')>=0;"
+               "const hasOther=/红外测量|电源监控|运动控制/.test(t);"
                "const gated=t.indexOf('未连接电脑鼠')>=0||t.indexOf('无法读取参数')>=0;"
                "const n=(t.match(/\\\\bid\\\\b/g)||[]).length;"
-               "return {ok: (hasProd&&hasLes)||gated,"
-               " note:(hasProd&&hasLes)?('分组都在，项数标记 '+n)"
+               "return {ok: (hasProd&&hasOther)||gated,"
+               " note:(hasProd&&hasOther)?('分组都在，项数标记 '+n)"
                " :'未连鼠 ⇒ 已写明原因（没冒充空表）'};})()"),
     # 发车页：时间同步面板 + 链路完整性面板都必须有行；
     # 未连鼠时本页会**早退**（时间同步要读设备的帧），那就要求它把原因写在 gatehint 里。
@@ -1430,81 +1434,86 @@ async def run(args) -> int:
             # 否则未连接时左栏只写"未运行"，判据读不到任何东西（第一版就是这样假红）。
             # 三态（**负向**）：把 `C.state.telemetry.unified` 换成**没有** `frontNear/frontFar`
             # 的（老上游形状）⇒ 左栏必须写"本机无此量"，**不许**画成"无"。
-            head("2i. 无记忆走迷宫：前墙近/远两档 + 起点角（含负向：老上游无此量）")
-            b37_bad, b37_got = [], []
-            try:
-                # 喂一帧：前墙**近端**（frontNear=1, frontFar=0）+ 起点角 (0,0) + 朝上(dir=0)
-                await cdp.eval(
-                    "(()=>{const T = C.state.telemetry = C.state.telemetry || {};"
-                    "if (T.__b37old === undefined) T.__b37old = T.unified;"
-                    "T.unified = Object.assign({}, T.unified, {"
-                    "  posX:0, posY:0, dir:0, mazeTask:2, road:1,"
-                    "  wallLeft:0, wallFront:1, wallRight:1, frontNear:1, frontFar:0,"
-                    "  frontBoth:1, frontName:'近端(贴脸)', goalX:6, goalY:6,"
-                    "  motionTask:1, motionStep:0, stackIdx:0, fastwayCount:0, flags:0,"
-                    "  speedL:10, speedR:10, gyroAngle:0, encAngle:0,"
-                    "  irF1:40, irF2:45, irL:200, irR:200, battMv:3900});"
-                    "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
-                    "  C.mods.mod_maze8.refresh();})()")
-                await asyncio.sleep(0.4)
-                kv_txt = await cdp.eval(
-                    "(()=>{const b=document.getElementById('m8-kv');"
-                    "return (b?b.innerText:'').replace(/\\s+/g,' ').trim();})()")
-                cv_info = await cdp.eval(
-                    "(()=>{const cv=document.getElementById('m8-cv');"
-                    "return {w: cv?cv.width:0, h: cv?cv.height:0};})()")
-                b37_got.append("左栏=" + kv_txt[:90])
-                if '前墙近/远' not in kv_txt:
-                    b37_bad.append(f"左栏没有「前墙近/远」行：{kv_txt[:120]!r}")
-                elif '近端' not in kv_txt:
-                    b37_bad.append(f"喂了 frontNear=1 却没写出「近端」：{kv_txt[:120]!r}")
-                # 位置：喂 (0,0) ⇒ 左栏应标"（起点角）"；朝向 dir=0 ⇒ 不该出现"起点要求朝上"的提醒
-                if '起点角' not in kv_txt:
-                    b37_bad.append(f"喂了 pos=(0,0) 却没标出「起点角」：{kv_txt[:120]!r}")
-                if not (cv_info.get("w") and cv_info.get("h")):
-                    b37_bad.append(f"中栏画布没尺寸（起点圈画不出来）：{cv_info}")
+            if args.sim:
+                # ⚠️ 见本文件头部的 B37/B38 守卫说明：连了模拟器 ⇒ 真数据会冲掉钉住的假数据，
+                #    判据的确定性前提（未连鼠）不成立 ⇒ 如实标 SKIP，不假装通过。
+                record("B37", "SKIP", "连了模拟器：每秒 10 条真帧会冲掉钉住的假帧，本判据的确定性前提（未连鼠）不成立")
+            else:
+                head("2i. 无记忆走迷宫：前墙近/远两档 + 起点角（含负向：老上游无此量）")
+                b37_bad, b37_got = [], []
+                try:
+                    # 喂一帧：前墙**近端**（frontNear=1, frontFar=0）+ 起点角 (0,0) + 朝上(dir=0)
+                    await cdp.eval(
+                        "(()=>{const T = C.state.telemetry = C.state.telemetry || {};"
+                        "if (T.__b37old === undefined) T.__b37old = T.unified;"
+                        "T.unified = Object.assign({}, T.unified, {"
+                        "  posX:0, posY:0, dir:0, mazeTask:2, road:1,"
+                        "  wallLeft:0, wallFront:1, wallRight:1, frontNear:1, frontFar:0,"
+                        "  frontBoth:1, frontName:'近端(贴脸)', goalX:6, goalY:6,"
+                        "  motionTask:1, motionStep:0, stackIdx:0, fastwayCount:0, flags:0,"
+                        "  speedL:10, speedR:10, gyroAngle:0, encAngle:0,"
+                        "  irF1:40, irF2:45, irL:200, irR:200, battMv:3900});"
+                        "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
+                        "  C.mods.mod_maze8.refresh();})()")
+                    await asyncio.sleep(0.4)
+                    kv_txt = await cdp.eval(
+                        "(()=>{const b=document.getElementById('m8-kv');"
+                        "return (b?b.innerText:'').replace(/\\s+/g,' ').trim();})()")
+                    cv_info = await cdp.eval(
+                        "(()=>{const cv=document.getElementById('m8-cv');"
+                        "return {w: cv?cv.width:0, h: cv?cv.height:0};})()")
+                    b37_got.append("左栏=" + kv_txt[:90])
+                    if '前墙近/远' not in kv_txt:
+                        b37_bad.append(f"左栏没有「前墙近/远」行：{kv_txt[:120]!r}")
+                    elif '近端' not in kv_txt:
+                        b37_bad.append(f"喂了 frontNear=1 却没写出「近端」：{kv_txt[:120]!r}")
+                    # 位置：喂 (0,0) ⇒ 左栏应标"（起点角）"；朝向 dir=0 ⇒ 不该出现"起点要求朝上"的提醒
+                    if '起点角' not in kv_txt:
+                        b37_bad.append(f"喂了 pos=(0,0) 却没标出「起点角」：{kv_txt[:120]!r}")
+                    if not (cv_info.get("w") and cv_info.get("h")):
+                        b37_bad.append(f"中栏画布没尺寸（起点圈画不出来）：{cv_info}")
 
-                # 负向：换成"老上游形状"（无 frontNear/frontFar）⇒ 必须写"本机无此量"
-                neg = await cdp.eval(
-                    "(()=>{"
-                    "const T = C.state.telemetry = C.state.telemetry || {};"
-                    "const old = T.unified;"
-                    "if (!old) return {txt:'__nofeed__'};"
-                    "const snap = {};"
-                    "Object.keys(old).forEach(function(k){snap[k]=old[k];});"
-                    "delete snap.frontNear; delete snap.frontFar;"
-                    "delete snap.frontBoth; delete snap.frontName;"
-                    "T.unified = snap;"
-                    "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
-                    "  C.mods.mod_maze8.refresh();"
-                    "const b=document.getElementById('m8-kv');"
-                    "const t=(b?b.innerText:'').replace(/\\s+/g,' ').trim();"
-                    "return {txt:t};})()")
-                neg_txt = str((neg or {}).get("txt") or "")
-                if neg_txt == "__nofeed__":
-                    b37_got.append("负向跳过（没有帧可喂，如实标）")
-                elif neg_txt:
-                    says_missing = ('本机无此量' in neg_txt)
-                    says_none = ('前墙近/远' in neg_txt and '本机无此量' not in neg_txt)
-                    b37_got.append("负向(老上游形状)=" + ("写'本机无此量'" if says_missing else
-                                                        ("误画成'无'" if says_none else "?")))
-                    if says_none:
-                        b37_bad.append("老上游（无 frontNear/frontFar）被**误画成'无墙'**"
-                                       "—— '读不到'与'确认没有'必须区分")
-                # 还原（把真帧放回去，别把钉住的假帧留在屏幕上）
-                await cdp.eval(
-                    "(()=>{const T=C.state.telemetry=C.state.telemetry||{};"
-                    "if(T.__b37old){T.unified=T.__b37old;delete T.__b37old;}"
-                    "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
-                    "  C.mods.mod_maze8.refresh();})()")
-            except Exception as e:                            # noqa: BLE001
-                b37_bad.append(f"读取前墙/起点渲染时抛异常：{type(e).__name__}: {e}")
-            b37_ok = not b37_bad
-            record("B37", "PASS" if b37_ok else "FAIL",
-                   f"无记忆走迷宫左栏有「前墙近/远」档位行（{'；'.join(b37_got)}），"
-                   f"中栏画布已渲染（起点角可画）"
-                   if b37_ok else
-                   f"**前墙双档 / 起点角显示不对**：{b37_bad[:4]}")
+                    # 负向：换成"老上游形状"（无 frontNear/frontFar）⇒ 必须写"本机无此量"
+                    neg = await cdp.eval(
+                        "(()=>{"
+                        "const T = C.state.telemetry = C.state.telemetry || {};"
+                        "const old = T.unified;"
+                        "if (!old) return {txt:'__nofeed__'};"
+                        "const snap = {};"
+                        "Object.keys(old).forEach(function(k){snap[k]=old[k];});"
+                        "delete snap.frontNear; delete snap.frontFar;"
+                        "delete snap.frontBoth; delete snap.frontName;"
+                        "T.unified = snap;"
+                        "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
+                        "  C.mods.mod_maze8.refresh();"
+                        "const b=document.getElementById('m8-kv');"
+                        "const t=(b?b.innerText:'').replace(/\\s+/g,' ').trim();"
+                        "return {txt:t};})()")
+                    neg_txt = str((neg or {}).get("txt") or "")
+                    if neg_txt == "__nofeed__":
+                        b37_got.append("负向跳过（没有帧可喂，如实标）")
+                    elif neg_txt:
+                        says_missing = ('本机无此量' in neg_txt)
+                        says_none = ('前墙近/远' in neg_txt and '本机无此量' not in neg_txt)
+                        b37_got.append("负向(老上游形状)=" + ("写'本机无此量'" if says_missing else
+                                                            ("误画成'无'" if says_none else "?")))
+                        if says_none:
+                            b37_bad.append("老上游（无 frontNear/frontFar）被**误画成'无墙'**"
+                                           "—— '读不到'与'确认没有'必须区分")
+                    # 还原（把真帧放回去，别把钉住的假帧留在屏幕上）
+                    await cdp.eval(
+                        "(()=>{const T=C.state.telemetry=C.state.telemetry||{};"
+                        "if(T.__b37old){T.unified=T.__b37old;delete T.__b37old;}"
+                        "if (C.mods && C.mods.mod_maze8 && C.mods.mod_maze8.refresh)"
+                        "  C.mods.mod_maze8.refresh();})()")
+                except Exception as e:                            # noqa: BLE001
+                    b37_bad.append(f"读取前墙/起点渲染时抛异常：{type(e).__name__}: {e}")
+                b37_ok = not b37_bad
+                record("B37", "PASS" if b37_ok else "FAIL",
+                       f"无记忆走迷宫左栏有「前墙近/远」档位行（{'；'.join(b37_got)}），"
+                       f"中栏画布已渲染（起点角可画）"
+                       if b37_ok else
+                       f"**前墙双档 / 起点角显示不对**：{b37_bad[:4]}")
 
             # ── B40：迷宫绘图落位 —— 前墙两档**分边** + 每行都不缺竖线（改版十八） ──
             # 守的是现场报的两条（都是"看图就能发现"的错，而 B37 只读左栏文字与画布
@@ -1738,6 +1747,105 @@ async def run(args) -> int:
                    if b40_ok else
                    f"**迷宫绘图的落位/格线不对**：{b40_bad[:4]}")
 
+            # ── B41：拉取模式切换 + 默认批式 + 老上游不画（改版十九，上游 2.9.0） ──
+            # 守本轮三件事：
+            #   ① **默认批式**：连上之后 caps 的 `stream_mode` 必须是 `pace`
+            #      （2026-10-15 定：调试阶段要波形密；比赛不用蓝牙 ⇒ 10 Hz 档安全）。
+            #   ② **切换真打到后端**：点【批式】/【停等】后，页面那一行要跟着变成
+            #      "批式"/"停等" —— 只换按钮不换显示就是"点了没反应"。
+            #   ③ **老上游上不画**（负向）：`pace_pull=False` 时 `#mp-mode` 必须空。
+            #      按下去只会 501 的按钮，比没有按钮更坏。
+            # ⚠️ 轮询等条件，**不固定 sleep**：pace() 内部最坏 6 s（3×2 s）。
+            head("2k. 实时状态页：拉取模式切换（批式/停等）、默认批式、老上游不画")
+            b41_bad, b41_got = [], []
+            try:
+                with urllib.request.urlopen(base + "/api/v1/caps", timeout=15) as _r:
+                    caps = json.loads(_r.read().decode("utf-8")).get("data") or {}
+                mcap = caps.get("mouse") or {}
+                pace_ok = bool(mcap.get("pace_pull"))
+                b41_got.append("caps.pace_pull=%s" % pace_ok)
+                if args.sim:
+                    # ① 默认批式（连接后 caps 里的门面三态）
+                    smode = str(mcap.get("stream_mode") or "")
+                    b41_got.append("caps.stream_mode=%r" % smode)
+                    if not pace_ok:
+                        b41_bad.append("连了 2.9.0 上游却探到 pace_pull=False"
+                                       "（能力位坏了 ⇒ 模式切换画不出来）")
+                    elif smode != "pace":
+                        b41_bad.append(f"默认不是批式：stream_mode={smode!r}（应为 'pace'）")
+                    # ② 端到端切模式（页面点按钮 + 轮询页面显示）
+                    await cdp.eval("C.openMod('mouse','mod_params')")
+                    await asyncio.sleep(0.6)
+                    bar = await cdp.eval(
+                        "(()=>{const b=document.getElementById('mp-mode');"
+                        "return {html:(b?b.innerHTML:'').slice(0,200),"
+                        "  btns:b?b.querySelectorAll('[data-mode]').length:0};})()")
+                    b41_got.append("模式条按钮=%s" % ((bar or {}).get("btns") or 0))
+                    if not (bar or {}).get("btns"):
+                        b41_bad.append("pace_pull 为真但 #mp-mode 没画出切换按钮")
+                    else:
+                        async def _wait_mode(want, tag):
+                            """点按钮后轮询页面那一行，直到出现目标模式词（最多 9 s）。"""
+                            for _ in range(18):
+                                txt = await cdp.eval(
+                                    "(()=>{const s=document.getElementById('mp-stream');"
+                                    "return (s?s.innerText:'');})()")
+                                if want in str(txt or ""):
+                                    return True
+                                await asyncio.sleep(0.5)
+                            b41_bad.append(f"点【{tag}】后页面那一行 9 s 内没变成「{want}」")
+                            return False
+                        # 停等 → 批式 → 停等 → 批式（恢复默认）
+                        await cdp.eval(
+                            "(()=>{const b=document.querySelector("
+                            "'#mp-mode [data-mode=stopwait]');if(b)b.click();})()")
+                        if await _wait_mode("停等", "停等"):
+                            b41_got.append("切到停等 OK")
+                        await cdp.eval(
+                            "(()=>{const b=document.querySelector("
+                            "'#mp-mode [data-mode=pace]');if(b)b.click();})()")
+                        if await _wait_mode("批式", "批式"):
+                            b41_got.append("切回批式 OK")
+                else:
+                    b41_got.append("未连模拟器 ⇒ 只跑负向（不猜端到端）")
+            except Exception as e:                            # noqa: BLE001
+                b41_bad.append(f"读 caps / 切模式时抛异常：{type(e).__name__}: {e}")
+
+            # 负向（**不需要连鼠**）：伪造 caps 说"老上游"⇒ #mp-mode 必须空。
+            #   手法同 B38：临时换 `C.api`，再 `activate()` 让它重读能力位。
+            #   ⚠️ 必须还原（否则后面的判据看到的是一个假的上游）。
+            try:
+                await cdp.eval("C.openMod('mouse','mod_params')")
+                await asyncio.sleep(0.4)
+                neg = await cdp.eval(
+                    "(()=>{"
+                    "const M=C.mods&&C.mods.mod_params; if(!M) return {err:'no mod'};"
+                    "const old=C.api;"
+                    "C.api=function(p,o){ if(p==='/api/v1/caps')"
+                    "  return Promise.resolve({mouse:{pace_pull:false}});"
+                    "  return old.call(this,p,o); };"
+                    "M.activate();"
+                    "return new Promise(function(res){"
+                    "  setTimeout(function(){"
+                    "    const b=document.getElementById('mp-mode');"
+                    "    C.api=old; M.activate();"
+                    "    res({empty:(b?b.innerHTML.trim():'')===''});"
+                    "  },900);});})()")
+                nempty = (neg or {}).get("empty")
+                b41_got.append("负向(pace_pull=false) 模式条空=%s" % nempty)
+                if nempty is not True:
+                    b41_bad.append("pace_pull=False 时 #mp-mode 仍画着东西"
+                                   "（老上游上按下去只会 501）")
+                await asyncio.sleep(0.8)   # 等还原后的 activate 把模式条画回来
+            except Exception as e:                            # noqa: BLE001
+                b41_bad.append(f"负向（老上游不画）抛异常：{type(e).__name__}: {e}")
+            b41_ok = not b41_bad
+            record("B41", "PASS" if b41_ok else "FAIL",
+                   f"拉取模式切换可用（{'；'.join(b41_got)}）"
+                   if b41_ok else
+                   f"**拉取模式切换/默认批式不对**：{b41_bad[:4]}")
+
+
             # ── B38：改版十四的五件小事（复位改名 / 保存路径 / 清空 / 停止原因 / 网格尺寸） ──
             # 守的是本轮用户明确提的五条：
             #   ①「救援」→「复位」：界面上**不许再出现「救援」**（按钮 + 设备窗口）；
@@ -1746,151 +1854,156 @@ async def run(args) -> int:
             #   ④ 停止时**历程要显示停止原因**（人话，不是 `TIME` 那种码）；
             #   ⑤ 中栏要有**网格尺寸选择**（7/8/16），且**只影响显示**。
             # 做法同 B34/B36/B37：**先把数据钉住**再断言（未连接时左栏只写"未运行"）。
-            head("2j. 无记忆走迷宫：复位改名 / 保存路径 / 清空 / 停止原因 / 网格尺寸")
-            b38_bad, b38_got = [], []
-            try:
-                # 先回到这一页（上面切过别的模块）
-                await cdp.eval("C.openMod('mouse','mod_maze8')")
-                await asyncio.sleep(0.4)
-                # ① 改名：整页 + 设备窗口里都不许再出现「救援」
-                name_got = await cdp.eval(
-                    "(()=>({page:(document.body.innerText||''),"
-                    "  m8:(document.getElementById('m8-rescue')||{}).textContent||'',"
-                    "  dm:(document.getElementById('dm-rescue')||{}).textContent||''}))()")
-                m8_txt = (name_got or {}).get("m8", "")
-                dm_txt = (name_got or {}).get("dm", "")
-                b38_got.append(f"按钮 m8-rescue={m8_txt!r} dm-rescue={dm_txt!r}")
-                if "复位" not in m8_txt:
-                    b38_bad.append(f"m8-rescue 文案不是「复位」：{m8_txt!r}")
-                if "复位" not in dm_txt:
-                    b38_bad.append(f"dm-rescue 文案不是「复位」：{dm_txt!r}")
-                if "救援" in (name_got or {}).get("page", ""):
-                    b38_bad.append("页面上仍有「救援」字样（应统一改成「复位」）")
+            if args.sim:
+                # ⚠️ 见本文件头部的 B37/B38 守卫说明：连了模拟器 ⇒ 真数据会冲掉钉住的假数据，
+                #    判据的确定性前提（未连鼠）不成立 ⇒ 如实标 SKIP，不假装通过。
+                record("B38", "SKIP", "连了模拟器：真应答会冲掉拦出来的假应答，本判据的确定性前提（未连鼠）不成立")
+            else:
+                head("2j. 无记忆走迷宫：复位改名 / 保存路径 / 清空 / 停止原因 / 网格尺寸")
+                b38_bad, b38_got = [], []
+                try:
+                    # 先回到这一页（上面切过别的模块）
+                    await cdp.eval("C.openMod('mouse','mod_maze8')")
+                    await asyncio.sleep(0.4)
+                    # ① 改名：整页 + 设备窗口里都不许再出现「救援」
+                    name_got = await cdp.eval(
+                        "(()=>({page:(document.body.innerText||''),"
+                        "  m8:(document.getElementById('m8-rescue')||{}).textContent||'',"
+                        "  dm:(document.getElementById('dm-rescue')||{}).textContent||''}))()")
+                    m8_txt = (name_got or {}).get("m8", "")
+                    dm_txt = (name_got or {}).get("dm", "")
+                    b38_got.append(f"按钮 m8-rescue={m8_txt!r} dm-rescue={dm_txt!r}")
+                    if "复位" not in m8_txt:
+                        b38_bad.append(f"m8-rescue 文案不是「复位」：{m8_txt!r}")
+                    if "复位" not in dm_txt:
+                        b38_bad.append(f"dm-rescue 文案不是「复位」：{dm_txt!r}")
+                    if "救援" in (name_got or {}).get("page", ""):
+                        b38_bad.append("页面上仍有「救援」字样（应统一改成「复位」）")
 
-                # ② 保存路径：拦 `record/stop` 喂一个带 `path` 的应答 ⇒ 弹窗要**写出路径**。
-                #    （真去落盘一次太慢且要鼠；这里钉的是"界面拿到 path 会不会显示它"。）
-                fake_path = "C:/tmp/rec/20261008_0000_test.maze.json"
-                await cdp.eval(
-                    "(()=>{window.__b38_api=window.__b38_api||C.api;"
-                    " const real=window.__b38_api;"
-                    " window.__b38_toast=[];"
-                    " const rt=C.toast; window.__b38_toastfn=rt;"
-                    " C.toast=function(m,k,t){try{window.__b38_toast.push(String(m));}catch(e){}"
-                    "  return rt(m,k,t);};"
-                    " C.api=function(p,o){"
-                    "  if(String(p).indexOf('maze/record/stop')>=0){"
-                    "   return Promise.resolve(" + json.dumps(
-                        {"ok": True, "name": "20261008_0000_test.maze.json",
-                         "path": fake_path, "frames": 120, "tiny": False}) + ");}"
-                    "  return real(p,o);};"
-                    " return true;})()")
-                await cdp.eval("document.getElementById('m8-stop').click()")
-                await asyncio.sleep(0.6)
-                toast_got = await cdp.eval(
-                    "(()=>{const a=window.__b38_toast||[];"
-                    "return {toast:a.join('\\n')};})()")
-                tt = str((toast_got or {}).get("toast") or "")
-                b38_got.append("保存弹窗=" + tt.replace("\n", " / ")[:80])
-                if "test.maze.json" not in tt and "maze.json" not in tt:
-                    b38_bad.append(f"停止并保存的弹窗没写出保存位置：{tt[:90]!r}")
-                elif "maze.json" not in tt:
-                    b38_bad.append(f"弹窗里没有文件名/路径：{tt[:90]!r}")
-                # 还原 api/toast
-                await cdp.eval(
-                    "(()=>{if(window.__b38_api)C.api=window.__b38_api;"
-                    " if(window.__b38_toastfn)C.toast=window.__b38_toastfn;"
-                    " return true;})()")
+                    # ② 保存路径：拦 `record/stop` 喂一个带 `path` 的应答 ⇒ 弹窗要**写出路径**。
+                    #    （真去落盘一次太慢且要鼠；这里钉的是"界面拿到 path 会不会显示它"。）
+                    fake_path = "C:/tmp/rec/20261008_0000_test.maze.json"
+                    await cdp.eval(
+                        "(()=>{window.__b38_api=window.__b38_api||C.api;"
+                        " const real=window.__b38_api;"
+                        " window.__b38_toast=[];"
+                        " const rt=C.toast; window.__b38_toastfn=rt;"
+                        " C.toast=function(m,k,t){try{window.__b38_toast.push(String(m));}catch(e){}"
+                        "  return rt(m,k,t);};"
+                        " C.api=function(p,o){"
+                        "  if(String(p).indexOf('maze/record/stop')>=0){"
+                        "   return Promise.resolve(" + json.dumps(
+                            {"ok": True, "name": "20261008_0000_test.maze.json",
+                             "path": fake_path, "frames": 120, "tiny": False}) + ");}"
+                        "  return real(p,o);};"
+                        " return true;})()")
+                    await cdp.eval("document.getElementById('m8-stop').click()")
+                    await asyncio.sleep(0.6)
+                    toast_got = await cdp.eval(
+                        "(()=>{const a=window.__b38_toast||[];"
+                        "return {toast:a.join('\\n')};})()")
+                    tt = str((toast_got or {}).get("toast") or "")
+                    b38_got.append("保存弹窗=" + tt.replace("\n", " / ")[:80])
+                    if "test.maze.json" not in tt and "maze.json" not in tt:
+                        b38_bad.append(f"停止并保存的弹窗没写出保存位置：{tt[:90]!r}")
+                    elif "maze.json" not in tt:
+                        b38_bad.append(f"弹窗里没有文件名/路径：{tt[:90]!r}")
+                    # 还原 api/toast
+                    await cdp.eval(
+                        "(()=>{if(window.__b38_api)C.api=window.__b38_api;"
+                        " if(window.__b38_toastfn)C.toast=window.__b38_toastfn;"
+                        " return true;})()")
 
-                # ③ 清空按钮：点它必须**真的打到后端**（拦 `decisions/clear` 看有没有被调到）
-                await cdp.eval(
-                    "(()=>{window.__b38_hit=false;"
-                    " const real=window.__b38_api||C.api; window.__b38_api=real;"
-                    " C.api=function(p,o){"
-                    "  if(String(p).indexOf('maze/decisions/clear')>=0){window.__b38_hit=true;"
-                    "   return Promise.resolve({ok:true,t0_kind:'manual',note:'已清空决策历程'});}"
-                    "  return real(p,o);};"
-                    " return true;})()")
-                await cdp.eval("document.getElementById('m8-dec-clear').click()")
-                await asyncio.sleep(0.5)
-                hit = await cdp.eval("(()=>!!window.__b38_hit)()")
-                b38_got.append("清空打到后端=" + str(hit))
-                if not hit:
-                    b38_bad.append("【清空】按钮没有打到后端 `decisions/clear`（只抹了 DOM？）")
-                await cdp.eval(
-                    "(()=>{if(window.__b38_api)C.api=window.__b38_api;return true;})()")
+                    # ③ 清空按钮：点它必须**真的打到后端**（拦 `decisions/clear` 看有没有被调到）
+                    await cdp.eval(
+                        "(()=>{window.__b38_hit=false;"
+                        " const real=window.__b38_api||C.api; window.__b38_api=real;"
+                        " C.api=function(p,o){"
+                        "  if(String(p).indexOf('maze/decisions/clear')>=0){window.__b38_hit=true;"
+                        "   return Promise.resolve({ok:true,t0_kind:'manual',note:'已清空决策历程'});}"
+                        "  return real(p,o);};"
+                        " return true;})()")
+                    await cdp.eval("document.getElementById('m8-dec-clear').click()")
+                    await asyncio.sleep(0.5)
+                    hit = await cdp.eval("(()=>!!window.__b38_hit)()")
+                    b38_got.append("清空打到后端=" + str(hit))
+                    if not hit:
+                        b38_bad.append("【清空】按钮没有打到后端 `decisions/clear`（只抹了 DOM？）")
+                    await cdp.eval(
+                        "(()=>{if(window.__b38_api)C.api=window.__b38_api;return true;})()")
 
-                # ④ 停止原因：右栏胶囊在"已停止"时要带上**人话**原因。
-                #    做法：拦 `maze/decisions` 喂一条带 `reason_text` 的 STOPPED 事件 +
-                #    `running=false` ⇒ 渲染确定（胶囊应写"已停止 · WAIT · 时间护栏到"）。
-                #    `reason_text` 是上游给的**人话**（`codec.RUN_REASON_NAMES`）——
-                #    只丢 `TIME` 那种码过去，现场得翻文档才知道"为什么停的"。
-                #    ⚠️ 测试环境没连鼠 ⇒ `loadDecisions()` 会在 `C.needMouse()` 处**早退**
-                #    （把 `live` 清成 null，胶囊就回到"判不了"）⇒ 这里临时把 `needMouse`
-                #    钉成放行，只为让那条喂进去的应答真的走到 `live` 上；做完立刻还原。
-                await cdp.eval(
-                    "(()=>{window.__b38_nm=C.needMouse; C.needMouse=function(){return null;};"
-                    " const real=window.__b38_api||C.api; window.__b38_api=real;"
-                    " C.api=function(p,o){"
-                    "  if(String(p).indexOf('maze/decisions')>=0 && String(p).indexOf('clear')<0){"
-                    "   return Promise.resolve(" + json.dumps(
-                        {"decisions": [], "events": [
-                            {"t_ms": 1200, "event": "STOPPED", "reason": "TIME",
-                             "reason_text": "时间护栏到", "seq": 3}],
-                         "duration_ms": 1200, "t0_kind": "launch",
-                         "running": False, "task": 0, "taskName": "WAIT",
-                         "recording": False}) + ");}"
-                    "  return real(p,o);};"
-                    " return true;})()")
-                await cdp.eval("C.openMod('mouse','mod_maze8')")
-                await asyncio.sleep(0.6)
-                pill = await cdp.eval(
-                    "(()=>{const p=document.getElementById('m8-runpill');"
-                    "return (p?p.textContent:'').trim();})()")
-                b38_got.append("停止胶囊=" + str(pill)[:60])
-                if "已停止" not in str(pill):
-                    b38_bad.append(f"停止态胶囊不对：{pill!r}")
-                elif "时间护栏到" not in str(pill):
-                    b38_bad.append(f"停止原因没写人话（应为「时间护栏到」）：{pill!r}")
-                await cdp.eval(
-                    "(()=>{if(window.__b38_nm)C.needMouse=window.__b38_nm;"
-                    " if(window.__b38_api)C.api=window.__b38_api;return true;})()")
+                    # ④ 停止原因：右栏胶囊在"已停止"时要带上**人话**原因。
+                    #    做法：拦 `maze/decisions` 喂一条带 `reason_text` 的 STOPPED 事件 +
+                    #    `running=false` ⇒ 渲染确定（胶囊应写"已停止 · WAIT · 时间护栏到"）。
+                    #    `reason_text` 是上游给的**人话**（`codec.RUN_REASON_NAMES`）——
+                    #    只丢 `TIME` 那种码过去，现场得翻文档才知道"为什么停的"。
+                    #    ⚠️ 测试环境没连鼠 ⇒ `loadDecisions()` 会在 `C.needMouse()` 处**早退**
+                    #    （把 `live` 清成 null，胶囊就回到"判不了"）⇒ 这里临时把 `needMouse`
+                    #    钉成放行，只为让那条喂进去的应答真的走到 `live` 上；做完立刻还原。
+                    await cdp.eval(
+                        "(()=>{window.__b38_nm=C.needMouse; C.needMouse=function(){return null;};"
+                        " const real=window.__b38_api||C.api; window.__b38_api=real;"
+                        " C.api=function(p,o){"
+                        "  if(String(p).indexOf('maze/decisions')>=0 && String(p).indexOf('clear')<0){"
+                        "   return Promise.resolve(" + json.dumps(
+                            {"decisions": [], "events": [
+                                {"t_ms": 1200, "event": "STOPPED", "reason": "TIME",
+                                 "reason_text": "时间护栏到", "seq": 3}],
+                             "duration_ms": 1200, "t0_kind": "launch",
+                             "running": False, "task": 0, "taskName": "WAIT",
+                             "recording": False}) + ");}"
+                        "  return real(p,o);};"
+                        " return true;})()")
+                    await cdp.eval("C.openMod('mouse','mod_maze8')")
+                    await asyncio.sleep(0.6)
+                    pill = await cdp.eval(
+                        "(()=>{const p=document.getElementById('m8-runpill');"
+                        "return (p?p.textContent:'').trim();})()")
+                    b38_got.append("停止胶囊=" + str(pill)[:60])
+                    if "已停止" not in str(pill):
+                        b38_bad.append(f"停止态胶囊不对：{pill!r}")
+                    elif "时间护栏到" not in str(pill):
+                        b38_bad.append(f"停止原因没写人话（应为「时间护栏到」）：{pill!r}")
+                    await cdp.eval(
+                        "(()=>{if(window.__b38_nm)C.needMouse=window.__b38_nm;"
+                        " if(window.__b38_api)C.api=window.__b38_api;return true;})()")
 
-                # ⑤ 网格尺寸：选 16 ⇒ 画布仍渲染 + 选项在；且**不许动后端**（记录/墙图端点不被调）
-                sel = await cdp.eval(
-                    "(()=>{const s=document.getElementById('m8-msize');"
-                    "if(!s)return {there:false};"
-                    "const opts=Array.from(s.options).map(function(o){return o.value;});"
-                    "return {there:true,opts:opts};})()")
-                if not (sel or {}).get("there"):
-                    b38_bad.append("中栏没有网格尺寸选择 #m8-msize")
-                else:
-                    opts = (sel or {}).get("opts") or []
-                    b38_got.append("尺寸选项=" + ",".join(opts))
-                    for need in ("7", "8", "16"):
-                        if need not in opts:
-                            b38_bad.append(f"网格尺寸缺少 {need}×{need} 选项（有 {opts}）")
-                # 切到 16 之后画布应仍有尺寸（不崩即可）
-                await cdp.eval(
-                    "(()=>{const s=document.getElementById('m8-msize');"
-                    "if(s){s.value='16';s.onchange&&s.onchange();}return true;})()")
-                await asyncio.sleep(0.3)
-                cv2 = await cdp.eval(
-                    "(()=>{const c=document.getElementById('m8-cv');"
-                    "return {w:c?c.width:0,h:c?c.height:0};})()")
-                if not ((cv2 or {}).get("w") and (cv2 or {}).get("h")):
-                    b38_bad.append(f"选了一个显示尺寸后画布没尺寸（画不出来）：{cv2}")
-                # 还原成 auto，别把 16 留进 localStorage 影响别的判据
-                await cdp.eval(
-                    "(()=>{const s=document.getElementById('m8-msize');"
-                    "if(s){s.value='auto';s.onchange&&s.onchange();}return true;})()")
-            except Exception as e:                            # noqa: BLE001
-                b38_bad.append(f"读取改版十四渲染时抛异常：{type(e).__name__}: {e}")
-            b38_ok = not b38_bad
-            record("B38", "PASS" if b38_ok else "FAIL",
-                   f"「救援」已统一为「复位」（页内 + 设备窗口）；停止并保存的弹窗写出保存路径；"
-                   f"【清空】按钮真的打到后端；停止原因写人话（{'；'.join(b38_got)}）"
-                   if b38_ok else
-                   f"**改版十四的界面不对**：{b38_bad[:4]}")
+                    # ⑤ 网格尺寸：选 16 ⇒ 画布仍渲染 + 选项在；且**不许动后端**（记录/墙图端点不被调）
+                    sel = await cdp.eval(
+                        "(()=>{const s=document.getElementById('m8-msize');"
+                        "if(!s)return {there:false};"
+                        "const opts=Array.from(s.options).map(function(o){return o.value;});"
+                        "return {there:true,opts:opts};})()")
+                    if not (sel or {}).get("there"):
+                        b38_bad.append("中栏没有网格尺寸选择 #m8-msize")
+                    else:
+                        opts = (sel or {}).get("opts") or []
+                        b38_got.append("尺寸选项=" + ",".join(opts))
+                        for need in ("7", "8", "16"):
+                            if need not in opts:
+                                b38_bad.append(f"网格尺寸缺少 {need}×{need} 选项（有 {opts}）")
+                    # 切到 16 之后画布应仍有尺寸（不崩即可）
+                    await cdp.eval(
+                        "(()=>{const s=document.getElementById('m8-msize');"
+                        "if(s){s.value='16';s.onchange&&s.onchange();}return true;})()")
+                    await asyncio.sleep(0.3)
+                    cv2 = await cdp.eval(
+                        "(()=>{const c=document.getElementById('m8-cv');"
+                        "return {w:c?c.width:0,h:c?c.height:0};})()")
+                    if not ((cv2 or {}).get("w") and (cv2 or {}).get("h")):
+                        b38_bad.append(f"选了一个显示尺寸后画布没尺寸（画不出来）：{cv2}")
+                    # 还原成 auto，别把 16 留进 localStorage 影响别的判据
+                    await cdp.eval(
+                        "(()=>{const s=document.getElementById('m8-msize');"
+                        "if(s){s.value='auto';s.onchange&&s.onchange();}return true;})()")
+                except Exception as e:                            # noqa: BLE001
+                    b38_bad.append(f"读取改版十四渲染时抛异常：{type(e).__name__}: {e}")
+                b38_ok = not b38_bad
+                record("B38", "PASS" if b38_ok else "FAIL",
+                       f"「救援」已统一为「复位」（页内 + 设备窗口）；停止并保存的弹窗写出保存路径；"
+                       f"【清空】按钮真的打到后端；停止原因写人话（{'；'.join(b38_got)}）"
+                       if b38_ok else
+                       f"**改版十四的界面不对**：{b38_bad[:4]}")
 
             # ── B39：底栏信息集成栏（按来源分类 + 按级别筛选）──
             # 守的是改版十五的两条用户要求：

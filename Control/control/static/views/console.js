@@ -108,6 +108,9 @@ C.views.console = (function () {
           (m.direction === '<-' ? '← ' : '→ ') + m.line);
       } else if (m.type === 'mouse.error') {
         line(device, '', '[error] ' + m.kind + ': ' + m.msg);
+        // `hint` 是后端翻的**界面动作版**清单（上游原话里是 API 术语，照不了）。
+        // 只有它存在时才画这一行 —— 别的 error 没有"下一步"可给。
+        if (m.hint) line(device, '', '⇒ ' + m.hint);
       } else if (m.type === 'log') {
         line(service, '', '[' + (m.level || 'info') + ']' +
           (m.source ? ('[' + m.source + ']') : '') + ' ' + m.text);

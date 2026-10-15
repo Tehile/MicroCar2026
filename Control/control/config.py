@@ -27,7 +27,7 @@ TOP_KEYS = {
 SCHEMA: Dict[str, Optional[set]] = {
     "server": {"host", "port", "session_root", "log_ring"},
     "mouse": {"target", "baud", "auto_stream", "scheduler_hz", "telemetry_window_s",
-              "wave_window_ms", "auto_reconnect"},
+              "wave_window_ms", "auto_reconnect", "stream_mode"},
     "camera": {"base", "token", "timeout", "default_plan", "offline_import_root",
                "probe_interval_s", "probe_interval_bad_s", "launcher"},
     "locator": {"config", "profile", "online", "offline"},

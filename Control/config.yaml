@@ -19,6 +19,14 @@ mouse:
   target: ""             # ""=由界面选 | "COM7" | "tcp://127.0.0.1:5555" | "replay://sessions/xxx/mouse"
   baud: 115200
   auto_stream: true      # 连上即 STREAM ON（固件上电默认静默）
+  # 连上后开哪种拉取（上游 2.9.0 起有二选一）：
+  #   pace     = 批式（RATE PULL 3 100ms ⇒ 目标 10 Hz，停等式 ~4 Hz 的 2.5 倍）
+  #   stopwait = 停等（一条一答，帧率 = 1/RTT，真机 4.4~6.5 Hz）
+  # ⚠️ 默认 pace 是**调试阶段**的选择（2026-10-15 定）：波形要密。
+  #   真实比赛不用蓝牙，而压测里 10 Hz 档 300 s 级存活、交付率 99.9%；
+  #   顶格 13.3 Hz 只活 176 s ⇒ 别把它当"再快一点"去调。
+  #   上游没有 pace 门面（老版本）时这一项**自动失效**，退回停等。
+  stream_mode: pace
   scheduler_hz: 50
   telemetry_window_s: 30.0
   wave_window_ms: 10000

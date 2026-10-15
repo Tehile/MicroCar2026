@@ -224,6 +224,9 @@ class MouseAdapter:
             self._Event = Event
             # `StreamAPI` 在 v2.0 只剩开关（`RATE` 命令已删）—— 但它仍是**类**上的
             # 一套方法，所以"没连接也能宣告能力"这条口径不变。
+            # ⚠️ 2026-10-15 核对（v2.6.1）：`RATE` 命令族**回来了**（rate.fix/pull/off），
+            #    上面这句"已删"只对 v2.0~v2.5 成立；到 v2.9 门面又端出 pace 批式拉取。
+            #    留着这句是为了记"类一直在、能力不一直在"，不是当前事实。
             # ⚠️ `ScopeAPI` 在 v2.0 整个模块被删除（SCOPE/dump 机制取消），
             # 以前 `from host.api import ... ScopeAPI` 会 ImportError ⇒ **整个门面装载失败**、
             # 鼠模块直接不可用。所以这里只 import 还存在的名字。
@@ -282,6 +285,10 @@ class MouseAdapter:
              # 2.1.0：遥测改为**上位机停等拉取**（`TELEM`）⇒ `mc.stream.on/off` 语义变成
              # "启停本机拉取器"；帧率由 1/RTT 决定（真机 4.4~6.5 Hz），不再是 217 Hz
              "pull_mode": False,
+             # 2.9.0：**批式拉取** `mc.stream.pace()`（稀疏基频 + 每批多帧 ⇒ 10 Hz，
+             # 停等式 ~4 Hz 的 2.5 倍）；v2.6 回来的 `RATE` 族只是裸命令，
+             # 判"批式可用"要看门面三件套（pace/pace_off/mode）
+             "pace_pull": False,
              # 2.1.1：**收车命令** `MAZE STOP`（`mc.maze.stop()`）—— 推翻"发过车就只能断电"
              "maze_stop": False,
              # 2.2.0：**整机软复位**复位口 `mc.conn.soft_reset()` / `rescue()`
@@ -397,6 +404,18 @@ class MouseAdapter:
             f["pull_mode"] = all(hasattr(StreamAPI, m) for m in ("anchor", "stats"))
         except Exception:                                     # noqa: BLE001
             pass
+        # ---- 2.9.0 批式拉取 `mc.stream.pace()`：`pace` / `pace_off` / `mode` 三件套。
+        # ⚠️ 探存在性而不是版本号（`StreamAPI` 类一直都在，方法名 `on/off` 也没变，
+        #   只有这套新符号能把"支持批式"分出来）。`RATE` 命令在 v2.6 回来了，
+        #   但门面直到 v2.9 才把批式拉取端出来 ⇒ 早先的 `rate.fix/pull/off` 是
+        #   裸命令，没有门面方法，判不了"批式可用"。
+        f["pace_pull"] = False
+        try:
+            from host.api import StreamAPI
+            f["pace_pull"] = all(hasattr(StreamAPI, m)
+                                 for m in ("pace", "pace_off", "mode"))
+        except Exception:                                     # noqa: BLE001
+            pass
         # ---- 2.0.0 上行事件序号：门面把"事件流是否完整"直接端出来
         # （`events_incomplete` 读的是帧 flags 的 EVQ 位；`event_health` 给缺口统计）。
         f["event_seq"] = (hasattr(self._MouseClient, "events_incomplete")
@@ -495,6 +514,15 @@ class MouseAdapter:
         return self._mc
 
     @property
+    def features(self) -> Dict[str, bool]:
+        """能力位快照（`_probe_features()` 的产物，**零设备访问**）。
+
+        ⚠️ 返回副本：调用方（端点门控）只读，但副本能防"谁改了就影响全模块"。
+        判能力一律用这个，**不退回信版本号**（上游版本字符串维护程度不一）。
+        """
+        return dict(self._features)
+
+    @property
     def connected(self) -> bool:
         return self._mc is not None and self._mc.is_connected
 
@@ -529,7 +557,17 @@ class MouseAdapter:
 
         def on_error(m) -> None:
             d = m.data or {}
-            self.bus.publish("mouse.error", {"kind": d.get("kind"), "msg": d.get("msg")})
+            # v2.9 的 `link_lost`（连续 3 s 无帧判死）：上游 msg 里带的是
+            # **API 术语**（"mc.stream.pace() 恢复"）—— 现场照不了。
+            # ⇒ `hint` 给**界面动作**版的可照做清单，msg 仍留上游原话（取证）。
+            # ⚠️ 两者都要发：msg 是真相，hint 是"下一步点哪"，缺一个都违背界面纪律。
+            hint = ""
+            if d.get("kind") == "link_lost":
+                hint = ("给电脑鼠与蓝牙模块断电 3~5 秒，重新连串口，"
+                        "再把拉取模式选一次（停等或批式）。"
+                        "实测断连不会自行恢复，等下去没有用。")
+            self.bus.publish("mouse.error", {"kind": d.get("kind"), "msg": d.get("msg"),
+                                             "hint": hint})
             mark("mouse", "link.error", d.get("kind", ""), str(d.get("msg", ""))[:160])
 
         def on_text(m) -> None:
@@ -760,8 +798,26 @@ class MouseAdapter:
         if not ok:
             raise MouseError(_enhance(mc.state_detail or "连接失败，但上游没给原因"))
         self._last_advice = None
-        return {"ok": True, "target": _t(mc.link.target), "device": mc.device,
-                "state": mc.state}
+        out = {"ok": True, "target": _t(mc.link.target), "device": mc.device,
+               "state": mc.state}
+        # ---- 连上之后的默认拉取模式（上游 2.9.0 起有二选一）
+        # `auto_stream` 已经开了**停等式**（上游 connect 的行为）；按配置再切成批式。
+        # ⚠️ 只在 `pace_pull` 为真时切 —— 老上游上 `pace` 不存在，硬调会 AttributeError。
+        # ⚠️ 这一步最坏 6 s（pace 内部 cmd.send wait=True 试 3 次）⇒ 必须在 executor 里
+        #    （connect 本来就在 executor 里，见 routes）。失败**不阻断连接**：
+        #    停等式照样在跑，"没切过去"是降级不是故障，但要留一句日志。
+        mode = str(self.cfg.get("mouse.stream_mode", "pace") or "pace").strip().lower()
+        out["stream_mode"] = _safe(lambda: str(mc.stream.mode)) or "off"
+        if mode == "pace" and self._features.get("pace_pull") and mc.stream.is_on:
+            try:
+                r = mc.stream.pace()
+                out["stream_mode"] = _safe(lambda: str(mc.stream.mode)) or "off"
+                out["pace"] = {"ok": bool(getattr(r, "ok", False)),
+                               "status": getattr(r, "status", "")}
+            except Exception as e:                            # noqa: BLE001
+                self.bus.log("warn", f"批式拉取切换失败，继续用停等："
+                                     f"{type(e).__name__}: {e}", source='mouse')
+        return out
 
     def disconnect(self) -> dict:
         if self._mc is None:
@@ -907,7 +963,9 @@ class MouseAdapter:
             "mazetype": dev.get("mazetype"),
             # 只有**一条流**（2.0.0）：统一帧 53 B / 39 个扁平通道。
             # 没连接也要答得出通道清单（能力探测时已从协议层取到 `_unified_channels`），
-            # 否则"未连接时页面画不出要读什么"。`RATE` 已删 ⇒ 没有可调速率。
+            # 否则"未连接时页面画不出要读什么"。
+            # ⚠️ 这句原来写"`RATE` 已删 ⇒ 没有可调速率"：`RATE` 族在 v2.6 回来了，
+            #    v2.9 又端出 pace 批式 ⇒ 现在**有**可调速率（见 features.pace_pull）。
             # ⚠️ 2.1.0 起帧率**不再是 217 Hz**（改成上位机停等拉取，真机 4.4~6.5 Hz），
             # 所以这里给的 `stream_hz` 是**实测值**（`telemetry.hz()` 已改为按到达间隔实算）；
             # 想拿协议常量作参照用 `stream_hz_nominal`。
@@ -937,6 +995,16 @@ class MouseAdapter:
             # 默认 BLIND 时**省略**目标词）。
             "maze_targets": (["BLIND", "RACE"]
                              if self._features.get("maze_target") else ["BLIND"]),
+            # 2.9.0：批式拉取可用性。**摊平到顶层**（不埋在 features 里）——
+            # 与 `maze_target` 同一套路：界面据此画/不画模式切换，
+            # 端点据此决定收不收 pace 请求。老上游上是 False ⇒ 切换不画。
+            "pace_pull": bool(self._features.get("pace_pull")),
+            # 当前拉取模式（门面三态 off/stopwait/pace）。⚠️ 取的是**门面属性**
+            # `mc.stream.mode`，不是 `stats()["mode"]` —— 后者停等式恒为
+            # "stop-and-wait"，门面全关时也返回它（会把"没开流"显示成批式）。
+            # 没连接时答 "off"（三态纪律：没探过就不是 stopwait）。
+            "stream_mode": (_safe(lambda: str(mc.stream.mode))
+                            if (mc is not None and mc.is_connected) else "off"),
         }
 
     # ============================================================ 时间同步
@@ -2215,6 +2283,11 @@ class MouseAdapter:
             "stalled": bool(span >= 2.0 and (n - n0) == 0),
             # 拉取器自己的状态（在途数/实测 hz/丢了几条）—— 只有 2.1.0 有，老上游给 {}
             "pull": _safe(lambda: dict(mc.stream.stats())),
+            # 门面三态（off/stopwait/pace）。⚠️ 必须在这里**再端一次**：
+            # `stats()` 里虽也有 `stream_mode`，但 `pull` 在老上游上整体是 {}、
+            # 而"现在是什么模式"是界面分支的唯一依据 ⇒ 提到 unified 同级，
+            # 让前端不用先探 pull 再探里面的键。
+            "stream_mode": _safe(lambda: str(mc.stream.mode)),
         }}
 
 
