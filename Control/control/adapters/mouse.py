@@ -121,7 +121,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import asdict, is_dataclass
 
 from ..bus import Bus, f32_2d
@@ -186,6 +186,13 @@ class MouseAdapter:
         self._import_error: Optional[str] = None
         #: 能力探测结果（**不信版本号**，见模块 docstring）
         self._features: Dict[str, bool] = {}
+        #: v2.7 按键菜单远程化：可远程的菜单项。**从上游 `CalibAPI.MENU_ITEMS`
+        #: 现取**（只保留本层能分派的），本层不自建第二份真相。装载期探得，
+        #: 未连接也答得出。
+        self._menu_items: Tuple[str, ...] = ()
+        #: 红外 8 值分步标定的 4 个摆位**原文**（上游 `CalibAPI.IRCAP_STEPS`）。
+        #: 摆位要求只在界面照抄，本层不改写（现场照着摆）。
+        self._ircap_steps: Tuple[Tuple[str, str], ...] = ()
         self._last_advice: Any = None
         #: 实验 8 记录器**第一次**拒收帧时是否已报过（见 `on_telemetry` 的说明：
         #: 只吞一次异常、第一次必须留痕，否则"记录中但 0 帧"这种错完全无声）。
@@ -289,6 +296,10 @@ class MouseAdapter:
              # 停等式 ~4 Hz 的 2.5 倍）；v2.6 回来的 `RATE` 族只是裸命令，
              # 判"批式可用"要看门面三件套（pace/pace_off/mode）
              "pace_pull": False,
+             # 2.7.0：**按键菜单远程化**（`CAL` 家族新增 6 个立即-ACK 子命令，
+             # 对应按键菜单 2/4/5/6/7/8）。判据 = 上游 `CalibAPI.MENU_ITEMS` 非空
+             # 且 6 个方法都在（存在性探法，不信版本号）。
+             "menu_remote": False,
              # 2.1.1：**收车命令** `MAZE STOP`（`mc.maze.stop()`）—— 推翻"发过车就只能断电"
              "maze_stop": False,
              # 2.2.0：**整机软复位**复位口 `mc.conn.soft_reset()` / `rescue()`
@@ -414,6 +425,27 @@ class MouseAdapter:
             from host.api import StreamAPI
             f["pace_pull"] = all(hasattr(StreamAPI, m)
                                  for m in ("pace", "pace_off", "mode"))
+        except Exception:                                     # noqa: BLE001
+            pass
+        # ---- 2.7.0 按键菜单远程化：上游 `CalibAPI` 的 `MENU_ITEMS` + 6 个动作。
+        # ⚠️ 探**存在性**而不是版本号：`CalibAPI` 这个类在旧上游也一直在
+        #   （旧五项标定就挂在它上面），只有这 6 个新符号能把菜单可远程分出来。
+        # ⚠️ 清单**从上游现取**，但只留下本层调得动的那些（`MAINT_METHODS`）——
+        #   上游哪天加第 7 项，界面不会画出一个点了必报错的按钮。
+        f["menu_remote"] = False
+        self._menu_items = ()
+        self._ircap_steps = ()
+        try:
+            from host.api import CalibAPI
+            items = tuple(getattr(CalibAPI, "MENU_ITEMS", ()) or ())
+            mine = tuple(it for it in items if it in self.MAINT_METHODS)
+            if mine and all(hasattr(CalibAPI, m)
+                             for m in self.MAINT_METHODS.values()):
+                self._menu_items = mine
+                self._ircap_steps = tuple(
+                    (str(t[0]), str(t[1]))
+                    for t in (getattr(CalibAPI, "IRCAP_STEPS", ()) or ()))
+                f["menu_remote"] = True
         except Exception:                                     # noqa: BLE001
             pass
         # ---- 2.0.0 上行事件序号：门面把"事件流是否完整"直接端出来
@@ -565,7 +597,9 @@ class MouseAdapter:
             if d.get("kind") == "link_lost":
                 hint = ("给电脑鼠与蓝牙模块断电 3~5 秒，重新连串口，"
                         "再把拉取模式选一次（停等或批式）。"
-                        "实测断连不会自行恢复，等下去没有用。")
+                        "实测断连不会自行恢复，等下去没有用。"
+                        "若刚在车上短按过按键，车可能进了按键菜单"
+                        "（进得去退不出来，设备就不再应答），也照上面做。")
             self.bus.publish("mouse.error", {"kind": d.get("kind"), "msg": d.get("msg"),
                                              "hint": hint})
             mark("mouse", "link.error", d.get("kind", ""), str(d.get("msg", ""))[:160])
@@ -1005,7 +1039,84 @@ class MouseAdapter:
             # 没连接时答 "off"（三态纪律：没探过就不是 stopwait）。
             "stream_mode": (_safe(lambda: str(mc.stream.mode))
                             if (mc is not None and mc.is_connected) else "off"),
+            # 2.7.0：按键菜单远程化。**摊平到顶层**（同 `pace_pull` 的套路）——
+            # 界面据此画/不画「维护与自检」整块；端点据此回 501。
+            "menu_remote": bool(self._features.get("menu_remote")),
+            # 可远程的菜单项（**从上游 `CalibAPI.MENU_ITEMS` 现取**，只留本层能分派的）。
+            # 界面按它画按钮 ⇒ 上游加项本层不用改，本层调不动的项也画不出来。
+            "maint_items": self.maint_items,
+            # 红外 8 值分步标定的 4 个摆位**原文**（上游 `CalibAPI.IRCAP_STEPS`）。
+            # 摆位要求只在界面上照抄，本层不改写内容。
+            "maint_steps": [{"no": i + 1, "name": nm, "desc": ds}
+                            for i, (nm, ds) in enumerate(self._ircap_steps)],
         }
+
+    # ============================================================ v2.7 维护动作（按键菜单远程化）
+    #: item → 上游 `CalibAPI` 方法名。**本层唯一的分派表**（探测、端点、界面都从它来）。
+    MAINT_METHODS: Dict[str, str] = {
+        "ERASEIR": "erase_ir", "IRSELF": "ir_self", "SENSOR": "sensor",
+        "IRCAP": "ir_cap", "BLOCK": "block", "ERASEALL": "erase_all",
+    }
+
+    @property
+    def maint_items(self) -> List[str]:
+        """可远程的菜单项（本层能分派、且上游真的有的那些）。**零设备访问**。"""
+        if not self._features.get("menu_remote"):
+            return []
+        return list(self._menu_items)
+
+    def maint(self, item: str, step: Optional[int] = None,
+              confirm: bool = False) -> Any:
+        """v2.7 **按键菜单 2/4/5/6/7/8 的远程化**（上游 `CalibAPI` 的六个立即-ACK 动作）。
+
+        一条入口对上游一个 `CAL` 命令族（`item` 就是 `CAL <item>` 的那个词）——
+        与界面一个元素只许一条真相来路同一条纪律，不做六个端点。
+
+        ⚠️ **本层不判 confirm 够不够**：原样透传给上游，由它的登记表 precheck 决定。
+        不传时上游**完全不碰链路**、回 `NEED_CONFIRM`（端点把它翻成 409 + 二次确认）。
+
+        ⚠️ 这是**同步阻塞**调用（`send_cmd` 等 ACK：擦除 120~240 ms、超时 8~12 s）
+        ⇒ 端点必须 `run_in_executor`。
+
+        返回与上游 `Result` 同形（`ok`/`status`/`data`）；失败时 `data["hint"]` 一律给
+        **可照做**的下一步（界面纪律），成功时 `data["note"]` 给当场要说明的副作用。
+        """
+        it = str(item or "").strip().upper()
+        if not self._features.get("menu_remote"):
+            return _R(False, "NO_CAP",
+                      {"item": it,
+                       "hint": "这份上游没有按键菜单远程化。升级 RemoteControl 到 2.7.0 以上。"})
+        if it not in self._menu_items:
+            return _R(False, "NO_CAP",
+                      {"item": it, "known": list(self._menu_items),
+                       "hint": "不是可远程的菜单项，可用的见 /api/v1/caps 的 maint_items。"})
+        mc = self._mc
+        if mc is None or not mc.is_connected:
+            return _R(False, "NOT_CONNECTED", {"item": it, "hint": "先连接电脑鼠。"})
+        calib = getattr(mc, "calib", None)
+        if calib is None:
+            return _R(False, "NO_CAP", {"item": it, "hint": "这份上游的门面里没有标定接口。"})
+        try:
+            if it == "IRCAP":
+                if step is None:
+                    return _R(False, "ERR_VALUE",
+                              {"item": it, "step": None,
+                               "hint": "红外分步标定要给步号 1~4，并从第 1 步开始顺序来。"})
+                r = calib.ir_cap(int(step))
+            else:
+                fn = getattr(calib, self.MAINT_METHODS[it], None)
+                if fn is None:
+                    return _R(False, "NO_CAP", {"item": it, "hint": "这份上游没有这个动作。"})
+                if it in ("ERASEIR", "ERASEALL"):
+                    r = fn(confirm=bool(confirm))
+                else:
+                    r = fn()
+        except Exception as e:                                # noqa: BLE001
+            # 取上游一个值的失败要能被看见（铁律 14）：端点是同步等它的，
+            # 异常若吞掉，界面只会看到按钮点了没反应。
+            return _R(False, "EXC", {"item": it,
+                                     "hint": f"调用上游失败：{type(e).__name__}: {e}"})
+        return _maint_annotate(it, step, r)
 
     # ============================================================ 时间同步
     # 上游 1.4.0 起，固件→本机的时间映射由 `mc.timesync` 负责（min-delay + ppm）。
@@ -2462,3 +2573,58 @@ def _safe(fn: Any) -> Any:
         return fn()
     except Exception:                                         # noqa: BLE001
         return {}
+
+
+class _R:
+    """与上游 `host.api.errors.Result` **同形**的轻量结果（`ok` / `status` / `data`）。
+
+    为什么本层要能自己造一个：能力位缺失、未连接、参数不合规这三种失败
+    **根本没走到上游**（也就没有上游 Result 可返回），而端点/判据要的口径是统一的。
+    """
+
+    __slots__ = ("ok", "status", "data")
+
+    def __init__(self, ok: bool, status: str, data: Any = None) -> None:
+        self.ok = bool(ok)
+        self.status = str(status)
+        self.data = data if isinstance(data, dict) else {}
+
+
+def _maint_annotate(item: str, step: Optional[int], r: Any) -> _R:
+    """把上游 `Result` 包成同形结果，补上**界面要的** hint / note（不改上游对象）。
+
+    为什么必须有这一层：上游的 `status` 是**协议词**（`ERR_BUSY` / `ERR_VALUE` /
+    `NEED_CONFIRM`），现场照不了；而下一步点哪只有本层知道（先收车 / 先擦除 / 断电重连）。
+    成功也要说话：`BLOCK` 有**副作用**（固件把 Flash 墙图重载进内存），
+    一个叫概览的按钮默默改掉另一个页面的显示内容，必须在界面明说。
+    """
+    data = dict(getattr(r, "data", {}) or {})
+    data["item"] = item
+    if item == "IRCAP" and step is not None:
+        data["step"] = step
+    okv = bool(getattr(r, "ok", False))
+    st = str(getattr(r, "status", "") or "")
+    if okv:
+        if item == "BLOCK":
+            data["note"] = ("迷宫页的图已按 Flash 重载：接下来【无记忆走迷宫】"
+                            "显示的是 Flash 里的墙图，不是刚才内存里那张。")
+        elif item == "SENSOR":
+            data["note"] = "明细已打印到底栏集成栏（来源=电脑鼠）。"
+        elif item == "IRCAP" and str(data.get("step_done")) == "4":
+            data["note"] = "4 个摆位都采完，红外 8 值已写入。"
+    elif st == "NEED_CONFIRM":
+        data["hint"] = "这是不可逆的擦除：再确认一次才会真的擦（界面会给二次确认）。"
+    elif st == "ERR_BUSY":
+        if item == "IRCAP":
+            data["hint"] = ("红外页里已有标定值，先点【擦除红外标定】，"
+                            "再从第 1 步重来。车正在跑或正在标定时也会这样。")
+        else:
+            data["hint"] = "车正在跑或正在标定，先点【收车】，等它停稳再试。"
+    elif st == "ERR_VALUE":
+        data["hint"] = "红外分步标定必须从第 1 步顺序来，跳步会把数记到错位置。"
+    elif st in ("ERR_TIMEOUT", "TIMEOUT"):
+        data["hint"] = ("设备没应答。若刚在车上短按过按键，车可能还在按键菜单里"
+                        "（进得去退不出来），给车断电 3~5 秒后重新连串口。")
+    else:
+        data["hint"] = "设备回了 " + (st or "空状态") + "。"
+    return _R(okv, st, data)

@@ -326,7 +326,7 @@ def _stop_sim(p) -> None:
 
 
 def _mouse_sections(base: str, args, sim) -> None:
-    """I15 / I16 / I17 / I22 / I23 —— 需要一条活链路的判据，走模拟器。"""
+    """I15 / I16 / I17 / I22 / I23 / I27 / I28 / I30~I33 —— 需要活链路的判据，走模拟器。"""
     # ---- 先确认服务**此刻还答得上话**。这一步不是仪式：
     # 如果事件循环已经停摆（曾经因为"服务进程的 stdout 管道写满"整台服务卡死），
     # 后面每个请求都只会超时，而超时信息完全指不到真正的原因。这里先用短超时探一下，
@@ -336,7 +336,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -359,7 +359,7 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
@@ -1086,6 +1086,129 @@ def _mouse_sections(base: str, args, sim) -> None:
            if i32_ok else
            f"**前墙双档 / 起点朝向码表没守住**：maze.fronts={fronts_tab} dirs[0]={dirs_tab.get('0')!r}；{note32}")
 
+
+    # ---- I33：v2.7 按键菜单远程化的六项（**链路级**，`--sim` 才跑）
+    #   ① 能力位与清单：`menu_remote` 为真、可远程 6 项、摆位表 4 条且带要求原文；
+    #   ② 顺序闸：跳步（直接发 step=3）⇒ 上游 `ERR_VALUE`；
+    #   ③ 4 步顺序跑完 ⇒ 全 OK；跑完后重发第 1 步 ⇒ `ERR_BUSY`
+    #      （页里已有值，上游 v2.7 新加的安全闸）；
+    #   ④ 8 个半字真的写进去了：`BLOCK` 的 `ir_valid` 必须报 **8**；
+    #   ⑤ `BLOCK` 的**副作用**必须被后端端出来（"迷宫页的图已按 Flash 重载"）
+    #      ⚠️ 模拟器**没有镜像**这一步的墙图重载 ⇒ 那条副作用只验"声明在不在"，
+    #         墙图真被换掉这件事留真机验（如实标注，不当成通过）；
+    #   ⑥ **confirm 闸 + "真的没碰链路"**：不带 confirm 的擦除 ⇒ 409 + need_confirm，
+    #      且**擦除后 `BLOCK` 的 `ir_valid` 必须还是 8** —— 这是"命令真没发出去"的
+    #      可观测证据（拿命令计数当证据不行：拉取器在跑，`cmd.sent` 一直在涨）；
+    #   ⑦ 运动中发菜单项 ⇒ `ERR_BUSY`（固件一律拒）；⑧ `ERASEALL` 带 confirm ⇒ 成功。
+    #   ⚠️ 全部**发到本层端点**（`/mouse/maint/{item}`），不是直接打模拟器 —— 判据
+    #      要验的是本层的门面。
+    head("14g. 判据 I33：维护与自检六项（confirm 闸 / IRCAP 顺序 / 运动中 / BLOCK 概览）")
+
+    def _maint(item, body=None, timeout=30.0):
+        return api(base, "/api/v1/mouse/maint/" + item, "POST", body or {}, timeout=timeout)
+
+    def _mres(rr):
+        return ((rr.get("data") or {}).get("result") or {}) if isinstance(rr, dict) else {}
+
+    def _mdata(rr):
+        return (_mres(rr).get("data") or {})
+
+    def _merr(rr):
+        return ((rr.get("error") or {}) if isinstance(rr, dict) else {})
+
+    caps33, _c33, _ = api(base, "/api/v1/caps", timeout=20)
+    m33 = ((caps33.get("data") or {}).get("mouse") or {})
+    items33 = m33.get("maint_items") or []
+    steps33 = m33.get("maint_steps") or []
+    i33_cap = (m33.get("menu_remote") is True and len(items33) == 6 and len(steps33) == 4
+               and bool(str((steps33[0] or {}).get("desc", "")).strip()))
+
+    # 清场：I30/I31 发过车（I32 只读），车可能**还在跑**。固件与模拟器对"运动中"一律回
+    # `ERR_BUSY`（模拟器 `_motion_busy() = (move_mode != "NONE") or cal_ack_seq >= 0`）
+    # ⇒ 先收车 + 复位，否则下面每一条都撞 `ERR_BUSY`，而那**不是**产品错，是判据没清场。
+    #  ⚠️ 第一次就踩：I33 直接跟在"刚发过车"后面，六条全红在 `ERR_BUSY` 上。
+    api(base, "/api/v1/mouse/maze/record/stop", "POST", {})
+    api(base, "/api/v1/mouse/maze/stop", "POST", {}, timeout=25)
+    time.sleep(0.8)
+    api(base, "/api/v1/mouse/rescue", "POST", {}, timeout=45)
+    time.sleep(3.4)
+
+    # ② 跳步（step=3 直接发）⇒ 上游 ERR_VALUE
+    r_sk, c_sk, _ = _maint("IRCAP", {"step": 3})
+    i33_skip = (c_sk == 200 and _mres(r_sk).get("status") == "ERR_VALUE")
+
+    # ③ 先清页（带 confirm），再顺序跑 4 步；然后重发第 1 步 ⇒ ERR_BUSY
+    r_cl, c_cl, _ = _maint("ERASEIR", {"confirm": True})
+    i33_erase = (c_cl == 200 and _mres(r_cl).get("ok") is True)
+    seq_steps = []
+    for st in (1, 2, 3, 4):
+        rsq, csq, _ = _maint("IRCAP", {"step": st})
+        seq_steps.append((st, csq, _mres(rsq).get("status"), _mres(rsq).get("ok")))
+        if not (csq == 200 and _mres(rsq).get("ok") is True):
+            break
+    i33_seq = (len(seq_steps) == 4 and all(x[3] is True for x in seq_steps))
+    r_ag, c_ag, _ = _maint("IRCAP", {"step": 1})
+    i33_again = (c_ag == 200 and _mres(r_ag).get("status") == "ERR_BUSY")
+
+    # ④ / ⑤ BLOCK：8 个半字写入 + 副作用声明
+    r_bl, c_bl, _ = _maint("BLOCK", {})
+    d_bl = _mdata(r_bl)
+    i33_len8 = (c_bl == 200 and _mres(r_bl).get("ok") is True and d_bl.get("ir_valid") == 8)
+    i33_note = ("Flash" in str(d_bl.get("note") or ""))
+
+    # ⑥ confirm 闸 + 真的没碰链路（擦完 ir_valid 该还是 8）
+    r_ec, c_ec, _ = _maint("ERASEIR", {})
+    r_bl2, _c_bl2, _ = _maint("BLOCK", {})
+    ir_after = _mdata(r_bl2).get("ir_valid")
+    i33_gate = (c_ec == 409 and _merr(r_ec).get("type") == "need_confirm"
+                and ir_after == 8)
+
+    # ⑦ 运动中一律 ERR_BUSY（先收车复位把车弄回可发车，再发一次车）
+    api(base, "/api/v1/mouse/maze/record/stop", "POST", {})
+    api(base, "/api/v1/mouse/maze/stop", "POST", {}, timeout=25)
+    time.sleep(0.8)
+    api(base, "/api/v1/mouse/rescue", "POST", {}, timeout=45)
+    time.sleep(3.4)
+    _l33, _cl33, _m33, ok33, low33 = launch_checked(base)
+    time.sleep(0.6)
+    r_br, c_br, _ = _maint("IRSELF", {})
+    i33_run = (None if not ok33
+               else (c_br == 200 and _mres(r_br).get("status") == "ERR_BUSY"))
+    # 收尾：别把车留在跑
+    api(base, "/api/v1/mouse/maze/stop", "POST", {}, timeout=25)
+    time.sleep(0.8)
+    api(base, "/api/v1/mouse/rescue", "POST", {}, timeout=45)
+    time.sleep(3.4)
+    api(base, "/api/v1/mouse/maze/record/stop", "POST", {})
+
+    # ⑧ ERASEALL 带 confirm ⇒ 成功（擦 6 页后返回值守）
+    r_ea, c_ea, _ = _maint("ERASEALL", {"confirm": True}, timeout=35)
+    i33_ea = (c_ea == 200 and _mres(r_ea).get("ok") is True)
+
+    i33_ok = (i33_cap and i33_skip and i33_erase and i33_seq and i33_again and i33_len8
+              and i33_note and i33_gate and (i33_run is not False) and i33_ea)
+    record("I33", "PASS" if i33_ok else "FAIL",
+           f"能力位 menu_remote={m33.get('menu_remote')}、可远程 {len(items33)} 项、"
+           f"摆位表 {len(steps33)} 条（{str((steps33[0] or {}).get('name'))!r}）；"
+           f"跳步 ⇒ {_mres(r_sk).get('status')}；擦除 ⇒ ok={_mres(r_cl).get('ok')}，"
+           f"4 步 {[x[2] for x in seq_steps]}，重发第 1 步 ⇒ {_mres(r_ag).get('status')}；"
+           f"BLOCK ir_valid={d_bl.get('ir_valid')}（应 8）副作用声明={i33_note}；"
+           f"confirm 闸 HTTP {c_ec}（type={_merr(r_ec).get('type')!r}）擦后 ir_valid={ir_after}"
+           f"（应仍 8 ⇒ 真没碰链路）；运动中 ⇒ {_mres(r_br).get('status')}"
+           f"（launch_ok={ok33}）；ERASEALL ⇒ ok={_mres(r_ea).get('ok')}"
+           + "；⚠️ 模拟器没镜像 BLOCK 的墙图重载，那一条留真机验（不当成通过）"
+           + ("；⚠️ 发车被低电闸拦下过 ⇒ 运动中断言按「判不了」记" if low33 else "")
+           if i33_ok else
+           f"**维护与自检没守住**：caps menu_remote={m33.get('menu_remote')} "
+           f"items={items33} steps={len(steps33)}；"
+           f"跳步 {_mres(r_sk).get('status')}（HTTP {c_sk}）；"
+           f"擦除 {_mres(r_cl).get('status')}（HTTP {c_cl}）；4 步 {seq_steps}；"
+           f"重发 {_mres(r_ag).get('status')}（HTTP {c_ag}）；"
+           f"BLOCK {_mres(r_bl).get('status')} ir_valid={d_bl.get('ir_valid')} "
+           f"note={str(d_bl.get('note'))[:60]!r}；"
+           f"闸 HTTP {c_ec} type={_merr(r_ec).get('type')!r} 擦后 ir_valid={ir_after}；"
+           f"运动中 {_mres(r_br).get('status')}（HTTP {c_br}, launch_ok={ok33}）；"
+           f"ERASEALL {_mres(r_ea).get('status')}（HTTP {c_ea}）")
 
     # ---- 断开，别把模拟器链路留着
     api(base, "/api/v1/mouse/disconnect", "POST", {})
@@ -1974,7 +2097,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

@@ -160,6 +160,7 @@ li{margin:.28em 0}
 <li><a href="#1120">11.20 删除「标定例程」整块（改版十七）</a></li>
 <li><a href="#1121">11.21 迷宫墙图画错一格：近端墙偏移 + 最底行没有格线（改版十八）</a></li>
 <li><a href="#1122-290">11.22 接入上游 2.9.0 批式拉取（改版十九）</a></li>
+<li><a href="#1123-v27">11.23 接回上游 v2.7 按键菜单远程化（改版二十）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -527,6 +528,20 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 ⑤ 判据<strong>新增 B41</strong>。⚠️ 两个坑：<code>MouseAdapter</code> 原先没有 <code>features</code> 属性
 （端点门控 500 ⇒ 批式切不过去，B41 当场抓住）；<code>--sim</code> 模式下 B37/B38 的
 假数据会被真帧冲掉 ⇒ 加 SKIP 守卫（判据红先怀疑判据）。细节见 §11.22。</p>
+<p><strong>改版记录 2026-10-15（二十）</strong>：<strong>接回上游 v2.7 的「按键菜单远程化」</strong>（用户：
+<em>RemoteControl 应当支持了按键菜单的远程选择，但是现在并没有添加到界面中</em>）。
+上游 v2.7 给 <code>CAL</code> 家族加了 <strong>6 个立即-ACK 子命令</strong>（按键菜单 2/4/5/6/7/8）：
+<code>ERASEIR</code> / <code>IRSELF</code> / <code>SENSOR</code> / <code>IRCAP &lt;1..4&gt;</code> / <code>BLOCK</code> / <code>ERASEALL</code>。本层新增
+<strong>「维护与自检」卡</strong>（小车控制第 4 卡）+ 端点 <code>POST /api/v1/mouse/maint/{item}</code>
+（一条端点对上游一个 <code>CAL</code> 命令族；<code>{item}</code> 白名单<strong>从上游 <code>CalibAPI.MENU_ITEMS</code> 现取</strong>）。
+⚠️ <strong>这是在翻改版十七的旧账，且只翻了一半</strong>：6 项里的 <code>ERASEIR</code> / <code>IRCAP</code>
+就是当年删掉的「红外 8 值逐点标定」（摆位文字与旧 <code>IR_STEPS</code> 一字不差），
+另外 4 项（红外自检 / 传感器明细 / Flash 概览 / 清空路径）是<strong>全新的诊断与清理能力</strong>；
+场地/相机几何标定与标定报告<strong>仍然不在</strong>。⚠️ 两处"照直觉写就会错"：擦除类
+<strong>不可逆</strong>（上游登记表要求显式 <code>confirm=true</code>，界面做<strong>二次确认</strong>）；<code>BLOCK</code> 不是
+纯只读（固件会把 Flash 墙图重载进内存 ⇒ 另一个页面的图跟着变）。判据<strong>新增 I33 / B42</strong>。
+⚠️ 模拟器<strong>没有镜像</strong> <code>BLOCK</code> 的墙图重载 ⇒ 那一条只验"副作用声明在不在"，留真机验。
+细节见 §11.23。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -5145,6 +5160,12 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
   不再有运行时落盘入口（<code>save_arena</code> 删除）。</li>
 <li><strong>时钟偏移标定</strong>（手机 vs PC 墙钟、同步脉冲 L1+）：时间同步，与标定例程无关。</li>
 </ul>
+<blockquote>
+<p>⚠️ <strong>2026-10-15 补注（改版二十）</strong>：这里删掉的「<strong>红外逐点标定</strong>」在<strong>上游 v2.7</strong>
+以<strong>按键菜单远程化</strong>的形态<strong>回到了链路上</strong>（<code>CAL IRCAP &lt;1..4&gt;</code> + 配套的 <code>CAL ERASEIR</code>），
+本层已在「维护与自检」卡里接回（见 §11.23）。<strong>翻的是哪一半</strong>：只有红外逐点这一项回来；
+<strong>场地/相机几何标定与标定报告仍然不在</strong>。保留生产标定参数组（id 1–7）这条边界也不变。</p>
+</blockquote>
 <h4 id="_54">三、页签重排</h4>
 <p>删「④ 标定」后编号顺延：③ 参数 / <strong>④ 发车</strong> / <strong>⑤ 实验</strong> / <strong>⑥ 波形</strong> / <strong>⑦ 调试台</strong>，
 底栏 <strong>⑧ 数据</strong>。<code>EXPECTED_VIEWS</code> 9 → 8；<code>browser_check</code> 的 <code>TAB_MOUSE</code>、B14 判据标签、
@@ -5328,7 +5349,7 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <tr>
 <td>v2.7</td>
 <td>CAL 家族 6 个菜单远程化子命令</td>
-<td><strong>无关</strong>（改版十七已删标定整块）</td>
+<td><strong>当时判错了</strong>：6 项里只有 2 项（<code>ERASEIR</code> / <code>IRCAP</code>）属于改版十七删掉的那块，另外 4 项是<strong>全新的诊断/清理能力</strong> ⇒ <strong>改版二十</strong>补齐，详见 §11.23</td>
 </tr>
 <tr>
 <td>v2.8</td>
@@ -5414,6 +5435,158 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <code>STOPPED</code> 事件被 <code>loadDecisions()</code> 的真应答覆盖）⇒ 读到的是真状态而不是喂进去的。
 ⇒ <strong>判据红先怀疑判据</strong>：确定性前提（未连鼠）不成立就如实标 SKIP，不假装通过。
 <code>--sim</code> 只用于 B41（pace 端到端要真鼠）。</p>
+<hr />
+<h3 id="1123-v27">11.23 接回上游 v2.7 按键菜单远程化（改版二十）</h3>
+<h4 id="v27">一、上游 v2.7 提供了什么</h4>
+<p><code>CAL &lt;item&gt; [act]</code> 命令族新增 <strong>6 个「立即 ACK」子命令</strong>（命令文本仍是 <code>CAL ...</code>，
+命令总数仍 24，帧格式未变；PROTO 7→8 / fw 219→220）。清单就在上游
+<code>mc.calib.MENU_ITEMS</code>：</p>
+<table>
+<thead>
+<tr>
+<th>按键菜单</th>
+<th>命令</th>
+<th>门面方法</th>
+<th>ACK 附加字段</th>
+<th>性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>CAL ERASEIR</code></td>
+<td><code>erase_ir(confirm)</code></td>
+<td>—</td>
+<td><strong>不可逆</strong>：擦红外标定页</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>CAL IRSELF</code></td>
+<td><code>ir_self()</code></td>
+<td><code>OK &lt;l&gt; &lt;r&gt; &lt;ref&gt;</code></td>
+<td>只读诊断（仅传感器段）</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>CAL SENSOR</code></td>
+<td><code>sensor()</code></td>
+<td>—（值只在固件 printf 里）</td>
+<td>只读诊断</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>CAL IRCAP &lt;1..4&gt;</code></td>
+<td><code>ir_cap(step)</code> / <code>ir_cap_all()</code></td>
+<td><code>OK &lt;a&gt; &lt;b&gt; &lt;step&gt;</code></td>
+<td><strong>不可逆</strong>：红外 8 值分步标定</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>CAL BLOCK</code></td>
+<td><code>block()</code></td>
+<td><code>OK &lt;path45&gt; &lt;path90&gt; &lt;ir_valid&gt;</code></td>
+<td>概览（<strong>有副作用</strong>，见下）</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>CAL ERASEALL</code></td>
+<td><code>erase_all(confirm)</code></td>
+<td>—</td>
+<td><strong>不可逆</strong>：擦迷宫/路径 6 页</td>
+</tr>
+</tbody>
+</table>
+<p>固件侧另有一条：<strong>远程档等车时短按 BUTTON1 可进原按键菜单</strong>（<code>MENU_Run()</code>，进去不可返回）。</p>
+<h4 id="_60">二、五条"照直觉写就会错"的点</h4>
+<ol>
+<li><strong><code>IRCAP</code> 就是改版十七删掉的「红外逐点标定」</strong>：上游 <code>IRCAP_STEPS</code> 与旧 <code>IR_STEPS</code>
+   的四个摆位<strong>文字逐字相同</strong>（左近墙 33mm / 左远墙 94mm / 前近墙 32mm / 前远墙 213mm）
+   ⇒ 加它就等于<strong>翻改版十七的账</strong>（正是本轮用户要的）。<code>ERASEIR</code> 是它的配套
+   （v2.7 新加的安全闸：第 1 步前页必须全 FF）⇒ <strong>两者必须同进同出</strong>。</li>
+<li><strong><code>BLOCK</code> 不是纯只读</strong>：固件先把 <strong>Flash 墙图重载进内存</strong>再回 ACK ⇒ 之后
+   <code>MAP DUMP</code>（迷宫页正在显示的那张图）变成 Flash 版。一个叫"概览"的按钮会改掉
+   另一个页面的显示内容 ⇒ 后端把它作为 <code>note</code> 端出来，界面当场说明。</li>
+<li><strong><code>SENSOR</code> 的值不在应答里</strong>，只在固件 printf。但上游把 printf 透成 <code>Event.TEXT</code>，
+   而本层<strong>已经</strong>在订阅（<code>on_text</code> → <code>mouse.text</code> → 底栏集成栏）⇒ 那 4 行<strong>今天就已经
+   看得到</strong>，零改动。界面<strong>不许</strong>再给它编一个数值面板。</li>
+<li><strong>调试台的原始命令绕开了确认闸</strong>：上游 <code>registry._precheck_cal_erase</code> 要求
+   <code>confirm=True</code> 才放行（不带就回 <code>NEED_CONFIRM</code>，<strong>完全不碰链路</strong>）；但调试台走
+   <code>send_raw</code>——上游注释写明"不经过登记表"⇒ 手打 <code>CAL ERASEALL</code> 能直接擦 Flash。
+   所以这次不是"加功能"，是把一个<strong>裸口子收进受控入口</strong>。</li>
+<li><strong>短按 BUTTON1 进了车上菜单就不返回</strong> ⇒ 设备不应答 ⇒ 遥测停 ⇒ 3 s 后 <code>link_lost</code>。
+   这句必须并进 <code>link_lost</code> 的可照做文案，否则现场会把"有人按了按键"误判成"蓝牙断了"。</li>
+</ol>
+<h4 id="_61">三、本层落点</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/adapters/mouse.py</code></td>
+<td><code>_probe_features</code> 加 <code>menu_remote</code>（上游 <code>CalibAPI.MENU_ITEMS</code> + 6 方法<strong>存在性</strong>探测，清单现取、只留本层能分派的）；<code>caps()</code> 加顶层 <code>menu_remote</code> / <code>maint_items</code> / <code>maint_steps</code>（摆位<strong>原文</strong>）；新增 <code>maint(item, step, confirm)</code> 与 <code>maint_items</code> property；新增模块级 <code>_R</code>（与上游 <code>Result</code> 同形的小结果）与 <code>_maint_annotate</code>（把协议词翻成<strong>可照做</strong>清单）；<code>link_lost</code> 的 hint 补"刚按过按键菜单"一支</td>
+</tr>
+<tr>
+<td><code>control/api/routes.py</code></td>
+<td>新增 <code>POST /api/v1/mouse/maint/{item}</code>（<code>step</code> 只对 IRCAP 校验 1~4；<code>confirm</code> <strong>原样透传</strong>；上游 <code>NEED_CONFIRM</code> → <strong>409 + <code>type="need_confirm"</code></strong>；必须 <code>run_in_executor</code>）</td>
+</tr>
+<tr>
+<td><code>control/static/views/mod_maint.js</code>（新）</td>
+<td><code>C.parts.maint</code> 区块 + <code>C.mods.mod_maint</code> 卡：诊断 / 红外标定 / 清空路径三段 + 就地<strong>二次确认</strong>；<code>menu_remote</code> 为假整块不画</td>
+</tr>
+<tr>
+<td><code>control/static/app.js</code> / <code>index.html</code></td>
+<td><code>SYS_DEF</code> 加第 4 卡「维护与自检」；引 <code>mod_maint.js</code></td>
+</tr>
+<tr>
+<td><code>tools/drill.py</code></td>
+<td>新增 <strong>I33</strong>（六条链路级断言）</td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code></td>
+<td>新增 <strong>B42</strong>（界面级，含两条负向）</td>
+</tr>
+<tr>
+<td><code>docs/接口对照表.md</code></td>
+<td>登记新端点</td>
+</tr>
+</tbody>
+</table>
+<h4 id="4_1">四、界面：「维护与自检」卡（为什么是第 4 张卡）</h4>
+<p>现有三张卡是「调好 → 跑迷宫 → 比赛」的<strong>现场顺序</strong>；维护是<strong>赛前与故障时的第 0 件事</strong>，
+塞进任何一张卡都会串味。所以它自己一张卡，内部做成 <code>C.parts.maint</code> 区块
+（以后想换宿主只改挂载那一行）。</p>
+<p>四段：① 诊断（红外自检 / 传感器明细 / Flash 概览）② 红外标定（4 摆位逐步 + 擦除）
+③ 清空路径数据 ④ 门控（未连鼠 <strong>或车在跑</strong> ⇒ 整块禁用 —— 固件运动中一律 <code>ERR_BUSY</code>）。</p>
+<p>界面文案<strong>不出现"菜单 2/4/5…"这类背景编号</strong>；每个动作失败都带下一步。</p>
+<h4 id="_62">五、判据</h4>
+<p><strong>I33</strong>（<code>drill.py --sim</code>，链路级，六条）：</p>
+<ul>
+<li>能力位与清单：<code>menu_remote</code> 真、可远程 6 项、摆位表 4 条且带要求原文；</li>
+<li>跳步（直接发 <code>step=3</code>）⇒ 上游 <code>ERR_VALUE</code>；</li>
+<li>4 步顺序跑完全 OK；跑完后<strong>重发第 1 步</strong> ⇒ <code>ERR_BUSY</code>（页里已有值，v2.7 的安全闸）；</li>
+<li><code>BLOCK</code> 的 <code>ir_valid</code> 必须报 <strong>8</strong>（8 个半字真的写进去了）；</li>
+<li><strong>confirm 闸 + "真的没碰链路"</strong>：不带 <code>confirm</code> 的擦除 ⇒ 409 + <code>need_confirm</code>，
+  且<strong>擦除后 <code>BLOCK</code> 的 <code>ir_valid</code> 必须还是 8</strong> —— 这是"命令真没发出去"的<strong>可观测证据</strong>。
+  ⚠️ 拿命令计数当证据<strong>不行</strong>：拉取器在跑，<code>cmd.sent</code> 一直在涨；</li>
+<li>运动中发菜单项 ⇒ <code>ERR_BUSY</code>；<code>ERASEALL</code> 带 <code>confirm</code> ⇒ 成功。</li>
+</ul>
+<p><strong>B42</strong>（<code>browser_check.py</code>，界面级）：</p>
+<ul>
+<li>六个控件都画出来；</li>
+<li><strong>读数真的落进 DOM</strong>（点【红外自检】/【Flash 概览】后 <code>#mt-diag</code> 里出现 <code>irL</code> / <code>ir_valid</code>）；</li>
+<li>点一次【擦除红外标定】<strong>只进二次确认态</strong>（按钮文字变），<strong>不真擦</strong>（端点行为由 I33 验）；</li>
+<li><strong>负向①</strong>：不带 <code>confirm</code> 直打端点 ⇒ <strong>409 + <code>need_confirm</code></strong>（不是 500）；</li>
+<li><strong>负向②</strong>：伪造 <code>menu_remote=false</code> ⇒ 整块<strong>一个按钮都不画</strong>（老上游上按下去只会 501）。</li>
+</ul>
+<h4 id="_63">六、如实标注：模拟器<strong>没有镜像</strong>的那一处</h4>
+<p>上游模拟器 <code>mouse_sim.py</code> 的 <code>_cal_menu_remote()</code> 完整镜像了 6 项<strong>含两条闸</strong>
+（运动中/标定中 <code>ERR_BUSY</code>；IRCAP 顺序 + 第 1 步页全 FF），<strong>但 <code>BLOCK</code> 分支只回计数、
+没有做"把 Flash 墙图重载进内存"这个动作</strong>。⇒ §二.2 那条副作用在 <code>--sim</code> 下<strong>验不了</strong>：
+I33 只验"后端把副作用声明端出来了"，墙图真被换掉这件事<strong>留真机验</strong>（如实标注，不当成通过）。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

@@ -868,14 +868,17 @@ async def run(args) -> int:
                 " hash:location.hash||''};})()")
             sec_ok = (sorted(sysinfo.keys()) == sorted(SYS_TABS)
                       and all(sysinfo[s]["name"] for s in SYS_TABS))
-            # ⚠️ 「小车控制」的卡片数是 **3**：
+            # ⚠️ 「小车控制」的卡片数是 **4**：
             #   · 上游 2.0.0 删了 `SNAP`/`SCOPE` ⇒「分组测量」并入「实时参数」，5 变 4；
             #   · 上游 2.4.0 压到两档编译 + 删课程层 + 加 `MAZE RUN [BLIND|RACE]`
             #     ⇒ 四卡重排为**三卡**：①实时状态与参数设定（原「实时参数」+「运动控制」
-            #     +「校准例程」合成一页）②无记忆走迷宫（原「实验 8」改名）③比赛（新）。
+            #     +「校准例程」合成一页）②无记忆走迷宫（原「实验 8」改名）③比赛（新）；
+            #   · **改版二十**接回上游 2.7 按键菜单远程化 ⇒ 加**第 4 卡**「维护与自检」
+            #     （诊断 / 红外标定 / 清空路径）。加卡就**必须**同步这一个数字 ——
+            #     卡片已经画出来而这里还写 3，报的是一条假红（铁律 11：文案与断言同改）。
             #   这里写死数字是有意的 —— 卡片由 `SYS_DEF` 渲染，**模块脚本没加载时卡片照样在**，
             #   所以"卡片数对不对"与"模块能否挂上"是两道独立的闸。
-            cards_ok = (sysinfo["mouse"]["cards"] == 3 and sysinfo["cam"]["cards"] == 1
+            cards_ok = (sysinfo["mouse"]["cards"] == 4 and sysinfo["cam"]["cards"] == 1
                         and sysinfo["loc"]["cards"] == 2 and sysinfo["all"]["cards"] == 1)
             b24_ok = sec_ok and cards_ok and not oldnav and shown["nav"] and not shown["mod"]
             record("B24", "PASS" if b24_ok else "FAIL",
@@ -1844,6 +1847,164 @@ async def run(args) -> int:
                    f"拉取模式切换可用（{'；'.join(b41_got)}）"
                    if b41_ok else
                    f"**拉取模式切换/默认批式不对**：{b41_bad[:4]}")
+
+
+            # ── B42：维护与自检卡（改版二十，上游 2.7.0 按键菜单远程化） ──
+            # 守本轮四件事：
+            #   ① 六个控件都画出来（诊断 3 + 标定 2 + 清空 1）；
+            #   ② **读数真的落进 DOM**：点【红外自检】/【Flash 概览】后 #mt-diag 里要出现
+            #      `irL` / `ir_valid` 这两个键 —— 只换按钮不显示数值就是"点了没反应"；
+            #   ③ **擦除有二次确认**：点一次【擦除红外标定】只进确认态（按钮文字变），
+            #      **不真擦**（判据不留副作用；端点行为由 drill 的 I33 验）；
+            #   ④ 两条负向：
+            #      · 不带 `confirm` 直打端点 ⇒ **409 + need_confirm**（不是 500）；
+            #      · 伪造 `menu_remote=false` ⇒ 整块**一个按钮都不画**（老上游上按下去只会 501）。
+            # ⚠️ ②③④-1 要连鼠（真发命令）；①与④-2 不连也能判。
+            head("2l. 维护与自检卡：六控件 / 诊断读数落 DOM / 擦除二次确认 / 老上游不画")
+            b42_bad, b42_got = [], []
+            try:
+                await cdp.eval("C.openMod('mouse','mod_maint')")
+                await asyncio.sleep(0.9)
+                dom = await cdp.eval(
+                    "(()=>{const ids=['mt-irself','mt-sensor','mt-block','mt-ircap-next',"
+                    "'mt-ir-erase','mt-erase-all'];"
+                    "const have=ids.filter(function(i){return !!document.getElementById(i);});"
+                    "return {have:have, n:have.length};})()")
+                b42_got.append("控件 %s/6" % ((dom or {}).get("n")))
+                if (dom or {}).get("n") != 6:
+                    b42_bad.append("维护卡的六个控件没画齐：%s" % ((dom or {}).get("have")))
+                if args.sim:
+                    # ② 读数落进 DOM
+                    # 点之前先记"为什么可能点不动"：按钮被 `C.gate` 禁用时 `click()` **根本不触发**
+                    # （看起来就像"点了没反应"）；再加一条 **PROBE** —— 临时把 onclick 换成
+                    # 只写 `#mt-msg` 的探针再点一次，用来把"DOM 绑定断了"与"`diag()` 内部炸了"
+                    # 二分开（探针做完立刻还原，不改变被测行为）。
+                    pre = await cdp.eval(
+                        "(()=>{const b=document.getElementById('mt-irself');"
+                        "const u=((C.state||{}).telemetry||{}).unified||{};"
+                        "const w=document.getElementById('mt-wrap');"
+                        "return {dis:b?!!b.disabled:null, oc:b?(typeof b.onclick):'nobtn',"
+                        " wraps:document.querySelectorAll('#mt-wrap').length,"
+                        " wrapKids:w?w.children.length:-1,"
+                        " need:(C.needMouse?C.needMouse():null), task:u.mazeTask};})()")
+                    b42_got.append("点前 disabled=%s mazeTask=%s needMouse=%r onclick=%s"
+                                   " #mt-wrap=%s(子 %s)"
+                                   % ((pre or {}).get("dis"), (pre or {}).get("task"),
+                                      (pre or {}).get("need"), (pre or {}).get("oc"),
+                                      (pre or {}).get("wraps"), (pre or {}).get("wrapKids")))
+                    probe = await cdp.eval(
+                        "(()=>{const b=document.getElementById('mt-irself');"
+                        "if(!b) return {err:'nobtn'};const orig=b.onclick;"
+                        "b.onclick=function(){var m=document.getElementById('mt-msg');"
+                        "if(m)m.textContent='PROBE_OK';};b.click();"
+                        "var m=document.getElementById('mt-msg');var got=m?m.textContent:'nom';"
+                        "if(m)m.textContent='';b.onclick=orig;"
+                        "return {got:got, oc:typeof orig};})()")
+                    b42_got.append("PROBE=%r" % ((probe or {}).get("got"),))
+                    # 再直调一次端点：把"后端 / `C.api` 有问题"与"`diag()` 的 DOM 写入有问题"
+                    # 彻底二分开（这条是按钮行为的等价调用，只是不走界面那层）。
+                    direct = await cdp.eval(
+                        "(async()=>{try{const r=await C.api('/api/v1/mouse/maint/IRSELF',"
+                        "{method:'POST',body:{}});"
+                        "return {ok:true,keys:Object.keys(r||{}),"
+                        "rk:Object.keys(((r||{}).result)||{}),st:((r||{}).result||{}).status};}"
+                        "catch(e){return {ok:false,msg:String(e&&e.message),"
+                        "tp:e&&e.type,st:e&&e.status};}})()")
+                    b42_got.append("直调端点=%r" % (direct,))
+                    # ② 读数真的落进 DOM —— **两个动作各看一次**。
+                    #   ⚠️ `#mt-diag` 是"**当前这一次**的读数"那一块：后一次动作会**覆盖**前一次，
+                    #   所以"点完两个再一起查两个键"必然只看到最后一个 —— 那是判据写错，不是产品错
+                    #   （本轮就是这么红了一次，记在 §11.23 的 B42 条里）。
+                    #   ⚠️ 等待改成**轮询条件**（最多 5 s）：首次调用要初始化链路，固定 1.4 s 会假红
+                    #   （铁律 13：别等固定时长，要等条件）。
+                    async def _click_read(btn_id, key):
+                        await cdp.eval(
+                            "(()=>{const b=document.getElementById('%s');if(b)b.click();})()"
+                            % btn_id)
+                        last = ""
+                        for _ in range(25):
+                            await asyncio.sleep(0.2)
+                            last = await cdp.eval(
+                                "(()=>{const d=document.getElementById('mt-diag');"
+                                "return d?d.innerHTML:'';})()")
+                            if key in str(last or ""):
+                                return True, str(last or "")
+                        return False, str(last or "")
+                    ok_ir, dom_ir = await _click_read("mt-irself", "irL")
+                    ok_bl, dom_bl = await _click_read("mt-block", "ir_valid")
+                    has_ir, has_bl = ok_ir, ok_bl
+                    b42_got.append("读数 irL=%s ir_valid=%s" % (has_ir, has_bl))
+                    if not has_ir:
+                        b42_bad.append("点【红外自检】后 #mt-diag 里没有 irL（实际 %r）；"
+                                       "点前 disabled=%s mazeTask=%s needMouse=%r onclick=%s"
+                                       " PROBE=%r 直调=%r"
+                                       % (dom_ir[:80], (pre or {}).get("dis"),
+                                          (pre or {}).get("task"), (pre or {}).get("need"),
+                                          (pre or {}).get("oc"), (probe or {}).get("got"),
+                                          direct))
+                    if not has_bl:
+                        b42_bad.append("点【Flash 概览】后 #mt-diag 里没有 ir_valid（实际 %r）；"
+                                       "直调=%r" % (dom_bl[:80], direct))
+                    # ③ 擦除二次确认（只点一次，**不真擦**）
+                    conf = await cdp.eval(
+                        "(()=>{const b=document.getElementById('mt-ir-erase');"
+                        "if(!b) return {err:'no btn'};b.click();return {txt:b.textContent};})()")
+                    ctxt = str((conf or {}).get("txt") or "")
+                    b42_got.append("擦除确认态=%r" % ctxt)
+                    if "确认" not in ctxt:
+                        b42_bad.append("点【擦除红外标定】后没进入二次确认态（按钮文字=%r）" % ctxt)
+                    # ④-1 不带 confirm 直打端点 ⇒ 409 + need_confirm
+                    neg2 = await cdp.eval(
+                        "(async()=>{const r=await fetch('/api/v1/mouse/maint/ERASEIR',"
+                        "{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});"
+                        "let j=null;try{j=await r.json();}catch(e){}"
+                        "return {status:r.status, type:(j&&j.error&&j.error.type)||'',"
+                        " msg:(j&&j.error&&j.error.message)||''};})()")
+                    st2 = (neg2 or {}).get("status")
+                    tp2 = (neg2 or {}).get("type")
+                    b42_got.append("不带 confirm HTTP %s type=%r" % (st2, tp2))
+                    if st2 != 409:
+                        b42_bad.append("不带 confirm 直打端点应回 409，实际 %s（回 500 说明抛穿了）" % st2)
+                    elif tp2 != "need_confirm":
+                        b42_bad.append("409 的 error.type 不是 need_confirm：%r" % tp2)
+                else:
+                    b42_got.append("未连模拟器 ⇒ 不点按钮（只跑负向①）")
+            except Exception as e:                                        # noqa: BLE001
+                b42_bad.append("维护卡检查抛异常：%s: %s" % (type(e).__name__, e))
+
+            # ④-2 负向（**不需要连鼠**）：伪造 caps 说"老上游" ⇒ 维护卡必须一个按钮都不画。
+            #   手法同 B41：临时换 `C.api`，再 `activate()` 让它重读能力位；必须还原。
+            try:
+                await cdp.eval("C.openMod('mouse','mod_maint')")
+                await asyncio.sleep(0.4)
+                neg1 = await cdp.eval(
+                    "(()=>{"
+                    "const M=C.mods&&C.mods.mod_maint; if(!M) return {err:'no mod'};"
+                    "const old=C.api;"
+                    "C.api=function(p,o){ if(p==='/api/v1/caps')"
+                    "  return Promise.resolve({mouse:{menu_remote:false}});"
+                    "  return old.call(this,p,o); };"
+                    "M.activate();"
+                    "return new Promise(function(res){"
+                    "  setTimeout(function(){"
+                    "    const w=document.getElementById('mt-wrap');"
+                    "    const n=w?w.querySelectorAll('button').length:-1;"
+                    "    C.api=old; M.activate();"
+                    "    res({btns:n});"
+                    "  },900);});})()")
+                nb = (neg1 or {}).get("btns")
+                b42_got.append("负向(menu_remote=false) 按钮数=%s" % nb)
+                if nb != 0:
+                    b42_bad.append("menu_remote=false 时维护卡仍画着 %s 个按钮"
+                                   "（老上游上按下去只会 501）" % nb)
+                await asyncio.sleep(0.8)      # 等还原后的 activate 把按钮画回来
+            except Exception as e:                                        # noqa: BLE001
+                b42_bad.append("负向（老上游不画）抛异常：%s: %s" % (type(e).__name__, e))
+            b42_ok = not b42_bad
+            record("B42", "PASS" if b42_ok else "FAIL",
+                   f"维护与自检卡可用（{'；'.join(b42_got)}）"
+                   if b42_ok else
+                   f"**维护与自检卡不对**：{b42_bad[:4]}")
 
 
             # ── B38：改版十四的五件小事（复位改名 / 保存路径 / 清空 / 停止原因 / 网格尺寸） ──

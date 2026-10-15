@@ -60,6 +60,8 @@ def register(app: web.Application, ctx: Any) -> None:
     # 与 /stream 分开是因为两者语义不同：/stream 是"流开不开"（人工刹车），
     # /stream/mode 是"怎么拉"（速率形态）。合并会让"关流"和"停等"变成一件事。
     r.add_post("/api/v1/mouse/stream/mode", _mouse_stream_mode)
+    # 维护与自检：v2.7 按键菜单 2/4/5/6/7/8 的远程化（一条端点对上游一个 CAL 命令族）
+    r.add_post("/api/v1/mouse/maint/{item}", _mouse_maint)
     r.add_get("/api/v1/mouse/maze", _mouse_maze)
     # 迷宫（实验 8 无记忆走迷宫，上游 2.0.0）。**状态从统一帧读**，所以只剩
     # "读状态 + 读迁移序列 + 汇总 + 清本层差分缓冲"四条读的路，**没有事件流端点**。
@@ -492,6 +494,56 @@ async def _mouse_stream_mode(request: web.Request) -> web.Response:
         now_mode = "off"
     return ok({"result": _res(r), "mode": now_mode,
                "pull": _pull_stats(mc)})
+
+
+async def _mouse_maint(request: web.Request) -> web.Response:
+    """**维护与自检**：v2.7 按键菜单 2/4/5/6/7/8 的远程化（上游 `CAL` 家族）。
+
+    一条端点对上游**一个命令族**（`{item}` 就是 `CAL <item>` 的那个词）——
+    与线上"界面一个元素只许一条真相来路"同一条纪律，不做六个端点。
+
+    `{item}` 取自上游 `CalibAPI.MENU_ITEMS`（见 `GET /api/v1/caps` 的 `maint_items`，
+    界面按它画按钮）。body：`{"step": 1..4}` 仅红外分步标定要；`{"confirm": true}`
+    擦除类必带（上游 `CAL ERASEIR` / `CAL ERASEALL`）。
+
+    ⚠️ **本层不判 confirm 够不够**：原样透传给上游，由它的登记表 precheck 决定。
+    不传时上游**完全不碰链路**、回 `NEED_CONFIRM` ⇒ 这里翻成 **409**
+    （`error.type = "need_confirm"`），界面据此弹二次确认再带 `confirm` 重发。
+
+    ⚠️ 必须 `run_in_executor`：`send_cmd` 是同步等 ACK 的（擦除 120~240 ms、
+    超时 8~12 s），放在事件循环上会把整个服务冻住。
+
+    ⚠️ 上游的拒绝码**原样透出**（`ERR_BUSY` / `ERR_VALUE` / `NEED_CONFIRM`），
+    同时给**可照做**的 `hint`（见适配器 `_maint_annotate`）—— 协议词现场照不了。
+    """
+    ctx = request.app["ctx"]
+    _need_mouse(ctx)
+    item = str(request.match_info.get("item", "")).strip().upper()
+    if not ctx.mouse.features.get("menu_remote"):
+        raise ApiError(501, "这份上游没有按键菜单远程化（需要 RemoteControl 2.7.0 以上）。")
+    if item not in ctx.mouse.maint_items:
+        raise ApiError(400, "不是可远程的菜单项：" + (item or "(空)")
+                            + "。可用项见 /api/v1/caps 的 maint_items。")
+    d = await body_json(request)
+    step = d.get("step")
+    if item == "IRCAP":
+        try:
+            step = int(step)
+        except (TypeError, ValueError):
+            raise ApiError(400, "红外分步标定要给步号 step=1~4。")
+        if not (1 <= step <= 4):
+            raise ApiError(400, "step 只接受 1~4。")
+    loop = asyncio.get_running_loop()
+    r = await loop.run_in_executor(
+        None, lambda: ctx.mouse.maint(item, step=step, confirm=bool(d.get("confirm"))))
+    res = _res(r)
+    data = res.get("data") or {}
+    ctx.store.mark("mouse", "mouse.maint." + item.lower(), item,
+                   "ok=%s status=%s" % (res["ok"], res["status"]))
+    if not res["ok"] and res["status"] == "NEED_CONFIRM":
+        raise ApiError(409, data.get("hint") or "这是不可逆操作，需要确认。",
+                       type="need_confirm", item=item)
+    return ok({"item": item, "step": step, "result": res})
 
 
 def _pull_stats(mc: Any) -> Optional[dict]:
