@@ -35,10 +35,13 @@
 
 ```
 RemoteControl/
-├── code_stm32f1_mouse/      固件（Keil MDK，STM32F103RB）
+├── code_stm32f1_mouse/      固件（Keil MDK，STM32F103RB，课程基线）
 │   ├── HARDWARE/            link.c/.h 为本项目新增的链路层（其余为上游外设驱动）
 │   ├── MOTION/ APP/ STRATEGY/ USER/   上游迷宫搜索/冲刺/控制（本项目仅"加可见性"）
 │   └── docs/                上游原始文档（algorithm/architecture/rename_map）
+├── code_competition/        新比赛固件基线（MAZETYPE 16，远程化移植对象）
+│   ├── USER/TEST.uvprojx    单工程双 Target：Target 1 比赛档 / Target_Remote 远程档
+│   └── HARDWARE/…           GBK/UTF-8 混杂原样保留；远程插入点全部 #ifdef MOUSE_REMOTE 门控
 ├── host/                    PC 上位机（Python）
 │   ├── run_host.py          启动 GUI
 │   ├── selftest.py 等 10 个套件
@@ -46,7 +49,8 @@ RemoteControl/
 │   └── README.md            ★ 上位机使用指南（装了怎么跑）
 ├── docs/                    ★ 本项目文档（见下）
 ├── release/                 归档 zip + SHA256 台账
-└── build_all_modes.py       两档批量编译
+├── build_all_modes.py           旧工程两档批量编译
+└── build_competition_modes.py   新工程双 Target 编译 + 比赛档 hex 红线校验
 ```
 
 ---
@@ -111,6 +115,19 @@ python build_all_modes.py        # 编译远程档 + 按键比赛档（收尾停
 
 - **远程档**：`code_stm32f1_mouse/USER/main.h` 里 `#define MOUSE_REMOTE 1`
 - **按键比赛档**：**什么都不定义**（产物与比赛固件逐字节一致）
+
+### 固件（新比赛工程 code_competition，单工程双 Target）
+
+```bash
+python build_competition_modes.py   # 两档全量重编 + ROM/RAM/告警汇总 + 比赛档 hex 红线校验
+# 单档（Keil 命令行）：
+"/c/Keil_v5/UV4/UV4.exe" -b "<绝对路径>\USER\TEST.uvprojx" -t "Target_Remote" -o "<绝对日志>"
+```
+
+- **Target 1（比赛档）**：Define 仅 `STM32F10X_MD,USE_STDPERIPH_DRIVE`，源码零改动；
+  hex 与移植前逐字节相同（红线 `68ad6be2…8141`，ROM 82040 / RAM 20480，脚本自动校验）
+- **Target_Remote（远程档）**：上述 + `MOUSE_REMOTE,EN_USART1_RX`，产物落 `USER\Remote\`；
+  远程档关闭 `FLASHSAVE` 板载飞行记录（让位 TELEM 实时流），RAM 20480→10960
 
 ### 上位机（十套件，共 702 项）
 

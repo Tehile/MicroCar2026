@@ -12,7 +12,9 @@
 int testi = 0;
 extern uchar spurtTestAction[200]; 
 extern u8 sidewall_threshold;
-#define FLASHSAVE
+#ifndef MOUSE_REMOTE
+#define FLASHSAVE /* remote build: flight recorder OFF - TELEM streams live data to host instead; frees ~9.5KB RAM for the link layer */
+#endif
 extern u16 save_data_num,save_num;
 extern u8 save_data_time,per_timer;
 u16 Test_Time_Flag=0;extern int cpu;

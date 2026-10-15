@@ -6,7 +6,9 @@
 #include "led.h"
 #include "stmflash.h"
 
-#define FLASHSAVE
+#ifndef MOUSE_REMOTE
+#define FLASHSAVE /* remote build: flight recorder OFF - TELEM streams live data to host instead; frees ~9.5KB RAM for the link layer */
+#endif
 u8 block_write_flag=0;
 extern u8 task;
 extern u8 goal_keep_flag;

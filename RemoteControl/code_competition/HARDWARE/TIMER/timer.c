@@ -27,7 +27,9 @@ extern const u8 per_timer;
 u8 EMERGENCYON=1;				 
 #define SHOWCPU				 
  
-#define FLASHSAVE				 
+#ifndef MOUSE_REMOTE
+#define FLASHSAVE /* remote build: flight recorder OFF - TELEM streams live data to host instead; frees ~9.5KB RAM for the link layer */
+#endif
 
  
 u8 gangleSee = 0;

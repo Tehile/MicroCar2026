@@ -96,7 +96,8 @@ void uart_init(u32 pclk2,u32 bound)
 	//使能接收中断
 	USART1->CR1|=1<<8;    //PE中断使能
 	USART1->CR1|=1<<5;    //接收缓冲区非空中断使能	    	
-	MY_NVIC_Init(3,3,USART1_IRQChannel,2);//组2，最低优先级 
+	/* 远程档: USART1 RX 的 NVIC 使能与优先级统一由 LINK_Init() 配置
+	 * (本固件无 misc.c, 原 MY_NVIC_Init/USART1_IRQChannel 旧库符号不可用) */
 #endif
 }
 
