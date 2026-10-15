@@ -527,7 +527,9 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 <code>"stop-and-wait"</code>、门面全关时也返回它）；④ <code>link_lost</code> 翻成<strong>可照做</strong>清单；
 ⑤ 判据<strong>新增 B41</strong>。⚠️ 两个坑：<code>MouseAdapter</code> 原先没有 <code>features</code> 属性
 （端点门控 500 ⇒ 批式切不过去，B41 当场抓住）；<code>--sim</code> 模式下 B37/B38 的
-假数据会被真帧冲掉 ⇒ 加 SKIP 守卫（判据红先怀疑判据）。细节见 §11.22。</p>
+假数据会被真帧冲掉 ⇒ 加 SKIP 守卫（判据红先怀疑判据）。细节见 §11.22。
+<strong>2026-10-15 补注（改版二十一）</strong>：本节 ① 的"默认批式"已<strong>回退为默认停等</strong> ——
+见下一条改版记录；机制、端点、界面切换条都<strong>没变</strong>（只是默认值那一个键）。</p>
 <p><strong>改版记录 2026-10-15（二十）</strong>：<strong>接回上游 v2.7 的「按键菜单远程化」</strong>（用户：
 <em>RemoteControl 应当支持了按键菜单的远程选择，但是现在并没有添加到界面中</em>）。
 上游 v2.7 给 <code>CAL</code> 家族加了 <strong>6 个立即-ACK 子命令</strong>（按键菜单 2/4/5/6/7/8）：
@@ -542,6 +544,16 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 纯只读（固件会把 Flash 墙图重载进内存 ⇒ 另一个页面的图跟着变）。判据<strong>新增 I33 / B42</strong>。
 ⚠️ 模拟器<strong>没有镜像</strong> <code>BLOCK</code> 的墙图重载 ⇒ 那一条只验"副作用声明在不在"，留真机验。
 细节见 §11.23。</p>
+<p><strong>改版记录 2026-10-15（二十一）</strong>：<strong>默认拉取模式由批式回退为停等</strong>（用户：
+<em>改成默认停等</em>）。这是<strong>改版十九① 现场决策的回退</strong>，不是协议或界面结构的变更：
+上游 2.9.0 的 pace / stopwait 二选一仍在，端点、切换条、<code>n</code>/<code>t</code> 只读<strong>一字未动</strong>。
+理由回到"稳定优先"：<strong>停等在途恒 1 条请求</strong>，帧率就是 1/RTT，现场出任何异常都能
+当场归因（这正是上游 2.1.0 那次的教训）；批式 10 Hz 档虽然压测过（300 s 级存活、
+交付率 99.9%），但突发量是停等的 2.5 倍 ⇒ 留给"要看密波形"的调试场合，由人在
+界面点【批式】显式切过去。⚠️ 两处"默认"必须<strong>同源</strong>：<code>config.yaml: mouse.stream_mode</code>
+的值与 <code>adapters/mouse.py</code> 的 <code>DEFAULT_STREAM_MODE</code> 常量（配置缺键时<strong>不许</strong>悄悄
+换一种模式）；判据 <strong>B41</strong> 的 ① 随之反转（断言 <code>caps.stream_mode == "stopwait"</code>），
+切换序列改成"批式 → 停等"（末态回默认，两个方向都点一遍）。细节见 §11.22 §四。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -5391,15 +5403,15 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 </tr>
 <tr>
 <td><code>control/static/views/mod_params.js</code></td>
-<td>新增「拉取模式」切换条（默认批式、<code>n</code>/<code>t</code> 只读、<code>pace_pull</code> 为假时不画、未连接禁用）；<code>#mp-stream</code> 一行按门面三态分支；新增 <code>#mp-link</code> errbox 显式报 <code>link_lost</code>；<code>activate</code> 每次重读能力位</td>
+<td>新增「拉取模式」切换条（<strong>默认停等</strong>（改版二十一前为批式）、<code>n</code>/<code>t</code> 只读、<code>pace_pull</code> 为假时不画、未连接禁用）；<code>#mp-stream</code> 一行按门面三态分支；新增 <code>#mp-link</code> errbox 显式报 <code>link_lost</code>；<code>activate</code> 每次重读能力位</td>
 </tr>
 <tr>
 <td><code>control/static/views/console.js</code></td>
 <td><code>mouse.error</code> 行带 <code>hint</code>（后端翻的界面动作版清单）</td>
 </tr>
 <tr>
-<td><code>config.yaml</code> / <code>control/config.py</code></td>
-<td>新增 <code>mouse.stream_mode</code>（默认 <code>pace</code>）；SCHEMA 同步</td>
+<td><code>config.yaml</code> / <code>control/config.py</code> / <code>control/adapters/mouse.py</code></td>
+<td>新增 <code>mouse.stream_mode</code>（<strong>改版二十一后默认 <code>stopwait</code></strong>；代码兜底走同一个 <code>DEFAULT_STREAM_MODE</code> 常量，两处<strong>不得各写字符串</strong>）；SCHEMA 同步</td>
 </tr>
 <tr>
 <td><code>tools/browser_check.py</code></td>
@@ -5411,17 +5423,27 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 </tr>
 </tbody>
 </table>
-<h4 id="_59">四、默认批式是<strong>现场决策</strong>，不是技术结论</h4>
-<p>2026-10-15 用户明确：<strong>调试阶段默认批式，真实比赛不用蓝牙</strong>。⇒ 压测里 10 Hz 档
-300 s 级存活、交付率 99.9%，而停等式 4.4~6.5 Hz 采样密一倍；比赛不走蓝牙 ⇒
-链路容量不是约束。<code>config.yaml</code> 里写成 <code>pace</code> 并注明理由，<strong>改这一个键就能回退</strong>。</p>
+<h4 id="pace-stopwait">四、默认模式是<strong>现场决策</strong>（两次：先 pace，改版二十一回到 stopwait）</h4>
+<p><strong>第一次（改版十九）</strong>：2026-10-15 用户定"调试阶段默认批式，真实比赛不用蓝牙"——
+压测里 10 Hz 档 300 s 级存活、交付率 99.9%，而停等式 4.4~6.5 Hz、采样密一倍；
+比赛不走蓝牙 ⇒ 链路容量不是约束。</p>
+<p><strong>第二次（改版二十一，现在生效）</strong>：同日用户改判 <strong>"改成默认停等"</strong> —— 回到"稳定优先"：
+停等<strong>在途恒 1 条请求</strong>，帧率就是 1/RTT，现场出任何异常都能当场归因；批式的突发量
+是停等的 2.5 倍，而那份压测证据只覆盖 300 s 级，<strong>不足以支撑把它当默认</strong>。
+⇒ 结论：<strong>默认 <code>stopwait</code></strong>；要看密波形时由人点【批式】显式切，切完还能切回来
+（两个方向都在 B41 里各点一遍）。<strong>改这一个键就能来回切</strong> —— 这仍是现场决策，
+不是技术结论。</p>
+<p>⚠️ <strong>"默认"只有一个来路</strong>：<code>config.yaml: mouse.stream_mode</code> 的值与
+<code>adapters/mouse.py</code> 的 <code>DEFAULT_STREAM_MODE</code> 常量必须一致。配置缺键时若代码里另写
+一个字符串，就变成"文件少一行、模式悄悄换一种"的静默降级（铁律 32 的又一次）。</p>
 <p><code>n</code>/<code>t_ms</code> <strong>只读不给调</strong>：10 Hz 是压测出的 75% 容量安全档，现场乱调到顶格会断连。</p>
 <h4 id="b41">五、判据 B41（含负向）</h4>
 <ul>
 <li><code>caps.pace_pull</code> 为真（连 2.9.0 上游却探到 False ⇒ 能力位坏了，FAIL）；</li>
-<li><code>caps.stream_mode == "pace"</code>（<strong>默认批式</strong>，连接后立即可读）；</li>
-<li>页面点【停等】/【批式】⇒ 轮询 <code>#mp-stream</code> 那一行变成「停等」/「批式」
-  （<strong>轮询等条件</strong>，不固定 sleep：<code>pace()</code> 最坏 6 s）；</li>
+<li><code>caps.stream_mode == "stopwait"</code>（<strong>默认停等</strong>（改版二十一），连接后立即可读）；</li>
+<li>页面点【批式】⇒ 那一行变「批式」；再点【停等】⇒ 变回「停等」——<strong>两个方向都点</strong>，
+  末态回到默认，不给后面的判据留一个非默认现场。全部<strong>轮询等条件</strong>，
+  <strong>不固定 sleep</strong>（<code>pace()</code> 最坏 6 s）；</li>
 <li><strong>负向</strong>：伪造 caps 说 <code>pace_pull=false</code> ⇒ <code>#mp-mode</code> 必须<strong>空</strong>
   （老上游上按下去只会 501，比没有按钮更坏）。手法同 B38：临时换 <code>C.api</code>
   再 <code>activate()</code>，做完还原。</li>
@@ -5434,7 +5456,7 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 会把假帧/假应答冲掉（B37 喂的 <code>frontNear=1</code> 在 0.4 s 内被真帧覆盖；B38 喂的
 <code>STOPPED</code> 事件被 <code>loadDecisions()</code> 的真应答覆盖）⇒ 读到的是真状态而不是喂进去的。
 ⇒ <strong>判据红先怀疑判据</strong>：确定性前提（未连鼠）不成立就如实标 SKIP，不假装通过。
-<code>--sim</code> 只用于 B41（pace 端到端要真鼠）。</p>
+<code>--sim</code> 只用于需要<strong>真活链路</strong>的那几条（B41 的模式切换、B42 的按键菜单远程化）。</p>
 <hr />
 <h3 id="1123-v27">11.23 接回上游 v2.7 按键菜单远程化（改版二十）</h3>
 <h4 id="v27">一、上游 v2.7 提供了什么</h4>
@@ -5497,7 +5519,7 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 </tbody>
 </table>
 <p>固件侧另有一条：<strong>远程档等车时短按 BUTTON1 可进原按键菜单</strong>（<code>MENU_Run()</code>，进去不可返回）。</p>
-<h4 id="_60">二、五条"照直觉写就会错"的点</h4>
+<h4 id="_59">二、五条"照直觉写就会错"的点</h4>
 <ol>
 <li><strong><code>IRCAP</code> 就是改版十七删掉的「红外逐点标定」</strong>：上游 <code>IRCAP_STEPS</code> 与旧 <code>IR_STEPS</code>
    的四个摆位<strong>文字逐字相同</strong>（左近墙 33mm / 左远墙 94mm / 前近墙 32mm / 前远墙 213mm）
@@ -5516,7 +5538,7 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <li><strong>短按 BUTTON1 进了车上菜单就不返回</strong> ⇒ 设备不应答 ⇒ 遥测停 ⇒ 3 s 后 <code>link_lost</code>。
    这句必须并进 <code>link_lost</code> 的可照做文案，否则现场会把"有人按了按键"误判成"蓝牙断了"。</li>
 </ol>
-<h4 id="_61">三、本层落点</h4>
+<h4 id="_60">三、本层落点</h4>
 <table>
 <thead>
 <tr>
@@ -5562,7 +5584,7 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <p>四段：① 诊断（红外自检 / 传感器明细 / Flash 概览）② 红外标定（4 摆位逐步 + 擦除）
 ③ 清空路径数据 ④ 门控（未连鼠 <strong>或车在跑</strong> ⇒ 整块禁用 —— 固件运动中一律 <code>ERR_BUSY</code>）。</p>
 <p>界面文案<strong>不出现"菜单 2/4/5…"这类背景编号</strong>；每个动作失败都带下一步。</p>
-<h4 id="_62">五、判据</h4>
+<h4 id="_61">五、判据</h4>
 <p><strong>I33</strong>（<code>drill.py --sim</code>，链路级，六条）：</p>
 <ul>
 <li>能力位与清单：<code>menu_remote</code> 真、可远程 6 项、摆位表 4 条且带要求原文；</li>
@@ -5582,7 +5604,7 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 <li><strong>负向①</strong>：不带 <code>confirm</code> 直打端点 ⇒ <strong>409 + <code>need_confirm</code></strong>（不是 500）；</li>
 <li><strong>负向②</strong>：伪造 <code>menu_remote=false</code> ⇒ 整块<strong>一个按钮都不画</strong>（老上游上按下去只会 501）。</li>
 </ul>
-<h4 id="_63">六、如实标注：模拟器<strong>没有镜像</strong>的那一处</h4>
+<h4 id="_62">六、如实标注：模拟器<strong>没有镜像</strong>的那一处</h4>
 <p>上游模拟器 <code>mouse_sim.py</code> 的 <code>_cal_menu_remote()</code> 完整镜像了 6 项<strong>含两条闸</strong>
 （运动中/标定中 <code>ERR_BUSY</code>；IRCAP 顺序 + 第 1 步页全 FF），<strong>但 <code>BLOCK</code> 分支只回计数、
 没有做"把 Flash 墙图重载进内存"这个动作</strong>。⇒ §二.2 那条副作用在 <code>--sim</code> 下<strong>验不了</strong>：

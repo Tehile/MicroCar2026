@@ -159,6 +159,12 @@ _OCCUPIED_HINTS = ("占用", "拒绝访问", "Access is denied", "PermissionErro
 FLASH_PAGE_PROD = 115      # 生产命名空间：id 1–7 + 1.5.0 新增的 22–38（红外 / 电源）
 FLASH_PAGE_LESSON = 116    # 课程调参：id 8–21
 
+#: 连上后默认开哪种拉取（上游 2.9.0 起二选一：`stopwait` / `pace`）。
+#: **单点常量**：`config.yaml: mouse.stream_mode` 的值与这里的兜底必须一致 ——
+#: 两处各写一个字符串，就是"配置文件丢了/少了这个键，模式悄悄换一种"的静默降级。
+#: 默认停等：在途恒 1 条请求、帧率 = 1/RTT，现场出任何异常都能当场归因。
+DEFAULT_STREAM_MODE = "stopwait"
+
 
 def _enhance(detail: str) -> str:
     d = detail or "未知原因"
@@ -835,12 +841,15 @@ class MouseAdapter:
         out = {"ok": True, "target": _t(mc.link.target), "device": mc.device,
                "state": mc.state}
         # ---- 连上之后的默认拉取模式（上游 2.9.0 起有二选一）
-        # `auto_stream` 已经开了**停等式**（上游 connect 的行为）；按配置再切成批式。
+        # `auto_stream` 已经开了**停等式**（上游 connect 的行为）⇒ 默认 `stopwait`
+        # 时这里**一个动作都不用做**（无命令往返、无降级风险）；只有配置成 `pace`
+        # 才需要往下切。缺键/空值时的兜底也用同一个常量，不另写字符串。
         # ⚠️ 只在 `pace_pull` 为真时切 —— 老上游上 `pace` 不存在，硬调会 AttributeError。
         # ⚠️ 这一步最坏 6 s（pace 内部 cmd.send wait=True 试 3 次）⇒ 必须在 executor 里
         #    （connect 本来就在 executor 里，见 routes）。失败**不阻断连接**：
         #    停等式照样在跑，"没切过去"是降级不是故障，但要留一句日志。
-        mode = str(self.cfg.get("mouse.stream_mode", "pace") or "pace").strip().lower()
+        mode = str(self.cfg.get("mouse.stream_mode", DEFAULT_STREAM_MODE)
+                   or DEFAULT_STREAM_MODE).strip().lower()
         out["stream_mode"] = _safe(lambda: str(mc.stream.mode)) or "off"
         if mode == "pace" and self._features.get("pace_pull") and mc.stream.is_on:
             try:

@@ -1750,16 +1750,17 @@ async def run(args) -> int:
                    if b40_ok else
                    f"**迷宫绘图的落位/格线不对**：{b40_bad[:4]}")
 
-            # ── B41：拉取模式切换 + 默认批式 + 老上游不画（改版十九，上游 2.9.0） ──
+            # ── B41：拉取模式切换 + 默认停等 + 老上游不画（改版十九 / 二十一，上游 2.9.0） ──
             # 守本轮三件事：
-            #   ① **默认批式**：连上之后 caps 的 `stream_mode` 必须是 `pace`
-            #      （2026-10-15 定：调试阶段要波形密；比赛不用蓝牙 ⇒ 10 Hz 档安全）。
+            #   ① **默认停等**：连上之后 caps 的 `stream_mode` 必须是 `stopwait`
+            #      （改版二十一从 pace 回退：在途恒 1 条请求、帧率 = 1/RTT，
+            #       任何异常都能当场归因；要密波形由人点【批式】显式切过去）。
             #   ② **切换真打到后端**：点【批式】/【停等】后，页面那一行要跟着变成
             #      "批式"/"停等" —— 只换按钮不换显示就是"点了没反应"。
             #   ③ **老上游上不画**（负向）：`pace_pull=False` 时 `#mp-mode` 必须空。
             #      按下去只会 501 的按钮，比没有按钮更坏。
             # ⚠️ 轮询等条件，**不固定 sleep**：pace() 内部最坏 6 s（3×2 s）。
-            head("2k. 实时状态页：拉取模式切换（批式/停等）、默认批式、老上游不画")
+            head("2k. 实时状态页：拉取模式切换（批式/停等）、默认停等、老上游不画")
             b41_bad, b41_got = [], []
             try:
                 with urllib.request.urlopen(base + "/api/v1/caps", timeout=15) as _r:
@@ -1768,14 +1769,15 @@ async def run(args) -> int:
                 pace_ok = bool(mcap.get("pace_pull"))
                 b41_got.append("caps.pace_pull=%s" % pace_ok)
                 if args.sim:
-                    # ① 默认批式（连接后 caps 里的门面三态）
+                    # ① 默认停等（连接后 caps 里的门面三态）
                     smode = str(mcap.get("stream_mode") or "")
                     b41_got.append("caps.stream_mode=%r" % smode)
                     if not pace_ok:
                         b41_bad.append("连了 2.9.0 上游却探到 pace_pull=False"
                                        "（能力位坏了 ⇒ 模式切换画不出来）")
-                    elif smode != "pace":
-                        b41_bad.append(f"默认不是批式：stream_mode={smode!r}（应为 'pace'）")
+                    elif smode != "stopwait":
+                        b41_bad.append(f"默认不是停等：stream_mode={smode!r}"
+                                       f"（应为 'stopwait'）")
                     # ② 端到端切模式（页面点按钮 + 轮询页面显示）
                     await cdp.eval("C.openMod('mouse','mod_params')")
                     await asyncio.sleep(0.6)
@@ -1798,17 +1800,18 @@ async def run(args) -> int:
                                 await asyncio.sleep(0.5)
                             b41_bad.append(f"点【{tag}】后页面那一行 9 s 内没变成「{want}」")
                             return False
-                        # 停等 → 批式 → 停等 → 批式（恢复默认）
-                        await cdp.eval(
-                            "(()=>{const b=document.querySelector("
-                            "'#mp-mode [data-mode=stopwait]');if(b)b.click();})()")
-                        if await _wait_mode("停等", "停等"):
-                            b41_got.append("切到停等 OK")
+                        # 批式 → 停等（**回到默认**）。两个方向都要点一遍
+                        # （铁律 46），末态回到默认停等，不给后面判据留非默认现场。
                         await cdp.eval(
                             "(()=>{const b=document.querySelector("
                             "'#mp-mode [data-mode=pace]');if(b)b.click();})()")
                         if await _wait_mode("批式", "批式"):
-                            b41_got.append("切回批式 OK")
+                            b41_got.append("切到批式 OK")
+                        await cdp.eval(
+                            "(()=>{const b=document.querySelector("
+                            "'#mp-mode [data-mode=stopwait]');if(b)b.click();})()")
+                        if await _wait_mode("停等", "停等"):
+                            b41_got.append("切回停等 OK")
                 else:
                     b41_got.append("未连模拟器 ⇒ 只跑负向（不猜端到端）")
             except Exception as e:                            # noqa: BLE001
@@ -1846,7 +1849,7 @@ async def run(args) -> int:
             record("B41", "PASS" if b41_ok else "FAIL",
                    f"拉取模式切换可用（{'；'.join(b41_got)}）"
                    if b41_ok else
-                   f"**拉取模式切换/默认批式不对**：{b41_bad[:4]}")
+                   f"**拉取模式切换/默认停等不对**：{b41_bad[:4]}")
 
 
             # ── B42：维护与自检卡（改版二十，上游 2.7.0 按键菜单远程化） ──
