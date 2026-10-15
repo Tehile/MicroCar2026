@@ -119,17 +119,24 @@ int main()
 	 *     会 printf 上千行, 超出 TX 环(512B)会按 v2.4 兜底丢字节、遥测帧可能花屏 ——
 	 *     比赛档同一条 UART 本就如此, 属预期;
 	 *   · 改动全部落在本 #ifdef MOUSE_REMOTE 段内: menu.c/calibrate.c 两档共用,
-	 *     碰了比赛档 hex 就变。 */
+	 *     碰了比赛档 hex 就变。
+	 *
+	 * v2.7.1 修正: 下面按键分支的 `BUTTON1` 判定极性原先写反 —— 真值是
+	 *   **idle=0 / 按下=1**(menu.c:33 的"4s 未按键自动进主流程"倒计时 + menu.c:105
+	 *   `while (BUTTON1);` + calibrate.c:190 `BUTTON1 == 1`, 三方一致)。原写
+	 *   `if (BUTTON1 == 0)` 当"按下", 使**空闲时 `while (BUTTON1 == 0)` 永久自旋**
+	 *   ⇒ main 永不执行 `LINK_MazeStarted()`: `MAZE RUN` 回 ACK OK 却**永不发车**、
+	 *   之后恒 ERR_BUSY 且 `MAZE STOP` 救不回(真机复现 2026-10-16)。已改为 `== 1`。 */
 	while (1)
 	{
 		while (!LINK_MazeRequested())
 		{
-			if (BUTTON1 == 0) /* 按下(低有效, 见 led.h) */
+			if (BUTTON1 == 1) /* 按下(idle=0/按下=1; 见 menu.c 的 while (BUTTON1); 与 calibrate.c 的 BUTTON1 == 1) */
 			{
 				DELAY_Ms(20); /* 消抖 */
-				if (BUTTON1 == 0)
+				if (BUTTON1 == 1)
 				{
-					while (BUTTON1 == 0) /* 等松开, 避免把长按当成多次短按 */
+					while (BUTTON1 == 1) /* 等松开, 避免把长按当成多次短按 */
 						DELAY_Ms(10);
 					MENU_Run();
 					/* MENU_Run 会把 freemode 清 0(menu.c 第 108 行), 2-8 项还会置

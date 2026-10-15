@@ -1,7 +1,7 @@
 # 上位机可编程接口参考（API Reference）
 
-> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-15 20:53:33
-> API 版本：`2.10.0`　|　包：`host`
+> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-16 01:32:12
+> API 版本：`2.10.1`　|　包：`host`
 
 > 这是「让上位机做一件事 = 调一个方法」的完整接口清单。
 > 每个方法都会等待设备应答（默认 `wait=True` 且带超时），脚本能写直线代码。
@@ -42,7 +42,7 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 | `estop` | `ESTOP` | `—` | 1.0 | 急停(置 freemode, 并锁存直到 STOP) |
 | `estop.clear` | `STOP` | `—` | 1.0 | `stop` 的同义入口(语义即「停车 + 解急停锁存」), 保留以便书写直观 |
 | `maze.dump` | `MAP DUMP` | `—` | 1.0 | 墙图整块回传(98B) |
-| `maze.run` | `MAZE RUN` | `target` | 1.0 | 远程发车(**仅远程档 MOUSE_REMOTE**; 比赛固件回 ERR_VALUE)。 target ∈ {BLIND, RACE}: BLIND=无记忆走迷宫(实验八剖面, 默认), RACE=正式比赛代码(先读图选档再发车)。 固件只置请求位, 真正的 while(1) 迷宫由主循环执行 —— 所以下达后命令通道与遥测都不会被阻塞。 ⚠️ 已在跑时回 `ERR_BUSY`, 急停锁存中回 `ERR_ESTOP`; 收车用 `maze.stop`(或 `system.reset`), 之后才能再次发车。 v2.8(远程档 fw 221): 命令被接受的**同一时刻固件点亮全部 4 个 LED**, 保持 `LINK_LAUNCH_MARK_MS`(300ms)后释放 —— 录像时以「4 灯齐亮」那一帧对齐发车时刻; 窗口过后 LED 行为与从前一致(本命令的协议文本/应答均未变) |
+| `maze.run` | `MAZE RUN` | `target` | 1.0 | 远程发车(**仅远程档 MOUSE_REMOTE**; 比赛固件回 ERR_VALUE)。 target ∈ {BLIND, RACE}: BLIND=无记忆走迷宫(实验八剖面, 默认), RACE=正式比赛代码(先读图选档再发车)。 固件只置请求位, 真正的 while(1) 迷宫由主循环执行 —— 所以下达后命令通道与遥测都不会被阻塞。 ⚠️ 已在跑时回 `ERR_BUSY`, 急停锁存中回 `ERR_ESTOP`; 收车用 `maze.stop`(或 `system.reset`), 之后才能再次发车。 v2.8 起(远程档): 命令被接受的**同一时刻固件点亮全部 4 个 LED**, 保持 `LINK_LAUNCH_MARK_MS`(300ms)后释放 —— 录像时以「4 灯齐亮」那一帧对齐发车时刻; 窗口过后 LED 行为与从前一致(本命令的协议文本/应答均未变) |
 | `maze.stop` | `MAZE STOP` | `—` | 1.0 | **把电脑鼠带出迷宫**: 停车 + 复位发车状态 + 解锁急停(**仅远程档 MOUSE_REMOTE**; 比赛固件回 ERR_VALUE)。 发车后固件主循环停在 LESSON_Blind8() 的 while(1) 里, 光靠 ESTOP/STOP 停不掉那个循环、发车状态无法复位。 ⚠️ 主循环里有大量**非协作式阻塞等待**, 标志位常常轮不到 ⇒ 现场常见现象是回 OK 但 task 仍在 SEARCH; 真正可靠的收车是 `system.reset` |
 | `move.fwd` | `MOVE FWD 3000 40` | `pulses, speed` | 1.0 | 固定脉冲直线(开环) |
 | `move.rot` | `MOVE ROT 2000 100` | `pwm, ms` | 1.0 | 固定 PWM 定长原地转(开环) |

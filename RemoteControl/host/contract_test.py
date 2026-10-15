@@ -275,10 +275,31 @@ def _test_firmware_mode_gates() -> None:
     import re
 
     fw = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code_stm32f1_mouse")
-    main_h = open(os.path.join(fw, "USER", "main.h"), encoding="utf-8").read()
-    link_c = open(os.path.join(fw, "HARDWARE", "link.c"), encoding="utf-8").read()
-    isr_c = open(os.path.join(fw, "HARDWARE", "isr.c"), encoding="utf-8").read()
-    link_h = open(os.path.join(fw, "HARDWARE", "link.h"), encoding="utf-8").read()
+
+    def _read_utf8(path: str, label: str) -> str:
+        """严格 UTF-8 读固件源码, 失败时给**可读**的定位信息。
+
+        2026-10-16 真机踩到: 某次手工"复原行尾"把 `USER/main.h` 一处中文注释写坏
+        (UTF-8 多字节里被插入一个 0x20), 结果本测试直接抛 UnicodeDecodeError ——
+        什么信息都没有。这里把它变成一句能照做的提示。
+        约定: 固件源码全树必须是合法 UTF-8, 工作区行尾 CRLF。
+        """
+        raw = open(path, "rb").read()
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise SystemExit(
+                f"\n[S8] 固件源码 {label} **不是合法 UTF-8**: {e}\n"
+                f"     坏字节位置 = {e.start}(上下文 {raw[max(0, e.start - 12):e.start + 12]!r})\n"
+                f"     常见原因: 手工改行尾(CRLF↔LF)或改档位宏时把中文注释写坏。\n"
+                f"     修法: `git checkout -- <该文件>` 取回 HEAD 内容, 再按既有约定\n"
+                f"     复原工作区 CRLF(`\\r\\n`), 最后 `git ls-files --eol <该文件>` + "
+                f"`git diff` 复核为空。")
+
+    main_h = _read_utf8(os.path.join(fw, "USER", "main.h"), "USER/main.h")
+    link_c = _read_utf8(os.path.join(fw, "HARDWARE", "link.c"), "HARDWARE/link.c")
+    isr_c = _read_utf8(os.path.join(fw, "HARDWARE", "isr.c"), "HARDWARE/isr.c")
+    link_h = _read_utf8(os.path.join(fw, "HARDWARE", "link.h"), "HARDWARE/link.h")
 
     # S8a: 档位宏白名单 —— main.h 里 `#define MOUSE_*` 只允许 MOUSE_REMOTE
     defined = set(re.findall(r"#define\s+(MOUSE_\w+)", main_h))

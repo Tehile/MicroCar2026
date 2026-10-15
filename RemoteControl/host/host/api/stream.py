@@ -238,9 +238,16 @@ class TelemetryPuller:
         # ---- 批式: 先把 RATE PULL 打到设备里(3 次重试), 再进入网格调度 ----
         last = "?"
         for _ in range(self.CMD_TRIES):
-            r = self._send_rate()
-            last = str(r.status)
-            if r.ok:
+            # `_send_rate` 走 `cmd.send(wait=True)` —— 超时会**抛异常**(而不是返回
+            # `Result(False,"TIMEOUT")`)。真机实测 2026-10-16: `MCU RESET` 后固件需
+            # ~3.2s 才就绪, 此刻发 `RATE PULL` 必超时 ⇒ 未捕获的异常会一路逃逸
+            # (曾把整条收车流程打断)。这里统一当"这次没成", 继续重试。
+            try:
+                r = self._send_rate()
+            except Exception:
+                r = None
+            last = str(r.status) if r is not None else "TIMEOUT"
+            if r is not None and r.ok:
                 break
             time.sleep(0.15)
         else:
@@ -388,9 +395,17 @@ class TelemetryPuller:
             self.running = True
             self._refill()
             return
+        # ⚠️ `_send_rate` 超时会**抛异常**(与 `start()` 同款, 见其上注释)。这里必须
+        # 捕获: 否则异常会经 `send_cmd()` 的 `finally: stream.resume()` 逃逸 ——
+        # 真机事故 2026-10-16: 收车时 `MCU RESET` 后 resume 立刻重发 `RATE PULL`
+        # 超时, 异常把整个收车流程打断(脚本崩、车停在半途)。重试用尽就**静默保持
+        # 停**, 需要时由调用方重新 `start()`。
         for _ in range(self.CMD_TRIES):
-            r = self._send_rate()
-            if r.ok:
+            try:
+                r = self._send_rate()
+            except Exception:
+                r = None
+            if r is not None and r.ok:
                 self.running = True
                 self._due_mono = time.monotonic() + 0.05
                 self._drop_pending("RESUME")

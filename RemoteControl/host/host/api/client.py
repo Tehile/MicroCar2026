@@ -562,7 +562,14 @@ class MouseClient:
             return Result(p.ok, p.status, {"cmd": line, "attempts": p.attempts})
         finally:
             if spec.urgent:
-                self.stream.resume()
+                # ⚠️ 让路恢复**绝不能反噬命令结果**: 真机事故 2026-10-16 —— `MCU RESET`
+                # 后 `stream.resume()` 重发 `RATE PULL` 超时抛异常, 经这里逃逸出去把
+                # 整条收车流程打断(脚本崩、车停不下来)。命令此时已返回, 恢复失败只
+                # 意味着后台拉取器没起来, 由上层/下一轮 `stream.start()` 重新拉起即可。
+                try:
+                    self.stream.resume()
+                except Exception:
+                    pass
 
     def send_async(self, cmd: str, **kw: Any):
         """发送但不等待（返回 Pending）。需要自己 `wait(lambda: p.done)`。"""

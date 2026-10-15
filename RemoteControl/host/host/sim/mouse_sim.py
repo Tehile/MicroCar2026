@@ -61,7 +61,7 @@ from ..protocol.codec import (
 
 MAZETYPE = 7
 PROTO_VER = 8  # v2.7: CAL 家族新增 6 个菜单远程化子命令(帧格式与参数表未变); v2.8 亦未变
-FW_VER = 221  # v2.8: 远程档 MAZE RUN 瞬间点亮全部 4 个 LED(LINK_LAUNCH_MARK_MS=300ms)后释放
+FW_VER = 222  # v2.10.1: 修正远程档值守循环按键极性(USER/main.c), 使 MAZE RUN 真被消费并发车; 帧格式/命令集/参数表未变
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {

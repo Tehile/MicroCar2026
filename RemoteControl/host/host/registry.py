@@ -49,6 +49,13 @@ v2.9: **批式拉取**(纯上位机) —— 新增 `mc.stream.pace()` / `pace_of
     自动检测(连续 3s 无帧 ⇒ `Event.ERROR(kind="link_lost")` + 提示物理断电复位)。
     **零协议改动**: 不加命令、不加字段、不改帧 ⇒ 协议号仍停 8, 固件 fw 不变。
     命令仍 24 条。
+
+v2.10.1: **远程档发车请求消费修复**(固件侧) —— `USER/main.c` 值守循环里那条
+    "按键进菜单"分支把 `BUTTON1` 极性写反(真值 **idle=0 / 按下=1**)。空闲时
+    `while (BUTTON1 == 0)` **永久自旋** ⇒ main 永不执行 `LINK_MazeStarted()`:
+    `MAZE RUN` 回 **ACK OK 却永不发车**、随后恒 `ERR_BUSY` 且 `MAZE STOP` 救不回
+    (真机复现 2026-10-16)。该缺陷由 v2.7 引入。**上位机侧零改动**(不加命令/字段/
+    帧) ⇒ 协议号仍停 8, 固件 fw 221→222, 上位机产品版本 2.10.0→2.10.1。命令仍 24 条。
 """
 
 from __future__ import annotations
@@ -64,7 +71,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.10.0"  # v2.10: 拉取器统一 TelemetryPuller(停等 TELEM 与批式 RATE PULL n t 合并, n=1 退化为停等)+ 批式锚刷新 + 停等式断连判定; 纯上位机, PROTO 仍 8 / fw 221
+API_VERSION = "2.10.1"  # v2.10.1: 固件侧修复远程档发车请求消费(USER/main.c 按键极性; 见 link.h 历史 222); **host 侧零改动** ⇒ PROTO 仍 8 / fw 222
 
 
 # ---------------------------------------------------------------- 命令表
@@ -363,7 +370,7 @@ COMMANDS: Dict[str, CommandSpec] = {
             "所以下达后命令通道与遥测都不会被阻塞。 "
             "⚠️ 已在跑时回 `ERR_BUSY`, 急停锁存中回 `ERR_ESTOP`; "
             "收车用 `maze.stop`(或 `system.reset`), 之后才能再次发车。 "
-            "v2.8(远程档 fw 221): 命令被接受的**同一时刻固件点亮全部 4 个 LED**, "
+            "v2.8 起(远程档): 命令被接受的**同一时刻固件点亮全部 4 个 LED**, "
             "保持 `LINK_LAUNCH_MARK_MS`(300ms)后释放 —— 录像时以「4 灯齐亮」那一帧"
             "对齐发车时刻; 窗口过后 LED 行为与从前一致(本命令的协议文本/应答均未变)"
         ),

@@ -21,10 +21,15 @@
                        (剖面 n: n=1 停等 / n≥2 批式, "后者是前者的拓展"在调度器
                        层面成立); 顺带补两个缺口: 批中点注入 `TELEM` 刷时间锚
                        (每 30s)与停等式的断连判定(7s)。命令集/帧格式/参数表
-                       一字未动 ⇒ 协议号仍停 8, fw 仍 221。
+                       一字未动 ⇒ 协议号仍停 8。
+                     v2.10.1 固件侧修复(**host 零改动**): `USER/main.c` 值守循环按键
+                       分支的 `BUTTON1` 极性写反(真值 idle=0 / 按下=1), 空闲时
+                       `while (BUTTON1 == 0)` 永久自旋 ⇒ main 永不消费 `MAZE RUN`
+                       (`MAZE RUN` 回 ACK OK 却永不发车、随后恒 ERR_BUSY)。
+                       命令集/帧格式/参数表一字未动 ⇒ 协议号仍停 8, fw 221→222。
 """
 
-__version__ = "2.10.0"
+__version__ = "2.10.1"
 PROTO_VER = 8
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)

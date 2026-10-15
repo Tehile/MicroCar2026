@@ -60,16 +60,30 @@
                           *        SENSOR/IRCAP/BLOCK/ERASEALL), 把按键菜单 2/4/5/6/7/8
                           *        项的能力远程化。**帧格式与参数表均未变**, 进位只因
                           *        命令集变化(先例: v2.4 的 `MAZE RUN`、v2.6 的 RATE 族)。 */
-#define LINK_FW_VER 221  /* 2.21 —— v2.8: 远程档收到 `MAZE RUN` 的同一时刻**点亮全部
-                          *        4 个 LED**(LED1-4)并保持 `LINK_LAUNCH_MARK_MS`,
-                          *        给录像一个无歧义的发车时间标记; 窗口过后 LED 行为
-                          *        一字未改。**帧格式/命令集/参数表全未变**(49B/57B/41 项),
-                          *        故协议号仍 8。 */
+#define LINK_FW_VER 222  /* 2.22 —— v2.10.1: 修正远程档值守循环按键分支的 `BUTTON1` 判定
+                          *        极性 —— 原写 `if (BUTTON1 == 0)` 当"按下"是**反的**
+                          *        (真值 idle=0 / 按下=1, 见 menu.c:33 的"4s 未按键自动
+                          *        进主流程"倒计时 + calibrate.c:190 `BUTTON1 == 1`)。该缺陷
+                          *        使空闲时 `while (BUTTON1 == 0)` **永久自旋** ⇒ main 永不
+                          *        执行 `LINK_MazeStarted()`: `MAZE RUN` 回 ACK OK 却**永不
+                          *        发车**、随后恒 ERR_BUSY 且 `MAZE STOP` 救不回。详见
+                          *        USER/main.c 值守循环。**帧格式/命令集/参数表全未变**
+                          *        (49B/57B/41 项) ⇒ 协议号仍 8。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(基线 hex sha256 f0a5f863...)。 */
 #endif
 /* 历史版本记录:
+ *  222 = v2.10.1: **远程档发车请求消费修复** —— `USER/main.c` 值守循环(等 `MAZE RUN`)
+ *        里那条"按键进菜单"分支把 `BUTTON1` 极性写反(原 `if (BUTTON1 == 0)` 当按下;
+ *        真值 **idle=0 / 按下=1**, 见 menu.c:33 的"4s 未按键自动进主流程"倒计时与
+ *        calibrate.c:190 `BUTTON1 == 1`)。空闲时 `while (BUTTON1 == 0)` **永久自旋** ⇒
+ *        main 永不执行 `LINK_MazeStarted()`: `MAZE RUN` 回 **ACK OK 却永不发车**、随后
+ *        恒 `ERR_BUSY` 且 `MAZE STOP` 救不回(真机复现 2026-10-16, 见 host/
+ *        v210_launch_pull_test.py)。缺陷由 v2.7(220) 引入(其父版本循环仅 `DELAY_Ms(1)`);
+ *        v2.8 的"发车标记灯"验收只确认了命令层点的 4 颗灯、未验车辆真动, 故漏网。
+ *        修正只在 `#ifdef MOUSE_REMOTE` 段内 ⇒ 比赛档 hex 逐字节不变;
+ *        协议/命令/参数表零改动 ⇒ `LINK_PROTO_VER` 仍 8。
  *  221 = v2.8: **发车标记灯** —— 远程档 `MAZE RUN` 被接受的那一刻直接写引脚点亮
  *        LED1-4, 并保持 `LINK_LAUNCH_MARK_MS`(300ms)后释放。动机: 录像时需要一个
  *        无歧义的发车时刻标定(对轴)。实现刻意不加固件侧新状态机: 只在 link.c 加
