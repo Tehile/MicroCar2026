@@ -40,6 +40,15 @@ v2.8: **发车标记灯**(固件侧, 远程档) —— `MAZE RUN` 被接受的�
     发车时刻标定; 窗口过后 LED 行为一字未改。**上位机侧零改动**(不加命令、不加
     字段、不改帧): 标记体现在**物理灯**上而非协议里, 故协议号仍停 8, 只有固件
     fw 220→221 与上位机产品版本 2.7.0→2.8.0。命令仍 24 条。
+
+v2.9: **批式拉取**(纯上位机) —— 新增 `mc.stream.pace()` / `pace_off()`:
+    走既有 `rate.pull`(`RATE PULL n t`)命令, 以稀疏基频命令(3.3Hz)+每批多帧
+    (n=3, t=100ms)把遥测从停等式的 ~4Hz 提到 10Hz(2.5 倍), 依据是 2026-10-15
+    真机压测: 链路 ~150ms 转发量子 ⇒ 容量 ≈13.3Hz, 26Hz 级必死, 10Hz 留余量档
+    300s/240.9s 两组存活(详见 docs/链路MTBF压测方法.md §13-15)。同时新增断连
+    自动检测(连续 3s 无帧 ⇒ `Event.ERROR(kind="link_lost")` + 提示物理断电复位)。
+    **零协议改动**: 不加命令、不加字段、不改帧 ⇒ 协议号仍停 8, 固件 fw 不变。
+    命令仍 24 条。
 """
 
 from __future__ import annotations
@@ -55,7 +64,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.8.0"  # v2.8: 固件发车标记灯(远程档 MAZE RUN 瞬间点亮全部 4 个 LED); 上位机侧零协议改动, PROTO 仍 8 / fw 221
+API_VERSION = "2.9.0"  # v2.9: 批式拉取 mc.stream.pace()(RATE PULL n t, 默认 10Hz)+ 断连自动检测; 纯上位机, PROTO 仍 8 / fw 221
 
 
 # ---------------------------------------------------------------- 命令表

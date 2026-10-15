@@ -1,7 +1,7 @@
 # 上位机可编程接口参考（API Reference）
 
-> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-14 23:31:17
-> API 版本：`2.8.0`　|　包：`host`
+> 由 `tools/gen_api_reference.py` 自动生成，勿手改。生成时间：2026-10-15 08:37:13
+> API 版本：`2.9.0`　|　包：`host`
 
 > 这是「让上位机做一件事 = 调一个方法」的完整接口清单。
 > 每个方法都会等待设备应答（默认 `wait=True` 且带超时），脚本能写直线代码。
@@ -244,12 +244,15 @@ with MouseClient.connect_to("COM7") as mc:        # 退出自动断开+收会话
 |---|---|---|
 | `anchor` | `(self)` | 当前时间锚 `(本机单调秒, 设备 ms)`; 未建立时 None。 |
 | `off` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 停止拉取。**立刻停发** —— 这是让蓝牙模块缓冲排空的唯一手段。 |
-| `on` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 开始拉取遥测(首条应答即建立时间锚)。非阻塞。 |
+| `on` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 开始**停等式**拉取遥测(首条应答即建立时间锚)。非阻塞。 |
+| `pace` | `(self, n: 'Optional[int]' = None, t_ms: 'Optional[int]' = None, timeout: 'float' = 3.0) -> 'Result'` | 切换到**批式**拉取(`RATE PULL n t`, 默认 n=3/t=100ms = 10Hz)。 |
+| `pace_off` | `(self, timeout: 'float' = 3.0) -> 'Result'` | 退出批式拉取(固件侧发 `RATE OFF` 停发)。 |
 | `resume` | `(self) -> 'None'` | 恢复被 `suspend()` 暂停的拉取(仅当它原本在跑时才恢复)。 |
-| `stats` | `(self) -> 'Dict[str, Any]'` | 拉取器状态: 在途数/收发计数/实测帧率。 |
+| `stats` | `(self) -> 'Dict[str, Any]'` | 拉取器状态: 在途数/收发计数/实测帧率 + 门面层模式。 |
 | `suspend` | `(self) -> 'None'` | **给命令通道让路**: 暂停拉取并等线上静默(由 `resume()` 恢复)。 |
+| `tick` | `(self) -> 'None'` | 调度线程 50Hz 调用: 路由到当前活跃的拉取器(两者互斥)。 |
 | `toggle` | `(self, on: 'bool', timeout: 'float' = 3.0) -> 'Result'` |  |
-| `tune` | `(self, request_timeout: 'Optional[float]' = None) -> 'Dict[str, Any]'` | 运行期调整超时(仅供实验; 会立即生效)。 |
+| `tune` | `(self, request_timeout: 'Optional[float]' = None, n: 'Optional[int]' = None, t_ms: 'Optional[int]' = None) -> 'Dict[str, Any]'` | 运行期调参(立即生效)。 |
 
 ### 7.6 `mc.calib` — 标定
 

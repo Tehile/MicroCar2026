@@ -41,6 +41,7 @@ import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .errors import Result
+from .events import Event
 
 if TYPE_CHECKING:  # pragma: no cover
     from .client import MouseClient
@@ -75,6 +76,11 @@ class PullRequester:
         #: 让路(suspend/resume)的嵌套计数与"原本是否在跑"的记忆 —— 见 suspend()。
         self._suspends = 0
         self._was_running = False
+
+    @property
+    def paused(self) -> bool:
+        """是否处于 `suspend()` 暂停中(嵌套计数 > 0)。v2.9 供门面路由用。"""
+        return self._suspends > 0
 
     # ------------------------------------------------------------ 启停
 
@@ -258,22 +264,296 @@ class PullRequester:
         }
 
 
+class PacePull:
+    """**批式拉取**(v2.9): 稀疏基频命令 + 每批多帧 —— `RATE PULL <n> <t>`。
+
+    与 `PullRequester`(停等单条 `TELEM`)**互斥**, 由 `StreamAPI` 二选一管理。
+    默认 `n=3, t_ms=100`(基频 3.33 Hz + 每批 3 帧 = 10 Hz 到达帧率)。
+
+    为什么需要它(2026-10-15 真机压测全记录, COM7/蓝牙透传/fw 221, 详见
+    `docs/链路MTBF压测方法.md` §13-15):
+      停等式单条请求受 1/RTT 限制只有 ~4Hz。直接提速会死, 因为这条链路有
+      **~150ms 的转发量子**: MCU 侧帧内 ms8 严格 t 一拍, PC 侧却两帧在 <1ms
+      内成对到达 ⇒ 模块把帧攒批转发, 真实容量 ≈ 2 帧/150ms ≈ 13.3Hz。实测:
+        · 26Hz 级(FIX / evt / PULL 密集)三组 15.5 / 95.2 / 113.3 s 全部断连;
+        · 13.3Hz 顶格(PULL 3 75) 176.3s; 12Hz 无命令(FIX) 300 / 143s;
+        · **10Hz 留余量(PULL 3 100) 300s / 240.9s**, 交付率 99.9% / 98.6%。
+      ⇒ "稀疏命令 + 每批多帧"在容量 ~75% 处运行: 传输量 2.5 倍(4→10Hz),
+         断连概率大幅低于顶格/超容。
+
+    工作方式: PC 每 `T = n·t` 毫秒发一条 `RATE PULL n t`(幂等; 丢一条下一条
+    自然补上 —— 这正是"基频+多帧"的自愈性), 固件收到后以 t 为节拍连发 n 帧。
+    PC **不发** `TELEM`, 只做三件事:
+      1. 到点发命令(提前 RTT 发, 让批首帧落在网格上);
+      2. 每批首帧到达后更新 RTT 估计(整趟 = 命令下行 + 首帧上行, IIR 0.25);
+      3. 连续 `GAP_TIMEOUT_S` 无帧 ⇒ 判链路死亡, 发一次 `Event.ERROR`
+         (kind="link_lost") 提示**物理断电复位** —— 真机实测断连不会自愈,
+         "9 分钟自行恢复"假说已于 2026-10-15 证伪。
+
+    线程契约: `tick()` 由 `MouseClient` 调度线程 50Hz 调用(**非阻塞**一步);
+    `start()/stop()/suspend()/resume()` 由调用者线程调用。内部只用标量,
+    读侧只经 `TelemetryAPI` 的原子访问器, 与 `PullRequester` 一致。
+
+    参数约束: `n`∈[1,16](固件 `RATE PULL` 上限), `t_ms`≥1; `T=n·t` **建议取
+    75ms 整数倍** —— 下行命令通路按 75ms 量化, 非整数倍会看到批起点被推后
+    (实测 paceB T=150ms 仍有 44 次 293ms 边界; T=300ms 的 E 组边界 282~290ms)。
+    """
+
+    #: 断连判定: 连续无帧上限(s)。E 组实测正常最大帧间隔 236ms; 3s 无帧 =
+    #: 模块停转发(真机 8 组样本全是这个死法, 且必须物理断电才能恢复)。
+    GAP_TIMEOUT_S = 3.0
+    #: RTT 估计的 IIR 增益(新样本权重)。0.25 = 4 批收敛, 兼顾响应与平滑。
+    RTT_GAIN = 0.25
+    #: RTT 初值(s): 命令下行 + 首帧上行。链路实测 57~137ms, 取中偏保守。
+    RTT_WARMUP_S = 0.10
+    #: `start()`/`resume()` 时 `RATE PULL` 命令的重试次数(连上后首条常丢)。
+    CMD_TRIES = 3
+    #: `suspend()` 时等线上静默的上限(s): 发 `RATE OFF` 后固件立即丢弃本批
+    #: 剩余帧, 等一个 RTT 让最后的帧到达即可, 上限兜底"帧真丢了"。
+    QUIESCE_MAX_S = 0.30
+
+    def __init__(self, mc: "MouseClient", n: int = 3, t_ms: int = 100) -> None:
+        self._mc = mc
+        self.running = False
+        self.n = 1
+        self.t_ms = 100
+        self.T_s = 0.3
+        self.fps = 10.0
+        self.configure(n, t_ms)
+        self._t0 = 0.0            # 启动时刻(墙钟, 与 last_frame_age 同基准)
+        self._due_mono = 0.0      # 下一批首帧应到时刻(单调钟)
+        self._rtt = self.RTT_WARMUP_S
+        self._pending = None      # (send_wall, frames_before) 待反馈批次
+        self._frames0 = 0         # 启动时的累计帧数(算增量)
+        self.batches = 0
+        self.lost_batches = 0     # 整批没到的次数(命令丢失/被抢)
+        self.dead = False         # 已判链路死亡(只发一次事件)
+        self._suspends = 0
+        self._was_running = False
+
+    @property
+    def paused(self) -> bool:
+        """是否处于 `suspend()` 暂停中(嵌套计数 > 0)。供门面路由用。"""
+        return self._suspends > 0
+
+    # ------------------------------------------------------------ 参数
+
+    def configure(self, n: int, t_ms: int) -> Dict[str, Any]:
+        """设置每批帧数 n 与帧内节拍 t_ms(运行中调用会随下一条命令生效)。"""
+        n, t_ms = int(n), int(t_ms)
+        if not 1 <= n <= 16:
+            raise ValueError(f"n 须在 1..16(固件 RATE PULL 上限), 收到 {n}")
+        if t_ms < 1:
+            raise ValueError(f"t_ms 须 ≥1, 收到 {t_ms}")
+        self.n, self.t_ms = n, t_ms
+        self.T_s = n * t_ms / 1000.0
+        self.fps = n / self.T_s
+        return {"n": n, "t_ms": t_ms, "T_ms": n * t_ms,
+                "fps": round(self.fps, 2)}
+
+    # ------------------------------------------------------------ 命令
+
+    def _rate_word(self) -> str:
+        return "RATE PULL %d %d" % (self.n, self.t_ms)
+
+    def _send_rate(self) -> Result:
+        return self._mc.cmd.send(self._rate_word(), wait=True,
+                                 timeout=2.0, no_retry=True)
+
+    # ------------------------------------------------------------ 启停
+
+    def start(self) -> Result:
+        """进入批式拉取。非阻塞 —— 发一条 `RATE PULL` 就返回。"""
+        if self.running:
+            return Result(True, "OK", {"n": self.n, "t_ms": self.t_ms})
+        last = "?"
+        for _ in range(self.CMD_TRIES):
+            r = self._send_rate()
+            last = str(r.status)
+            if r.ok:
+                break
+            time.sleep(0.15)
+        else:
+            return Result(False, "RATE_PULL_FAILED",
+                          {"word": self._rate_word(), "status": last})
+        self.running = True
+        self.dead = False
+        self.batches = 0
+        self.lost_batches = 0
+        self._rtt = self.RTT_WARMUP_S
+        self._t0 = time.time()
+        self._frames0 = self._mc.telemetry.samples()
+        # 网格: 首批提前 RTT 发, 首帧落在 now+0.05(给固件反应时间)
+        self._due_mono = time.monotonic() + 0.05
+        self._pending = None
+        return Result(True, "OK", {"n": self.n, "t_ms": self.t_ms,
+                                   "T_ms": self.n * self.t_ms})
+
+    def stop(self) -> Result:
+        """退出批式拉取: 发 `RATE OFF` 让固件也停(立刻停发是关键)。"""
+        was = self.running
+        self.running = False
+        self._pending = None
+        if was:
+            try:
+                self._mc.cmd.send("RATE OFF", wait=True, timeout=2.0,
+                                  no_retry=True)
+            except Exception:
+                pass
+        return Result(True, "OK" if was else "ALREADY_OFF",
+                      {"frames": self.frames()})
+
+    # ------------------------------------------------------------ 让路
+
+    def suspend(self) -> None:
+        """给命令通道让路: 停发 `RATE PULL` 并发 `RATE OFF`, 等线上静默。
+
+        契约与 `PullRequester.suspend()` 相同( `send_cmd` 的 urgent 命令与
+        `send_raw` 都会调它): 固件每 1ms 只消费一行命令, 本类 3.3Hz 的周期
+        命令虽稀, 仍可能撞窗口 —— 让路期间彻底不发, 恢复时重新进入 PULL 模式。
+        幂等/可嵌套: 只有最外层真正暂停/恢复。
+        """
+        self._suspends += 1
+        if self._suspends > 1 or not self.running:
+            return
+        self._was_running = True
+        self.running = False
+        self._pending = None
+        try:
+            self._mc.cmd.send("RATE OFF", wait=True, timeout=2.0, no_retry=True)
+        except Exception:
+            pass
+        deadline = time.monotonic() + self.QUIESCE_MAX_S
+        while time.monotonic() < deadline:
+            age = self._mc.telemetry.last_frame_age()
+            if age is not None and age < 0.02:
+                break
+            time.sleep(0.005)
+
+    def resume(self) -> None:
+        """恢复被 `suspend()` 暂停的批式拉取(仅当它原本在跑且链路未死)。"""
+        if self._suspends > 0:
+            self._suspends -= 1
+        if self._suspends > 0 or not self._was_running:
+            return
+        self._was_running = False
+        if self.dead or self.running:
+            return
+        for _ in range(self.CMD_TRIES):
+            r = self._send_rate()
+            if r.ok:
+                self.running = True
+                self._due_mono = time.monotonic() + 0.05
+                self._pending = None
+                return
+            time.sleep(0.15)
+
+    # ------------------------------------------------------------ 调度
+
+    def tick(self) -> None:
+        """调度线程 50Hz 调用。**非阻塞**: 没到点就返回。"""
+        if not self.running:
+            return
+        now_mono = time.monotonic()
+        now_wall = time.time()
+
+        # 1) 断连检测(墙钟, 与 last_frame_age 同基准)。只判一次并发事件 ——
+        #    真机实测: 断连后必须物理断电复位, 上位机重连/软复位都救不回来。
+        age = self._mc.telemetry.last_frame_age()
+        if age is not None and age > self.GAP_TIMEOUT_S:
+            if not self.dead:
+                self.dead = True
+                self.running = False
+                self._pending = None
+                self._mc.bus.emit(Event.ERROR, {
+                    "kind": "link_lost",
+                    "msg": "连续 %.1fs 无遥测帧: 链路已断(实测不自愈)。"
+                           "请给电脑鼠/蓝牙模块断电 3~5s 再重连, 然后"
+                           " mc.stream.pace() 恢复。" % age})
+            return
+
+        # 2) 上一批反馈: 首帧到了就算 RTT(整趟); 超 T+1s 没到算整批丢失。
+        if self._pending is not None:
+            send_wall, idx0 = self._pending
+            if self._mc.telemetry.samples() > idx0:
+                rtt = now_wall - send_wall
+                if 0.005 < rtt < 2.0:
+                    self._rtt = (1.0 - self.RTT_GAIN) * self._rtt + \
+                                self.RTT_GAIN * rtt
+                self._pending = None
+            elif now_wall - send_wall > self.T_s + 1.0:
+                self.lost_batches += 1
+                self._pending = None
+
+        # 3) 到点发命令(提前 RTT, 让批首帧落在网格上)。网格**恒定推进**,
+        #    不锁实测首帧 —— 锁实测会把 RTT 抖动写进网格累积成速率误差
+        #    (link_pull_pace.py 实测: 锁实测被压到 10.4Hz/目标 12.05)。
+        if now_mono >= self._due_mono - self._rtt:
+            idx = self._mc.telemetry.samples()
+            self._mc.cmd.send(self._rate_word(), wait=False, no_retry=True)
+            self.batches += 1
+            self._pending = (now_wall, idx)
+            self._due_mono += self.T_s
+
+    # ------------------------------------------------------------ 视图
+
+    def frames(self) -> int:
+        base = self._mc.telemetry.samples() - self._frames0
+        return max(0, base)
+
+    def snapshot(self) -> Dict[str, Any]:
+        frames = self.frames()
+        el = time.time() - self._t0 if self._t0 else 0.0
+        return {
+            "mode": "pace",
+            "running": self.running,
+            "n": self.n,
+            "t_ms": self.t_ms,
+            "T_ms": self.n * self.t_ms,
+            "fps_target": round(self.fps, 2),
+            "fps_obs": round(frames / el, 2) if el > 1.0 else 0.0,
+            "batches": self.batches,
+            "frames": frames,
+            "lost_batches": self.lost_batches,
+            "rtt_ms": round(self._rtt * 1000.0, 1),
+            "dead": self.dead,
+            "suspends": self._suspends,
+        }
+
+
 class StreamAPI:
     """遥测拉取开关(门面 `mc.stream`)。
 
-    沿用 v1.5.5 的"显式开关"语义: 连上之后要 `mc.stream.on()` 才开始收遥测;
-    `mc.stream.off()` 停止拉取。区别只在于开流不再是"命令固件持续发",
-    而是"本机开始循环请求"。
+    两种互斥的拉取模式(v2.9):
+      · `on()` / `off()` —— **停等式** `PullRequester`(单条 `TELEM` 请求-响应,
+        ~4Hz, 久经考验的默认; 时间锚随每次应答刷新);
+      · `pace()` / `pace_off()` —— **批式** `PacePull`(`RATE PULL n t`,
+        稀疏命令+每批多帧, 默认 10Hz; 2026-10-15 真机压测的 2.5 倍传输量档)。
+    `suspend()/resume()` 自动路由到当前活跃的那个, 急停让路契约不变。
+
+    两种模式都沿用 v1.5.5 的"显式开关"语义: 连上之后要显式开流才开始收遥测
+    (`mc.stream.on()` 停等式 / `mc.stream.pace()` 批式), 关流(`off()` /
+    `pace_off()`) 即彻底停发 —— 区别只在于开流不再是"命令固件持续发",
+    而是"本机开始循环请求"(停等式)或"本机按基频命令、固件批量发"(批式)。
     """
 
     def __init__(self, mc: "MouseClient") -> None:
         self._mc = mc
         self._req = PullRequester(mc)
+        # v2.9: 批式拉取器(默认 10Hz 档; 与 _req 互斥, 见 PacePull docstring)
+        self._pace = PacePull(mc)
+        # suspend() 期间记住被暂停的是哪个模式(两者互斥, 恢复时路由回去)
+        self._suspended_kind: Optional[str] = None
 
     # ------------------------------------------------------------ 开关
 
     def on(self, timeout: float = 3.0) -> Result:
-        """开始拉取遥测(首条应答即建立时间锚)。非阻塞。"""
+        """开始**停等式**拉取遥测(首条应答即建立时间锚)。非阻塞。
+
+        若批式正在跑会先 `pace_off()` 停掉(两者互斥, 见类 docstring)。
+        """
+        if self._pace.running:
+            self._pace.stop()
         return self._req.start()
 
     def off(self, timeout: float = 3.0) -> Result:
@@ -288,10 +568,43 @@ class StreamAPI:
     def toggle(self, on: bool, timeout: float = 3.0) -> Result:
         return self.on(timeout=timeout) if on else self.off(timeout=timeout)
 
+    # ------------------------------------------------------------ 批式(v2.9)
+
+    def pace(self, n: Optional[int] = None, t_ms: Optional[int] = None,
+             timeout: float = 3.0) -> Result:
+        """切换到**批式**拉取(`RATE PULL n t`, 默认 n=3/t=100ms = 10Hz)。
+
+        若停等式正在跑会先 `off()` 停掉(两者互斥)。`n`/`t_ms` 省略则用当前值
+        (可用于"断连复位后原样恢复")。参数约束与 75ms 量化建议见 `PacePull`。
+
+        真机依据(2026-10-15, COM7): 10Hz 档两组 300s/240.9s、交付率
+        99.9%/98.6%, 是停等式 ~4Hz 的 2.5 倍; 顶格 13.3Hz 与 26Hz 级都会
+        在 100~300s 内断连(模块缓冲灌满, 须物理断电)。
+        """
+        if self._req.running:
+            self._req.stop()
+        if n is not None or t_ms is not None:
+            self._pace.configure(n if n is not None else self._pace.n,
+                                 t_ms if t_ms is not None else self._pace.t_ms)
+        return self._pace.start()
+
+    def pace_off(self, timeout: float = 3.0) -> Result:
+        """退出批式拉取(固件侧发 `RATE OFF` 停发)。"""
+        return self._pace.stop()
+
     @property
     def is_on(self) -> bool:
         """拉取器是否在跑(明确的内部状态, 不再靠"最近有没有帧"猜)。"""
-        return self._req.running
+        return self._req.running or self._pace.running
+
+    @property
+    def mode(self) -> str:
+        """当前拉取模式: `"off"` / `"stopwait"` / `"pace"`。"""
+        if self._pace.running:
+            return "pace"
+        if self._req.running:
+            return "stopwait"
+        return "off"
 
     # ------------------------------------------------------------ 让路
 
@@ -301,28 +614,75 @@ class StreamAPI:
         供 `MouseClient.send_cmd()` / `send_raw()` 在发命令前后调用。
         直接调用者也可用: 例如"运动期间不想让遥测抢占链路"的实验。
         必须与 `resume()` 成对 —— 内部有嵌套计数保护。
+        自动路由到当前活跃的模式(pace / stopwait)。
+
+        ⚠️ 路由按"谁被暂停过"而不是"谁在跑": 外层已暂停时运行中的
+        `send_cmd`(urgent)还会再 suspend/resume 一次, 若按 running 路由会把这层
+        内层让路当成"无可停"而**清掉外层记忆**, 导致外层 resume 变空操作
+        (2026-10-15 pull_smoke 实测这个 bug: 3 项失败)。按 `_suspended_kind`
+        记忆路由则内层让路落进同一个拉取器的嵌套计数, 由它自己防提前恢复。
         """
-        self._req.suspend()
+        if self._pace.running:
+            self._suspended_kind = "pace"
+        elif self._req.running:
+            self._suspended_kind = "stopwait"
+        elif self._suspended_kind is None:
+            return          # 什么都没在跑、也没暂停过: 无可让路
+        # 已在暂停中(内层让路): 保持 kind 不变, 落进同一拉取器的嵌套计数
+        if self._suspended_kind == "pace":
+            self._pace.suspend()
+        else:
+            self._req.suspend()
 
     def resume(self) -> None:
         """恢复被 `suspend()` 暂停的拉取(仅当它原本在跑时才恢复)。"""
-        self._req.resume()
+        kind = self._suspended_kind
+        if kind is None:
+            return
+        r = self._pace if kind == "pace" else self._req
+        r.resume()
+        if not r.paused:     # 嵌套计数归零 = 暂停真正结束, 清掉路由记忆
+            self._suspended_kind = None
+
+    # ------------------------------------------------------------ 调度
+
+    def tick(self) -> None:
+        """调度线程 50Hz 调用: 路由到当前活跃的拉取器(两者互斥)。"""
+        if self._pace.running:
+            self._pace.tick()
+        else:
+            self._req.tick()
 
     # ------------------------------------------------------------ 视图/调参
 
     def stats(self) -> Dict[str, Any]:
-        """拉取器状态: 在途数/收发计数/实测帧率。"""
-        return self._req.snapshot()
+        """拉取器状态: 在途数/收发计数/实测帧率 + 门面层模式。
 
-    def tune(self, request_timeout: Optional[float] = None) -> Dict[str, Any]:
-        """运行期调整超时(仅供实验; 会立即生效)。
+        注意: `mode` 字段由拉取器自己给(停等式 = `"stop-and-wait"`, 批式 =
+        `"pace"`), 这是 v2.1 起的既有契约(测试断言它); 门面层的三态
+        (off/stopwait/pace)在 `stream_mode` 字段, 与 `mc.stream.mode` 一致。
+        """
+        if self._pace.running or self._pace.dead:
+            out = dict(self._pace.snapshot())
+        else:
+            out = dict(self._req.snapshot())
+        out["stream_mode"] = self.mode
+        return out
 
-        注意: **没有"窗口"可调** —— 拉取器是严格停等的, 见模块 docstring。
+    def tune(self, request_timeout: Optional[float] = None,
+             n: Optional[int] = None, t_ms: Optional[int] = None) -> Dict[str, Any]:
+        """运行期调参(立即生效)。
+
+        `request_timeout` 只影响停等式; `n`/`t_ms` 只影响批式(随下一条
+        `RATE PULL` 生效)。两种模式的说明见 `PacePull` / `PullRequester`。
         """
         r = self._req
         if request_timeout is not None:
             r.REQUEST_TIMEOUT_S = max(0.2, float(request_timeout))
-        return {"mode": "stop-and-wait", "request_timeout": r.REQUEST_TIMEOUT_S}
+        pace_cfg = self._pace.configure(n if n is not None else self._pace.n,
+                                        t_ms if t_ms is not None else self._pace.t_ms)
+        return {"mode": self.mode, "stopwait_request_timeout": r.REQUEST_TIMEOUT_S,
+                "pace": pace_cfg}
 
     # ------------------------------------------------------------ 时间锚
 

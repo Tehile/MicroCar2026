@@ -164,7 +164,9 @@ class MouseClient:
             # 5) 拉取器: 收割在途请求 -> 按窗口补发 -> 自适应窗口深度。
             #    必须放在 bs.pump() 之后 —— Pending 的完成回调由 pump 触发,
             #    先补窗才能把"刚腾出来的槽位"当拍用掉, 否则吞吐会掉一档。
-            self.stream._req.tick()
+            #    v2.9: `stream.tick()` 按当前模式路由(停等式 PullRequester /
+            #    批式 PacePull, 二者互斥)。
+            self.stream.tick()
         finally:
             self._tick_depth -= 1
 

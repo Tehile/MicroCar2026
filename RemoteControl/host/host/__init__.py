@@ -13,9 +13,12 @@
                       v2.8 只改**发车时 LED 的点亮行为**(远程档 MAZE RUN 瞬间
                       全 4 灯亮 LINK_LAUNCH_MARK_MS 后释放), 命令集/帧格式/
                       参数表一字未动 ⇒ 协议号仍停 8, 靠 PONG 的 fw 号区分)。
+                     v2.9 纯上位机: 新增批式拉取 `mc.stream.pace()`(`RATE PULL n t`
+                      稀疏命令+每批多帧, 默认 10Hz; 真机压测的 2.5 倍传输量档)与
+                      断连自动检测 —— 未新增任何命令/字段 ⇒ 协议号仍停 8。
 """
 
-__version__ = "2.8.0"
+__version__ = "2.9.0"
 PROTO_VER = 8
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)
