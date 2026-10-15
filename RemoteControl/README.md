@@ -64,8 +64,10 @@ RemoteControl/
 | 参数名称-功能-调整速查（仿课件表） | [`docs/参数名称-功能-调整表.md`](docs/参数名称-功能-调整表.md) |
 | **链路稳定性压测**（固定 FPS / MTBF / 环境对比） | [`docs/链路MTBF压测方法.md`](docs/链路MTBF压测方法.md) |
 | **遥测拉取器统一设计**（v2.10：停等/批式合并，n=1 退化） | [`docs/遥测拉取器统一设计方案.md`](docs/遥测拉取器统一设计方案.md) |
+| **比赛固件远程化移植方案**（`code_competition` 基线，三层架构 / 中止设计 / 分阶段计划） | [`docs/比赛固件远程化移植方案.md`](docs/比赛固件远程化移植方案.md) |
 | 上位机怎么跑（CLI / GUI / 标定 / 采集） | [`host/README.md`](host/README.md) |
 | 上游迷宫算法与源码导览 | [`code_stm32f1_mouse/docs/`](code_stm32f1_mouse/docs/) |
+| **比赛代码参考**（新基线，MAZETYPE 16） | [`code_competition/`](code_competition/) |
 
 ---
 
