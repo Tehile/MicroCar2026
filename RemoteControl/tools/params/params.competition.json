@@ -1349,11 +1349,11 @@
           "line": 144,
           "symbol": "Qf1",
           "value": "0.01",
-          "effect": "远程档被 link_port.c:227 每 tick 写 0 ⇒ kf≡1, 卡尔曼退化为直通"
+          "effect": "实测: 远程档 GET IRKALQ=100 / IRKALP=2000, 换算回 Q=0.01/P=0.2, 与本行 adc.c:144-147 一致 ⇒ 未被清零。早前'link_port.c:227 每 tick 写 0'的推断只从源码静态分析得出, 未经实机验证, 现已证伪"
         }
       ],
       "notes": [
-        "★行为级: 远程档开机后 Q=P=0 ⇒ kf≡1, 与比赛档(Q=0.01/P=0.2)滤波行为不同"
+        "★已由实机推翻(2026-10-16): GET IRKALQ=100 / IRKALP=2000, 与 adc.c:144-147 的 Q=0.01/P=0.2 完全一致 ⇒ irCfg.kalQ/kalP 运行时并非 0, 'Q/P 被清零致滤波退化' 这条静态推断在实机不成立"
       ],
       "history": []
     },
@@ -1415,11 +1415,11 @@
           "line": 144,
           "symbol": "Pf1",
           "value": "0.2",
-          "effect": "同上(Pf1=0); 此项是 IRKALQ 之外的第二半"
+          "effect": "实测 IRKALP=2000 ⇒ Pf=0.2, 与本行一致, 未被清零"
         }
       ],
       "notes": [
-        "★行为级: 见 IRKALQ"
+        "见 IRKALQ（同一结论）"
       ],
       "history": []
     },
@@ -1485,7 +1485,7 @@
         }
       ],
       "notes": [
-        "★行为级(2026-10-16 修正): kalmanswitch 恒为 1(自洽回环, 见 latent), 开关本身没被破坏; 被破坏的是 Q/P —— irCfg.kalQ/kalP 无初值(BSS 0)且 LP_SyncIn 不刷新, 每 tick 把 Qf1..Qr/Pf1..Pr 写成 0 ⇒ kf≡1 退化为直通。分类应为 A(固件赢), 非 B"
+        "★实机确认(2026-10-16): GET IRKALSW=1, 与 adc.c:151 的 kalmanswitch=1 一致。分类为 A(固件赢) 的结论成立(LP_SyncOut:226 写 → LP_SyncIn:91 读回, 自洽回环)"
       ],
       "history": []
     },

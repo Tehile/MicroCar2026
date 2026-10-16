@@ -71,31 +71,24 @@ LP_SyncOut()         镜像      → 固件全局量    （**每 tick 都跑**�
 > ⚠️ **2026-10-16 修正**：本节"发现 1"原称 *`kalmanswitch` 被置 0*，**该句有误**，已按源码更正（见下）。
 > 另 `IRKALSW` 的仲裁分类由 **B 改为 A**（修正后 41 = A15 + B8 + C18）。详见 `docs/参数JSON化-一致性核查报告.md`。
 
-#### ★ 发现 1：远程档的卡尔曼滤波被"静默短路"（Q/P 被清零，**开关本身正常**）
+#### ⚠ 发现 1（**已由实机推翻**，2026-10-16）：远程档卡尔曼 —— 静态推断不成立
+
+> **结论更正**：本条原先由源码静态分析得出"远程档 `Q/P` 被清零 ⇒ `kf≡1` 滤波退化为直通"。
+> **实机测量否定该推断**：`GET IRKALQ` = **100**、`GET IRKALP` = **2000**、`GET IRKALSW` = **1**，
+> 换算回 `Q=0.01 / P=0.2`，与 `adc.c:144-147/151` 完全一致 ⇒ 滤波**正常工作**。
+> 教训：`irCfg` 是 BSS 裸定义这类"看起来没有初值"的结构，不足以推断其运行时值 ——
+> 必须实测。（`GET IRKALQ→0` 这个原定判据，实机返回值不是 0。）
+
+原推断的依据（保留供追溯）：
 
 ```
 adc.c:144-147   double Qf1=0.01, Pf1=0.2;   ← 比赛档的开机值
-adc.c:151       u8 kalmanswitch=1;          ← 比赛档的开关开机值
 link_port.c:40  IrCfg irCfg;                ← 镜像结构体在 BSS, 初值全 0
 link_port.c:227 Qf1 = Qf2 = Ql = Qr = (double)irCfg.kalQ / 10000.0;   ← 每 tick 跑
-link_port.c:228 Pf1 = Pf2 = Pl = Pr = (double)irCfg.kalP / 10000.0;   ← 每 tick 跑
-link_port.c:91  irCalib.kalmanswitch = kalmanswitch;                  ← 每 tick 跑(固件→镜像)
-link_port.c:226 kalmanswitch = irCalib.kalmanswitch;                  ← 每 tick 跑(镜像→固件)
-link.c:732      irCalib.kalmanswitch = irCfg.kalOn;                   ← 仅 SETQ/CalibLoad 路径
 ```
 
-- `irCfg.kalQ/kalP` **没有任何初始化式**（`link_port.c:40-50` 全是裸定义），
-  `LP_SyncIn` 也**不刷新**它们 ⇒ 恒为 **0** ⇒ 每 tick 把 `Qf1..Qr = 0`、`Pf1..Pr = 0`，
-  而卡尔曼增益 `kf = cov/(cov+P)`，`Q=P=0` 时 `cov` 不变、`kf ≡ 1` —— **滤波器退化成直通**。
-- 但 `kalmanswitch` **恒为 1，并没有被关掉**：`LP_SyncOut:226` 写的值下一拍会被 `LP_SyncIn:91`
-  原样读回（自洽回环）⇒ 改 `adc.c:151` 有效、`SETQ IRKALSW` 也有效。
-  `irCfg.kalOn` 只是 `SETQ` 的临时入口，下一拍就被覆盖。
-
-> **同一台车：烧比赛档 = 卡尔曼滤波（Q=0.01/P=0.2），烧远程档 = 滤波开但退化成直通（Q=P=0）。**
-> 真机可验（不需要发车）：`GET IRKALQ` 在远程档应回 **0.0**（文档写 100）。
-> ⚠️ `GET IRKALSW` 也会回 **0**，但那只是**参数表**的值（取自 `irCfg.kalOn` 这个 BSS 影子），
-> **不代表固件开关被关**（固件实际是 `adc.c:151` 的 1）—— 这本身是一条独立的不一致（见核查报告 I5）。
-> 这条已写进 JSON 的 `notes[]`（`IRKALQ/IRKALP/IRKALSW`）与 `latent[]`。
+原以为 `irCfg.kalQ/kalP` 恒为 0；**实测证明它们非 0**（可能是 `link_ParamApplyOne`
+在 `SETQ`/`SAVE` 或启动同步时写过，或另有写入点尚未查明）。
 
 #### ★ 发现 2：远程档的电机 PID 与比赛档**是两套值**，且比赛档的整定被吃掉
 
