@@ -101,8 +101,8 @@ void LP_SyncIn(void)
 
     /* ---- 电池 ----
      * 新固件 battary 的单位是 "电压x100"(8.00V -> 800), 旧 battMon.mv 是 mV(8000),
-     * 故 x10 换算。※ 新固件只在 showbattery==1 时更新 battary(P2 门控插入解除),
-     * 解除前 battary 恒 0 => 遥测 battMv 恒 0(已知限制, 不影响其他字段)。 */
+     * 故 x10 换算。※ 新固件只在 showbattery==1 时更新 battary;
+     * 2026-10-16: remote profile gates showbattery=1 at test.c:120 => battMv has a real value; competition profile never runs the link layer. */
     battMon.voltage = battary;
     battMon.mv = (u16)(battary * 10.0);
     battMon.percent = battarypercent;
@@ -168,7 +168,7 @@ void LP_SyncIn(void)
     mazeState.fastwayCount90 = FastwayCount_90;
     mazeState.spurtTestFlag = spurtTestFlag;
     mazeState.objectGoToFlag = ObjectGoTo_Flag;
-    mazeState.stackIdx = 0; /* 新固件的栈索引是 mazeSearch 的局部量, 无全局可映射 */
+    mazeState.stackIdx = 0; /* DEPRECATED 2026-10-16: old-firmware global stack index; new firmware has none (local in mazeSearch). Field kept for PROTO 8 frame compat; always 0. */
 
     /* ---- 冲刺/任务标志 ---- */
     taskSt.spurtFlag = (u8)spurt_flag;
@@ -196,6 +196,20 @@ void LP_SyncIn(void)
     pidGain.turnP = turn_kp;
     pidGain.turnD = turn_kd;
     turnDelay = (float)turn_delay; /* 新固件是 u8(格), 旧参数是 float; 取整推送见 LP_SyncOut */
+
+    /* ---- motor PID (3.x priority: competition phase scheduling wins) ----
+     * New firmware user.c parameter_search(13/0.74/0.9) / parameter_spurt(13/0.7/0.8)
+     * write kpl..kdr at launch / phase switch; the old-course mirror defaults
+     * (10.75/0.55/0.5) are obsolete. With this echo LP_SyncOut writes the same
+     * values back every tick => firmware scheduling survives (competition wins,
+     * v3.0 Q1-A). A host SETQ lands via the same tick SyncOut and holds until
+     * the next parameter_* call. */
+    linkMtrKpL = kpl;
+    linkMtrKiL = kil;
+    linkMtrKdL = kdl;
+    linkMtrKpR = kpr;
+    linkMtrKiR = kir;
+    linkMtrKdR = kdr;
 }
 
 /*------------------------------------  同步: 镜像 -> 新固件  ------------------------------------*/

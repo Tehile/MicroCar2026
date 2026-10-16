@@ -98,6 +98,8 @@ UNIFIED_CHANNELS: List[str] = [
 ]
 #: 展平后共 49 项 —— 49 B 载荷里位打包的字节在这里被拆成独立键,
 #: 所以列数(49) 与字节数(49) 恰好相等是**巧合**(v2.3 起), 不是约束。
+#: `stackIdx` 自 2026-10-16 起**废弃**(deprecated): 新基线固件无全局岔路栈索引,
+#: 恒 0; 帧字段保留仅为 PROTO 8 兼容, 勿用于逻辑判断。
 #: 改动打包要同步这个数与 U_* 偏移。
 assert len(UNIFIED_CHANNELS) == 49, len(UNIFIED_CHANNELS)
 

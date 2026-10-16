@@ -117,7 +117,11 @@ extern int rawf1,rawf2,rawl,rawr,rawf1h,rawf2h,rawlh,rawrh;
 int rawf1avrgnear,rawf2avrgnear,rawlavrgnear,rawravrgnear,rawf1avrgfar,rawf2avrgfar,rawlavrgfar,rawravrgfar;
 int iii;
 extern int forwardirdis;
+#ifdef MOUSE_REMOTE
+int showbattery=1;	/* remote profile: battery monitor ON (2026-10-16); competition keeps 0 */
+#else
 int showbattery=0;
+#endif
 extern int LTopSpeed,L45TopSpeed,L90TopSpeed,BackTopSpeed;
 extern long absolutetrackl,absolutetrackr,absolutetrack;
  

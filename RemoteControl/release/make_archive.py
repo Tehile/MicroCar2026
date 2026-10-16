@@ -185,7 +185,7 @@ def main() -> int:
         "release/归档说明.md",
         "release/make_archive.py",
         "release/verify_archive.py",
-        # 文档(13 篇, 含 v3.0 方案/核查/参数表 + 自动生成的接口参考)
+        # 文档(14 篇, 含 v3.0 方案/核查/参数表 + 自动生成的接口参考 + 远程档适配清单)
         "docs/参数全量整定常量化-方案v3.0.md",
         "docs/参数名称-功能-调整表.md",
         "docs/参数JSON化与双向转换工具链设计方案.md",
@@ -199,6 +199,7 @@ def main() -> int:
         "docs/P3实机联调测试计划.md",
         "docs/实机验证-USART1-NVIC修复.md",
         "docs/真机取证记录-20261016.md",
+        "docs/远程档协议适配现状-分类清单.md",
         # 上位机: 门面 + 协议 + 档位 + 模拟器 + 十套件 + 真机诊断
         "host/README.md",
         "host/requirements.txt",

@@ -1,6 +1,11 @@
-# RemoteControl 归档校验台账（2026-10-16）
+# RemoteControl 归档校验台账（2026-10-16 晚刷新）
 # 归档版本: v3.0.0    归档包: release/RemoteControl-v3.0.0-20261016.zip
-# 基准: 以【RemoteControl/ 工作区】为基准 —— 已实测 zip 内 252/252 个文件与工作区【逐字节一致】。
+# 基准: 以【RemoteControl/ 工作区】为基准。
+#   ※ 2026-10-16 晚远程档三项行为改动(battMv启用/PID回显/stackIdx废弃)后已重编:
+#     Remote/TEST.hex = 319ff5b4…(v3.0.0 包内为改动前快照 a71b5e9d…);
+#     .workbuddy/memory/ 两文件为打包后更新版(包内为旧版);
+#     USER/TEST.hex 红线不变(68ad6be2…);
+#     docs/远程档协议适配现状-分类清单.md 打包时尚未入档(下个归档补入, 14 篇文档)。
 # 校验方法(在 RemoteControl/ 下执行): sha256sum -c release/SHA256SUMS.txt
 # 重新生成整包: python release/make_archive.py && python release/verify_archive.py
 # 覆盖范围: 全部归档 zip(含历史) + 关键文件(文档/上位机/工具链/固件成品/工程/工作记忆)
@@ -14,14 +19,14 @@ fcaf6e5b978a2862680e4e658afe7ee59729a6abd9cb542558a60b14da82dc52  release\Remote
 dccf9a1eb0289cdfcc9f647caed8116f7b8d0445c769e4f393da551a06de8bc0  release\RemoteControl-v2.2.1-20261005.zip
 3cbce849bf8bc6b110355f1adccbc9eccf7a68f942071ca3eedd11b87169ed6d  release\RemoteControl-v3.0.0-20261016.zip
 8a140d34d1a9324f1b546102882c2f96bccf5073fa9842717fe44a7b0dd0d33c  release/归档说明.md
-2589f5952178e26ce1041410425054e68aefa24a0a4bb9a54bfc7981b428599c  release/make_archive.py
-d5f0c06f9886cf4d50e3cda58e3ff6954ba55a727dc47fc7bc30028701d03d67  release/verify_archive.py
+f7954aa9f4cf2be219a8fa51ea03b37c0b28e5a615554b0ba4ddd6e4b2214338  release/make_archive.py
+23be6716809b1e3d33dddef359c6ca57edf9bfea241f5ddca901632967b5a83a  release/verify_archive.py
 52c0430a541f980e292152b539dce1a952fe5e4821f3bdbbbef008d6a65c2311  docs/参数全量整定常量化-方案v3.0.md
 7b542b2865c062e5f917a4108eb84d4dace09a5682b5e833205db9f5b66c1495  docs/参数名称-功能-调整表.md
 5ac880b5126e18b43c34e73bf82a609d1b2fd704dd0eed013f0b440bb0e7b69f  docs/参数JSON化与双向转换工具链设计方案.md
 d43b513814f01027899e78adb6abed01d6725a0bf3a1ceec16e1e35d3ab77c86  docs/参数JSON化-一致性核查报告.md
 a7e755fbe5bcc200bca7604f18198d1b6260f6caf6f9f647edee1cd484cc1d13  docs/比赛固件远程化移植方案.md
-1434843b7ee38838698e36f48061a9dc20e12490719f2b46f23a2fa55dbfffdf  docs/通信协议规格.md
+c49eb44399f581f1b72893eb7aa7ec44047d5001028feed9d40b02194b42d6c1  docs/通信协议规格.md
 edf2f61165a23ebbf04b1bfe82c36690ae52527936014ed0af5a4de2526f1098  docs/算法详解.md
 3fc6696c38e016feee492ce7e038e08576766ee03a23e87448517ca03e8dc5ec  docs/遥测拉取器统一设计方案.md
 099ca85236e30ccbef7cac05e8070dc78efa33db9f5362d167e4c3b49d21f43c  docs/链路MTBF压测方法.md
@@ -31,9 +36,9 @@ ba86a27498ee07bbc5a54787d6bae56bc104c4d4325f30d1a8f7e5cf6fa1dc68  docs/实机验
 34dfe4f8d3244964643b3762cfe0c303aa338c069f91cab5164530766456adc6  docs/真机取证记录-20261016.md
 e6aaacd2f30107a8c0aaf872ddc8e589dbf10ae145ecac10350cb787f25ff23c  host/README.md
 c28542123cfa189e70cd90c002e5cc82b277f31cfe72fdad17be64050997c2a4  host/requirements.txt
-ca0b30380b0a0dcabf5836f6ea7d3163969389b88a49b823f7cb81751f0a247c  host/host/registry.py
+f5546b3babd586629784f65bcc5ae8a8346b7903d08600c44030f512ebbc09df  host/host/registry.py
 721e0bbc5f89add14acba5b3bff385a58ce4e5a2c9a54078091c09bf9bdb7621  host/host/fwprofile.py
-e2c4aaaf98a0eabd68608066bf6d16d62e4440617468747a57f8e55bb50578ed  host/host/protocol/codec.py
+373b2bf719f00864af7115e21c7fed0d39dd8dd30f28c6b74221328d2ed74538  host/host/protocol/codec.py
 480bb2ca7ab8dfffb71b54fd25bd03ca6ca02ab83a7aeb9a9f8854bea477864c  host/host/protocol/commands.py
 11ccdc398c1b696c7c6406a5a8edea69432ff0560e081b361d3e18b302a89a64  host/host/sim/mouse_sim.py
 c7d3a3ed016aaa7dc6b9f7bc81f0f9e3ca8a00a9aa739788f30d71c4917b2a4e  host/host/api/client.py
@@ -60,20 +65,20 @@ d3f491b8631f1d6e76ceb85d2f0dfa74c106058fbdd1547b68abe409d5574372  tools/paramkit
 fb902069b73bc2b51f5449dbb10148574b0b9a7e31810c7675341f23a9a4de62  tools/paramkit/patch.py
 fedb01dafd5186646997ccf634a86a1d6ee17f897436f170d03ba2fe96d6dfd1  tools/paramkit/render.py
 562398332d89a7e33dbc57a5934990fbb934ea3d689a9b57f8c3d34fc5b56aaa  tools/paramkit/pipeline.py
-fdc51ae8c89c752e4990d1b81573d8f849bfcf16487e21bcf75a921767eb557b  tools/params/params.competition.json
-4a55f9aa97c8540d71a88c30915fb6b16dadcf0e026013d8a734503c32e67616  tools/params/params.competition.v3.json
+324897c61914317ac8e0c51cb94d359407d29e98aefbe87ef01d90218beb4e52  tools/params/params.competition.json
+7c03848bebc7d02dfb164d1d525731c3b3a4ea9da8b7d91820f9175e05ef4c0a  tools/params/params.competition.v3.json
 c101ceb5d35b15a61a47be3e24d0495ed3807d16628fc684d0eccfe4c585be9c  code_competition/USER/TEST.uvprojx
 68ad6be2272818269d6aac78e5356d9bb91036ddeaaa82c4ec3754a8a0948141  code_competition/USER/TEST.hex
 0dee6a83f87861d27f983446e1827efc02354f6e68709447d3c2a40ddf7caee9  code_competition/USER/TEST.map
-a71b5e9d7b1e6805cceea1728699cf2f8f3380a27ca4111a7471befc0a8f4f90  code_competition/USER/Remote/TEST.hex
-81ebeb0a3b099bc9ba87000c4df1897754f295f79633e657c877f082c68d3dae  code_competition/USER/test.c
+319ff5b482cafbd0108f3a8591aa3bdfc9552a7a849807937b8f338324a0eab2  code_competition/USER/Remote/TEST.hex
+5fd92eaf8c10cb77ca8461e9446ba1858ff34cfc4bb4e95e1987b0b4bc76513a  code_competition/USER/test.c
 17e10ec08b3713ca533893a27706e3dbac097da70227def62e154c55f0baaccf  code_competition/USER/user.c
 9781527c555291971adc7cd6a2338109244bf303605fb6972bbd2c5d878bc868  code_competition/HARDWARE/TIMER/timer.c
 6a4f8586deaf0852392af7f876b78f45c17bd518829cd7c8a6daea4ea5df24a5  code_competition/HARDWARE/ADC/adc.c
 172560f70b68f409a7ba9a933dac58b4cc91ddcae03d26cf6fcd50f1f37b9ff8  code_competition/UTILITY/utility.c
 8b667908e7b62e5b6ab322fd2f63b6766e05ee54f257ff9510bf171a2246e797  code_competition/STRATAGY/stratagy.c
 9364b9410f5d8e853b79a36aa15e6496a8dbae1b2f782e64e12c4d85a6ec3a3f  code_competition/REMOTE/link.c
-64677c706a285a42c06b13c3ae688d5a984baf1332a5f0a0655d37dc2a4a7fac  code_competition/REMOTE/link_port.c
+38b4d9854e72dc88ec62453d33da8180c87ad3c52465d71330199211f65329a4  code_competition/REMOTE/link_port.c
 408a57dbebe4770a812d1a3a45c0b34e025bb5228e6ea53fffce5f067480f691  code_competition/REMOTE/link.h
 ec062c1dcded614db03d1630e0a0fd7fa1e3d4bb26404cfe05080617e442ed59  code_stm32f1_mouse/USER/Mouse.uvprojx
 5ae098df3d404051cd551519a6a2fefebc47e3931d517d65e29e1eeab5ce513e  code_stm32f1_mouse/USER/Object/Mouse.hex
@@ -84,6 +89,6 @@ ec062c1dcded614db03d1630e0a0fd7fa1e3d4bb26404cfe05080617e442ed59  code_stm32f1_m
 d1cc558a65e160b704789edcd6fa84599705d09dc40d581fca302d32e9bb3eef  build_all_modes.py
 7baf7edcbf479074bea7de89c58763cfebf39643dc4b607d43521d95fe8046b4  cleanup_workspace.py
 88e3fa7eb2a12965d905cd88fe3e95be7dc82e335b8623a4ca1bd2beda4df813  README.md
-59e70173f71dabd5ece36a2c9759374b8db2d26b1c2fae39da0343426b681607  .workbuddy/memory/MEMORY.md
-59e70173f71dabd5ece36a2c9759374b8db2d26b1c2fae39da0343426b681607  .workbuddy/memory/MEMORY.md
-edab5313666498011827a2256d9784f0ce9075ec6eee170dda3ea2d7c48927b4  .workbuddy/memory/2026-10-16.md
+829d465ed2b9999db6acaaffe8527bd80b42b702d914d38734272dbc03883cfb  .workbuddy/memory/MEMORY.md
+829d465ed2b9999db6acaaffe8527bd80b42b702d914d38734272dbc03883cfb  .workbuddy/memory/MEMORY.md
+83ce1238da7fd3a1e07b970c872374d4cc64a8689b34d26fbbd59b37a8c2c5dc  .workbuddy/memory/2026-10-16.md

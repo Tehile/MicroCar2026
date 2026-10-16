@@ -2,9 +2,9 @@
   "schema_version": 2,
   "profile": "competition",
   "generated": {
-    "at": "2026-10-16T17:40:41+08:00",
+    "at": "2026-10-17T00:03:57+08:00",
     "by": "tools/paramgen.py extract",
-    "git_rev": "3168d56",
+    "git_rev": "f9784a9",
     "firmware_dir": "code_competition"
   },
   "firmware": {
@@ -72,7 +72,7 @@
       "arbitration": {
         "class": "A",
         "sink": "TrackRatioL",
-        "evidence": "TrackRatioL←REMOTE/link_port.c:262"
+        "evidence": "TrackRatioL←REMOTE/link_port.c:276"
       },
       "fw": {
         "value": 55.0855624,
@@ -164,7 +164,7 @@
       "arbitration": {
         "class": "A",
         "sink": "TrackRatioR",
-        "evidence": "TrackRatioR←REMOTE/link_port.c:263"
+        "evidence": "TrackRatioR←REMOTE/link_port.c:277"
       },
       "fw": {
         "value": 50.9355704,
@@ -256,7 +256,7 @@
       "arbitration": {
         "class": "A",
         "sink": "SpeedRatioL",
-        "evidence": "SpeedRatioL←REMOTE/link_port.c:264"
+        "evidence": "SpeedRatioL←REMOTE/link_port.c:278"
       },
       "fw": {
         "value": 0.56169,
@@ -358,7 +358,7 @@
       "arbitration": {
         "class": "A",
         "sink": "SpeedRatioR",
-        "evidence": "SpeedRatioR←REMOTE/link_port.c:265"
+        "evidence": "SpeedRatioR←REMOTE/link_port.c:279"
       },
       "fw": {
         "value": 0.56439,
@@ -460,7 +460,7 @@
       "arbitration": {
         "class": "A",
         "sink": "gangleratio",
-        "evidence": "gangleratio←REMOTE/link_port.c:266"
+        "evidence": "gangleratio←REMOTE/link_port.c:280"
       },
       "fw": {
         "value": 399,
@@ -559,7 +559,7 @@
       "arbitration": {
         "class": "A",
         "sink": "angleratio",
-        "evidence": "angleratio←REMOTE/link_port.c:267"
+        "evidence": "angleratio←REMOTE/link_port.c:281"
       },
       "fw": {
         "value": 73,
@@ -653,7 +653,7 @@
       "arbitration": {
         "class": "A",
         "sink": "dis2wall",
-        "evidence": "dis2wall←REMOTE/link_port.c:268"
+        "evidence": "dis2wall←REMOTE/link_port.c:282"
       },
       "fw": {
         "value": 40,
@@ -770,7 +770,7 @@
       "arbitration": {
         "class": "A",
         "sink": "sidewall_threshold",
-        "evidence": "sidewall_threshold←REMOTE/link_port.c:225"
+        "evidence": "sidewall_threshold←REMOTE/link_port.c:239"
       },
       "fw": {
         "value": 130,
@@ -1307,7 +1307,7 @@
       "arbitration": {
         "class": "B",
         "sink": "Qf1",
-        "evidence": "Qf1←REMOTE/link_port.c:227"
+        "evidence": "Qf1←REMOTE/link_port.c:241"
       },
       "fw": {
         "value": 0,
@@ -1373,7 +1373,7 @@
       "arbitration": {
         "class": "B",
         "sink": "Pf1",
-        "evidence": "Pf1←REMOTE/link_port.c:228"
+        "evidence": "Pf1←REMOTE/link_port.c:242"
       },
       "fw": {
         "value": 0,
@@ -1439,7 +1439,7 @@
       "arbitration": {
         "class": "B",
         "sink": "kalmanswitch",
-        "evidence": "kalmanswitch←REMOTE/link_port.c:226"
+        "evidence": "kalmanswitch←REMOTE/link_port.c:240"
       },
       "fw": {
         "value": 0,
@@ -2025,7 +2025,7 @@
       "arbitration": {
         "class": "A",
         "sink": "turn_delay",
-        "evidence": "turn_delay←REMOTE/link_port.c:259"
+        "evidence": "turn_delay←REMOTE/link_port.c:273"
       },
       "fw": {
         "value": 5,
@@ -2150,7 +2150,7 @@
       "arbitration": {
         "class": "A",
         "sink": "speed_ss",
-        "evidence": "speed_ss←REMOTE/link_port.c:248"
+        "evidence": "speed_ss←REMOTE/link_port.c:262"
       },
       "fw": {
         "value": 40,
@@ -2317,7 +2317,7 @@
       "arbitration": {
         "class": "A",
         "sink": "speed_turn",
-        "evidence": "speed_turn←REMOTE/link_port.c:249"
+        "evidence": "speed_turn←REMOTE/link_port.c:263"
       },
       "fw": {
         "value": 30,
@@ -2543,7 +2543,7 @@
       "arbitration": {
         "class": "A",
         "sink": "GOSTRAIGHT_kp",
-        "evidence": "GOSTRAIGHT_kp←REMOTE/link_port.c:250"
+        "evidence": "GOSTRAIGHT_kp←REMOTE/link_port.c:264"
       },
       "fw": {
         "value": 0.4,
@@ -2638,7 +2638,7 @@
       "arbitration": {
         "class": "A",
         "sink": "turn_kp",
-        "evidence": "turn_kp←REMOTE/link_port.c:251"
+        "evidence": "turn_kp←REMOTE/link_port.c:265"
       },
       "fw": {
         "value": 4,
@@ -2777,7 +2777,7 @@
       "arbitration": {
         "class": "A",
         "sink": "turn_kd",
-        "evidence": "turn_kd←REMOTE/link_port.c:252"
+        "evidence": "turn_kd←REMOTE/link_port.c:266"
       },
       "fw": {
         "value": 4,
@@ -3139,7 +3139,7 @@
       "macro": "LINK_P_MKPL",
       "macro_suffix": "MKPL",
       "group": "motion",
-      "kind": "float",
+      "kind": "int",
       "wire": {
         "slot": 35,
         "qexpr": "link_D2Q(linkMtrKpL)",
@@ -3147,48 +3147,84 @@
         "case_present": true
       },
       "arbitration": {
-        "class": "B",
+        "class": "A",
         "sink": "kpl",
-        "evidence": "kpl←REMOTE/link_port.c:253"
+        "evidence": "kpl←REMOTE/link_port.c:267"
       },
       "fw": {
-        "value": 10.75,
-        "init": "10.75",
-        "source": "REMOTE/link.c",
+        "value": 3,
+        "init": "3",
+        "source": "HARDWARE/TIMER/timer.c",
         "quantize": "none",
-        "raw_value": 10.75,
+        "raw_value": 3,
         "loss": 0.0,
         "decl": {
-          "file": "REMOTE/link.c",
-          "line": 124,
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
           "type": "double",
           "const": false,
-          "sha16": "6f579cf6accaa521"
+          "sha16": "e3670d8d1e3550fd"
         }
       },
       "anchors": [
         {
           "kind": "effective",
-          "style": "member",
-          "file": "REMOTE/link.c",
-          "line": 124,
-          "symbol": "linkMtrKpL",
-          "ctype": null,
-          "sha16": "6f579cf6accaa521",
-          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+          "style": "decl",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kpl",
+          "ctype": "double",
+          "sha16": "e3670d8d1e3550fd",
+          "note": "开机生效值 = 此声明"
         }
       ],
       "decls_all": [
         {
-          "file": "REMOTE/link.c",
-          "line": 124,
-          "gate": "MOUSE_REMOTE",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "gate": "",
           "first_declarator": true,
-          "text": "double linkMtrKpL = 10.75, linkMtrKiL = 0.55, linkMtrKdL = 0.55; /* == MOTOR_KP/KI/KD_L */"
+          "text": "double kpl=3,kil=2,kdl=0.1,kpr=3,kir=2,kdr=0;"
         }
       ],
-      "consumers": [],
-      "overwrites": [],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 73,
+          "text": "//kpl=10;kil=0.7;kdl=0.8;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "text": "kpl=13;kil=0.74;kdl=0.9;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 91,
+          "text": "kpl=13;kil=0.7;kdl=0.8;\t//左电机"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1225,
+          "text": "pwml=errl*kpl+errls*kil+(errl-errlh)*kdl;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpl=13;kil=0.74;kdl=0.9;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 91,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpl=13;kil=0.7;kdl=0.8;\t//左电机"
+        }
+      ],
       "store": {
         "value": 10.75,
         "expr": "10.75",
@@ -3235,7 +3271,7 @@
       "macro": "LINK_P_MKIL",
       "macro_suffix": "MKIL",
       "group": "motion",
-      "kind": "float",
+      "kind": "int",
       "wire": {
         "slot": 36,
         "qexpr": "link_D2Q(linkMtrKiL)",
@@ -3243,48 +3279,84 @@
         "case_present": true
       },
       "arbitration": {
-        "class": "B",
+        "class": "A",
         "sink": "kil",
-        "evidence": "kil←REMOTE/link_port.c:254"
+        "evidence": "kil←REMOTE/link_port.c:268"
       },
       "fw": {
-        "value": 0.55,
-        "init": "0.55",
-        "source": "REMOTE/link.c",
+        "value": 2,
+        "init": "2",
+        "source": "HARDWARE/TIMER/timer.c",
         "quantize": "none",
-        "raw_value": 0.55,
+        "raw_value": 2,
         "loss": 0.0,
         "decl": {
-          "file": "REMOTE/link.c",
-          "line": 124,
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
           "type": "double",
           "const": false,
-          "sha16": "6f579cf6accaa521"
+          "sha16": "e3670d8d1e3550fd"
         }
       },
       "anchors": [
         {
           "kind": "effective",
           "style": "member",
-          "file": "REMOTE/link.c",
-          "line": 124,
-          "symbol": "linkMtrKiL",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kil",
           "ctype": null,
-          "sha16": "6f579cf6accaa521",
-          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+          "sha16": "e3670d8d1e3550fd",
+          "note": "开机生效值 = 此声明"
         }
       ],
       "decls_all": [
         {
-          "file": "REMOTE/link.c",
-          "line": 124,
-          "gate": "MOUSE_REMOTE",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "gate": "",
           "first_declarator": false,
-          "text": "double linkMtrKpL = 10.75, linkMtrKiL = 0.55, linkMtrKdL = 0.55; /* == MOTOR_KP/KI/KD_L */"
+          "text": "double kpl=3,kil=2,kdl=0.1,kpr=3,kir=2,kdr=0;"
         }
       ],
-      "consumers": [],
-      "overwrites": [],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 73,
+          "text": "//kpl=10;kil=0.7;kdl=0.8;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "text": "kpl=13;kil=0.74;kdl=0.9;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 91,
+          "text": "kpl=13;kil=0.7;kdl=0.8;\t//左电机"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1225,
+          "text": "pwml=errl*kpl+errls*kil+(errl-errlh)*kdl;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpl=13;kil=0.74;kdl=0.9;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 91,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpl=13;kil=0.7;kdl=0.8;\t//左电机"
+        }
+      ],
       "store": {
         "value": 0.55,
         "expr": "0.55",
@@ -3332,48 +3404,84 @@
         "case_present": true
       },
       "arbitration": {
-        "class": "B",
+        "class": "A",
         "sink": "kdl",
-        "evidence": "kdl←REMOTE/link_port.c:255"
+        "evidence": "kdl←REMOTE/link_port.c:269"
       },
       "fw": {
-        "value": 0.55,
-        "init": "0.55",
-        "source": "REMOTE/link.c",
+        "value": 0.1,
+        "init": "0.1",
+        "source": "HARDWARE/TIMER/timer.c",
         "quantize": "none",
-        "raw_value": 0.55,
+        "raw_value": 0.1,
         "loss": 0.0,
         "decl": {
-          "file": "REMOTE/link.c",
-          "line": 124,
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
           "type": "double",
           "const": false,
-          "sha16": "6f579cf6accaa521"
+          "sha16": "e3670d8d1e3550fd"
         }
       },
       "anchors": [
         {
           "kind": "effective",
           "style": "member",
-          "file": "REMOTE/link.c",
-          "line": 124,
-          "symbol": "linkMtrKdL",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kdl",
           "ctype": null,
-          "sha16": "6f579cf6accaa521",
-          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+          "sha16": "e3670d8d1e3550fd",
+          "note": "开机生效值 = 此声明"
         }
       ],
       "decls_all": [
         {
-          "file": "REMOTE/link.c",
-          "line": 124,
-          "gate": "MOUSE_REMOTE",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "gate": "",
           "first_declarator": false,
-          "text": "double linkMtrKpL = 10.75, linkMtrKiL = 0.55, linkMtrKdL = 0.55; /* == MOTOR_KP/KI/KD_L */"
+          "text": "double kpl=3,kil=2,kdl=0.1,kpr=3,kir=2,kdr=0;"
         }
       ],
-      "consumers": [],
-      "overwrites": [],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 73,
+          "text": "//kpl=10;kil=0.7;kdl=0.8;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "text": "kpl=13;kil=0.74;kdl=0.9;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 91,
+          "text": "kpl=13;kil=0.7;kdl=0.8;\t//左电机"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1225,
+          "text": "pwml=errl*kpl+errls*kil+(errl-errlh)*kdl;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpl=13;kil=0.74;kdl=0.9;\t//左电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 91,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpl=13;kil=0.7;kdl=0.8;\t//左电机"
+        }
+      ],
       "store": {
         "value": 0.55,
         "expr": "0.55",
@@ -3413,7 +3521,7 @@
       "macro": "LINK_P_MKPR",
       "macro_suffix": "MKPR",
       "group": "motion",
-      "kind": "float",
+      "kind": "int",
       "wire": {
         "slot": 38,
         "qexpr": "link_D2Q(linkMtrKpR)",
@@ -3421,48 +3529,84 @@
         "case_present": true
       },
       "arbitration": {
-        "class": "B",
+        "class": "A",
         "sink": "kpr",
-        "evidence": "kpr←REMOTE/link_port.c:256"
+        "evidence": "kpr←REMOTE/link_port.c:270"
       },
       "fw": {
-        "value": 10.2,
-        "init": "10.20",
-        "source": "REMOTE/link.c",
+        "value": 3,
+        "init": "3",
+        "source": "HARDWARE/TIMER/timer.c",
         "quantize": "none",
-        "raw_value": 10.2,
+        "raw_value": 3,
         "loss": 0.0,
         "decl": {
-          "file": "REMOTE/link.c",
-          "line": 125,
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
           "type": "double",
           "const": false,
-          "sha16": "4ce58c2a776e12f5"
+          "sha16": "e3670d8d1e3550fd"
         }
       },
       "anchors": [
         {
           "kind": "effective",
           "style": "member",
-          "file": "REMOTE/link.c",
-          "line": 125,
-          "symbol": "linkMtrKpR",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kpr",
           "ctype": null,
-          "sha16": "4ce58c2a776e12f5",
-          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+          "sha16": "e3670d8d1e3550fd",
+          "note": "开机生效值 = 此声明"
         }
       ],
       "decls_all": [
         {
-          "file": "REMOTE/link.c",
-          "line": 125,
-          "gate": "MOUSE_REMOTE",
-          "first_declarator": true,
-          "text": "double linkMtrKpR = 10.20, linkMtrKiR = 0.5, linkMtrKdR = 0.5;   /* == MOTOR_KP/KI/KD_R */"
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "gate": "",
+          "first_declarator": false,
+          "text": "double kpl=3,kil=2,kdl=0.1,kpr=3,kir=2,kdr=0;"
         }
       ],
-      "consumers": [],
-      "overwrites": [],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 74,
+          "text": "//kpr=10;kir=0.7;kdr=0.8;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "text": "kpr=13;kir=0.74;kdr=0.9;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 92,
+          "text": "kpr=13;kir=0.7;kdr=0.8;\t//右电机"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1227,
+          "text": "pwmr=errr*kpr+errrs*kir+(errr-errrh)*kdr;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpr=13;kir=0.74;kdr=0.9;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 92,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpr=13;kir=0.7;kdr=0.8;\t//右电机"
+        }
+      ],
       "store": {
         "value": 10.2,
         "expr": "10.20",
@@ -3507,7 +3651,7 @@
       "macro": "LINK_P_MKIR",
       "macro_suffix": "MKIR",
       "group": "motion",
-      "kind": "float",
+      "kind": "int",
       "wire": {
         "slot": 39,
         "qexpr": "link_D2Q(linkMtrKiR)",
@@ -3515,48 +3659,84 @@
         "case_present": true
       },
       "arbitration": {
-        "class": "B",
+        "class": "A",
         "sink": "kir",
-        "evidence": "kir←REMOTE/link_port.c:257"
+        "evidence": "kir←REMOTE/link_port.c:271"
       },
       "fw": {
-        "value": 0.5,
-        "init": "0.5",
-        "source": "REMOTE/link.c",
+        "value": 2,
+        "init": "2",
+        "source": "HARDWARE/TIMER/timer.c",
         "quantize": "none",
-        "raw_value": 0.5,
+        "raw_value": 2,
         "loss": 0.0,
         "decl": {
-          "file": "REMOTE/link.c",
-          "line": 125,
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
           "type": "double",
           "const": false,
-          "sha16": "4ce58c2a776e12f5"
+          "sha16": "e3670d8d1e3550fd"
         }
       },
       "anchors": [
         {
           "kind": "effective",
           "style": "member",
-          "file": "REMOTE/link.c",
-          "line": 125,
-          "symbol": "linkMtrKiR",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kir",
           "ctype": null,
-          "sha16": "4ce58c2a776e12f5",
-          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+          "sha16": "e3670d8d1e3550fd",
+          "note": "开机生效值 = 此声明"
         }
       ],
       "decls_all": [
         {
-          "file": "REMOTE/link.c",
-          "line": 125,
-          "gate": "MOUSE_REMOTE",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "gate": "",
           "first_declarator": false,
-          "text": "double linkMtrKpR = 10.20, linkMtrKiR = 0.5, linkMtrKdR = 0.5;   /* == MOTOR_KP/KI/KD_R */"
+          "text": "double kpl=3,kil=2,kdl=0.1,kpr=3,kir=2,kdr=0;"
         }
       ],
-      "consumers": [],
-      "overwrites": [],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 74,
+          "text": "//kpr=10;kir=0.7;kdr=0.8;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "text": "kpr=13;kir=0.74;kdr=0.9;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 92,
+          "text": "kpr=13;kir=0.7;kdr=0.8;\t//右电机"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1227,
+          "text": "pwmr=errr*kpr+errrs*kir+(errr-errrh)*kdr;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpr=13;kir=0.74;kdr=0.9;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 92,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpr=13;kir=0.7;kdr=0.8;\t//右电机"
+        }
+      ],
       "store": {
         "value": 0.5,
         "expr": "0.5",
@@ -3596,7 +3776,7 @@
       "macro": "LINK_P_MKDR",
       "macro_suffix": "MKDR",
       "group": "motion",
-      "kind": "float",
+      "kind": "int",
       "wire": {
         "slot": 40,
         "qexpr": "link_D2Q(linkMtrKdR)",
@@ -3604,48 +3784,84 @@
         "case_present": true
       },
       "arbitration": {
-        "class": "B",
+        "class": "A",
         "sink": "kdr",
-        "evidence": "kdr←REMOTE/link_port.c:258"
+        "evidence": "kdr←REMOTE/link_port.c:272"
       },
       "fw": {
-        "value": 0.5,
-        "init": "0.5",
-        "source": "REMOTE/link.c",
+        "value": 0,
+        "init": "0",
+        "source": "HARDWARE/TIMER/timer.c",
         "quantize": "none",
-        "raw_value": 0.5,
+        "raw_value": 0,
         "loss": 0.0,
         "decl": {
-          "file": "REMOTE/link.c",
-          "line": 125,
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
           "type": "double",
           "const": false,
-          "sha16": "4ce58c2a776e12f5"
+          "sha16": "e3670d8d1e3550fd"
         }
       },
       "anchors": [
         {
           "kind": "effective",
           "style": "member",
-          "file": "REMOTE/link.c",
-          "line": 125,
-          "symbol": "linkMtrKdR",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kdr",
           "ctype": null,
-          "sha16": "4ce58c2a776e12f5",
-          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+          "sha16": "e3670d8d1e3550fd",
+          "note": "开机生效值 = 此声明"
         }
       ],
       "decls_all": [
         {
-          "file": "REMOTE/link.c",
-          "line": 125,
-          "gate": "MOUSE_REMOTE",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "gate": "",
           "first_declarator": false,
-          "text": "double linkMtrKpR = 10.20, linkMtrKiR = 0.5, linkMtrKdR = 0.5;   /* == MOTOR_KP/KI/KD_R */"
+          "text": "double kpl=3,kil=2,kdl=0.1,kpr=3,kir=2,kdr=0;"
         }
       ],
-      "consumers": [],
-      "overwrites": [],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 74,
+          "text": "//kpr=10;kir=0.7;kdr=0.8;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "text": "kpr=13;kir=0.74;kdr=0.9;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 92,
+          "text": "kpr=13;kir=0.7;kdr=0.8;\t//右电机"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1227,
+          "text": "pwmr=errr*kpr+errrs*kir+(errr-errrh)*kdr;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpr=13;kir=0.74;kdr=0.9;\t//右电机"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 92,
+          "func": "?",
+          "func_line": 0,
+          "text": "kpr=13;kir=0.7;kdr=0.8;\t//右电机"
+        }
+      ],
       "store": {
         "value": 0.5,
         "expr": "0.5",

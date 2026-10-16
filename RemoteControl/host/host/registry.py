@@ -196,6 +196,8 @@ def _precheck_maze_run(mc: Any, **_):
     except Exception:
         mv = 0
     # `mv == 0` 表示电池监视未开启(不是"没电"), 此时不拦 —— 否则会误锁死台架。
+    # 新基线远程档自 2026-10-16 起已启用电池监视(test.c showbattery 门控),
+    # 只有比赛档/课程固件才会报 0。
     if mv and mv < LAUNCH_MIN_MV:
         return (
             "ERR_LOWBATT",

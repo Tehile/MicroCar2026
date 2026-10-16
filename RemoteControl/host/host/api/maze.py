@@ -11,7 +11,7 @@
 
 原先迷宫状态有三条通道: `MAZE EV` 事件流 / `LINK_TYPE_MAZE` 1Hz 状态帧 / `SNAP MAZE`
 点查。**三条全部删除** —— 因为状态量已全部在统一帧里:
-`mazeTask` / `posX,posY` / `wallLeft,Front,Right` / `goalX,goalY` / `stackIdx` /
+`mazeTask` / `posX,posY` / `wallLeft,Front,Right` / `goalX,goalY` / `stackIdx`(已废弃·恒 0) /
 `motionTask`+`motionStep`。于是本 API 变成"读帧"而不是"攒事件":
 
     state()     从 `mc.telemetry.latest()` 直接取
