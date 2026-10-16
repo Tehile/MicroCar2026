@@ -135,7 +135,17 @@ void Timer2_Init()
 	RCC->APB2ENR|=1<<0;		 
 	RCC->APB1ENR|=1<<0;		 
 	AFIO->MAPR&=0xF8FFFCFF;
-	AFIO->MAPR|=0x04000000;	 
+#ifdef MOUSE_REMOTE
+	/* 2026-10-16 修: SWJ_CFG 必须 = 010(关 JTAG / **保留 SWD**), 与旧课程固件
+	 * motor.c:78 的 AFIO->MAPR|=0x02000000 一致。
+	 * 原值 0x04000000 => SWJ_CFG=100 => JTAG 与 SWD **一并关掉** => 固件一跑到
+	 * 这里就再也连不上 J-Link(实测 2026-10-16: "DAP initialized successfully"
+	 * 但恒 "Can not attach to CPU"), 远程档无法调试/无法在线诊断。
+	 * 比赛档保持原值不动 => 红线不受影响。 */
+	AFIO->MAPR|=0x02000000;
+#else
+	AFIO->MAPR|=0x04000000;
+#endif
 	AFIO->MAPR&=0xFFFFFCFF;
 	AFIO->MAPR|=1<<8;		 
 		

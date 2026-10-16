@@ -159,6 +159,17 @@ void hardware_init()
 	Timer1_Init();
 	Timer2_Init();
 	Timer3_Init();
+#ifdef MOUSE_REMOTE
+	/* 2026-10-16 修: 链路初始化必须提到**陀螺零偏标定阻塞循环之前**。
+	 * 下面 if(gyro0==-1) 的校准循环(行 164 起)在陀螺不静止时会**永久自旋**,
+	 * 而 USART1 RX 的 NVIC 使能写在 LINK_Init 里 —— 放在 hardware_init 末尾
+	 * 就等于"标定没完成之前整条链路静默"(实测: 悬挂工况 COM7 全程 0 字节)。
+	 * 提前后: (1) 标定期间 PING/TELEM 仍可应答, 便于在线诊断;
+	 *          (2) IWDG 提前配成 2s, 并由 SysTick 每 1ms 喂狗(见 link.c 喂狗说明)。
+	 * 位置: 所有硬件 Init 之后、读标定 Flash 之前; 全局量已由 C 启动代码初始化,
+	 * 故与"LINK_Init 必须在 HARDWARE_Init 之后"的原约束不冲突。 */
+	LINK_Init();
+#endif
 	gyro0=STMFLASH_ReadHalfWord(FLASH_ADDR_GYRO0);		 
 	 
 	if(gyro0==-1)
@@ -196,12 +207,6 @@ void hardware_init()
 		ledoff(0);
 		sleepmode=0;
 	}
-#ifdef MOUSE_REMOTE
-	/* 移植 P2: 链路初始化(RX 抢占优先级/USART1 TX DMA/标定参数载入/看门狗)。
-	 * 必须在各硬件 Init 之后 —— 与旧工程 main.c 的 HARDWARE_Init -> LINK_Init 同序。
-	 * 之后遥测/命令通道即活, 主循环还在跑菜单/值守都不受影响。 */
-	LINK_Init();
-#endif
 }
 
 int main()
