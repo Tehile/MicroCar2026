@@ -15,3 +15,22 @@ RemoteControl/host/*.txt
 
 # ---- 手工维护的工程备份副本(用户本地保留, 不入库) ----
 * - 副本/
+
+# ---- Control: 运行草稿目录(日志/截图/回放/yuv/视频) ----
+Control/.tmp/
+
+# ---- 通用临时文件 ----
+*.tmp
+
+# ---- Auto Locate: 实验产物(跑一次生成的 session/trajectory/图/视频) + 自动生成模块 ----
+Auto Locate/experiments/
+Auto Locate/aruco_locator/session.py
+
+# ---- Auto Locate/samples: 测试视频夹具(本地保留, 不入库) ----
+Auto Locate/samples/*.mp4
+
+# ---- C# 构建产物 (Debug Project) ----
+Debug Project/bin/
+Debug Project/obj/
+*.user
+*.suo
