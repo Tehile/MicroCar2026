@@ -3302,6 +3302,30 @@ void LINK_Init(void)
 	 *       此处直接写寄存器而非 NVIC_SetPriority(), 以免 CMSIS 的移位约定产生歧义。 */
 	SCB->SHP[11] = 0x40;          /* SysTick: 异常号 15 -> SHP[11], 抢占 1 / 子 0 */
 	NVIC->IP[USART1_IRQn] = 0x00; /* USART1 RX: 抢占 0 / 子 0 */
+	/* ================= NVIC 使能(缺这步 == 完全收不到串口数据) =================
+	 * 症状: 上位机发任何东西都没有回应, 串口"完全静默"。
+	 * 根因(2026-10-16 实测): uart_init() 只开了 USART 侧的 RXNEIE(CR1 bit5),
+	 *   从未置位 NVIC 的中断使能位; 而 SYSTEM/usart/usart.c 的注释写明
+	 *   "USART1 RX 的 NVIC 使能与优先级统一由 LINK_Init() 配置" —— 本函数此前
+	 *   却只写了优先级 IP, **从未写 ISER**, 于是这条外包没有人接。
+	 * 表现: RXNE 在 USART 里挂着却进不了 CPU, DR 里的字节无人读(实测 DR 停在
+	 *   上位机发来的首字节 'P' 上且 RXNE=1), 之后到达的字节全部触发 ORE 被丢弃。
+	 * 判据: J-Link 读 NVIC->ISER[1] == 0; 手工向该寄存器写 0x20(IRQn 37 -> bit5)
+	 *   后串口**立即**回 PONG 8 300 —— 反向证明唯一缺口就是这个使能位。
+	 * 写法: 用 |= 以免波及同一 ISER 字内的其它中断(IRQn 32..63); 直接写寄存器
+	 *   与上面的 IP 赋值保持同一种风格, 也不像 MY_NVIC_Init() 那样顺带把
+	 *   SCB->AIRCR 的全局优先级分组改掉。
+	 * 本文件整文件 #ifdef MOUSE_REMOTE => 比赛档不编译此行, 红线不受影响。 */
+	NVIC->ISER[USART1_IRQn >> 5] |= (u32)1 << (USART1_IRQn & 0x1F);
+
+	/* ================= 丢弃上电期间的残缺字节 =================
+	 * 从 uart_init() 完成到本行使能 ISER 之间, 若 PC 已经在发数据, RX ISR 却从未
+	 * 执行过 —— 残留在 DR / USART_RX_BUF 里的多半是一条**半截命令**, 会让
+	 * LINK_Tick 的行解析从错误的字节开始对齐(表现为"能通但命令老是不识别")。
+	 * ORE 的复位序列是"先读 SR 再读 DR"(RM0008), 只读 SR 是清不掉的。 */
+	USART_RX_STA = 0;
+	(void)USART1->SR; /* 读 SR: ORE 复位序列第一步 */
+	(void)USART1->DR; /* 读 DR: 丢弃滞留字节并真正复位 RXNE / ORE */
 
 	/* ================= TX DMA ================= */
 	link_DmaInit();
