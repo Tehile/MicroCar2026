@@ -188,10 +188,8 @@ def main() -> int:
             return 1
         # 指纹与 link.h 现读版本比对
         try:
-            import pathlib
-            t = pathlib.Path("../code_stm32f1_mouse/HARDWARE/link.h").read_text(encoding="utf-8")
-            ep = int(re.search(r"#define\s+LINK_PROTO_VER\s+(\d+)", t).group(1))
-            ef = int(re.search(r"#define\s+LINK_FW_VER\s+(\d+)", t).group(1))
+            from host import fwprofile  # 固件档位: 两代固件并存, RC_FW_PROFILE 切换
+            ep, ef = fwprofile.fw_expect() or (None, None)
             if mc.device.get("proto") != ep or mc.device.get("fw") != ef:
                 print(f"    ⚠ 板上 proto/fw = {mc.device.get('proto')}/{mc.device.get('fw')}，"
                       f"源码 = {ep}/{ef} —— 板上不是当前源码编的固件")

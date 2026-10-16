@@ -40,9 +40,8 @@ sys.path.insert(0, ".")
 
 def fw_expect():
     try:
-        t = Path("../code_stm32f1_mouse/HARDWARE/link.h").read_text(encoding="utf-8")
-        return (int(re.search(r"#define\s+LINK_PROTO_VER\s+(\d+)", t).group(1)),
-                int(re.search(r"#define\s+LINK_FW_VER\s+(\d+)", t).group(1)))
+        from host import fwprofile  # 固件档位: 两代固件并存, RC_FW_PROFILE 切换
+        return fwprofile.fw_expect() or (None, None)
     except Exception:
         return None, None
 

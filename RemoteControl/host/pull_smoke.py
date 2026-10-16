@@ -124,14 +124,9 @@ def main() -> int:
         check("PING 仍 OK", r.ok, r.status)
         # ⚠️ 版本号**从固件头文件现读**, 不写死 —— 写死的话每次升版本都要来改测试,
         # 久了就变成"改测试让它过", 而不是"发现两侧漂移"。
-        _fw_h = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "..", "code_stm32f1_mouse", "HARDWARE", "link.h")
-        try:
-            _hk = open(_fw_h, encoding="utf-8").read()
-            _pv = int(re.search(r"#define\s+LINK_PROTO_VER\s+(\d+)", _hk).group(1))
-            _fv = int(re.search(r"#define\s+LINK_FW_VER\s+(\d+)", _hk).group(1))
-        except Exception:
-            _pv = _fv = None
+        from host import fwprofile  # 固件档位: 两代固件并存, 由 RC_FW_PROFILE 切换
+        _exp = fwprofile.fw_expect()
+        _pv, _fv = _exp if _exp else (None, None)
         check(f"设备指纹 proto={_pv}(= 固件 LINK_PROTO_VER)",
               mc.device.get("proto") == _pv, str(mc.device))
         check(f"设备指纹 fw={_fv}(= 固件 LINK_FW_VER)",

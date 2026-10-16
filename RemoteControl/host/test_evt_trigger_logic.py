@@ -984,9 +984,8 @@ def test_pullf1_wire() -> None:
     # 与固件源同值(防两侧漂移; 这里直接读 link.h, 不写死)
     import os
     import re
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                     "code_stm32f1_mouse", "HARDWARE", "link.h")
-    h = open(p, encoding="utf-8").read()
+    from host import fwprofile  # 固件档位: 两代固件并存, 由 RC_FW_PROFILE 切换
+    h = fwprofile.link_h_text()
     m = re.search(r"#define\s+LINK_FLAG_PULLF1\s+(0x[0-9A-Fa-f]+)", h)
     assert m, "固件 link.h 里没有 LINK_FLAG_PULLF1"
     assert int(m.group(1), 16) == C.FLAG_PULLF1, m.group(1)

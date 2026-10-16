@@ -58,10 +58,16 @@ from ..protocol.codec import (
     pack_frame,
     pack_unified,
 )
+from host import fwprofile  # noqa: E402  (固件档位: MAZETYPE/FW 跟固件走)
 
-MAZETYPE = 7
-PROTO_VER = 8  # v2.7: CAL 家族新增 6 个菜单远程化子命令(帧格式与参数表未变); v2.8 亦未变
-FW_VER = 222  # v2.10.1: 修正远程档值守循环按键极性(USER/main.c), 使 MAZE RUN 真被消费并发车; 帧格式/命令集/参数表未变
+# ---- 固件档位(见 host/fwprofile.py) ----
+# 仿真器**必须跟着当前档位的固件走**: 迷宫尺寸进 PONG/MAP 帧、版本号进 PONG 指纹,
+# 而 pull_smoke/front_check 会拿固件 link.h **现读**的值来核对 ⇒ 这里绝不写死,
+# 否则升版本时会变成"改测试让它过"。切档: RC_FW_PROFILE=legacy python <套件>.py
+_fw_exp = fwprofile.fw_expect()
+MAZETYPE: int = fwprofile.PROFILE["mazetype"]
+PROTO_VER = _fw_exp[0] if _fw_exp else 8
+FW_VER = _fw_exp[1] if _fw_exp else 222
 
 # 参数表(与固件 id 对齐); 初值 = 固件 ISR_Init 里的源码默认值
 PARAM_DEFAULTS: Dict[int, float] = {

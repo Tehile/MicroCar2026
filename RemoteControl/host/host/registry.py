@@ -71,7 +71,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.10.1"  # v2.10.1: 固件侧修复远程档发车请求消费(USER/main.c 按键极性; 见 link.h 历史 222); **host 侧零改动** ⇒ PROTO 仍 8 / fw 222
+API_VERSION = "2.11.0"  # v2.11.0: P5 上位机适配新基线 code_competition(fw 300 / MAZETYPE 16) —— 固件档位入口 host/fwprofile.py、MAZE_TASK_NAMES 补 END=6、sim 跟档位; PROTO 仍 8
 
 
 # ---------------------------------------------------------------- 命令表

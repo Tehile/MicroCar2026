@@ -64,18 +64,14 @@
                           *        SENSOR/IRCAP/BLOCK/ERASEALL), 把按键菜单 2/4/5/6/7/8
                           *        项的能力远程化。**帧格式与参数表均未变**, 进位只因
                           *        命令集变化(先例: v2.4 的 `MAZE RUN`、v2.6 的 RATE 族)。 */
-#define LINK_FW_VER 222  /* 2.22 —— v2.10.1: 修正远程档值守循环按键分支的 `BUTTON1` 判定
-                          *        极性 —— 原写 `if (BUTTON1 == 0)` 当"按下"是**反的**
-                          *        (真值 idle=0 / 按下=1, 见 menu.c:33 的"4s 未按键自动
-                          *        进主流程"倒计时 + calibrate.c:190 `BUTTON1 == 1`)。该缺陷
-                          *        使空闲时 `while (BUTTON1 == 0)` **永久自旋** => main 永不
-                          *        执行 `LINK_MazeStarted()`: `MAZE RUN` 回 ACK OK 却**永不
-                          *        发车**、随后恒 ERR_BUSY 且 `MAZE STOP` 救不回。详见
-                          *        USER/main.c 值守循环。**帧格式/命令集/参数表全未变**
-                          *        (49B/57B/41 项) => 协议号仍 8。 */
+#define LINK_FW_VER 300  /* 3.00 —— 新基线 `code_competition`(比赛固件) 的远程档标记。
+                          *        与课程固件(222)区分: 迷宫 16x16、单体 main() 状态机、
+                          *        参数宿主变量/Flash 页/动作枚举来源全不同。**协议文本/
+                          *        命令集/参数表均未变**(PROTO 8 不变), 只是宿主实现换代,
+                          *        host 按本号选定名表与 sim 迷宫尺寸(见 host/host/fwprofile.py)。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
-#define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(基线 hex sha256 f0a5f863...)。 */
+#define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(新工程基线 hex sha256 68ad6be2...)。 */
 #endif
 /* 历史版本记录:
  *  222 = v2.10.1: **远程档发车请求消费修复** —— `USER/main.c` 值守循环(等 `MAZE RUN`)

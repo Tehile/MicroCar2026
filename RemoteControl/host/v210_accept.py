@@ -71,14 +71,8 @@ def fmt_stats(st: Dict[str, Any]) -> str:
 
 def _fw_expect():
     """从固件 `link.h` 现读 (LINK_PROTO_VER, LINK_FW_VER)，读不到返回 None。"""
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                     "code_stm32f1_mouse", "HARDWARE", "link.h")
-    try:
-        h = open(p, encoding="utf-8").read()
-        return (int(re.search(r"#define\s+LINK_PROTO_VER\s+(\d+)", h).group(1)),
-                int(re.search(r"#define\s+LINK_FW_VER\s+(\d+)", h).group(1)))
-    except Exception:
-        return None
+    from host import fwprofile  # 固件档位: 两代固件并存, 由 RC_FW_PROFILE 切换
+    return fwprofile.fw_expect()
 
 
 class LinkLostWatch:

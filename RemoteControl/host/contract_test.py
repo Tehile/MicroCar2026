@@ -49,6 +49,8 @@ from host.registry import (
     spec_of,
 )
 
+from host import fwprofile  # 固件档位: 两代固件并存, 由 RC_FW_PROFILE 切换
+
 PASS = 0
 FAIL = 0
 
@@ -119,10 +121,9 @@ def _test_enum_tables_vs_firmware() -> None:
 
     from host.protocol import codec as _c
 
-    fw = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code_stm32f1_mouse")
-    core_h = open(os.path.join(fw, "HARDWARE", "core.h"), encoding="utf-8").read()
-    maze_h = open(os.path.join(fw, "STRATEGY", "maze.h"), encoding="utf-8").read()
-    link_h = open(os.path.join(fw, "HARDWARE", "link.h"), encoding="utf-8").read()
+    fw = fwprofile.FW_ROOT
+    link_h = fwprofile.link_h_text()
+    print(f"       {fwprofile.profile_line()}")
 
     def _norm(name: str) -> str:
         s = name.upper().replace("_", "")
@@ -131,20 +132,14 @@ def _test_enum_tables_vs_firmware() -> None:
                 s = s[len(p):]
         return s
 
-    # ---- MotionTask_t(core.h) ----
-    m = re.search(r"typedef\s+enum\s*\{(.*?)\}\s*MotionTask_t\s*;", core_h, re.S)
-    if not m:
-        check("core.h 解析到 MotionTask_t 枚举体", False)
-        return
-    body = re.sub(r"/\*.*?\*/", " ", m.group(1), flags=re.S)
-    body = re.sub(r"//[^\n]*", " ", body)
-    fw_motion = {int(v): n for n, v in re.findall(r"(\w+)\s*=\s*(\d+)", body)}
-
-    check(f"core.h MotionTask_t 解析出 {len(fw_motion)} 个码",
+    # ---- 动作码表(按档位解析: 新固件 = timer.h/utility.h 的 `#define` 连续块;
+    #      旧固件 = core.h 的 `typedef enum {...} MotionTask_t`) ----
+    fw_motion = fwprofile.motion_task_map()
+    check(f"固件动作码解析出 {len(fw_motion)} 个码",
           len(fw_motion) > 0, str(len(fw_motion)))
     miss = sorted(set(fw_motion) - set(_c.MOTION_TASK_NAMES))
     extra = sorted(set(_c.MOTION_TASK_NAMES) - set(fw_motion))
-    check(f"MOTION_TASK_NAMES 数值集合与 core.h 完全一致({len(fw_motion)} 码)",
+    check(f"MOTION_TASK_NAMES 数值集合与固件完全一致({len(fw_motion)} 码)",
           not miss and not extra,
           f"缺 {miss} | 多 {extra}")
     nm_bad = [f"{k}: 固件 {fw_motion[k]} != 主机 {_c.MOTION_TASK_NAMES[k]}"
@@ -152,19 +147,21 @@ def _test_enum_tables_vs_firmware() -> None:
               if k in _c.MOTION_TASK_NAMES and _norm(fw_motion[k]) != _norm(_c.MOTION_TASK_NAMES[k])]
     check("MOTION_TASK_NAMES 名称逐项一致(归一化后)", not nm_bad, " | ".join(nm_bad))
 
-    # ---- mouseTask 六个宏(maze.h) ----
-    macro_names = ["WAIT", "START", "MAZESEARCH", "SPURT", "SPURT_45", "SPURT_90"]
-    fw_maze = {}
-    for n in macro_names:
-        mm = re.search(r"#define\s+" + n + r"\s+(\d+)\b", maze_h)
-        if mm:
-            fw_maze[int(mm.group(1))] = n
-    check(f"maze.h 解析出 {len(fw_maze)}/{len(macro_names)} 个 mouseTask 宏",
+    # ---- mouseTask 宏(名字表随档位: 新固件多一个 END=6) ----
+    macro_names = list(fwprofile.PROFILE["maze_macros"])
+    fw_maze = fwprofile.maze_task_map()
+    check(f"固件解析出 {len(fw_maze)}/{len(macro_names)} 个 mouseTask 宏",
           len(fw_maze) == len(macro_names), str(sorted(fw_maze)))
     miss = sorted(set(fw_maze) - set(_c.MAZE_TASK_NAMES))
     extra = sorted(set(_c.MAZE_TASK_NAMES) - set(fw_maze))
-    check("MAZE_TASK_NAMES 数值集合与 maze.h 完全一致",
-          not miss and not extra, f"缺 {miss} | 多 {extra}")
+    # 主机名表是**两代固件的并集**: 新基线 code_competition 的 `GucMouseTask` 多一个
+    # END=6(跑位收尾态), 旧课程固件没有 ⇒ 在 legacy 档位下多出 6 是**已登记的差异**,
+    # 不算两侧漂移。其余任何多/缺都仍然判失败。
+    extra_ok = {6}
+    real_miss = list(miss)
+    real_extra = sorted(set(extra) - extra_ok)
+    check(f"MAZE_TASK_NAMES 数值集合与固件一致(允许并集里的 END={sorted(extra_ok)[0]})",
+          not real_miss and not real_extra, f"缺 {real_miss} | 多 {real_extra}")
     nm_bad = [f"{k}: 固件 {fw_maze[k]} != 主机 {_c.MAZE_TASK_NAMES[k]}"
               for k in sorted(fw_maze)
               if k in _c.MAZE_TASK_NAMES and _norm(fw_maze[k]) != _norm(_c.MAZE_TASK_NAMES[k])]
@@ -183,11 +180,11 @@ def _test_enum_tables_vs_firmware() -> None:
             bad.append(f"{hn}: 主机 {getattr(_c, hn)} != 固件 {fv}")
     check(f"前墙/冲刺位宏 {7} 项与固件一致", not bad, " | ".join(bad))
 
-    # ---- 冲刺档位映射(0..4)覆盖固件 SpurtSpeed_t 的 60..63 ----
-    spurt_h = open(os.path.join(fw, "MOTION", "spurt.h"), encoding="utf-8").read()
-    fw_modes = sorted(int(v) for v in re.findall(r"SPURT_SPEED_\w+\s*=\s*(\d+)", spurt_h))
-    check(f"固件 SpurtSpeed_t 解析出 4 档(60..63) == {fw_modes}",
-          fw_modes == [60, 61, 62, 63], str(fw_modes))
+    # ---- 冲刺档位 60..63(两代含义相同, 来源不同: 旧 spurt.h 的 SpurtSpeed_t;
+    #      新 utility.h 的 LOW_90/LOW/MEDIUM/HIGH) ----
+    fw_modes = fwprofile.spurt_speeds()
+    check(f"固件冲刺档位解析出 4 档(60..63) == {fw_modes}",
+          fw_modes == fwprofile.PROFILE["spurt_expect"], str(fw_modes))
     check("SPURT_MODE_NAMES 覆盖 0..4(0=未选 + 4 个固件档)",
           sorted(_c.SPURT_MODE_NAMES) == [0, 1, 2, 3, 4], str(sorted(_c.SPURT_MODE_NAMES)))
 
@@ -211,8 +208,8 @@ def _test_protocol_constants_vs_firmware() -> None:
 
     from host.protocol import codec as _c
 
-    fw = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code_stm32f1_mouse")
-    link_h = open(os.path.join(fw, "HARDWARE", "link.h"), encoding="utf-8").read()
+    fw = fwprofile.FW_ROOT
+    link_h = fwprofile.link_h_text()
 
     def macro(name: str):
         m = re.search(r"#define\s+" + re.escape(name) + r"\s+(0[xX][0-9a-fA-F]+|\d+)", link_h)
@@ -274,7 +271,7 @@ def _test_firmware_mode_gates() -> None:
     import os
     import re
 
-    fw = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code_stm32f1_mouse")
+    fw = fwprofile.FW_ROOT
 
     def _read_utf8(path: str, label: str) -> str:
         """严格 UTF-8 读固件源码, 失败时给**可读**的定位信息。
@@ -296,57 +293,98 @@ def _test_firmware_mode_gates() -> None:
                 f"     复原工作区 CRLF(`\\r\\n`), 最后 `git ls-files --eol <该文件>` + "
                 f"`git diff` 复核为空。")
 
-    main_h = _read_utf8(os.path.join(fw, "USER", "main.h"), "USER/main.h")
-    link_c = _read_utf8(os.path.join(fw, "HARDWARE", "link.c"), "HARDWARE/link.c")
-    isr_c = _read_utf8(os.path.join(fw, "HARDWARE", "isr.c"), "HARDWARE/isr.c")
-    link_h = _read_utf8(os.path.join(fw, "HARDWARE", "link.h"), "HARDWARE/link.h")
-
-    # S8a: 档位宏白名单 —— main.h 里 `#define MOUSE_*` 只允许 MOUSE_REMOTE
-    defined = set(re.findall(r"#define\s+(MOUSE_\w+)", main_h))
-    check("main.h: 档位宏只有 MOUSE_REMOTE", defined == {"MOUSE_REMOTE"}, str(sorted(defined)))
-    check("main.h: MOUSE_REMOTE 的定义存在(可注释掉, 但不许消失)",
-          "#define MOUSE_REMOTE 1" in main_h)
-
-    # S8b: 旧档位宏在整个固件树里**零残留**(含派生宏)。
-    #      `.uvprojx` 也要扫 —— 档位宏曾经同时出现在工程文件的预处理定义里。
-    LEGACY = ("MOUSE_TEST_NO_MOTOR", "MOUSE_TEST_MOTOR_LAB", "MOUSE_LESSON_LAB",
-              "MOUSE_DATA_LOG", "MOUSE_TEST_MODE", "MOUSE_ESTOP_RECOVERABLE")
-    leftover: list = []
-    for dirpath, _dirs, files in os.walk(fw):
-        if "tools" in dirpath.replace("\\", "/"):
-            continue
-        for fn in sorted(files):
-            if not fn.endswith((".c", ".h", ".uvprojx")):
+    link_h = fwprofile.link_h_text()  # 两代都能直接用档位读 link.h(编码自动探测)
+    if fwprofile.FW_PROFILE == "competition":
+        # ---- 新基线 code_competition 的档位不变量 ----
+        # 为什么不是 S8a: 新工程的档位**不在源码里**(旧工程写在 USER/main.h 的
+        # `#define MOUSE_REMOTE 1`) —— 它来自 Keil Target 的 Define, 所以改从
+        # .uvprojx 读, 并补两条与"红线"直接挂钩的断言。
+        print("       （新基线: 档位在 Keil Target Define, 非源码宏）")
+        uvx = fwprofile.read_text(*fwprofile.PROFILE["uvprojx"], errors="replace")
+        m1 = re.search(r"<TargetName>Target 1</TargetName>(.*?)<TargetName>Target_Remote</TargetName>",
+                       uvx, re.S)
+        m2 = re.search(r"<TargetName>Target_Remote</TargetName>(.*)", uvx, re.S)
+        check("uvprojx: 找到 Target 1 / Target_Remote 两个 Target", bool(m1) and bool(m2))
+        body1 = m1.group(1) if m1 else ""
+        body2 = m2.group(1) if m2 else ""
+        d1 = (re.search(r"<Define>([^<]*)</Define>", body1) or [None, ""])[1] if body1 else ""
+        d2 = (re.search(r"<Define>([^<]*)</Define>", body2) or [None, ""])[1] if body2 else ""
+        check("Target 1(比赛档) Define **不含** MOUSE_REMOTE(红线前提)",
+              "MOUSE_REMOTE" not in d1, d1)
+        check("Target_Remote Define 含 MOUSE_REMOTE,EN_USART1_RX",
+              "MOUSE_REMOTE" in d2 and "EN_USART1_RX" in d2, d2)
+        _od = re.search(r"<OutputDirectory>([^<]*)</OutputDirectory>", body2)
+        check("Target_Remote 输出目录隔离(对象/hex 不与比赛档同目录)",
+              bool(_od) and "Remote" in _od.group(1), _od.group(1) if _od else "未找到")
+        rem = os.path.join(fw, "REMOTE")
+        bad_gate = []
+        for fn in sorted(os.listdir(rem)):
+            if not fn.endswith(".c"):
                 continue
-            path = os.path.join(dirpath, fn)
-            try:
-                text = open(path, encoding="utf-8", errors="replace").read()
-            except OSError:
-                continue
-            for name in LEGACY:
-                n = len(re.findall(r"\b" + name + r"\b", text))
-                if n:
-                    leftover.append(f"{os.path.relpath(path, fw)}: {name} x{n}")
-    check(f"固件树已无旧档位宏({len(LEGACY)} 个名字 x 0 次)",
-          not leftover, " | ".join(leftover[:6]))
+            txt = open(os.path.join(rem, fn), "rb").read().decode("gbk", "replace").rstrip()
+            last = txt.splitlines()[-1].strip() if txt else ""
+            if "#ifdef MOUSE_REMOTE" not in txt or not last.startswith("#endif"):
+                bad_gate.append("%s(末行=%r)" % (fn, last[:40]))
+        check("REMOTE/*.c 整文件 #ifdef MOUSE_REMOTE 门控(Keil 会给每个 Target 都编一遍)",
+              not bad_gate, str(bad_gate))
+        bld_p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "..", "build_competition_modes.py")
+        bld = open(bld_p, encoding="utf-8").read()
+        check("build_competition_modes.py: 比赛档红线 sha256 常量在位",
+              "68ad6be2272818269d6aac78e5356d9bb91036ddeaaa82c4ec3754a8a0948141" in bld)
+        check("registry: 无 lesson.* 命令(课程层在新基线同样不存在)",
+              not [n for n in COMMANDS if n.startswith("lesson.")])
+    else:
+        main_h = _read_utf8(os.path.join(fw, "USER", "main.h"), "USER/main.h")
+        link_c = _read_utf8(os.path.join(fw, "HARDWARE", "link.c"), "HARDWARE/link.c")
+        isr_c = _read_utf8(os.path.join(fw, "HARDWARE", "isr.c"), "HARDWARE/isr.c")
 
-    # S8c: 课程实验层**整层**清除 —— 源文件不存在、无人 include、命令关键字不在
-    check("APP/lesson_lab.c 已删除",
-          not os.path.exists(os.path.join(fw, "APP", "lesson_lab.c")))
-    check("APP/lesson_lab.h 已删除",
-          not os.path.exists(os.path.join(fw, "APP", "lesson_lab.h")))
-    inc = [fn for _dp, _d, fs in os.walk(fw) for fn in fs
-           if fn.endswith((".c", ".h")) and 'lesson_lab.h"' in
-           open(os.path.join(_dp, fn), encoding="utf-8", errors="replace").read()]
-    check("无任何源码 include lesson_lab.h", not inc, str(inc))
-    check("link.c: 无 LESSON / LESSONLAB 命令关键字或符号",
-          ('"LESSON' not in link_c) and ("LESSONLAB_" not in link_c)
-          and ("link_Lesson" not in link_c),
-          f'字面量={link_c.count(chr(34) + "LESSON")} LESSONLAB_={link_c.count("LESSONLAB_")}')
-    # 上位机侧: 课程模块与登记命令都不该还在
-    check("registry: 无 lesson.* 命令",
-          not [n for n in COMMANDS if n.startswith("lesson.")],
-          str(sorted(n for n in COMMANDS if n.startswith("lesson."))))
+        # S8a: 档位宏白名单 —— main.h 里 `#define MOUSE_*` 只允许 MOUSE_REMOTE
+        defined = set(re.findall(r"#define\s+(MOUSE_\w+)", main_h))
+        check("main.h: 档位宏只有 MOUSE_REMOTE", defined == {"MOUSE_REMOTE"}, str(sorted(defined)))
+        check("main.h: MOUSE_REMOTE 的定义存在(可注释掉, 但不许消失)",
+              "#define MOUSE_REMOTE 1" in main_h)
+
+        # S8b: 旧档位宏在整个固件树里**零残留**(含派生宏)。
+        #      `.uvprojx` 也要扫 —— 档位宏曾经同时出现在工程文件的预处理定义里。
+        LEGACY = ("MOUSE_TEST_NO_MOTOR", "MOUSE_TEST_MOTOR_LAB", "MOUSE_LESSON_LAB",
+                  "MOUSE_DATA_LOG", "MOUSE_TEST_MODE", "MOUSE_ESTOP_RECOVERABLE")
+        leftover: list = []
+        for dirpath, _dirs, files in os.walk(fw):
+            if "tools" in dirpath.replace("\\", "/"):
+                continue
+            for fn in sorted(files):
+                if not fn.endswith((".c", ".h", ".uvprojx")):
+                    continue
+                path = os.path.join(dirpath, fn)
+                try:
+                    text = open(path, encoding="utf-8", errors="replace").read()
+                except OSError:
+                    continue
+                for name in LEGACY:
+                    n = len(re.findall(r"\b" + name + r"\b", text))
+                    if n:
+                        leftover.append(f"{os.path.relpath(path, fw)}: {name} x{n}")
+        check(f"固件树已无旧档位宏({len(LEGACY)} 个名字 x 0 次)",
+              not leftover, " | ".join(leftover[:6]))
+
+        # S8c: 课程实验层**整层**清除 —— 源文件不存在、无人 include、命令关键字不在
+        check("APP/lesson_lab.c 已删除",
+              not os.path.exists(os.path.join(fw, "APP", "lesson_lab.c")))
+        check("APP/lesson_lab.h 已删除",
+              not os.path.exists(os.path.join(fw, "APP", "lesson_lab.h")))
+        inc = [fn for _dp, _d, fs in os.walk(fw) for fn in fs
+               if fn.endswith((".c", ".h")) and 'lesson_lab.h"' in
+               open(os.path.join(_dp, fn), encoding="utf-8", errors="replace").read()]
+        check("无任何源码 include lesson_lab.h", not inc, str(inc))
+        check("link.c: 无 LESSON / LESSONLAB 命令关键字或符号",
+              ('"LESSON' not in link_c) and ("LESSONLAB_" not in link_c)
+              and ("link_Lesson" not in link_c),
+              f'字面量={link_c.count(chr(34) + "LESSON")} LESSONLAB_={link_c.count("LESSONLAB_")}')
+        # 上位机侧: 课程模块与登记命令都不该还在
+        check("registry: 无 lesson.* 命令",
+              not [n for n in COMMANDS if n.startswith("lesson.")],
+              str(sorted(n for n in COMMANDS if n.startswith("lesson."))))
 
     # S8d: 生产参数表条目数**必须**等于固件 LINK_P_NUM(远程档语义)。
     #      为什么钉死: `link_CalibLoad()` 判 `cnt != LINK_P_NUM` 即认为整页无效 ——
@@ -408,10 +446,12 @@ def _test_firmware_mode_gates() -> None:
     import os
     import re
 
-    fw = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code_stm32f1_mouse")
-    main_h = open(os.path.join(fw, "USER", "main.h"), encoding="utf-8").read()
-    link_c = open(os.path.join(fw, "HARDWARE", "link.c"), encoding="utf-8").read()
-    isr_c = open(os.path.join(fw, "HARDWARE", "isr.c"), encoding="utf-8").read()
+    fw = fwprofile.FW_ROOT
+    main_h = isr_c = ""  # 只有课程固件有这两个文件(新基线的档位在 Keil Target 里)
+    if fwprofile.FW_PROFILE == "competition":
+        link_c = open(os.path.join(fw, "REMOTE", "link.c"), "rb").read().decode("gbk", "replace")
+    else:
+        link_c = open(os.path.join(fw, "HARDWARE", "link.c"), encoding="utf-8").read()
 
     # ---- 以下为与档位无关的固件静态不变量 ----
     print("\n[S9] 固件静态不变量(Flash 布局 / 注释闭合 / 帧 sink)")
@@ -420,62 +460,116 @@ def _test_firmware_mode_gates() -> None:
     #      uvprojx 内 0x8000000 出现多次(全芯片描述 + 实际启用的 IROM1),
     #      故取其中**最小**的 Size 作为"程序区上界"; 它若越过 FLASH_ADDR_DATA_NUM,
     #      擦写标定/迷宫数据会覆盖代码区(现场表现为"标定莫名丢失"), 故钉住此不变量。
-    uv = open(os.path.join(fw, "USER", "Mouse.uvprojx"), encoding="utf-8").read()
-    flash_h = open(os.path.join(fw, "HARDWARE", "flash.h"), encoding="utf-8").read()
-    flash_c = open(os.path.join(fw, "HARDWARE", "flash.c"), encoding="utf-8").read()
-    link_h = open(os.path.join(fw, "HARDWARE", "link.h"), encoding="utf-8").read()
+    if fwprofile.FW_PROFILE == "competition":
+        uv = fwprofile.read_text(*fwprofile.PROFILE["uvprojx"], errors="replace")
+        flash_h = fwprofile.read_text("HARDWARE", "STMFLASH", "stmflash.h", errors="replace")
+        flash_c = fwprofile.read_text("HARDWARE", "STMFLASH", "stmflash.c", errors="replace")
+    else:
+        uv = open(os.path.join(fw, "USER", "Mouse.uvprojx"), encoding="utf-8").read()
+        flash_h = open(os.path.join(fw, "HARDWARE", "flash.h"), encoding="utf-8").read()
+        flash_c = open(os.path.join(fw, "HARDWARE", "flash.c"), encoding="utf-8").read()
+    link_h = fwprofile.link_h_text()
     sizes = [int(sz, 16) for addr, sz in
              re.findall(r"<StartAddress>(0x[0-9a-fA-F]+)</StartAddress>\s*<Size>(0x[0-9a-fA-F]+)</Size>", uv)
              if int(addr, 16) == 0x08000000]
     m_data = re.search(r"#define\s+FLASH_ADDR_DATA_NUM\s+(0X[0-9a-fA-F]+)", flash_h)
     check("uvprojx: 找到 0x08000000 的程序区描述", bool(sizes), str(sizes))
     check("flash.h: 找到 FLASH_ADDR_DATA_NUM", bool(m_data))
-    if sizes and m_data:
+    if fwprofile.FW_PROFILE == "competition":
+        # 新基线的 IROM1 是**整片 0x20000**(不像旧工程把上界卡在数据区起始) ⇒
+        # 链接器不会因为"代码长过数据页"而报错, 必须在此断言编译产物的 ROM 上界
+        # 仍在第一个数据页之下, 否则标定/迷宫页会被代码踩掉(现场表现为标定莫名丢失)。
+        _map = os.path.join(fw, "USER", "TEST.map")
+        _rom = None
+        if os.path.exists(_map):
+            _mt = open(_map, encoding="utf-8", errors="replace").read()
+            # 取 Load Region 的 Size —— 它才是"真正要烧进 Flash 的字节数"(含 RW 初值)。
+            # 注: 新工程开了镜像压缩, map 里另有一个 COMPRESSED[0x13?] 的值; 用未压缩的
+            # 装载区大小做上界判断更保守(压缩只会更小)。
+            _mm = re.search(r"Load Region \S+ \(Base: [^,]+, Size: (0x[0-9a-fA-F]+)", _mt)
+            _rom = int(_mm.group(1), 16) if _mm else None
+        check("TEST.map: 解析到装载区(装入 Flash 的字节数)", _rom is not None, str(_rom))
+        if _rom is not None and m_data:
+            _dstart = int(m_data.group(1), 16) - 0x08000000
+            check(f"编译产物 ROM({_rom} B = 0x{_rom:X}) < 数据区起始 0x{_dstart:X}(代码不踩数据页)",
+                  _rom < _dstart, f"rom={_rom} data=0x{_dstart:X}")
+    elif sizes and m_data:
         data_start = int(m_data.group(1), 16) - 0x08000000
         check(f"程序区上界 0x{min(sizes):X} == 数据区起始 0x{data_start:X}(不越界)",
               min(sizes) == data_start, f"sizes={[hex(x) for x in sizes]} data=0x{data_start:X}")
 
-    # S9a: Flash 页布局不得互相踩踏。
-    #      背景(2026-10-04 实测): 链路模块原先把标定页取在 page 99/100, 而运行数据区的
-    #      **擦除范围**是 `saveNum/100+1 = 13 页` = page 89..101 —— 两个标定页正落在里面,
-    #      一次 FLASH_EraseRunData()(calibrate.c / menu.c / state.c 共 3 处调用)
-    #      就会把生产标定与课程参数一起擦掉。现已上移到 115/116。此断言钉死这件事。
     def addr_of(macro: str, text: str):
         mm = re.search(r"#define\s+" + macro + r"\s+(0[xX][0-9a-fA-F]+)", text)
         return int(mm.group(1), 16) if mm else None
 
-    # 注意 flash.c 里 saveNum 有两处: `#ifndef FLASHSAVE` 分支的 =1 与
-    # `#ifdef FLASHSAVE` 分支的 =1200。**生效的是后者**(flash.c 顶部无条件 `#define FLASHSAVE`),
-    # 故必须从 `#ifdef FLASHSAVE` 之后开始找, 否则会取到 1 → 页数算成 1。
-    i_fs = flash_c.find("#ifdef FLASHSAVE")
-    m_save = re.search(r"const\s+u16\s+saveNum\s*=\s*(\d+)",
-                       flash_c[i_fs:] if i_fs >= 0 else flash_c)
-    check("flash.c: 找到生效的 saveNum(=1200)", bool(m_save) and m_save.group(1) == "1200",
-          m_save.group(0) if m_save else "未找到")
-    d_data = addr_of("FLASH_ADDR_DATA", flash_h)
-    check("flash.h: 找到 FLASH_ADDR_DATA", d_data is not None)
-    if m_save and d_data and m_data:
-        pages = int(m_save.group(1)) // 100 + 1          # FLASH_EraseRunData 的页数
-        erase_lo, erase_hi = d_data, d_data + pages * 0x400
-        check(f"运行数据区擦除范围 = {pages} 页 (page "
-              f"{(erase_lo - 0x08000000)//0x400}..{(erase_hi - 0x08000000)//0x400 - 1})",
-              pages == 13, f"pages={pages}")
-        # v2.4: FLASH_ADDR_LESSONPARAM(课程参数页)随课程层删除, 只剩生产标定页。
-        for macro_name in ("FLASH_ADDR_SYSCALIB",):
-            a = addr_of(macro_name, link_h)
-            check(f"link.h: 找到 {macro_name}", a is not None)
-            if a is None:
-                continue
-            in_data_area = a >= int(m_data.group(1), 16)
-            in_erase = erase_lo <= a < erase_hi
-            aligned = (a - 0x08000000) % 0x400 == 0
-            below_maze = a < int(re.search(r"#define\s+FLASH_ADDR_BLOCK_STACK\s+(0[xX][0-9a-fA-F]+)",
-                                          flash_h).group(1), 16)
-            check(f"{macro_name}(page {(a - 0x08000000)//0x400}) 位于数据区", in_data_area)
-            check(f"{macro_name} **不在运行数据擦除范围内**", not in_erase,
-                  f"erase=0x{erase_lo:X}..0x{erase_hi:X} addr=0x{a:X}")
-            check(f"{macro_name} 1KB 对齐", aligned)
-            check(f"{macro_name} 不越过迷宫页(118)", below_maze)
+    if fwprofile.FW_PROFILE == "competition":
+        # ---- 新基线的 Flash 页布局不变量 ----
+        # 旧工程的 S9a 钉的是"标定页别落在运行数据区擦除范围里"(靠 flash.c 的 saveNum 算页数)。
+        # 新基线没有 saveNum/EraseRunData(飞行记录是 stmflash.c 的 run_data 顺序写), 所以
+        # 换成**纯头文件层面**的等价不变量: 所有 FLASH_ADDR_* 页 1KB 对齐、互不重叠,
+        # 且远程层自用的 SYSCALIB 页不与固件任何一页冲突(固件页 = 数据 88/89 + 迷宫 118-127)。
+        fw_pages = {}
+        for name, val in re.findall(r"#define\s+(FLASH_ADDR_\w+)\s+(0[xX][0-9a-fA-F]+)", flash_h):
+            fw_pages.setdefault(int(val, 16), []).append(name)
+        check(f"stmflash.h: 解析出 {len(fw_pages)} 个互异的 FLASH_ADDR_* 页",
+              len(fw_pages) >= 8, str(sorted(fw_pages)))
+        bad_align = [f"{hex(a)}={n}" for a, n in fw_pages.items() if (a - 0x08000000) % 0x400]
+        check("所有 FLASH_ADDR_* 均 1KB 对齐", not bad_align, str(bad_align))
+        in_range = [f"{hex(a)}={n}" for a, n in fw_pages.items()
+                    if not (0x08000000 <= a < 0x08020000)]
+        check("所有 FLASH_ADDR_* 落在片内 128KB", not in_range, str(in_range))
+        _sc = addr_of("FLASH_ADDR_SYSCALIB", link_h)
+        check("link.h: 找到远程层 SYSCALIB 页", _sc is not None)
+        if _sc is not None:
+            check(f"SYSCALIB(page {(_sc - 0x08000000) // 0x400}) 1KB 对齐",
+                  (_sc - 0x08000000) % 0x400 == 0)
+            clash = [n for a, n in fw_pages.items() if a == _sc]
+            check("SYSCALIB 页不与固件任何一页重合", not clash, str(clash))
+            check(f"SYSCALIB(page {(_sc - 0x08000000) // 0x400}) < 迷宫起始页 118"
+                  "(远程层页在两代里都落在数据区之前的空白段)",
+                  _sc < 0x0801D800, hex(_sc))
+    else:
+        # S9a: Flash 页布局不得互相踩踏。
+        #      背景(2026-10-04 实测): 链路模块原先把标定页取在 page 99/100, 而运行数据区的
+        #      **擦除范围**是 `saveNum/100+1 = 13 页` = page 89..101 —— 两个标定页正落在里面,
+        #      一次 FLASH_EraseRunData()(calibrate.c / menu.c / state.c 共 3 处调用)
+        #      就会把生产标定与课程参数一起擦掉。现已上移到 115/116。此断言钉死这件事。
+        def addr_of(macro: str, text: str):
+            mm = re.search(r"#define\s+" + macro + r"\s+(0[xX][0-9a-fA-F]+)", text)
+            return int(mm.group(1), 16) if mm else None
+
+        # 注意 flash.c 里 saveNum 有两处: `#ifndef FLASHSAVE` 分支的 =1 与
+        # `#ifdef FLASHSAVE` 分支的 =1200。**生效的是后者**(flash.c 顶部无条件 `#define FLASHSAVE`),
+        # 故必须从 `#ifdef FLASHSAVE` 之后开始找, 否则会取到 1 → 页数算成 1。
+        i_fs = flash_c.find("#ifdef FLASHSAVE")
+        m_save = re.search(r"const\s+u16\s+saveNum\s*=\s*(\d+)",
+                           flash_c[i_fs:] if i_fs >= 0 else flash_c)
+        check("flash.c: 找到生效的 saveNum(=1200)", bool(m_save) and m_save.group(1) == "1200",
+              m_save.group(0) if m_save else "未找到")
+        d_data = addr_of("FLASH_ADDR_DATA", flash_h)
+        check("flash.h: 找到 FLASH_ADDR_DATA", d_data is not None)
+        if m_save and d_data and m_data:
+            pages = int(m_save.group(1)) // 100 + 1          # FLASH_EraseRunData 的页数
+            erase_lo, erase_hi = d_data, d_data + pages * 0x400
+            check(f"运行数据区擦除范围 = {pages} 页 (page "
+                  f"{(erase_lo - 0x08000000)//0x400}..{(erase_hi - 0x08000000)//0x400 - 1})",
+                  pages == 13, f"pages={pages}")
+            # v2.4: FLASH_ADDR_LESSONPARAM(课程参数页)随课程层删除, 只剩生产标定页。
+            for macro_name in ("FLASH_ADDR_SYSCALIB",):
+                a = addr_of(macro_name, link_h)
+                check(f"link.h: 找到 {macro_name}", a is not None)
+                if a is None:
+                    continue
+                in_data_area = a >= int(m_data.group(1), 16)
+                in_erase = erase_lo <= a < erase_hi
+                aligned = (a - 0x08000000) % 0x400 == 0
+                below_maze = a < int(re.search(r"#define\s+FLASH_ADDR_BLOCK_STACK\s+(0[xX][0-9a-fA-F]+)",
+                                              flash_h).group(1), 16)
+                check(f"{macro_name}(page {(a - 0x08000000)//0x400}) 位于数据区", in_data_area)
+                check(f"{macro_name} **不在运行数据擦除范围内**", not in_erase,
+                      f"erase=0x{erase_lo:X}..0x{erase_hi:X} addr=0x{a:X}")
+                check(f"{macro_name} 1KB 对齐", aligned)
+                check(f"{macro_name} 不越过迷宫页(118)", below_maze)
 
     # S9b: 源码"注释提前闭合"扫描。
     #      场景: 在 `/* ... */` 块注释里写了形如 `doTask*/LESSON_ISR` 或 `TEE_*/CROSS` 的文本,
@@ -501,6 +595,14 @@ def _test_firmware_mode_gates() -> None:
                     if block_line == 0:
                         o = rest.find("/*")
                         if o < 0:
+                            break
+                        # ⚠️ 词法顺序: **行注释优先于块注释** —— 固件源码里常见的
+                        # `//************` 横幅, 其 `//*` 里就含一个 `/*`; 不先判 `//`
+                        # 就会把整条横幅当成"块注释开始", 一路吞到文件后面某个 `*/`
+                        # 才闭合, 然后把中间某行误报成"注释提前闭合"(2026-10-16 实测:
+                        # code_competition/SYSTEM/sys/sys.c 的横幅把 127 行误报)。
+                        c = rest.find("//")
+                        if 0 <= c < o:
                             break
                         e = rest.find("*/", o + 2)
                         if e < 0:

@@ -227,6 +227,23 @@ void LP_SyncOut(void)
     Qf1 = Qf2 = Ql = Qr = (double)irCfg.kalQ / 10000.0;
     Pf1 = Pf2 = Pl = Pr = (double)irCfg.kalP / 10000.0;
 
+    /* ---- 校准/调试标志(远程档 CAL 家族; P4) ----
+     * 这四个量在新固件里**只有菜单 case 会写**(case 3 陀螺零偏 / case 5 irswitch /
+     * case 6 IR 标定), 而远程档 main() 根本不进菜单 => 远程层是唯一写者, 回写安全。
+     *  ★ 必须回写, 否则 CAL 家族等于空转: link_CalibService 只改镜像, 不回写则
+     *    - CAL GYRO  START 置 adjFlag=1 后固件不累加 angle_counter, >1500 永不成立;
+     *    - CAL IRDATA START 置 calibMode=1 后 adc.c 仍走滤波分支, 采到的是滤波值;
+     *    - 两者收尾写 Flash 的判据/数据都跟着错。
+     * 回写时序无碍: LP_SyncIn 在本 tick 开头已把镜像刷成固件当前值, 命令/CAL 服务
+     * 改镜像后 LP_SyncOut 立即写回(命令处理与 LINK_Tick 同一 ISR 上下文, 中间没有
+     * 第二次 SyncIn), 所以 "置 1 -> 固件累加 -> 读回 >1500" 这条链是通的。
+     * 不镜像 gyroStr.correctionEnable: 新固件里 gyroswitch/gyroinit 全工程**无人读**
+     * (只有 timer.c:80 的初始化), 陀螺修正恒开, 没有这个开关。 */
+    biaodingmode = (u8)irCalib.calibMode;
+    gyro_adj = gyroStr.adjFlag;
+    angle_counter = gyroStr.adjCounter;
+    irswitch = wallSns.irSwitch;
+
     /* ---- 速度/增益 ---- */
     speed_ss = speedCfg.search;
     speed_turn = speedCfg.turn;

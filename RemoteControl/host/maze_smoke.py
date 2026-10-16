@@ -44,6 +44,7 @@ from host.protocol.codec import (
     pack_unified,
 )
 from host.registry import COMMANDS, FRAMES, command_line, spec_of
+from host.sim.mouse_sim import MAZETYPE as FW_N  # 迷宫尺寸跟固件档位(见 host/fwprofile.py)
 
 PASS = 0
 FAIL = 0
@@ -194,8 +195,8 @@ def test_e2e(port: int) -> None:
         check("进入迷宫任务态(不再是 WAIT)", entered, str(mc.maze.state()))
 
         st = mc.maze.state()
-        check("状态: 位置是合法 7x7 格",
-              bool(st) and 0 <= st["posX"] < 7 and 0 <= st["posY"] < 7,
+        check(f"状态: 位置是合法 {FW_N}x{FW_N} 格",
+              bool(st) and 0 <= st["posX"] < FW_N and 0 <= st["posY"] < FW_N,
               f"({st['posX']},{st['posY']})" if st else "None")
         check("状态: 朝向 0..3", bool(st) and 0 <= st["dir"] <= 3,
               str(st["dir"]) if st else "None")
@@ -227,8 +228,9 @@ def test_e2e(port: int) -> None:
 
         # 墙图(静态数据, 按需拉取)
         m = mc.maze.fetch(timeout=10.0)
-        check("墙图已收到且为 7x7", bool(m) and len(m["mapWall"]) == 7, str(type(m).__name__))
-        check("mazetype = 7", mc.maze.mazetype() == 7, str(mc.maze.mazetype()))
+        check(f"墙图已收到且为 {FW_N}x{FW_N}", bool(m) and len(m["mapWall"]) == FW_N,
+              str(type(m).__name__))
+        check(f"mazetype = {FW_N}", mc.maze.mazetype() == FW_N, str(mc.maze.mazetype()))
         check("position 返回坐标", mc.maze.position() is not None, str(mc.maze.position()))
         check("cell() 读出某格通行情况",
               isinstance(mc.maze.cell(0, 0), dict), str(mc.maze.cell(0, 0)))

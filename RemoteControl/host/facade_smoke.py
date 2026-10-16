@@ -26,6 +26,8 @@ import sys
 import threading
 import time
 
+
+from host.sim.mouse_sim import MAZETYPE as FW_N  # 迷宫尺寸跟固件档位(见 host/fwprofile.py)
 PASS = 0
 FAIL = 0
 
@@ -64,7 +66,7 @@ def _run_impl(port: int) -> None:
     print("\n[A] 连接管理 + 遥测(B)")
     with MouseClient.connect_to(f"tcp://127.0.0.1:{port}") as mc:
         check("连接成功(is_connected)", mc.is_connected, mc.state_detail)
-        check("设备自述 mazetype==7", mc.device.get("mazetype") == 7, str(mc.device))
+        check(f"设备自述 mazetype=={FW_N}", mc.device.get("mazetype") == FW_N, str(mc.device))
         check("设备自述含 proto", "proto" in mc.device, str(mc.device))
 
         check("等待首帧(N4)", mc.telemetry.wait_first_frame(timeout=5.0))
@@ -154,7 +156,8 @@ def _run_impl(port: int) -> None:
         m = mc.maze.fetch(timeout=10.0)
         check("maze.fetch 返回墙图", bool(m), str(type(m).__name__))
         if m:
-            check("墙图 7x7", m.get("mazetype") == 7 and len(m["mapWall"]) == 7, str(m.get("mazetype")))
+            check(f"墙图 {FW_N}x{FW_N}", m.get("mazetype") == FW_N and len(m["mapWall"]) == FW_N,
+                  str(m.get("mazetype")))
             check("position 返回坐标", mc.maze.position() is not None, str(mc.maze.position()))
 
         # ------------------------------------------------------------ 分析(J)

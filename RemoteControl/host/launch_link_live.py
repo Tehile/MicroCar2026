@@ -55,10 +55,9 @@ def rec(step: str, ok: bool, status: str, note: str = "") -> None:
 def fw_fingerprint_expect() -> tuple[int | None, int | None]:
     """从固件源码现读 proto/fw 版本号(不写死, 免得版本一改脚本就过期)。"""
     try:
-        t = Path("../code_stm32f1_mouse/HARDWARE/link.h").read_text(encoding="utf-8")
-        ep = int(re.search(r"#define\s+LINK_PROTO_VER\s+(\d+)", t).group(1))
-        ef = int(re.search(r"#define\s+LINK_FW_VER\s+(\d+)", t).group(1))
-        return ep, ef
+        from host import fwprofile  # 固件档位: 两代固件并存, 由 RC_FW_PROFILE 切换
+        exp = fwprofile.fw_expect()
+        return exp if exp else (None, None)
     except Exception:
         return None, None
 

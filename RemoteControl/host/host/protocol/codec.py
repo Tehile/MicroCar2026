@@ -158,9 +158,13 @@ SPURT_MODE_NAMES: Dict[int, str] = {
 #: 迷宫朝向(mazeState.mouseDirection)
 DIR_NAMES: Dict[int, str] = {0: "UP", 1: "RIGHT", 2: "DOWN", 3: "LEFT"}
 
-#: 迷宫任务状态(mazeState.mouseTask) —— 与固件 STRATEGY/maze.h 的枚举一致
+#: 迷宫任务状态(mazeState.mouseTask) —— 与固件枚举一致。
+#: 旧课程固件: STRATEGY/maze.h(0..5); 新基线 code_competition: STRATAGY/stratagy.h,
+#: **多一个 END=6**(跑位收尾态; P2 起远程档 `case END` 会进这个状态, 不补会显示 "6")。
+#: contract_test 按固件档位(RC_FW_PROFILE)解析对应头文件校验本表。
 MAZE_TASK_NAMES: Dict[int, str] = {
     0: "WAIT", 1: "START", 2: "SEARCH", 3: "SPURT", 4: "SPURT45", 5: "SPURT90",
+    6: "END",
 }
 
 # 墙位编码(mapWall 低四位: bit0=上 bit1=右 bit2=下 bit3=左; 置位表示"无墙/可通行")

@@ -66,14 +66,8 @@ def _fw_expect():
     注意 `PONG` 的第 4 个字段是 TX 环缓冲大小，它**随档位变**
     （远程档 1024 / 比赛档 256），所以不参与核对。
     """
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "..", "code_stm32f1_mouse", "HARDWARE", "link.h")
-    try:
-        h = open(p, encoding="utf-8").read()
-        return (int(re.search(r"#define\s+LINK_PROTO_VER\s+(\d+)", h).group(1)),
-                int(re.search(r"#define\s+LINK_FW_VER\s+(\d+)", h).group(1)))
-    except Exception:
-        return None
+    from host import fwprofile  # 固件档位: 两代固件并存, 由 RC_FW_PROFILE 切换
+    return fwprofile.fw_expect()
 
 
 def build(cmd: str, seq: int) -> bytes:
