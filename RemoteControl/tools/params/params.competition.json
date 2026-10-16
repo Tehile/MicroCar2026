@@ -1480,11 +1480,11 @@
           "line": 151,
           "symbol": "kalmanswitch",
           "value": "1",
-          "effect": "远程档被 link_port.c:226 写 irCfg.kalOn(=0) ⇒ 开关被关掉"
+          "effect": "自洽回环, 远程档恒为 1(不被关掉): LP_SyncOut:226 写 kalmanswitch, 下一拍 LP_SyncIn:91 又把它读回 irCalib.kalmanswitch ⇒ 值稳定 ⇒ 改 adc.c:151 有效、SETQ IRKALSW 也有效。irCfg.kalOn 只是 SETQ 的临时入口(link.c:732), 会被下一拍 SyncIn 覆盖"
         }
       ],
       "notes": [
-        "★行为级: 远程档卡尔曼开关被置 0"
+        "★行为级(2026-10-16 修正): kalmanswitch 恒为 1(自洽回环, 见 latent), 开关本身没被破坏; 被破坏的是 Q/P —— irCfg.kalQ/kalP 无初值(BSS 0)且 LP_SyncIn 不刷新, 每 tick 把 Qf1..Qr/Pf1..Pr 写成 0 ⇒ kf≡1 退化为直通。分类应为 A(固件赢), 非 B"
       ],
       "history": []
     },

@@ -26,7 +26,7 @@
 | 证据 | 命令 | 结果 |
 |---|---|---|
 | **① 抽取完整** | `python tools/paramgen.py extract --accept` | **41 项**（= 固件 `LINK_P_NUM` 远程档 41），无一漏一项 |
-| **② 自动仲裁** | `python tools/paramgen.py audit` | **A 固件赢 14 项 / B 镜像赢 9 项 / C 无人读 18 项**（14+9+18 = 41） |
+| **② 自动仲裁** | `python tools/paramgen.py audit` | **A 固件赢 15 项 / B 镜像赢 8 项 / C 无人读 18 项**（15+8+18 = 41）<br>*（2026-10-16 修正：`IRKALSW` 由 B 改 A，原为 14/9/18；见 §2.1 脚注）* |
 | **③ 幂等** | `apply`（JSON 与固件一致的场景） | **将改 0 行 / 0 文件** —— 写回是"定点"的 |
 | **④ 写回 + 定点** | 改 JSON 的 4 个值 → `apply --commit`（对临时副本） | 只动 **3 行 / 3 文件**，且只替换"值"：`double turn_kp=4,turn_delta…` → `double turn_kp=4.5,turn_kd=3.5;`（注释/tab/CRLF 原样）；重新 `extract` 后 4/4 项 `fw.value == store.value` ✅ |
 | **⑤ 零副作用** | `git status --porcelain -- code_competition host` | **无任何改动**（写回实验全部在 `%TEMP%` 的副本上做） |
@@ -54,32 +54,47 @@ LP_SyncOut()         镜像      → 固件全局量    （**每 tick 都跑**�
 
 | 类 | 数量 | 含义 | 改谁才有用 | 例 |
 |---|---:|---|---|---|
-| **A 固件赢** | **14** | 镜像被 `LP_SyncIn` 从固件刷新，再被推回 | **改固件常量**（或 `SETQ`/`SAVE` 走 Flash） | `TRACKL/R`、`SPEEDL/R`、`GYRORATIO`、`ENCANGLE`、`WALLDIST`、`IRTHRWALL`、`TURNDELAY`、`SPDSEARCH`、`SPDTURN`、`GSKP`、`TURNP`、`TURND` |
-| **B 镜像赢** | **9** | 只有"镜像 → 固件"出边：固件侧同名常量**每 tick 被覆盖** | **改 `link.c:119-127` 的镜像初值**；改固件常量**无效** | `IRKALQ`、`IRKALP`、`IRKALSW`、`MKPL/MKIL/MKDL/MKPR/MKIR/MKDR` |
+| **A 固件赢** | **15** | 镜像被 `LP_SyncIn` 从固件刷新，再被推回 | **改固件常量**（或 `SETQ`/`SAVE` 走 Flash） | `TRACKL/R`、`SPEEDL/R`、`GYRORATIO`、`ENCANGLE`、`WALLDIST`、`IRTHRWALL`、`TURNDELAY`、`SPDSEARCH`、`SPDTURN`、`GSKP`、`TURNP`、`TURND`、**`IRKALSW`** |
+| **B 镜像赢** | **8** | 只有"镜像 → 固件"出边：固件侧同名常量**每 tick 被覆盖** | **改 `link.c:119-127` 的镜像初值**；改固件常量**无效** | `IRKALQ`、`IRKALP`、`MKPL/MKIL/MKDL/MKPR/MKIR/MKDR` |
 | **C 无人读** | **18** | 两侧都没有：可 `GET`/`SETQ`/`SAVE`，但**本固件无人读** | 谁都不用改（要改就得先"接线"） | `IRTHR45/CRIT/FLO/MID/HI/FNEAR`、`IRFRONTMODE`、`BATT*`、`TRACKCOORD`、`DISF60`、`PTKP/KI/KD` |
+
+> ⚠️ **2026-10-16 修正**：`IRKALSW` 原列 B 类，**有误**。它虽然走 `irCfg.kalOn` 这个影子字段，
+> 但真正的固件量 `kalmanswitch` 被 `LP_SyncIn:91` **回读**（`LP_SyncOut:226` 写、下一拍读回，
+> 自洽回环）⇒ 改固件常量有效、`SETQ` 也有效 ⇒ 应为 **A 类**。修正后：**41 = A15 + B8 + C18**。
+> 根因：仲裁只检查了"镜像符号是否被 SyncIn 写"，没检查"sink 是否被 SyncIn 回读"（核查报告 I4）。
 
 > **B 类是本方案存在的最大理由。** 它不报错、不告警，只是"你在 `timer.c:75` 把电机 PID 从 3 改成 5，
 > 编译通过、烧录成功、真机行为一个字节都没变"。
 
 ### 2.2 三个**行为级**发现（本轮新查，均未改固件）
 
-#### ★ 发现 1：远程档的卡尔曼滤波被"静默短路"
+> ⚠️ **2026-10-16 修正**：本节"发现 1"原称 *`kalmanswitch` 被置 0*，**该句有误**，已按源码更正（见下）。
+> 另 `IRKALSW` 的仲裁分类由 **B 改为 A**（修正后 41 = A15 + B8 + C18）。详见 `docs/参数JSON化-一致性核查报告.md`。
+
+#### ★ 发现 1：远程档的卡尔曼滤波被"静默短路"（Q/P 被清零，**开关本身正常**）
 
 ```
 adc.c:144-147   double Qf1=0.01, Pf1=0.2;   ← 比赛档的开机值
+adc.c:151       u8 kalmanswitch=1;          ← 比赛档的开关开机值
 link_port.c:40  IrCfg irCfg;                ← 镜像结构体在 BSS, 初值全 0
 link_port.c:227 Qf1 = Qf2 = Ql = Qr = (double)irCfg.kalQ / 10000.0;   ← 每 tick 跑
-link_port.c:226 kalmanswitch = irCalib.kalmanswitch;                  ← 每 tick 跑
-link.c:732      irCalib.kalmanswitch = irCfg.kalOn;                   ← 镜像自写(开机一次)
+link_port.c:228 Pf1 = Pf2 = Pl = Pr = (double)irCfg.kalP / 10000.0;   ← 每 tick 跑
+link_port.c:91  irCalib.kalmanswitch = kalmanswitch;                  ← 每 tick 跑(固件→镜像)
+link_port.c:226 kalmanswitch = irCalib.kalmanswitch;                  ← 每 tick 跑(镜像→固件)
+link.c:732      irCalib.kalmanswitch = irCfg.kalOn;                   ← 仅 SETQ/CalibLoad 路径
 ```
 
-`irCfg.kalQ/kalP/kalOn` **没有任何初始化式**（`link_port.c:40-50` 全是裸定义），
-`LP_SyncIn` 也**不刷新**它们 ⇒ 恒为 **0** ⇒ 每 tick 把 `Qf1..Qr = 0`、`Pf1..Pr = 0`，
-而卡尔曼增益 `kf = cov/(cov+P)`，`Q=P=0` 时 `cov` 不变、`kf ≡ 1` —— **滤波器退化成直通**，
-同时 `kalmanswitch` 被置 0。
+- `irCfg.kalQ/kalP` **没有任何初始化式**（`link_port.c:40-50` 全是裸定义），
+  `LP_SyncIn` 也**不刷新**它们 ⇒ 恒为 **0** ⇒ 每 tick 把 `Qf1..Qr = 0`、`Pf1..Pr = 0`，
+  而卡尔曼增益 `kf = cov/(cov+P)`，`Q=P=0` 时 `cov` 不变、`kf ≡ 1` —— **滤波器退化成直通**。
+- 但 `kalmanswitch` **恒为 1，并没有被关掉**：`LP_SyncOut:226` 写的值下一拍会被 `LP_SyncIn:91`
+  原样读回（自洽回环）⇒ 改 `adc.c:151` 有效、`SETQ IRKALSW` 也有效。
+  `irCfg.kalOn` 只是 `SETQ` 的临时入口，下一拍就被覆盖。
 
-> **同一台车：烧比赛档 = 卡尔曼开（Q=0.01/P=0.2），烧远程档 = 卡尔曼关。**
-> 真机可验：`GET IRKALQ` 在远程档应回 **0.0**（文档写 100）。
+> **同一台车：烧比赛档 = 卡尔曼滤波（Q=0.01/P=0.2），烧远程档 = 滤波开但退化成直通（Q=P=0）。**
+> 真机可验（不需要发车）：`GET IRKALQ` 在远程档应回 **0.0**（文档写 100）。
+> ⚠️ `GET IRKALSW` 也会回 **0**，但那只是**参数表**的值（取自 `irCfg.kalOn` 这个 BSS 影子），
+> **不代表固件开关被关**（固件实际是 `adc.c:151` 的 1）—— 这本身是一条独立的不一致（见核查报告 I5）。
 > 这条已写进 JSON 的 `notes[]`（`IRKALQ/IRKALP/IRKALSW`）与 `latent[]`。
 
 #### ★ 发现 2：远程档的电机 PID 与比赛档**是两套值**，且比赛档的整定被吃掉
@@ -492,7 +507,7 @@ RemoteControl/
 | # | 决策 | 选项 | 我的建议 |
 |---|---|---|---|
 | D1 | `latent[]` 的所有权 | (a) 只活在 JSON（人工维护）<br>(b) 另立 `latent_seed.json` 由 extract 合并 | **(a)** —— 灌一次就固化，extract 已验证能原样保留；多一份 seed 文件只会再造一个"要同步的地方" |
-| D2 | B 类（`MKP*`/`IRKAL*`）怎么处理 | (a) 只登记（现状）<br>(b) 把 `LP_SyncIn` 补上这些字段（**改固件**，接线）<br>(c) `policy` 全钉成 `pinned`，堵死 JSON 侧改写 | **(a) 现在**；P3 真机确认行为后再定 (b)/(c) |
+| D2 | B 类（`MKP*` / `IRKALQ` / `IRKALP`）怎么处理 | (a) 只登记（现状）<br>(b) 把 `LP_SyncIn` 补上这些字段（**改固件**，接线）<br>(c) `policy` 全钉成 `pinned`，堵死 JSON 侧改写 | ~~(a)~~ **已被用户 2026-10-16 新指令覆盖** → 改为"**L1/L2/L3 同改，默认值取 L2**"，见核查报告 **E1**（待 grill 定稿） |
 | D3 | `apply` 何时上真树 | (a) G3 接完红线校验后<br>(b) 现在就允许（靠人工先关 Keil） | **(a)** |
 | D4 | 参数表版本号 | 沿用 v2.5 / 另起 v3.0 | **另起 v3.0**（competition 档），v2.5 冻结为 legacy 档历史 |
 
