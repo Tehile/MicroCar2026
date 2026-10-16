@@ -1,0 +1,261 @@
+{
+  "ts": "20261016_184044",
+  "port": "COM7",
+  "baud": 115200,
+  "label": "首次取证采集",
+  "probe": {
+    "ping_raw": [
+      "PONG 8 300 16 1024 SW",
+      "ACK 1001 OK"
+    ],
+    "ping_rtt_ms": 486.7,
+    "proto": 8,
+    "fw": 300,
+    "mazetype": 16,
+    "txbuf": 1024,
+    "rst": "SW",
+    "frame_fields": {
+      "battMv": 0,
+      "cellOdom": 32767,
+      "critL": 1,
+      "critR": 1,
+      "dir": 0,
+      "dirName": "UP",
+      "dropCnt": 0,
+      "dumping": false,
+      "emerg": false,
+      "encAngle": 0,
+      "estop_lock": true,
+      "evq": false,
+      "fastwayCount": 0,
+      "fastwayCount90": 0,
+      "flags": 65,
+      "freemode": true,
+      "frontBoth": 0,
+      "frontFar": 0,
+      "frontMode": 0,
+      "frontName": "无墙",
+      "frontNear": 0,
+      "goOrBack": 0,
+      "goaheadnum": 0,
+      "goalX": 7,
+      "goalY": 7,
+      "gyroAngle": 0,
+      "irAdcF1": 5,
+      "irAdcF2": 3,
+      "irAdcL": 148,
+      "irAdcR": 118,
+      "irF1": 249,
+      "irF2": 249,
+      "irL": 40,
+      "irR": 38,
+      "irSwitch": 1,
+      "left45": 1,
+      "mazeTask": 0,
+      "mazeTaskName": "WAIT",
+      "motionStep": 1,
+      "motionTask": 0,
+      "motionTaskName": "NULL",
+      "motors_off": false,
+      "ms8": 45,
+      "objectGoToFlag": 0,
+      "pidErr": 0,
+      "posX": 0,
+      "posY": 0,
+      "pullf1": false,
+      "right45": 1,
+      "road": 1,
+      "roadName": "THRU",
+      "sleep": false,
+      "speedL": 0,
+      "speedR": 0,
+      "spurtFlag": 0,
+      "spurtMode": 0,
+      "spurtModeName": "未选",
+      "spurtTestFlag": 0,
+      "stackIdx": 0,
+      "trackL": 0,
+      "trackR": 0,
+      "wallFront": 0,
+      "wallLeft": 1,
+      "wallRight": 1,
+      "wallThresh": 160
+    }
+  },
+  "telemetry_stream": {
+    "ok": 34,
+    "miss": 0,
+    "miss_rtts": [],
+    "rtt_ms": {
+      "avg": 298.9,
+      "median": 299.4,
+      "max": 351.6
+    },
+    "ms8_samples": [
+      239,
+      27,
+      71,
+      115,
+      234,
+      22,
+      246,
+      34,
+      78,
+      122,
+      166,
+      210,
+      254,
+      42,
+      86,
+      130,
+      174,
+      217,
+      6,
+      49,
+      93,
+      137,
+      181,
+      225,
+      13,
+      57,
+      101,
+      145,
+      189,
+      233,
+      21,
+      65,
+      109,
+      153
+    ],
+    "trackL": [
+      0
+    ],
+    "speed_nonzero": []
+  },
+  "params": {
+    "TRACKL": 53.2015,
+    "TRACKR": 53.278,
+    "SPEEDL": 0.532013,
+    "SPEEDR": 0.532776,
+    "GYRORATIO": 399.0,
+    "ENCANGLE": 67.0,
+    "WALLDIST": 42.0,
+    "IRTHRWALL": 160.0,
+    "IRTHR45": 150.0,
+    "IRTHRCRIT": 60.0,
+    "IRTHRFLO": 230.0,
+    "IRTHRFMID": 240.0,
+    "IRTHRFHI": 245.0,
+    "IRTHRFNEAR": 80.0,
+    "IRKALQ": 100.0,
+    "IRKALP": 2000.0,
+    "IRKALSW": 1.0,
+    "IRFRONTMODE": 0.0,
+    "BATTKV": 2417.0,
+    "BATTLOWMV": 7000.0,
+    "BATTHIGHMV": 7960.0,
+    "BATTALPHA": 100.0,
+    "BATTMAXPCT": 8.0,
+    "BATTMINPCT": 1.0,
+    "TRACKCOORD": 145.0,
+    "TURNDELAY": 16.5,
+    "SPDSEARCH": 95.0,
+    "SPDTURN": 60.0,
+    "DISF60": 60.0,
+    "GSKP": 0.4,
+    "TURNP": 5.0,
+    "TURND": 4.5,
+    "PTKP": 2.5,
+    "PTKI": 0.01,
+    "PTKD": 0.1,
+    "MKPL": 10.75,
+    "MKIL": 0.55,
+    "MKDL": 0.55,
+    "MKPR": 10.2,
+    "MKIR": 0.5,
+    "MKDR": 0.5
+  },
+  "commands": {
+    "PING": {
+      "ack": "OK",
+      "frames": 0,
+      "lines": [
+        "PONG 8 300 16 1024 SW",
+        "ACK 1037 OK"
+      ],
+      "rtt_ms": 457.1
+    },
+    "TELEM": {
+      "ack": "OK",
+      "frames": 1,
+      "lines": [
+        "ACK 1038 OK 274823"
+      ],
+      "rtt_ms": 458.7
+    },
+    "GET ALL": {
+      "ack": "OK",
+      "frames": 0,
+      "lines": [
+        "P 1 3486614",
+        "P 2 3491627",
+        "P 3 34866",
+        "P 4 34916",
+        "P 5 26148864",
+        "P 6 4390912"
+      ],
+      "rtt_ms": 455.4
+    },
+    "GET TRACKL": {
+      "ack": "OK",
+      "frames": 0,
+      "lines": [
+        "P 1 3486614",
+        "ACK 1040 OK"
+      ],
+      "rtt_ms": 465.8
+    },
+    "GET NOSUCH": {
+      "ack": "ERR_NAME",
+      "frames": 0,
+      "lines": [
+        "ACK 1041 ERR_NAME"
+      ],
+      "rtt_ms": 474.9
+    },
+    "VERSION": {
+      "ack": "ERR_CMD",
+      "frames": 0,
+      "lines": [
+        "ACK 1042 ERR_CMD"
+      ],
+      "rtt_ms": 465.5
+    },
+    "STATUS": {
+      "ack": "ERR_CMD",
+      "frames": 0,
+      "lines": [
+        "ACK 1043 ERR_CMD"
+      ],
+      "rtt_ms": 517.2
+    },
+    "EVENTS": {
+      "ack": "ERR_CMD",
+      "frames": 0,
+      "lines": [
+        "ACK 1044 ERR_CMD"
+      ],
+      "rtt_ms": 458.4
+    },
+    "GETQ TRACKL": {
+      "ack": "ERR_CMD",
+      "frames": 0,
+      "lines": [
+        "ACK 1045 ERR_CMD"
+      ],
+      "rtt_ms": 447.3
+    }
+  },
+  "errors": [],
+  "notes": []
+}
