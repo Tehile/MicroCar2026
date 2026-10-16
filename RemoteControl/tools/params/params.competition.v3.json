@@ -1,0 +1,5072 @@
+{
+  "schema_version": 3,
+  "profile": "competition",
+  "firmware": {
+    "root": "code_competition",
+    "redline_sha256": "68ad6be2272818269d6aac78e5356d9bb91036ddeaaa82c4ec3754a8a0948141",
+    "link_p_num": {
+      "remote": 41
+    }
+  },
+  "phases": [
+    {
+      "id": "SysTick_Handler#1",
+      "desc": "SysTick_Handler#1"
+    },
+    {
+      "id": "action#1",
+      "desc": "action#1"
+    },
+    {
+      "id": "action#2",
+      "desc": "action#2"
+    },
+    {
+      "id": "action#3",
+      "desc": "action#3"
+    },
+    {
+      "id": "action#4",
+      "desc": "action#4"
+    },
+    {
+      "id": "action#5",
+      "desc": "action#5"
+    },
+    {
+      "id": "action#6",
+      "desc": "action#6"
+    },
+    {
+      "id": "action_90#1",
+      "desc": "action_90#1"
+    },
+    {
+      "id": "action_90#2",
+      "desc": "action_90#2"
+    },
+    {
+      "id": "action_90#3",
+      "desc": "action_90#3"
+    },
+    {
+      "id": "action_90#4",
+      "desc": "action_90#4"
+    },
+    {
+      "id": "getdistance#1",
+      "desc": "getdistance#1"
+    },
+    {
+      "id": "getdistance#2",
+      "desc": "getdistance#2"
+    },
+    {
+      "id": "init",
+      "desc": "上电初值（编译期初始化式）"
+    },
+    {
+      "id": "main#1",
+      "desc": "main#1"
+    },
+    {
+      "id": "main#2",
+      "desc": "main#2"
+    },
+    {
+      "id": "main#3",
+      "desc": "main#3"
+    },
+    {
+      "id": "main#4",
+      "desc": "main#4"
+    },
+    {
+      "id": "menu",
+      "desc": "按键测试菜单 test_spurt90()"
+    },
+    {
+      "id": "mouse",
+      "desc": "鼠转后 mouseturn()"
+    },
+    {
+      "id": "s45#1",
+      "desc": "s45#1"
+    },
+    {
+      "id": "s45#2",
+      "desc": "s45#2"
+    },
+    {
+      "id": "s45#3",
+      "desc": "s45#3"
+    },
+    {
+      "id": "s45#4",
+      "desc": "s45#4"
+    },
+    {
+      "id": "s90#1",
+      "desc": "s90#1"
+    },
+    {
+      "id": "s90#10",
+      "desc": "s90#10"
+    },
+    {
+      "id": "s90#11",
+      "desc": "s90#11"
+    },
+    {
+      "id": "s90#2",
+      "desc": "s90#2"
+    },
+    {
+      "id": "s90#3",
+      "desc": "s90#3"
+    },
+    {
+      "id": "s90#4",
+      "desc": "s90#4"
+    },
+    {
+      "id": "s90#5",
+      "desc": "s90#5"
+    },
+    {
+      "id": "s90#6",
+      "desc": "s90#6"
+    },
+    {
+      "id": "s90#7",
+      "desc": "s90#7"
+    },
+    {
+      "id": "s90#8",
+      "desc": "s90#8"
+    },
+    {
+      "id": "s90#9",
+      "desc": "s90#9"
+    },
+    {
+      "id": "search",
+      "desc": "搜索期 parameter_search()"
+    },
+    {
+      "id": "spurt",
+      "desc": "冲刺/回程期 parameter_spurt()"
+    },
+    {
+      "id": "spurt.high",
+      "desc": "spurt(HIGH)"
+    },
+    {
+      "id": "spurt.low",
+      "desc": "spurt(LOW)"
+    },
+    {
+      "id": "spurt.medium",
+      "desc": "spurt(MEDIUM)"
+    },
+    {
+      "id": "t180#1",
+      "desc": "t180#1"
+    },
+    {
+      "id": "wall45#1",
+      "desc": "wall45#1"
+    },
+    {
+      "id": "wall45#2",
+      "desc": "wall45#2"
+    },
+    {
+      "id": "wall45#3",
+      "desc": "wall45#3"
+    },
+    {
+      "id": "wall45#4",
+      "desc": "wall45#4"
+    },
+    {
+      "id": "wall45#5",
+      "desc": "wall45#5"
+    },
+    {
+      "id": "wall45#6",
+      "desc": "wall45#6"
+    },
+    {
+      "id": "wall45#7",
+      "desc": "wall45#7"
+    },
+    {
+      "id": "wall45#8",
+      "desc": "wall45#8"
+    }
+  ],
+  "groups": [
+    {
+      "id": "calib",
+      "name": "calib",
+      "desc": "标定系数（编码器 / 陀螺 / 距离）",
+      "params": [
+        "angleratio",
+        "gangleratio",
+        "TrackRatioL",
+        "TrackRatioR",
+        "SpeedRatioL",
+        "SpeedRatioR",
+        "dis2wall"
+      ]
+    },
+    {
+      "id": "threshold",
+      "name": "threshold",
+      "desc": "门限 / 坐标",
+      "params": [
+        "sidewall_threshold",
+        "trackcoor"
+      ]
+    },
+    {
+      "id": "motion",
+      "name": "motion",
+      "desc": "运动整定（速度 / PID / 距离）",
+      "params": [
+        "keep_dis",
+        "speed_ss",
+        "speed_turn",
+        "speed_fastss",
+        "accdistance",
+        "decdistance",
+        "turn_delay",
+        "GOSTRAIGHT_kp",
+        "SMARTSTRAIGHTFAST_bigerror_kp",
+        "SMARTSTRAIGHTFAST_smallerror_kp",
+        "STRAIGHT45_kp",
+        "STRAIGHT45_kd",
+        "turn_kp",
+        "turn_kd",
+        "SPURT90IR_kp1",
+        "SPURT90IR_kp2",
+        "SPURT90IR_kd",
+        "SPURT90GYRO_kp",
+        "SPURT90GYRO_kd"
+      ]
+    },
+    {
+      "id": "motor_pid",
+      "name": "motor_pid",
+      "desc": "电机 PID（L1 timer.c / L2 user.c）",
+      "params": [
+        "kpl",
+        "kil",
+        "kdl",
+        "kpr",
+        "kir",
+        "kdr"
+      ]
+    },
+    {
+      "id": "speed_profile",
+      "name": "speed_profile",
+      "desc": "速度剖面（顶速 / 底速 / 加减速比）",
+      "params": [
+        "L45TopSpeed",
+        "L45BottomSpeed",
+        "LTopSpeed",
+        "LBottomSpeed",
+        "L90TopSpeed",
+        "L90BottomSpeed",
+        "BackTopSpeed",
+        "BackBottomSpeed",
+        "ObjectGoTo_TopSpeed",
+        "ObjectGoTo_BottomSpeed",
+        "SpurtAccRatio45",
+        "SpurtDecRatio45",
+        "SpurtAccRatio90",
+        "SpurtDecRatio90"
+      ]
+    },
+    {
+      "id": "kalman",
+      "name": "kalman",
+      "desc": "红外 + 陀螺卡尔曼",
+      "params": [
+        "Qf1",
+        "Pf1",
+        "Qf2",
+        "Pf2",
+        "Ql",
+        "Pl",
+        "Qr",
+        "Pr",
+        "f1",
+        "covf1",
+        "f2",
+        "covf2",
+        "l",
+        "covl",
+        "r",
+        "covr",
+        "g",
+        "covg",
+        "Q",
+        "P"
+      ]
+    },
+    {
+      "id": "switch",
+      "name": "switch",
+      "desc": "开关型",
+      "params": [
+        "kalmanswitch",
+        "EMERGENCYON",
+        "irswitch",
+        "gyroswitch"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "angleratio",
+      "group": "calib",
+      "note": "编码器角度系数",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 73.71000000000001,
+          "expr": "81*0.91",
+          "file": "USER/user.c",
+          "line": 23,
+          "sha16": "1a660956ecc91995",
+          "gate": "!MOUSE_REMOTE",
+          "ctype": "u16",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "sysCfg.encAngleRatio",
+          "file": "REMOTE/link_port.c",
+          "line": 267,
+          "sha16": "12870cc29633e3b9",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 73.71000000000001,
+          "expr": "81*0.91",
+          "file": "USER/user.c",
+          "line": 16,
+          "sha16": "fdd15263fdb00ce5",
+          "gate": "MOUSE_REMOTE",
+          "ctype": "u16",
+          "first": true,
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 73.71000000000001,
+      "default_expr": "81*0.91",
+      "status": "ok"
+    },
+    {
+      "name": "gangleratio",
+      "group": "calib",
+      "note": "陀螺仪角度系数",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 399.72729497611994,
+          "expr": "423.926*1.0286*0.9167",
+          "file": "USER/user.c",
+          "line": 24,
+          "sha16": "4aeb5787f79638be",
+          "gate": "!MOUSE_REMOTE",
+          "ctype": "u16",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "sysCfg.gyroRatio",
+          "file": "REMOTE/link_port.c",
+          "line": 266,
+          "sha16": "eb5b19b373d3dd9b",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 399.72729497611994,
+          "expr": "423.926*1.0286*0.9167",
+          "file": "USER/user.c",
+          "line": 17,
+          "sha16": "e0f0b7e8460aa253",
+          "gate": "MOUSE_REMOTE",
+          "ctype": "u16",
+          "first": true,
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 399.72729497611994,
+      "default_expr": "423.926*1.0286*0.9167",
+      "status": "ok"
+    },
+    {
+      "name": "TrackRatioL",
+      "group": "calib",
+      "note": "左轮编码器距离系数",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 55.08556239999999,
+          "expr": "54.9208*1.003",
+          "file": "USER/user.c",
+          "line": 25,
+          "sha16": "f904d813601c6817",
+          "gate": "!MOUSE_REMOTE",
+          "ctype": "float",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "sysCfg.trackRatioL",
+          "file": "REMOTE/link_port.c",
+          "line": 262,
+          "sha16": "ba879a3e9e0a1881",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 55.08556239999999,
+          "expr": "54.9208*1.003",
+          "file": "USER/user.c",
+          "line": 18,
+          "sha16": "8ab9bf95614b3f0e",
+          "gate": "MOUSE_REMOTE",
+          "ctype": "float",
+          "first": true,
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 55.08556239999999,
+      "default_expr": "54.9208*1.003",
+      "status": "ok"
+    },
+    {
+      "name": "TrackRatioR",
+      "group": "calib",
+      "note": "右轮编码器距离系数",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 50.9355704,
+          "expr": "55.1848*0.923",
+          "file": "USER/user.c",
+          "line": 25,
+          "sha16": "f904d813601c6817",
+          "gate": "!MOUSE_REMOTE",
+          "ctype": "float",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "sysCfg.trackRatioR",
+          "file": "REMOTE/link_port.c",
+          "line": 263,
+          "sha16": "9f9ba056ca245224",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 50.9355704,
+          "expr": "55.1848*0.923",
+          "file": "USER/user.c",
+          "line": 18,
+          "sha16": "8ab9bf95614b3f0e",
+          "gate": "MOUSE_REMOTE",
+          "ctype": "float",
+          "first": false,
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 50.9355704,
+      "default_expr": "55.1848*0.923",
+      "status": "ok"
+    },
+    {
+      "name": "SpeedRatioL",
+      "group": "calib",
+      "note": "左轮编码器速度系数",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.56169,
+          "expr": "0.6241*0.9",
+          "file": "USER/user.c",
+          "line": 27,
+          "sha16": "227d4248c988e50e",
+          "gate": "!MOUSE_REMOTE",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "sysCfg.speedRatioL",
+          "file": "REMOTE/link_port.c",
+          "line": 264,
+          "sha16": "b51d41e9d6c6badc",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.56169,
+          "expr": "0.6241*0.9",
+          "file": "USER/user.c",
+          "line": 20,
+          "sha16": "93ddb828d88c6de6",
+          "gate": "MOUSE_REMOTE",
+          "ctype": "double",
+          "first": true,
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.56169,
+      "default_expr": "0.6241*0.9",
+      "status": "ok"
+    },
+    {
+      "name": "SpeedRatioR",
+      "group": "calib",
+      "note": "右轮编码器速度系数",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.5643900000000001,
+          "expr": "0.6271*0.9",
+          "file": "USER/user.c",
+          "line": 27,
+          "sha16": "227d4248c988e50e",
+          "gate": "!MOUSE_REMOTE",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "sysCfg.speedRatioR",
+          "file": "REMOTE/link_port.c",
+          "line": 265,
+          "sha16": "c2fe317774b2db26",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.5643900000000001,
+          "expr": "0.6271*0.9",
+          "file": "USER/user.c",
+          "line": 20,
+          "sha16": "93ddb828d88c6de6",
+          "gate": "MOUSE_REMOTE",
+          "ctype": "double",
+          "first": false,
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.5643900000000001,
+      "default_expr": "0.6271*0.9",
+      "status": "ok"
+    },
+    {
+      "name": "dis2wall",
+      "group": "calib",
+      "note": "车居中时传感器测得的墙距",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 40,
+          "expr": "40",
+          "file": "USER/user.c",
+          "line": 28,
+          "sha16": "45f09279cd6e951f",
+          "gate": "!MOUSE_REMOTE",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "sysCfg.distToWall",
+          "file": "REMOTE/link_port.c",
+          "line": 268,
+          "sha16": "e8ec7fbbfb17d4ff",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 40,
+          "expr": "40",
+          "file": "USER/user.c",
+          "line": 21,
+          "sha16": "640922afc1b98f86",
+          "gate": "MOUSE_REMOTE",
+          "ctype": "u8",
+          "first": true,
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 40,
+      "default_expr": "40",
+      "status": "ok"
+    },
+    {
+      "name": "sidewall_threshold",
+      "group": "threshold",
+      "note": "侧墙阈值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 130,
+          "expr": "130",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 50,
+          "sha16": "2570ca979c8d4fdf",
+          "gate": "",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "wall45#1",
+          "kind": "assign",
+          "value": 110,
+          "expr": "110",
+          "file": "UTILITY/utility.c",
+          "line": 1417,
+          "sha16": "fc68d0d9f94aeac2",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case LT45L:\tbeforeturntrack=0; speed_ss=100;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#2",
+          "kind": "assign",
+          "value": 110,
+          "expr": "110",
+          "file": "UTILITY/utility.c",
+          "line": 1423,
+          "sha16": "482f45f74e677ac9",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case RT45L:\tbeforeturntrack=0; speed_ss=100;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#3",
+          "kind": "assign",
+          "value": 160,
+          "expr": "160",
+          "file": "UTILITY/utility.c",
+          "line": 1497,
+          "sha16": "c986cac47b49490c",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "if (LP_AbortRequested()) break;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#4",
+          "kind": "assign",
+          "value": 160,
+          "expr": "160",
+          "file": "UTILITY/utility.c",
+          "line": 1510,
+          "sha16": "c986cac47b49490c",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "if (LP_AbortRequested()) break;",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "wallSns.wallThresh",
+          "file": "REMOTE/link_port.c",
+          "line": 225,
+          "sha16": "d19bb5735711aad7",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "beforemouseturn",
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 130,
+      "default_expr": "130",
+      "status": "ok"
+    },
+    {
+      "name": "trackcoor",
+      "group": "threshold",
+      "note": "settrack 坐标系数",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 127,
+          "expr": "127",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 52,
+          "sha16": "2690f0450c0b0f65",
+          "gate": "",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 127,
+      "default_expr": "127",
+      "status": "ok"
+    },
+    {
+      "name": "keep_dis",
+      "group": "motion",
+      "note": "保持距离",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 14,
+          "expr": "14",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 45,
+          "sha16": "277ebdef21212de5",
+          "gate": "",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 12,
+          "expr": "12",
+          "file": "USER/user.c",
+          "line": 84,
+          "sha16": "d512e4784cb3b3b4",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 12,
+          "expr": "12",
+          "file": "USER/user.c",
+          "line": 95,
+          "sha16": "d512e4784cb3b3b4",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt"
+      ],
+      "default_phase": "search",
+      "default_value": 12,
+      "default_expr": "12",
+      "status": "ok"
+    },
+    {
+      "name": "speed_ss",
+      "group": "motion",
+      "note": "直行速度",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 40,
+          "expr": "40",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 54,
+          "sha16": "5c0676053b942c03",
+          "gate": "",
+          "ctype": "u16",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 80,
+          "expr": "80",
+          "file": "USER/user.c",
+          "line": 82,
+          "sha16": "93fdc4aa51030242",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "USER/user.c",
+          "line": 93,
+          "sha16": "1f3b73c937a23c4f",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "s90#4",
+          "kind": "assign",
+          "value": 10,
+          "expr": "10",
+          "file": "UTILITY/utility.c",
+          "line": 1319,
+          "sha16": "9d3a156c4f89e5ee",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speed_ss < 10)",
+          "writable": true
+        },
+        {
+          "phase": "wall45#1",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1416,
+          "sha16": "e447fdc80ccd214e",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case RV135L:beforeturntrack=0; speed_fastss=100;\tgoto BFRV;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#2",
+          "kind": "assign",
+          "value": 70,
+          "expr": "70",
+          "file": "UTILITY/utility.c",
+          "line": 1418,
+          "sha16": "5d223d8edb4683dc",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case LT45L:\tbeforeturntrack=0; speed_ss=100;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#3",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1419,
+          "sha16": "8668b49452c1d76a",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case LT90L:\tbeforeturntrack=60;speed_ss=70;\t\tgoto BFL;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#4",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1420,
+          "sha16": "792f37f627bf0eb2",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case LT135L:beforeturntrack=14;speed_ss=100;\t\tgoto BFL;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#5",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1422,
+          "sha16": "4fa1d6e5fbb96f57",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case L180L:\tbeforeturntrack=0; speed_ss=100;\t\tgoto BFL;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#6",
+          "kind": "assign",
+          "value": 70,
+          "expr": "70",
+          "file": "UTILITY/utility.c",
+          "line": 1424,
+          "sha16": "5fb2a0061993b909",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case RT45L:\tbeforeturntrack=0; speed_ss=100;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#7",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1425,
+          "sha16": "f003f888ea13b5bb",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case RT90L:\tbeforeturntrack=65;speed_ss=70;\t\tgoto BFR;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#8",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1426,
+          "sha16": "11b6161bd0d483e8",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case RT135L:beforeturntrack=13;speed_ss=100;\t\tgoto BFR;",
+          "writable": true
+        },
+        {
+          "phase": "mouse",
+          "kind": "assign",
+          "value": 70,
+          "expr": "70",
+          "file": "UTILITY/utility.c",
+          "line": 1522,
+          "sha16": "3feef7b909f25122",
+          "gate": "",
+          "fn": "mouseturn",
+          "context": "while(track<beforeturntrack) task=SMARTSTRAIGHTSPURTL;",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "s90#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(SpurtAccRatio+0.2)*track",
+          "file": "UTILITY/utility.c",
+          "line": 1313,
+          "sha16": "6629582a8707ab91",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(track < BottomSpeed/(SpurtAccRatio+0.2))",
+          "writable": false
+        },
+        {
+          "phase": "s90#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "SpurtAccRatio*(track-(BottomSpeed/(SpurtAccRatio+0.2)))+BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1315,
+          "sha16": "02d87899d19ab0fd",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "else if(track < (dis-(BottomSpeed/(SpurtAccRatio+0.2)))*(SpurtDecRatio/(SpurtAcc",
+          "writable": false
+        },
+        {
+          "phase": "s90#3",
+          "kind": "derived",
+          "value": null,
+          "expr": "SpurtDecRatio*(dis-track)+BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1317,
+          "sha16": "e1dbc999b265638c",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "else",
+          "writable": false
+        },
+        {
+          "phase": "s90#5",
+          "kind": "derived",
+          "value": null,
+          "expr": "TopSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1321,
+          "sha16": "f4aeb317d87ad988",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speed_ss > TopSpeed)",
+          "writable": false
+        },
+        {
+          "phase": "s90#6",
+          "kind": "derived",
+          "value": null,
+          "expr": "(ObjectGoTo_TopSpeed-ObjectGoTo_BottomSpeed)*track/100+ObjectGoTo_BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1335,
+          "sha16": "bce238826d482aaf",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(track < 100)",
+          "writable": false
+        },
+        {
+          "phase": "s90#7",
+          "kind": "derived",
+          "value": null,
+          "expr": "(ObjectGoTo_TopSpeed-ObjectGoTo_BottomSpeed)*(dis-track)/80+ObjectGoTo_BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1337,
+          "sha16": "d7756f44f5b23950",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "else if(track > dis-80 && track < dis)",
+          "writable": false
+        },
+        {
+          "phase": "s90#8",
+          "kind": "derived",
+          "value": null,
+          "expr": "ObjectGoTo_BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1339,
+          "sha16": "cf1fe2a2c7a1c5aa",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "else if(track > dis-80 && track < dis)",
+          "writable": false
+        },
+        {
+          "phase": "s90#9",
+          "kind": "derived",
+          "value": null,
+          "expr": "SpurtAccRatio*track*1.5+BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1384,
+          "sha16": "d156cae1bcaf362a",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(track < dis*(0.5/(0.6+0.5)))",
+          "writable": false
+        },
+        {
+          "phase": "s90#10",
+          "kind": "derived",
+          "value": null,
+          "expr": "SpurtDecRatio*(dis-track)*5+BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1386,
+          "sha16": "6843de85dc7660a2",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "else",
+          "writable": false
+        },
+        {
+          "phase": "s90#11",
+          "kind": "derived",
+          "value": null,
+          "expr": "TopSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1388,
+          "sha16": "365789bae93b0a37",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speed_ss > TopSpeed)",
+          "writable": false
+        }
+      ],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "speedCfg.search",
+          "file": "REMOTE/link_port.c",
+          "line": 248,
+          "sha16": "a035965e0f62c9bd",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "taskstraight90",
+        "beforemouseturn",
+        "mouseturn",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 80,
+      "default_expr": "80",
+      "status": "ok"
+    },
+    {
+      "name": "speed_turn",
+      "group": "motion",
+      "note": "转弯速度",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 30,
+          "expr": "30",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 55,
+          "sha16": "440bc1b215239be0",
+          "gate": "",
+          "ctype": "u16",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 70,
+          "expr": "70",
+          "file": "USER/user.c",
+          "line": 94,
+          "sha16": "6c3209e1a2a7fe36",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "spd_turn",
+          "file": "UTILITY/utility.c",
+          "line": 1221,
+          "sha16": "69552f4876606f03",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "speedCfg.turn",
+          "file": "REMOTE/link_port.c",
+          "line": 249,
+          "sha16": "4a538262438b4827",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_spurt",
+        "test_spurt90",
+        "LP_SyncOut"
+      ],
+      "default_phase": "spurt",
+      "default_value": 70,
+      "default_expr": "70",
+      "status": "ok"
+    },
+    {
+      "name": "speed_fastss",
+      "group": "motion",
+      "note": "快速直行速度",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 30,
+          "expr": "30",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 56,
+          "sha16": "aaa52fcf4df692f8",
+          "gate": "",
+          "ctype": "u16",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "wall45#1",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1409,
+          "sha16": "5c589a48174edab9",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "switch(pattern)",
+          "writable": true
+        },
+        {
+          "phase": "wall45#2",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1410,
+          "sha16": "5bfd6331fa1b95c9",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case LV45L:\tbeforeturntrack=3; speed_fastss=100;\tgoto BFLV;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#3",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1411,
+          "sha16": "a00dc9be3b050cef",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case LV90L:\tbeforeturntrack=7; speed_fastss=100;\tgoto BFLV;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#4",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1412,
+          "sha16": "c89e8f97a7d9fec8",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case LV135L:beforeturntrack=0; speed_fastss=100;\tgoto BFLV;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#5",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1413,
+          "sha16": "fa9081fab14aa423",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case RV45L:\tbeforeturntrack=3; speed_fastss=100;\tgoto BFRV;",
+          "writable": true
+        },
+        {
+          "phase": "wall45#6",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1414,
+          "sha16": "5697dc76dc0c3bb1",
+          "gate": "",
+          "fn": "beforemouseturn",
+          "context": "case RV90L:\tbeforeturntrack=7; speed_fastss=100;\tgoto BFRV;",
+          "writable": true
+        },
+        {
+          "phase": "mouse",
+          "kind": "assign",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1522,
+          "sha16": "3feef7b909f25122",
+          "gate": "",
+          "fn": "mouseturn",
+          "context": "while(track<beforeturntrack) task=SMARTSTRAIGHTSPURTL;",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "spd_fastss",
+          "file": "UTILITY/utility.c",
+          "line": 1222,
+          "sha16": "c8801c85dedef890",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        },
+        {
+          "phase": "s45#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(L45TopSpeed-L45BottomSpeed)*track/90+L45BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1249,
+          "sha16": "b4188e8c300b6017",
+          "gate": "",
+          "fn": "taskstraight45",
+          "context": "if(track < 90)",
+          "writable": false
+        },
+        {
+          "phase": "s45#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "L45TopSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1251,
+          "sha16": "1e7fe017770b0def",
+          "gate": "",
+          "fn": "taskstraight45",
+          "context": "else if(track < dis-90)",
+          "writable": false
+        },
+        {
+          "phase": "s45#3",
+          "kind": "derived",
+          "value": null,
+          "expr": "(L45TopSpeed-L45BottomSpeed)*(dis-track)/90+L45BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1253,
+          "sha16": "fe3f6e76f6c49c46",
+          "gate": "",
+          "fn": "taskstraight45",
+          "context": "else if(track < dis)",
+          "writable": false
+        },
+        {
+          "phase": "s45#4",
+          "kind": "derived",
+          "value": null,
+          "expr": "L45BottomSpeed",
+          "file": "UTILITY/utility.c",
+          "line": 1255,
+          "sha16": "de1407af010a7f88",
+          "gate": "",
+          "fn": "taskstraight45",
+          "context": "else if(track < dis)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "test_spurt90",
+        "taskstraight45",
+        "beforemouseturn",
+        "mouseturn"
+      ],
+      "default_phase": "init",
+      "default_value": 30,
+      "default_expr": "30",
+      "status": "ok"
+    },
+    {
+      "name": "accdistance",
+      "group": "motion",
+      "note": "加速距离",
+      "sets": [
+        {
+          "phase": "main#1",
+          "kind": "assign",
+          "value": 232,
+          "expr": "232",
+          "file": "USER/test.c",
+          "line": 1224,
+          "sha16": "14568da38e1becf9",
+          "gate": "",
+          "fn": "main",
+          "context": "if(BackSearchFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "main#2",
+          "kind": "assign",
+          "value": 40,
+          "expr": "40",
+          "file": "USER/test.c",
+          "line": 1226,
+          "sha16": "42173d1b70677184",
+          "gate": "",
+          "fn": "main",
+          "context": "if(BackSearchFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 40,
+          "expr": "40",
+          "file": "UTILITY/utility.c",
+          "line": 513,
+          "sha16": "dbcc821e619bfecb",
+          "gate": "",
+          "ctype": "u16",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [
+        "main"
+      ],
+      "default_phase": "init",
+      "default_value": 40,
+      "default_expr": "40",
+      "status": "ok"
+    },
+    {
+      "name": "decdistance",
+      "group": "motion",
+      "note": "减速距离",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 5,
+          "expr": "5",
+          "file": "UTILITY/utility.c",
+          "line": 524,
+          "sha16": "ad9873de69d247c4",
+          "gate": "",
+          "ctype": "u16",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "t180#1",
+          "kind": "assign",
+          "value": 10,
+          "expr": "10",
+          "file": "UTILITY/utility.c",
+          "line": 936,
+          "sha16": "d9fcf07abd942909",
+          "gate": "",
+          "fn": "before180turn",
+          "context": "else taskgostraight(20);",
+          "writable": false,
+          "why_not": "line-not-unique: 该行 `decdistance =` 出现 2 次"
+        },
+        {
+          "phase": "action#1",
+          "kind": "assign",
+          "value": 40,
+          "expr": "40",
+          "file": "UTILITY/utility.c",
+          "line": 1726,
+          "sha16": "87616f2aa2dbf6e3",
+          "gate": "",
+          "fn": "action",
+          "context": "else",
+          "writable": true
+        },
+        {
+          "phase": "action#2",
+          "kind": "assign",
+          "value": 270,
+          "expr": "120+150",
+          "file": "UTILITY/utility.c",
+          "line": 1728,
+          "sha16": "81c1ce7603fe3ffa",
+          "gate": "",
+          "fn": "action",
+          "context": "else if(BackSearchFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "action#3",
+          "kind": "assign",
+          "value": 120,
+          "expr": "120",
+          "file": "UTILITY/utility.c",
+          "line": 1729,
+          "sha16": "eb0de816e649e09c",
+          "gate": "",
+          "fn": "action",
+          "context": "else if(BackSearchFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "action#4",
+          "kind": "assign",
+          "value": 20,
+          "expr": "20",
+          "file": "UTILITY/utility.c",
+          "line": 1730,
+          "sha16": "05fec1b3e36134eb",
+          "gate": "",
+          "fn": "action",
+          "context": "else decdistance=120;",
+          "writable": true
+        },
+        {
+          "phase": "action#5",
+          "kind": "assign",
+          "value": 120,
+          "expr": "120",
+          "file": "UTILITY/utility.c",
+          "line": 1786,
+          "sha16": "99964b9b4d8224f9",
+          "gate": "",
+          "fn": "action",
+          "context": "else",
+          "writable": true
+        },
+        {
+          "phase": "action#6",
+          "kind": "assign",
+          "value": 120,
+          "expr": "120",
+          "file": "UTILITY/utility.c",
+          "line": 1826,
+          "sha16": "99964b9b4d8224f9",
+          "gate": "",
+          "fn": "action",
+          "context": "else",
+          "writable": true
+        },
+        {
+          "phase": "action_90#1",
+          "kind": "assign",
+          "value": 30,
+          "expr": "30",
+          "file": "UTILITY/utility.c",
+          "line": 1987,
+          "sha16": "03a2c5c82dc2b2b6",
+          "gate": "",
+          "fn": "action_90",
+          "context": "if(actionsequence[i]==LT90SEARCH) mouseTurnleft_spurt();",
+          "writable": true
+        },
+        {
+          "phase": "action_90#2",
+          "kind": "assign",
+          "value": 30,
+          "expr": "30",
+          "file": "UTILITY/utility.c",
+          "line": 1989,
+          "sha16": "1b5e0633e4c28d4e",
+          "gate": "",
+          "fn": "action_90",
+          "context": "else \t\t\tif(BackSearchFlag==0)",
+          "writable": true
+        },
+        {
+          "phase": "action_90#3",
+          "kind": "assign",
+          "value": 180,
+          "expr": "30+150",
+          "file": "UTILITY/utility.c",
+          "line": 1991,
+          "sha16": "5732262c35f7cabc",
+          "gate": "",
+          "fn": "action_90",
+          "context": "else if(BackSearchFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "action_90#4",
+          "kind": "assign",
+          "value": 30,
+          "expr": "30",
+          "file": "UTILITY/utility.c",
+          "line": 1992,
+          "sha16": "fc6c32e825b00bad",
+          "gate": "",
+          "fn": "action_90",
+          "context": "else if(BackSearchFlag==1)",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [
+        "before180turn",
+        "action",
+        "action_90"
+      ],
+      "default_phase": "init",
+      "default_value": 5,
+      "default_expr": "5",
+      "status": "ok"
+    },
+    {
+      "name": "turn_delay",
+      "group": "motion",
+      "note": "转弯延时",
+      "sets": [
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 9,
+          "expr": "9",
+          "file": "USER/user.c",
+          "line": 85,
+          "sha16": "f323eac9ec931553",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "USER/user.c",
+          "line": 96,
+          "sha16": "0513aac22f904d38",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 5,
+          "expr": "5",
+          "file": "UTILITY/utility.c",
+          "line": 21,
+          "sha16": "844ac3f6ca81a540",
+          "gate": "",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(u8)(turnDelay + 0.5f)",
+          "file": "REMOTE/link_port.c",
+          "line": 259,
+          "sha16": "ded2f356e5eb4e23",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 9,
+      "default_expr": "9",
+      "status": "ok"
+    },
+    {
+      "name": "GOSTRAIGHT_kp",
+      "group": "motion",
+      "note": "gostraight 比例",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.4,
+          "expr": "0.4",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 57,
+          "sha16": "ceef656e6d6a03e2",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "pidGain.goStraight",
+          "file": "REMOTE/link_port.c",
+          "line": 250,
+          "sha16": "6ac0c87c721688f6",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.4,
+      "default_expr": "0.4",
+      "status": "ok"
+    },
+    {
+      "name": "SMARTSTRAIGHTFAST_bigerror_kp",
+      "group": "motion",
+      "note": "SMART 直行大误差比例",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.5,
+          "expr": "0.5",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 58,
+          "sha16": "f5eba646f3215455",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.5,
+      "default_expr": "0.5",
+      "status": "ok"
+    },
+    {
+      "name": "SMARTSTRAIGHTFAST_smallerror_kp",
+      "group": "motion",
+      "note": "SMART 直行小误差比例",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.35,
+          "expr": "0.35",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 59,
+          "sha16": "c0193542cecdf6ef",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.35,
+      "default_expr": "0.35",
+      "status": "ok"
+    },
+    {
+      "name": "STRAIGHT45_kp",
+      "group": "motion",
+      "note": "45 度直行比例",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.12,
+          "expr": "0.12",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 60,
+          "sha16": "0f9f8aea1ec51404",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 0.07,
+          "expr": "0.07",
+          "file": "UTILITY/utility.c",
+          "line": 1160,
+          "sha16": "a49311bc2d321c22",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "UTILITY/utility.c",
+          "line": 1172,
+          "sha16": "f111bd6f45049a62",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "UTILITY/utility.c",
+          "line": 1184,
+          "sha16": "f111bd6f45049a62",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [
+        "spurt"
+      ],
+      "default_phase": "init",
+      "default_value": 0.12,
+      "default_expr": "0.12",
+      "status": "ok"
+    },
+    {
+      "name": "STRAIGHT45_kd",
+      "group": "motion",
+      "note": "45 度直行微分",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 60,
+          "sha16": "0f9f8aea1ec51404",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        },
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 0.05,
+          "expr": "0.05",
+          "file": "UTILITY/utility.c",
+          "line": 1161,
+          "sha16": "9f947581d2d06521",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "UTILITY/utility.c",
+          "line": 1173,
+          "sha16": "6d87c5a981da1684",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "UTILITY/utility.c",
+          "line": 1185,
+          "sha16": "6d87c5a981da1684",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [
+        "spurt"
+      ],
+      "default_phase": "init",
+      "default_value": 0.1,
+      "default_expr": "0.1",
+      "status": "ok"
+    },
+    {
+      "name": "turn_kp",
+      "group": "motion",
+      "note": "转弯比例",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 4,
+          "expr": "4",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "sha16": "b401bc2cf3d1c1a8",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 4,
+          "expr": "4",
+          "file": "UTILITY/utility.c",
+          "line": 1162,
+          "sha16": "9df7e14b064dd036",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 8,
+          "expr": "8",
+          "file": "UTILITY/utility.c",
+          "line": 1174,
+          "sha16": "9af8e3d728bc80fa",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 10,
+          "expr": "10",
+          "file": "UTILITY/utility.c",
+          "line": 1186,
+          "sha16": "dde18542c20720c8",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "turn_p",
+          "file": "UTILITY/utility.c",
+          "line": 1219,
+          "sha16": "ffea47e9ba0c0264",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "pidGain.turnP",
+          "file": "REMOTE/link_port.c",
+          "line": 251,
+          "sha16": "0669b5582c5c2022",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "spurt",
+        "test_spurt90",
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 4,
+      "default_expr": "4",
+      "status": "ok"
+    },
+    {
+      "name": "turn_kd",
+      "group": "motion",
+      "note": "转弯微分",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 4,
+          "expr": "4",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "sha16": "b401bc2cf3d1c1a8",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        },
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 2,
+          "expr": "2",
+          "file": "UTILITY/utility.c",
+          "line": 1163,
+          "sha16": "165f1f687b76c7bd",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 5,
+          "expr": "5",
+          "file": "UTILITY/utility.c",
+          "line": 1175,
+          "sha16": "181f8779891998c1",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 7,
+          "expr": "7",
+          "file": "UTILITY/utility.c",
+          "line": 1187,
+          "sha16": "c13dc92c78f9b39c",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "turn_d",
+          "file": "UTILITY/utility.c",
+          "line": 1220,
+          "sha16": "21ab8e6fc5080b7a",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "pidGain.turnD",
+          "file": "REMOTE/link_port.c",
+          "line": 252,
+          "sha16": "4cd240794bd6b699",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "spurt",
+        "test_spurt90",
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 4,
+      "default_expr": "4",
+      "status": "ok"
+    },
+    {
+      "name": "SPURT90IR_kp1",
+      "group": "motion",
+      "note": "冲刺90 IR 比例1",
+      "sets": [
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 0.17,
+          "expr": "0.17",
+          "file": "UTILITY/utility.c",
+          "line": 1155,
+          "sha16": "a30f550c23da85b9",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 0.25,
+          "expr": "0.25",
+          "file": "UTILITY/utility.c",
+          "line": 1167,
+          "sha16": "2b1c8bf2cfb9ea7c",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1179,
+          "sha16": "f31155170f912d0b",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        },
+        {
+          "phase": "s90#1",
+          "kind": "assign",
+          "value": 0.31,
+          "expr": "0.31",
+          "file": "UTILITY/utility.c",
+          "line": 1282,
+          "sha16": "58d78762112c421b",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(InitialSpeed < 50)",
+          "writable": true
+        },
+        {
+          "phase": "s90#2",
+          "kind": "assign",
+          "value": 0.5,
+          "expr": "0.5",
+          "file": "UTILITY/utility.c",
+          "line": 1327,
+          "sha16": "eb0a45026dd7b438",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(ObjectGoTo_Flag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#3",
+          "kind": "assign",
+          "value": 0.5,
+          "expr": "0.5",
+          "file": "UTILITY/utility.c",
+          "line": 1345,
+          "sha16": "41b9473c5a865c7a",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(GoOrBackFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#4",
+          "kind": "assign",
+          "value": 0.4,
+          "expr": "0.4",
+          "file": "UTILITY/utility.c",
+          "line": 1359,
+          "sha16": "59fa879359481c94",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW_90)",
+          "writable": true
+        },
+        {
+          "phase": "s90#5",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1372,
+          "sha16": "a13f549652a3686f",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "IR_p1",
+          "file": "UTILITY/utility.c",
+          "line": 1214,
+          "sha16": "9bb2aeb114978952",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "spurt",
+        "test_spurt90",
+        "taskstraight90"
+      ],
+      "bss": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 62,
+          "gate": ""
+        }
+      ],
+      "default_phase": "spurt.low",
+      "default_value": 0.17,
+      "default_expr": "0.17",
+      "status": "ok"
+    },
+    {
+      "name": "SPURT90IR_kp2",
+      "group": "motion",
+      "note": "冲刺90 IR 比例2",
+      "sets": [
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "UTILITY/utility.c",
+          "line": 1156,
+          "sha16": "6f13ece13e2c4f9e",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 0.15,
+          "expr": "0.15",
+          "file": "UTILITY/utility.c",
+          "line": 1168,
+          "sha16": "a5aabdd49509deb5",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 0.15,
+          "expr": "0.15",
+          "file": "UTILITY/utility.c",
+          "line": 1180,
+          "sha16": "a5aabdd49509deb5",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        },
+        {
+          "phase": "s90#1",
+          "kind": "assign",
+          "value": 0.21,
+          "expr": "0.21",
+          "file": "UTILITY/utility.c",
+          "line": 1283,
+          "sha16": "aace11d377327e1c",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(InitialSpeed < 50)",
+          "writable": true
+        },
+        {
+          "phase": "s90#2",
+          "kind": "assign",
+          "value": 0.35,
+          "expr": "0.35",
+          "file": "UTILITY/utility.c",
+          "line": 1328,
+          "sha16": "51ce6a7c66e33110",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(ObjectGoTo_Flag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#3",
+          "kind": "assign",
+          "value": 0.35,
+          "expr": "0.35",
+          "file": "UTILITY/utility.c",
+          "line": 1346,
+          "sha16": "f07567f6e7742f61",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(GoOrBackFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#4",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1360,
+          "sha16": "469dff9383ed7470",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW_90)",
+          "writable": true
+        },
+        {
+          "phase": "s90#5",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1373,
+          "sha16": "7655e753723c811b",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "IR_p2",
+          "file": "UTILITY/utility.c",
+          "line": 1215,
+          "sha16": "14ad61900179280c",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "spurt",
+        "test_spurt90",
+        "taskstraight90"
+      ],
+      "bss": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 62,
+          "gate": ""
+        }
+      ],
+      "default_phase": "spurt.low",
+      "default_value": 0.1,
+      "default_expr": "0.1",
+      "status": "ok"
+    },
+    {
+      "name": "SPURT90IR_kd",
+      "group": "motion",
+      "note": "冲刺90 IR 微分",
+      "sets": [
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "UTILITY/utility.c",
+          "line": 1157,
+          "sha16": "70ae8138fc0cb391",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "UTILITY/utility.c",
+          "line": 1169,
+          "sha16": "70ae8138fc0cb391",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "UTILITY/utility.c",
+          "line": 1181,
+          "sha16": "70ae8138fc0cb391",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        },
+        {
+          "phase": "s90#1",
+          "kind": "assign",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "UTILITY/utility.c",
+          "line": 1284,
+          "sha16": "c259ff4ebdc378fe",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(InitialSpeed < 50)",
+          "writable": true
+        },
+        {
+          "phase": "s90#2",
+          "kind": "assign",
+          "value": 2,
+          "expr": "2",
+          "file": "UTILITY/utility.c",
+          "line": 1329,
+          "sha16": "ac2d5a801f18aef7",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(ObjectGoTo_Flag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#3",
+          "kind": "assign",
+          "value": 1,
+          "expr": "1",
+          "file": "UTILITY/utility.c",
+          "line": 1347,
+          "sha16": "55262413ec423918",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(GoOrBackFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#4",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1361,
+          "sha16": "b58dd829cbc4b133",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW_90)",
+          "writable": true
+        },
+        {
+          "phase": "s90#5",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1374,
+          "sha16": "b58dd829cbc4b133",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "IR_d",
+          "file": "UTILITY/utility.c",
+          "line": 1216,
+          "sha16": "96ef8228111ef00e",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "spurt",
+        "test_spurt90",
+        "taskstraight90"
+      ],
+      "bss": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 62,
+          "gate": ""
+        }
+      ],
+      "default_phase": "spurt.low",
+      "default_value": 0,
+      "default_expr": "0",
+      "status": "ok"
+    },
+    {
+      "name": "SPURT90GYRO_kp",
+      "group": "motion",
+      "note": "冲刺90 陀螺比例",
+      "sets": [
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1158,
+          "sha16": "c28ec2c60c3c5274",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1170,
+          "sha16": "c28ec2c60c3c5274",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 0.3,
+          "expr": "0.3",
+          "file": "UTILITY/utility.c",
+          "line": 1182,
+          "sha16": "c28ec2c60c3c5274",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        },
+        {
+          "phase": "s90#1",
+          "kind": "assign",
+          "value": 0.28,
+          "expr": "0.28",
+          "file": "UTILITY/utility.c",
+          "line": 1285,
+          "sha16": "43385e739a26f5cb",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(InitialSpeed < 50)",
+          "writable": true
+        },
+        {
+          "phase": "s90#2",
+          "kind": "assign",
+          "value": 0.4,
+          "expr": "0.4",
+          "file": "UTILITY/utility.c",
+          "line": 1330,
+          "sha16": "6be1fbc75236b601",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(ObjectGoTo_Flag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#3",
+          "kind": "assign",
+          "value": 0.25,
+          "expr": "0.25",
+          "file": "UTILITY/utility.c",
+          "line": 1348,
+          "sha16": "5278ea12cb250e68",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(GoOrBackFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#4",
+          "kind": "assign",
+          "value": 0.25,
+          "expr": "0.25",
+          "file": "UTILITY/utility.c",
+          "line": 1362,
+          "sha16": "ad88741f96a44aa0",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW_90)",
+          "writable": true
+        },
+        {
+          "phase": "s90#5",
+          "kind": "assign",
+          "value": 0.4,
+          "expr": "0.4",
+          "file": "UTILITY/utility.c",
+          "line": 1375,
+          "sha16": "8094eb4b5240113a",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "GYRO_p",
+          "file": "UTILITY/utility.c",
+          "line": 1217,
+          "sha16": "94953de447f74b42",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "spurt",
+        "test_spurt90",
+        "taskstraight90"
+      ],
+      "bss": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 62,
+          "gate": ""
+        }
+      ],
+      "default_phase": "spurt.low",
+      "default_value": 0.3,
+      "default_expr": "0.3",
+      "status": "ok"
+    },
+    {
+      "name": "SPURT90GYRO_kd",
+      "group": "motion",
+      "note": "冲刺90 陀螺微分",
+      "sets": [
+        {
+          "phase": "spurt.low",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "UTILITY/utility.c",
+          "line": 1159,
+          "sha16": "a099924b214ab633",
+          "gate": "",
+          "fn": "spurt",
+          "context": "if(mode==LOW)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.medium",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "UTILITY/utility.c",
+          "line": 1171,
+          "sha16": "a099924b214ab633",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==MEDIUM)",
+          "writable": true
+        },
+        {
+          "phase": "spurt.high",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "UTILITY/utility.c",
+          "line": 1183,
+          "sha16": "a099924b214ab633",
+          "gate": "",
+          "fn": "spurt",
+          "context": "else if(mode==HIGH)",
+          "writable": true
+        },
+        {
+          "phase": "s90#1",
+          "kind": "assign",
+          "value": 0.1,
+          "expr": "0.10",
+          "file": "UTILITY/utility.c",
+          "line": 1286,
+          "sha16": "75bc2441291de7d5",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(InitialSpeed < 50)",
+          "writable": true
+        },
+        {
+          "phase": "s90#2",
+          "kind": "assign",
+          "value": 0.4,
+          "expr": "0.4",
+          "file": "UTILITY/utility.c",
+          "line": 1331,
+          "sha16": "5f86f6e75ac3de2d",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(ObjectGoTo_Flag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#3",
+          "kind": "assign",
+          "value": 0.08,
+          "expr": "0.08",
+          "file": "UTILITY/utility.c",
+          "line": 1349,
+          "sha16": "5a1dadb92bf997d2",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(GoOrBackFlag==1)",
+          "writable": true
+        },
+        {
+          "phase": "s90#4",
+          "kind": "assign",
+          "value": 0.08,
+          "expr": "0.08",
+          "file": "UTILITY/utility.c",
+          "line": 1363,
+          "sha16": "bc7c24c116b6062c",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW_90)",
+          "writable": true
+        },
+        {
+          "phase": "s90#5",
+          "kind": "assign",
+          "value": 0.4,
+          "expr": "0.4",
+          "file": "UTILITY/utility.c",
+          "line": 1376,
+          "sha16": "b08b1393f7325233",
+          "gate": "",
+          "fn": "taskstraight90",
+          "context": "if(speedmode==LOW)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "menu",
+          "kind": "derived",
+          "value": null,
+          "expr": "GYRO_d",
+          "file": "UTILITY/utility.c",
+          "line": 1218,
+          "sha16": "0da3721c80e86fc7",
+          "gate": "",
+          "fn": "test_spurt90",
+          "context": "else if(mode==HIGH)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "spurt",
+        "test_spurt90",
+        "taskstraight90"
+      ],
+      "bss": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 62,
+          "gate": ""
+        }
+      ],
+      "default_phase": "spurt.low",
+      "default_value": 0,
+      "default_expr": "0",
+      "status": "ok"
+    },
+    {
+      "name": "kpl",
+      "group": "motor_pid",
+      "note": "左轮比例",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 3,
+          "expr": "3",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "sha16": "e3670d8d1e3550fd",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 13,
+          "expr": "13",
+          "file": "USER/user.c",
+          "line": 80,
+          "sha16": "a9170e93e05e1d61",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 13,
+          "expr": "13",
+          "file": "USER/user.c",
+          "line": 91,
+          "sha16": "57306a94130f9c61",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "linkMtrKpL",
+          "file": "REMOTE/link_port.c",
+          "line": 253,
+          "sha16": "c340483110025c47",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 13,
+      "default_expr": "13",
+      "status": "ok"
+    },
+    {
+      "name": "kil",
+      "group": "motor_pid",
+      "note": "左轮积分",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 2,
+          "expr": "2",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "sha16": "e3670d8d1e3550fd",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 0.74,
+          "expr": "0.74",
+          "file": "USER/user.c",
+          "line": 80,
+          "sha16": "a9170e93e05e1d61",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 0.7,
+          "expr": "0.7",
+          "file": "USER/user.c",
+          "line": 91,
+          "sha16": "57306a94130f9c61",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "linkMtrKiL",
+          "file": "REMOTE/link_port.c",
+          "line": 254,
+          "sha16": "da89598bf0fed35c",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 0.74,
+      "default_expr": "0.74",
+      "status": "ok"
+    },
+    {
+      "name": "kdl",
+      "group": "motor_pid",
+      "note": "左轮微分",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.1,
+          "expr": "0.1",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "sha16": "e3670d8d1e3550fd",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 0.9,
+          "expr": "0.9",
+          "file": "USER/user.c",
+          "line": 80,
+          "sha16": "a9170e93e05e1d61",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 0.8,
+          "expr": "0.8",
+          "file": "USER/user.c",
+          "line": 91,
+          "sha16": "57306a94130f9c61",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "linkMtrKdL",
+          "file": "REMOTE/link_port.c",
+          "line": 255,
+          "sha16": "40fcb8f8ee8b3721",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 0.9,
+      "default_expr": "0.9",
+      "status": "ok"
+    },
+    {
+      "name": "kpr",
+      "group": "motor_pid",
+      "note": "右轮比例",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 3,
+          "expr": "3",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "sha16": "e3670d8d1e3550fd",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 13,
+          "expr": "13",
+          "file": "USER/user.c",
+          "line": 81,
+          "sha16": "61bb4e4117842db1",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 13,
+          "expr": "13",
+          "file": "USER/user.c",
+          "line": 92,
+          "sha16": "c170fe475509383a",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "linkMtrKpR",
+          "file": "REMOTE/link_port.c",
+          "line": 256,
+          "sha16": "27a9facb2f215c75",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 13,
+      "default_expr": "13",
+      "status": "ok"
+    },
+    {
+      "name": "kir",
+      "group": "motor_pid",
+      "note": "右轮积分",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 2,
+          "expr": "2",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "sha16": "e3670d8d1e3550fd",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 0.74,
+          "expr": "0.74",
+          "file": "USER/user.c",
+          "line": 81,
+          "sha16": "61bb4e4117842db1",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 0.7,
+          "expr": "0.7",
+          "file": "USER/user.c",
+          "line": 92,
+          "sha16": "c170fe475509383a",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "linkMtrKiR",
+          "file": "REMOTE/link_port.c",
+          "line": 257,
+          "sha16": "7954f1c39960f734",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 0.74,
+      "default_expr": "0.74",
+      "status": "ok"
+    },
+    {
+      "name": "kdr",
+      "group": "motor_pid",
+      "note": "右轮微分",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0,
+          "expr": "0",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "sha16": "e3670d8d1e3550fd",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        },
+        {
+          "phase": "search",
+          "kind": "assign",
+          "value": 0.9,
+          "expr": "0.9",
+          "file": "USER/user.c",
+          "line": 81,
+          "sha16": "61bb4e4117842db1",
+          "gate": "",
+          "fn": "parameter_search",
+          "context": "",
+          "writable": true
+        },
+        {
+          "phase": "spurt",
+          "kind": "assign",
+          "value": 0.8,
+          "expr": "0.8",
+          "file": "USER/user.c",
+          "line": 92,
+          "sha16": "c170fe475509383a",
+          "gate": "",
+          "fn": "parameter_spurt",
+          "context": "",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "linkMtrKdR",
+          "file": "REMOTE/link_port.c",
+          "line": 258,
+          "sha16": "9423395f1af5267a",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "parameter_search",
+        "parameter_spurt",
+        "LP_SyncOut"
+      ],
+      "default_phase": "search",
+      "default_value": 0.9,
+      "default_expr": "0.9",
+      "status": "ok"
+    },
+    {
+      "name": "L45TopSpeed",
+      "group": "speed_profile",
+      "note": "45 度冲刺顶速",
+      "sets": [
+        {
+          "phase": "main#1",
+          "kind": "assign",
+          "value": 140,
+          "expr": "140",
+          "file": "USER/test.c",
+          "line": 848,
+          "sha16": "c104206cd97be946",
+          "gate": "",
+          "fn": "main",
+          "context": "else",
+          "writable": true
+        },
+        {
+          "phase": "main#3",
+          "kind": "assign",
+          "value": 180,
+          "expr": "180",
+          "file": "USER/test.c",
+          "line": 1259,
+          "sha16": "342457ba3ecd5d3f",
+          "gate": "",
+          "fn": "main",
+          "context": "if(goaheadnum==1||goaheadnum==2)",
+          "writable": true
+        },
+        {
+          "phase": "main#4",
+          "kind": "assign",
+          "value": 180,
+          "expr": "180",
+          "file": "USER/test.c",
+          "line": 1272,
+          "sha16": "342457ba3ecd5d3f",
+          "gate": "",
+          "fn": "main",
+          "context": "if(goaheadnum==3)",
+          "writable": true
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 130,
+          "expr": "130",
+          "file": "UTILITY/utility.c",
+          "line": 1229,
+          "sha16": "f82714aff68dd560",
+          "gate": "",
+          "ctype": "int",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "main#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "L45TopSpeedh",
+          "file": "USER/test.c",
+          "line": 852,
+          "sha16": "4275cc3e99d8abc7",
+          "gate": "",
+          "fn": "main",
+          "context": "else",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "main"
+      ],
+      "default_phase": "init",
+      "default_value": 130,
+      "default_expr": "130",
+      "status": "ok"
+    },
+    {
+      "name": "L45BottomSpeed",
+      "group": "speed_profile",
+      "note": "45 度冲刺底速",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 100,
+          "expr": "100",
+          "file": "UTILITY/utility.c",
+          "line": 1229,
+          "sha16": "f82714aff68dd560",
+          "gate": "",
+          "ctype": "int",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 100,
+      "default_expr": "100",
+      "status": "ok"
+    },
+    {
+      "name": "LTopSpeed",
+      "group": "speed_profile",
+      "note": "直行顶速",
+      "sets": [
+        {
+          "phase": "main#1",
+          "kind": "assign",
+          "value": 70,
+          "expr": "70",
+          "file": "USER/test.c",
+          "line": 848,
+          "sha16": "c104206cd97be946",
+          "gate": "",
+          "fn": "main",
+          "context": "else",
+          "writable": true
+        },
+        {
+          "phase": "main#3",
+          "kind": "assign",
+          "value": 240,
+          "expr": "240",
+          "file": "USER/test.c",
+          "line": 1258,
+          "sha16": "dfa25b554037c7d6",
+          "gate": "",
+          "fn": "main",
+          "context": "if(goaheadnum==1||goaheadnum==2)",
+          "writable": true
+        },
+        {
+          "phase": "main#4",
+          "kind": "assign",
+          "value": 240,
+          "expr": "240",
+          "file": "USER/test.c",
+          "line": 1271,
+          "sha16": "dfa25b554037c7d6",
+          "gate": "",
+          "fn": "main",
+          "context": "if(goaheadnum==3)",
+          "writable": true
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 140,
+          "expr": "140",
+          "file": "UTILITY/utility.c",
+          "line": 1261,
+          "sha16": "5c8dc84457ec7cbb",
+          "gate": "",
+          "ctype": "int",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "main#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "LTopSpeedh",
+          "file": "USER/test.c",
+          "line": 852,
+          "sha16": "4275cc3e99d8abc7",
+          "gate": "",
+          "fn": "main",
+          "context": "else",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "main"
+      ],
+      "default_phase": "init",
+      "default_value": 140,
+      "default_expr": "140",
+      "status": "ok"
+    },
+    {
+      "name": "LBottomSpeed",
+      "group": "speed_profile",
+      "note": "直行底速",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 95,
+          "expr": "95",
+          "file": "UTILITY/utility.c",
+          "line": 1261,
+          "sha16": "5c8dc84457ec7cbb",
+          "gate": "",
+          "ctype": "int",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 95,
+      "default_expr": "95",
+      "status": "ok"
+    },
+    {
+      "name": "L90TopSpeed",
+      "group": "speed_profile",
+      "note": "90 度冲刺顶速",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 90,
+          "expr": "90",
+          "file": "UTILITY/utility.c",
+          "line": 1262,
+          "sha16": "141370c22dc38419",
+          "gate": "",
+          "ctype": "int",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 90,
+      "default_expr": "90",
+      "status": "ok"
+    },
+    {
+      "name": "L90BottomSpeed",
+      "group": "speed_profile",
+      "note": "90 度冲刺底速",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 90,
+          "expr": "90",
+          "file": "UTILITY/utility.c",
+          "line": 1262,
+          "sha16": "141370c22dc38419",
+          "gate": "",
+          "ctype": "int",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 90,
+      "default_expr": "90",
+      "status": "ok"
+    },
+    {
+      "name": "BackTopSpeed",
+      "group": "speed_profile",
+      "note": "回程顶速",
+      "sets": [
+        {
+          "phase": "main#1",
+          "kind": "assign",
+          "value": 70,
+          "expr": "70",
+          "file": "USER/test.c",
+          "line": 848,
+          "sha16": "c104206cd97be946",
+          "gate": "",
+          "fn": "main",
+          "context": "else",
+          "writable": true
+        },
+        {
+          "phase": "main#3",
+          "kind": "assign",
+          "value": 240,
+          "expr": "240",
+          "file": "USER/test.c",
+          "line": 1260,
+          "sha16": "b6ef917929a01de6",
+          "gate": "",
+          "fn": "main",
+          "context": "if(goaheadnum==1||goaheadnum==2)",
+          "writable": true
+        },
+        {
+          "phase": "main#4",
+          "kind": "assign",
+          "value": 240,
+          "expr": "240",
+          "file": "USER/test.c",
+          "line": 1273,
+          "sha16": "b6ef917929a01de6",
+          "gate": "",
+          "fn": "main",
+          "context": "if(goaheadnum==3)",
+          "writable": true
+        },
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 70,
+          "expr": "70",
+          "file": "UTILITY/utility.c",
+          "line": 1263,
+          "sha16": "136b2f15ed664c2b",
+          "gate": "",
+          "ctype": "int",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "main#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "BackTopSpeedh",
+          "file": "USER/test.c",
+          "line": 852,
+          "sha16": "4275cc3e99d8abc7",
+          "gate": "",
+          "fn": "main",
+          "context": "else",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "main"
+      ],
+      "default_phase": "init",
+      "default_value": 70,
+      "default_expr": "70",
+      "status": "ok"
+    },
+    {
+      "name": "BackBottomSpeed",
+      "group": "speed_profile",
+      "note": "回程底速",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 70,
+          "expr": "70",
+          "file": "UTILITY/utility.c",
+          "line": 1263,
+          "sha16": "136b2f15ed664c2b",
+          "gate": "",
+          "ctype": "int",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 70,
+      "default_expr": "70",
+      "status": "ok"
+    },
+    {
+      "name": "ObjectGoTo_TopSpeed",
+      "group": "speed_profile",
+      "note": "去目标顶速",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 90,
+          "expr": "90",
+          "file": "UTILITY/utility.c",
+          "line": 1260,
+          "sha16": "4c722177cf7a6893",
+          "gate": "",
+          "ctype": "int",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 90,
+      "default_expr": "90",
+      "status": "ok"
+    },
+    {
+      "name": "ObjectGoTo_BottomSpeed",
+      "group": "speed_profile",
+      "note": "去目标底速",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 90,
+          "expr": "90",
+          "file": "UTILITY/utility.c",
+          "line": 1260,
+          "sha16": "4c722177cf7a6893",
+          "gate": "",
+          "ctype": "int",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 90,
+      "default_expr": "90",
+      "status": "ok"
+    },
+    {
+      "name": "SpurtAccRatio45",
+      "group": "speed_profile",
+      "note": "45 度加速比",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.7,
+          "expr": "0.7",
+          "file": "UTILITY/utility.c",
+          "line": 1265,
+          "sha16": "734b9ef4677600b3",
+          "gate": "",
+          "ctype": "float",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.7,
+      "default_expr": "0.7",
+      "status": "ok"
+    },
+    {
+      "name": "SpurtDecRatio45",
+      "group": "speed_profile",
+      "note": "45 度减速比",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.7,
+          "expr": "0.7",
+          "file": "UTILITY/utility.c",
+          "line": 1265,
+          "sha16": "734b9ef4677600b3",
+          "gate": "",
+          "ctype": "float",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.7,
+      "default_expr": "0.7",
+      "status": "ok"
+    },
+    {
+      "name": "SpurtAccRatio90",
+      "group": "speed_profile",
+      "note": "90 度加速比",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.8,
+          "expr": "0.8",
+          "file": "UTILITY/utility.c",
+          "line": 1266,
+          "sha16": "d7c96b7ae2f0fd9e",
+          "gate": "",
+          "ctype": "float",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.8,
+      "default_expr": "0.8",
+      "status": "ok"
+    },
+    {
+      "name": "SpurtDecRatio90",
+      "group": "speed_profile",
+      "note": "90 度减速比",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.5,
+          "expr": "0.5",
+          "file": "UTILITY/utility.c",
+          "line": 1266,
+          "sha16": "d7c96b7ae2f0fd9e",
+          "gate": "",
+          "ctype": "float",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.5,
+      "default_expr": "0.5",
+      "status": "ok"
+    },
+    {
+      "name": "Qf1",
+      "group": "kalman",
+      "note": "f1 过程方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.01,
+          "expr": "0.01",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 144,
+          "sha16": "0611e2a7779cf44e",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "Qf2 = Ql = Qr = (double)irCfg.kalQ / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 227,
+          "sha16": "8f7ff1faaf63299a",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.01,
+      "default_expr": "0.01",
+      "status": "ok"
+    },
+    {
+      "name": "Pf1",
+      "group": "kalman",
+      "note": "f1 测量方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.2,
+          "expr": "0.2",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 144,
+          "sha16": "0611e2a7779cf44e",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "Pf2 = Pl = Pr = (double)irCfg.kalP / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 228,
+          "sha16": "eb54ae75c0b86b02",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.2,
+      "default_expr": "0.2",
+      "status": "ok"
+    },
+    {
+      "name": "Qf2",
+      "group": "kalman",
+      "note": "f2 过程方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.01,
+          "expr": "0.01",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 145,
+          "sha16": "e27d1f2af0a727d3",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "Ql = Qr = (double)irCfg.kalQ / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 227,
+          "sha16": "8f7ff1faaf63299a",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.01,
+      "default_expr": "0.01",
+      "status": "ok"
+    },
+    {
+      "name": "Pf2",
+      "group": "kalman",
+      "note": "f2 测量方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.2,
+          "expr": "0.2",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 145,
+          "sha16": "e27d1f2af0a727d3",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "Pl = Pr = (double)irCfg.kalP / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 228,
+          "sha16": "eb54ae75c0b86b02",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.2,
+      "default_expr": "0.2",
+      "status": "ok"
+    },
+    {
+      "name": "Ql",
+      "group": "kalman",
+      "note": "左过程方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.01,
+          "expr": "0.01",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 146,
+          "sha16": "65ca8fefa0cad4d5",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "Qr = (double)irCfg.kalQ / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 227,
+          "sha16": "8f7ff1faaf63299a",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.01,
+      "default_expr": "0.01",
+      "status": "ok"
+    },
+    {
+      "name": "Pl",
+      "group": "kalman",
+      "note": "左测量方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.2,
+          "expr": "0.2",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 146,
+          "sha16": "65ca8fefa0cad4d5",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "Pr = (double)irCfg.kalP / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 228,
+          "sha16": "eb54ae75c0b86b02",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.2,
+      "default_expr": "0.2",
+      "status": "ok"
+    },
+    {
+      "name": "Qr",
+      "group": "kalman",
+      "note": "右过程方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.01,
+          "expr": "0.01",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 147,
+          "sha16": "3234d1ef67cd4e63",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(double)irCfg.kalQ / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 227,
+          "sha16": "8f7ff1faaf63299a",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.01,
+      "default_expr": "0.01",
+      "status": "ok"
+    },
+    {
+      "name": "Pr",
+      "group": "kalman",
+      "note": "右测量方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.2,
+          "expr": "0.2",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 147,
+          "sha16": "3234d1ef67cd4e63",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(double)irCfg.kalP / 10000.0",
+          "file": "REMOTE/link_port.c",
+          "line": 228,
+          "sha16": "eb54ae75c0b86b02",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 0.2,
+      "default_expr": "0.2",
+      "status": "ok"
+    },
+    {
+      "name": "f1",
+      "group": "kalman",
+      "note": "f1 观测初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 2000.0,
+          "expr": "2000.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 144,
+          "sha16": "0611e2a7779cf44e",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "f1tmp+kf1*((double)TempL-f1tmp)",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 171,
+          "sha16": "010d0f4798aae012",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        },
+        {
+          "phase": "getdistance#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "TempL",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 182,
+          "sha16": "cd40bea5af42d428",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "else",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "getdistance"
+      ],
+      "default_phase": "init",
+      "default_value": 2000.0,
+      "default_expr": "2000.0",
+      "status": "ok"
+    },
+    {
+      "name": "covf1",
+      "group": "kalman",
+      "note": "f1 协方差初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1.0,
+          "expr": "1.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 144,
+          "sha16": "0611e2a7779cf44e",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(1-kf1)*covf1tmp",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 172,
+          "sha16": "eba0dbcdf5284ac3",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "getdistance"
+      ],
+      "default_phase": "init",
+      "default_value": 1.0,
+      "default_expr": "1.0",
+      "status": "ok"
+    },
+    {
+      "name": "f2",
+      "group": "kalman",
+      "note": "f2 观测初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 2000.0,
+          "expr": "2000.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 145,
+          "sha16": "e27d1f2af0a727d3",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "f2tmp+kf2*((double)TempR-f2tmp)",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 177,
+          "sha16": "408acad10c260733",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        },
+        {
+          "phase": "getdistance#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "TempR",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 183,
+          "sha16": "c7e62c4b72778c92",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "else",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "getdistance"
+      ],
+      "default_phase": "init",
+      "default_value": 2000.0,
+      "default_expr": "2000.0",
+      "status": "ok"
+    },
+    {
+      "name": "covf2",
+      "group": "kalman",
+      "note": "f2 协方差初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1.0,
+          "expr": "1.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 145,
+          "sha16": "e27d1f2af0a727d3",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(1-kf2)*covf2tmp",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 178,
+          "sha16": "926da61ba043850a",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "getdistance"
+      ],
+      "default_phase": "init",
+      "default_value": 1.0,
+      "default_expr": "1.0",
+      "status": "ok"
+    },
+    {
+      "name": "l",
+      "group": "kalman",
+      "note": "左观测初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 2000.0,
+          "expr": "2000.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 146,
+          "sha16": "65ca8fefa0cad4d5",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "main#1",
+          "kind": "assign",
+          "value": 0,
+          "expr": "0",
+          "file": "USER/test.c",
+          "line": 220,
+          "sha16": "fa75c09d8d60960b",
+          "gate": "",
+          "fn": "main",
+          "context": "if(ledswitch==9) break;",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "ltmp+kl*((double)TempL-ltmp)",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 219,
+          "sha16": "aa0705201ea9fbb4",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        },
+        {
+          "phase": "getdistance#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "TempL",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 230,
+          "sha16": "e2f12cdb1f99df5c",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "else",
+          "writable": false
+        },
+        {
+          "phase": "main#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "m",
+          "file": "USER/test.c",
+          "line": 959,
+          "sha16": "fb2a0078ce5e2681",
+          "gate": "",
+          "fn": "main",
+          "context": "if(m>0)",
+          "writable": false
+        }
+      ],
+      "dropped": [
+        {
+          "phase": "link_CalMenuRemote#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "%ld r=%ld ref=%ld\\r\\n\"",
+          "file": "REMOTE/link.c",
+          "line": 2266,
+          "sha16": "d774089b51527c83",
+          "gate": "MOUSE_REMOTE",
+          "fn": "link_CalMenuRemote",
+          "context": "case LINK_CAL_IRSELF:",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "main",
+        "getdistance",
+        "link_CalMenuRemote"
+      ],
+      "default_phase": "init",
+      "default_value": 2000.0,
+      "default_expr": "2000.0",
+      "status": "ok"
+    },
+    {
+      "name": "covl",
+      "group": "kalman",
+      "note": "左协方差初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1.0,
+          "expr": "1.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 146,
+          "sha16": "65ca8fefa0cad4d5",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(1-kl)*covltmp",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 220,
+          "sha16": "e289620b9203b89f",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "getdistance"
+      ],
+      "default_phase": "init",
+      "default_value": 1.0,
+      "default_expr": "1.0",
+      "status": "ok"
+    },
+    {
+      "name": "r",
+      "group": "kalman",
+      "note": "右观测初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 2000.0,
+          "expr": "2000.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 147,
+          "sha16": "3234d1ef67cd4e63",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "rtmp+kr*((double)TempR-rtmp)",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 225,
+          "sha16": "98de2152ea3f3600",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        },
+        {
+          "phase": "getdistance#2",
+          "kind": "derived",
+          "value": null,
+          "expr": "TempR",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 231,
+          "sha16": "51ec226172a2b2f3",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "else",
+          "writable": false
+        }
+      ],
+      "dropped": [
+        {
+          "phase": "link_CalMenuRemote#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "%ld ref=%ld\\r\\n\"",
+          "file": "REMOTE/link.c",
+          "line": 2266,
+          "sha16": "d774089b51527c83",
+          "gate": "MOUSE_REMOTE",
+          "fn": "link_CalMenuRemote",
+          "context": "case LINK_CAL_IRSELF:",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "getdistance",
+        "link_CalMenuRemote"
+      ],
+      "default_phase": "init",
+      "default_value": 2000.0,
+      "default_expr": "2000.0",
+      "status": "ok"
+    },
+    {
+      "name": "covr",
+      "group": "kalman",
+      "note": "右协方差初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1.0,
+          "expr": "1.0",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 147,
+          "sha16": "3234d1ef67cd4e63",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "getdistance#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "(1-kr)*covrtmp",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 226,
+          "sha16": "f093c25494aed9e5",
+          "gate": "",
+          "fn": "getdistance",
+          "context": "if(kalmanswitch==1)",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "getdistance"
+      ],
+      "default_phase": "init",
+      "default_value": 1.0,
+      "default_expr": "1.0",
+      "status": "ok"
+    },
+    {
+      "name": "g",
+      "group": "kalman",
+      "note": "陀螺观测初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1888.0,
+          "expr": "1888.0",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 85,
+          "sha16": "c8f80127cec157fb",
+          "gate": "",
+          "ctype": "double",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "main#1",
+          "kind": "assign",
+          "value": 1,
+          "expr": "1",
+          "file": "USER/test.c",
+          "line": 1246,
+          "sha16": "eea85a1e00bbf235",
+          "gate": "",
+          "fn": "main",
+          "context": "for(tmptt=0;tmptt<200;tmptt++)",
+          "writable": true
+        }
+      ],
+      "derived": [
+        {
+          "phase": "SysTick_Handler#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "gyro",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 342,
+          "sha16": "c6445364bf0e39f3",
+          "gate": "",
+          "fn": "SysTick_Handler",
+          "context": "else",
+          "writable": false
+        }
+      ],
+      "dropped": [],
+      "assigners": [
+        "main",
+        "SysTick_Handler"
+      ],
+      "default_phase": "init",
+      "default_value": 1888.0,
+      "default_expr": "1888.0",
+      "status": "ok"
+    },
+    {
+      "name": "covg",
+      "group": "kalman",
+      "note": "陀螺协方差初值",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1.0,
+          "expr": "1.0",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 85,
+          "sha16": "c8f80127cec157fb",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 1.0,
+      "default_expr": "1.0",
+      "status": "ok"
+    },
+    {
+      "name": "Q",
+      "group": "kalman",
+      "note": "陀螺过程方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.000912,
+          "expr": "0.000912",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 85,
+          "sha16": "c8f80127cec157fb",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.000912,
+      "default_expr": "0.000912",
+      "status": "ok"
+    },
+    {
+      "name": "P",
+      "group": "kalman",
+      "note": "陀螺测量方差",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0.368,
+          "expr": "0.368",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 85,
+          "sha16": "c8f80127cec157fb",
+          "gate": "",
+          "ctype": "double",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0.368,
+      "default_expr": "0.368",
+      "status": "ok"
+    },
+    {
+      "name": "kalmanswitch",
+      "group": "switch",
+      "note": "红外卡尔曼总开关",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1,
+          "expr": "1",
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 151,
+          "sha16": "38c994434d5d4b37",
+          "gate": "",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "irCalib.kalmanswitch",
+          "file": "REMOTE/link_port.c",
+          "line": 226,
+          "sha16": "72f3fb5109a9a808",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 1,
+      "default_expr": "1",
+      "status": "ok"
+    },
+    {
+      "name": "EMERGENCYON",
+      "group": "switch",
+      "note": "急停开关",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1,
+          "expr": "1",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 30,
+          "sha16": "9e682653a44d4932",
+          "gate": "",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 1,
+      "default_expr": "1",
+      "status": "ok"
+    },
+    {
+      "name": "irswitch",
+      "group": "switch",
+      "note": "红外开关",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 1,
+          "expr": "1",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 96,
+          "sha16": "e55e2ded0ad1df71",
+          "gate": "",
+          "ctype": "u8",
+          "first": true,
+          "writable": true
+        },
+        {
+          "phase": "main#2",
+          "kind": "assign",
+          "value": 1,
+          "expr": "1",
+          "file": "USER/test.c",
+          "line": 453,
+          "sha16": "b567b525f2fcb810",
+          "gate": "",
+          "fn": "main",
+          "context": "case 5:",
+          "writable": true
+        },
+        {
+          "phase": "main#3",
+          "kind": "assign",
+          "value": 1,
+          "expr": "1",
+          "file": "USER/test.c",
+          "line": 729,
+          "sha16": "a398419c05ef9b53",
+          "gate": "",
+          "fn": "main",
+          "context": "if(disf2<20){goaheadnum=2; break;}",
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [
+        {
+          "phase": "LP_SyncOut#1",
+          "kind": "derived",
+          "value": null,
+          "expr": "wallSns.irSwitch",
+          "file": "REMOTE/link_port.c",
+          "line": 245,
+          "sha16": "c4ddc98faca7b6e7",
+          "gate": "MOUSE_REMOTE",
+          "fn": "LP_SyncOut",
+          "context": "",
+          "writable": false,
+          "reason": "profile: remote-only, keep competition"
+        },
+        {
+          "phase": "main#1",
+          "kind": "assign",
+          "value": 1,
+          "expr": "1",
+          "file": "USER/test.c",
+          "line": 309,
+          "sha16": "a398419c05ef9b53",
+          "gate": "MOUSE_REMOTE",
+          "fn": "main",
+          "context": "else",
+          "writable": true,
+          "reason": "profile: remote-only, keep competition"
+        }
+      ],
+      "assigners": [
+        "main",
+        "LP_SyncOut"
+      ],
+      "default_phase": "init",
+      "default_value": 1,
+      "default_expr": "1",
+      "status": "ok"
+    },
+    {
+      "name": "gyroswitch",
+      "group": "switch",
+      "note": "陀螺开关",
+      "sets": [
+        {
+          "phase": "init",
+          "kind": "decl",
+          "value": 0,
+          "expr": "0",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 80,
+          "sha16": "bce190dcc9633f8d",
+          "gate": "",
+          "ctype": "int",
+          "first": false,
+          "writable": true
+        }
+      ],
+      "derived": [],
+      "dropped": [],
+      "assigners": [],
+      "default_phase": "init",
+      "default_value": 0,
+      "default_expr": "0",
+      "status": "ok"
+    }
+  ],
+  "gaps": [],
+  "generated": "2026-10-16T17:33:58"
+}

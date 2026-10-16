@@ -10,12 +10,19 @@
     audit     只读审计          A/B/C 仲裁 + 覆写点 + 影子清单
     render    JSON → Markdown  生成参数总表(默认打印; --write 注入标记区)
 
+    extract3  [v3] 全量整定常量 → 多套 JSON(`params.competition.v3.json`)
+    apply3    [v3] 多套写回(每套独立锚点; 远程档套在 dropped, 永不写)
+    check3    [v3] 多套对账: 站点覆盖 / 锚点指纹 / default_phase / 无远程套
+
 用法(在 RemoteControl/ 下):
     python tools/paramgen.py extract --accept
     python tools/paramgen.py audit
     python tools/paramgen.py check
     python tools/paramgen.py apply                  # 预演
     python tools/paramgen.py apply --commit --name TURNP
+    python tools/paramgen.py extract3 --accept      # v3 全量
+    python tools/paramgen.py apply3                 # v3 预演
+    python tools/paramgen.py check3
 """
 from __future__ import annotations
 
@@ -32,6 +39,7 @@ from paramkit import audit as A                      # noqa: E402
 from paramkit import meta as M                       # noqa: E402
 from paramkit import patch as P                      # noqa: E402
 from paramkit import render as RD                    # noqa: E402
+from paramkit import tunable as TU                   # noqa: E402
 from paramkit.bytesio import sha256                  # noqa: E402
 from paramkit.pipeline import (GROUPS, SCHEMA_VERSION, build_records)  # noqa: E402
 from paramkit.registry import Registry               # noqa: E402
@@ -321,6 +329,145 @@ def cmd_render(args):
     return 0
 
 
+# ================================================================ v3: 全量整定常量(多套)
+V3_JSON = os.path.join(HERE, "params", "params.competition.v3.json")
+
+
+def v3_merge_defaults(old: dict, new: dict) -> None:
+    """保留人工指定过的 `default_phase`(前提: 它仍指向一个真实常量套)。"""
+    oldmap = {p["name"]: p for p in old.get("params", [])}
+    for p in new["params"]:
+        o = oldmap.get(p["name"])
+        if not o:
+            continue
+        want = o.get("default_phase")
+        if want and any(s["phase"] == want for s in p["sets"]):
+            if want != p["default_phase"]:
+                dp = next(s for s in p["sets"] if s["phase"] == want)
+                p["default_phase"] = want
+                p["default_value"] = dp["value"]
+                p["default_expr"] = dp["expr"]
+                p["default_note"] = "人工指定"
+
+
+def cmd_extract3(args):
+    data = TU.build(fw_root(args))
+    data["generated"] = datetime.datetime.now().isoformat(timespec="seconds")
+    v3_merge_defaults(load_json(V3_JSON), data)
+    n = lambda k: sum(len(p[k]) for p in data["params"])   # noqa: E731
+    print("== extract3 %s ==" % ("落盘" if args.accept else "预演(未写盘)"))
+    print("参数 %d 项 | 套 %d | derived %d | dropped %d | 时期 %d | gaps %d"
+          % (len(data["params"]), n("sets"), n("derived"), n("dropped"),
+             len(data["phases"]), len(data["gaps"])))
+    from collections import Counter
+    print("default_phase 分布:", dict(Counter(p["default_phase"] for p in data["params"])))
+    for p in data["params"]:
+        if p["status"] != "ok":
+            print("  [warn] %-16s %s" % (p["name"], p["status"]))
+    for g in data["gaps"]:
+        print("  [gap]  %-16s %s" % (g["name"], g["detail"]))
+    if not args.accept:
+        print("(预演结束; 加 --accept 才写 JSON)")
+        return 0
+    os.makedirs(os.path.dirname(V3_JSON), exist_ok=True)
+    with open(V3_JSON, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(clean(data), f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    print("已写 %s" % V3_JSON)
+    return 0
+
+
+def cmd_apply3(args):
+    reg = Registry(fw_root(args))
+    data = load_json(V3_JSON)
+    if not data:
+        print("请先跑 extract3 --accept")
+        return 1
+    only = set(args.name) if args.name else None
+    edits, problems = TU.plan(reg, data["params"], names=only)
+    rows = TU.render_edits(reg, edits)
+    print("== apply3 %s ==" % ("落盘" if args.commit else "预演(--dry-run)"))
+    for rel, ln, before, after in rows:
+        print("  %s:%d" % (rel, ln))
+        print("    - %s" % before.decode("gbk", "replace").rstrip())
+        print("    + %s" % after.decode("gbk", "replace").rstrip())
+    for name, kind, msg in problems:
+        print("  [%s] %-16s %s" % (kind, name, msg))
+    print("将改 %d 行 / %d 文件" % (len(rows), len({r[0] for r in rows})))
+    if problems:
+        print("有 %d 条计划问题, 照常执行(仅成功的锚点)" % len(problems))
+    if not args.commit:
+        print("(预演结束; 加 --commit 才写盘)")
+        return 0
+    touched = TU.commit(reg, edits)
+    print("已写: %s" % ", ".join(touched))
+    return 0
+
+
+def cmd_check3(args):
+    data = load_json(V3_JSON)
+    if not data:
+        print("请先跑 extract3 --accept")
+        return 1
+    live = TU.build(fw_root(args))
+    old = {p["name"]: p for p in data["params"]}
+    new = {p["name"]: p for p in live["params"]}
+    errors, warns, infos = [], [], []
+
+    if set(old) != set(new):
+        errors.append("C15 白名单漂移: JSON %d 项 / 源码 %d 项, 差 %s"
+                      % (len(old), len(new), sorted(set(old) ^ set(new))))
+    for name in sorted(set(old) & set(new)):
+        o, n = old[name], new[name]
+
+        def _sites(p, key):
+            return {(s["file"], s["line"]) for s in p[key]}
+
+        if _sites(o, "sets") != _sites(n, "sets"):
+            errors.append("C16 %s 套站点不一致 JSON=%s 源码=%s"
+                          % (name, sorted(_sites(o, "sets")), sorted(_sites(n, "sets"))))
+        if _sites(o, "derived") != _sites(n, "derived"):
+            errors.append("C17 %s derived 站点不一致" % name)
+        if _sites(o, "dropped") != _sites(n, "dropped"):
+            warns.append("C18 %s dropped 站点不一致" % name)
+
+        os_ = {(s["file"], s["line"]): s for s in o["sets"]}
+        ns_ = {(s["file"], s["line"]): s for s in n["sets"]}
+        for k in sorted(set(os_) & set(ns_)):
+            if os_[k].get("sha16") != ns_[k].get("sha16"):
+                errors.append("C19 %s 锚点漂移 %s:%d JSON=%s 源码=%s"
+                              % (name, k[0], k[1], os_[k].get("sha16"), ns_[k].get("sha16")))
+            if os_[k].get("expr") != ns_[k].get("expr"):
+                infos.append("C20 %s %s:%d expr 已被人工改动 JSON=%r 源码=%r"
+                             % (name, k[0], k[1], os_[k].get("expr"), ns_[k].get("expr")))
+
+        dp = o.get("default_phase")
+        if dp not in {s["phase"] for s in o["sets"]}:
+            errors.append("C21 %s default_phase=%r 指向不存在的套" % (name, dp))
+        for s in o["sets"]:
+            if s.get("gate", "").strip() == "MOUSE_REMOTE":
+                errors.append("C22 %s %s:%d 是远程专属套, 应在 dropped" % (name, s["file"], s["line"]))
+            if not s.get("expr"):
+                warns.append("C23 %s %s:%d 套无 expr" % (name, s["file"], s["line"]))
+
+    total = sum(len(p["sets"]) for p in data["params"])
+    print("== check3 ==")
+    print("参数 %d | 套 %d | derived %d | dropped %d"
+          % (len(old), total,
+             sum(len(p["derived"]) for p in data["params"]),
+             sum(len(p["dropped"]) for p in data["params"])))
+    for x in errors:
+        print("ERROR  " + x)
+    for x in warns:
+        print("WARN   " + x)
+    for x in infos:
+        print("INFO   " + x)
+    print("\n统计: error=%d warn=%d info=%d" % (len(errors), len(warns), len(infos)))
+    if args.strict:
+        return 1 if (errors or warns) else 0
+    return 1 if errors else 0
+
+
 def main():
     ap = argparse.ArgumentParser(prog="paramgen", description="参数落地链读写工具")
     ap.add_argument("--profile", default="competition", choices=sorted(PROFILES))
@@ -348,6 +495,19 @@ def main():
     p = sub.add_parser("render", parents=[common], help="JSON → Markdown 生成区")
     p.add_argument("--write", action="store_true", help="注入 docs 的标记区")
     p.set_defaults(func=cmd_render)
+
+    p = sub.add_parser("extract3", parents=[common], help="[v3] 全量整定常量: 固件 → JSON")
+    p.add_argument("--accept", action="store_true", help="写回 JSON(默认只预演)")
+    p.set_defaults(func=cmd_extract3)
+
+    p = sub.add_parser("apply3", parents=[common], help="[v3] 全量多套写回: JSON → 固件")
+    p.add_argument("--commit", action="store_true", help="真正落盘(默认预演)")
+    p.add_argument("--name", action="append", help="只处理指定参数(可多次)")
+    p.set_defaults(func=cmd_apply3)
+
+    p = sub.add_parser("check3", parents=[common], help="[v3] 多套对账(JSON vs 源码)")
+    p.add_argument("--strict", action="store_true", help="warn 也算失败")
+    p.set_defaults(func=cmd_check3)
 
     args = ap.parse_args()
     try:
