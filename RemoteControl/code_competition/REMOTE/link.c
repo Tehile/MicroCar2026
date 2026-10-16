@@ -2694,6 +2694,14 @@ static void link_ExecCmd(char *line, s32 seq)
 		 * 按键比赛档保持原语义: 急停后必然休眠, 不接受远程复位。 */
 		linkMazeAbort = 1;
 		linkEStop = 0;
+		/* ★ 修复(2026-10-16 真机取证): 连固件层急停变量一起清 ——
+		 * isemergency 全树只有 timer.c:109 的上电初始化, 没有清零点
+		 * (timer.c:1275 的 PWM 饱和 / utility.c:1397 的 disf<20 只置 1),
+		 * 而 LP_SyncIn(link_port.c:180) 每 tick 把它写回 emergMon.active,
+		 * 于是本命令只清链路层会在下一 tick 被撤销。
+		 * 实测: `STOP` 回 OK 但遥测 estop_lock 仍为 1, `MAZE RUN` 恒 ERR_ESTOP。*/
+		isemergency = 0;
+		emergency_delay = 0;
 		emergMon.active = 0;
 		emergMon.delay = 0;
 		speedSt.sleepmode = 0;
@@ -2820,6 +2828,9 @@ static void link_ExecCmd(char *line, s32 seq)
 			linkMazeAbort = 1;
 			link_StopMotion(LINK_RUN_REASON_USER);
 			linkEStop = 0;
+			/* ★ 同上: 一并清固件层急停, 否则 MAZE STOP 也解不开锁。 */
+			isemergency = 0;
+			emergency_delay = 0;
 			emergMon.active = 0;
 			emergMon.delay = 0;
 			speedSt.sleepmode = 0;
@@ -3475,6 +3486,19 @@ void LINK_Tick(void)
  */
 void LINK_EStopTrip(void)
 {
+	/* ★ 修复(2026-10-16 真机取证): 补上函数注释声称、但调用点并未实现的前置条件。
+	 * 注释写的是"由 isr.c 在 emergMon.active==1 时调用", 而实际调用点
+	 * timer.c:1152 是**无条件下每 tick 调一次**。原来的 if(linkEStop) return
+	 * 只防止"重复上报 ESTOP TRIP", 并不防止"清零后被立刻重新置位" ——
+	 * 于是 STOP(:2696) 清掉 linkEStop 后, 下一个 tick 本函数又把它置回 1,
+	 * 实测表现为 `STOP` 回 OK 但遥测 estop_lock 仍为 1, `MAZE RUN` 恒 ERR_ESTOP。
+	 *
+	 * 这里补上真正的判据: 只有**固件层确实处于急停**(isemergency==1)才允许锁存。
+	 * 这样 STOP 清零后不会再被重置, 而真实的固件急停(PWM 饱和 / 红外过近)
+	 * 依然会在当 tick 立即锁存 —— 安全性不降低。*/
+	if (isemergency != 1)
+		return; /* 固件层没有急停: 不锁存(否则 STOP 的清零会被撤销) */
+
 	if (linkEStop)
 		return; /* 已锁存: 1ms 一次的调用不能重复上报 */
 
