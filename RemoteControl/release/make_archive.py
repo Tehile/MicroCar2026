@@ -1,17 +1,22 @@
-"""按**显式清单**生成项目归档 zip。
+"""按**显式清单**生成项目归档 zip (v3.0.0 基线: code_competition + tools/ + 十套件)。
 
-为什么不用 `tar -czf` 打包整个目录: 工作区里混着**运行现场**与**上游副本** ——
-    host/sessions/                      4.7 MB  测试跑出来的 raw.bin/CSV
-    code_stm32f1_mouse - 副本/           25  MB  未改动的上游原始固件(含它自己的 .git)
-    code_stm32f1_mouse/USER/Object/      19  MB  Keil 中间产物
-整目录打包会把它们一起卷进来(约 50 MB 噪声)。本脚本用**白名单 + 排除规则**,
-结果确定、可复现, 且与 `release/归档说明.md` §1.5 的"刻意不入档"表一一对应。
+为什么不用 `tar -czf` 打包整个目录 / `git archive`:
+  工作区里混着**运行现场**与**构建中间产物** ——
+    host/sessions/                      5.2 MB  测试跑出来的 raw.bin/CSV
+    host/*.csv *.txt *.json(顶层)       数 MB    pace/mtbf/evt 抓取现场
+    code_competition/USER/*.o|.crf|.d…  ~11 MB  Keil 中间产物(源码可重建)
+    code_competition - 副本/            11 MB   上游副本
+    code_stm32f1_mouse - 副本/          19 MB   上游副本
+  且 git 跟踪不到构建产物(`code_competition/.gitignore` 连 *.hex/*.map 都忽略),
+  而 TEST.hex(红线成品) / Remote/TEST.hex(远程档成品) 是必须入档的证据。
+  本脚本用**白名单 + 排除规则**, 结果确定、可复现, 与 `release/归档说明.md` §1.5
+  的"刻意不入档"表一一对应。
 
-用法(在仓库根目录执行):
+用法(在 RemoteControl/ 下执行):
     python release/make_archive.py
 
 产物:
-    release/RemoteControl-v2.2.1-YYYYMMDD.zip
+    release/RemoteControl-v3.0.0-20261016.zip
 """
 
 from __future__ import annotations
@@ -22,16 +27,20 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELEASE = os.path.join(ROOT, "release")
 
-VERSION = "v2.2.1"
-DATE = "20261005"
+VERSION = "v3.0.0"
+DATE = "20261016"
 OUT_NAME = f"RemoteControl-{VERSION}-{DATE}.zip"
 
 #: 入档的顶层条目(文件或目录)
 INCLUDE_ROOTS = [
     "docs",
     "host",
+    "code_competition",
     "code_stm32f1_mouse",
+    "tools",
     ".workbuddy/memory",
+    "README.md",
+    "build_competition_modes.py",
     "build_all_modes.py",
     "cleanup_workspace.py",
     "release/归档说明.md",
@@ -39,11 +48,14 @@ INCLUDE_ROOTS = [
     "release/verify_archive.py",
 ]
 
-#: 需要排除的**路径前缀**(相对仓库根, 用 / 分隔) —— 按目录整体排除
+#: 需要排除的**路径前缀**(相对 RemoteControl/, 用 / 分隔) —— 按目录整体排除
 EXCLUDE_DIR_PREFIX = [
     "host/sessions",                   # 运行现场(测试跑出来的 raw.bin/CSV)
-    "code_stm32f1_mouse/USER/Object",  # Keil 中间产物(下面单独放行 Mouse.hex)
-    "code_stm32f1_mouse/USER/DebugConfig",
+    "code_competition - 副本",          # 上游原始副本(含它自己的 .git)
+    "code_stm32f1_mouse - 副本",        # 上游原始副本
+    "code_stm32f1_mouse/USER/Object",  # Keil 中间产物(下面单独放行 Mouse.hex/map)
+    "code_competition/USER/RTE",       # Keil RTE 生成文件
+    "code_competition/USER/DebugConfig",
 ]
 
 #: 需要排除的**目录名**(任意层级出现即排除)
@@ -51,24 +63,44 @@ EXCLUDE_DIR_NAMES = {
     "__pycache__",   # Python 字节码缓存
 }
 
-#: 需要排除的文件(相对仓库根)
+#: 需要排除的文件(相对 RemoteControl/)
 EXCLUDE_FILES = {
-    # 构建产物以外的固件工具现场
-    "code_stm32f1_mouse/USER/JLinkLog.txt",
-    "code_stm32f1_mouse/USER/JLinkSettings.ini",
-    "code_stm32f1_mouse/USER/stm32f10x.lst",
-    # 排查问题时随手写的临时脚本(下划线前缀), 不是交付物
-    "host/_dbg_t3.py",
-    "host/_probe_text.py",
-    # 归档自身
+    "_link_ids.tmp",
+    # 上位机抓取现场(结论已进 docs; 复跑即可再得)
+    "host/ev_capture_20261016_184044.json",
+    "host/ev_capture_20261016_184404.json",
+    "host/drop24.csv",
+    "host/drop30.csv",
 }
-#: 前缀/后缀排除
-EXCLUDE_SUFFIX = (".log", ".uvguix.10994", ".uvguix.liuru", ".bak", ".zip")
+
+#: 后缀排除: Keil/uVision 中间产物 + 工具现场 + 归档自身
+EXCLUDE_SUFFIX = (
+    ".o", ".d", ".crf", ".lst", ".lnp", ".dep", ".axf", ".htm", ".sct",
+    ".bak", ".Bak", ".log", ".zip", ".pyc",
+)
+
+#: 文件名含这些片段即排除(uvguix 各机器名 / JLink 现场)
+EXCLUDE_NAME_PARTS = (".uvgui", "JLink")
+
+
+def _host_top_artifact(rel: str) -> bool:
+    """host/ 顶层的抓取现场(*.csv/*.txt/*.json) —— 只作用于 host/ 第一层。"""
+    if not rel.startswith("host/"):
+        return False
+    rest = rel[len("host/"):]
+    return "/" not in rest and rest.endswith((".csv", ".txt", ".json"))
+
 
 #: 例外: 即使父目录被排除也要收进来的文件
 FORCE_INCLUDE = {
-    "code_stm32f1_mouse/USER/Object/Mouse.hex",  # 可直接烧录的成品
-    "code_stm32f1_mouse/USER/Mouse.map",         # 资源占用证据
+    # 比赛档红线成品(sha256 = 68ad6be2…8141, 可直接烧录)
+    "code_competition/USER/TEST.hex",
+    "code_competition/USER/TEST.map",           # 资源占用证据
+    # 远程档成品(sha256 = a71b5e9d…, ERR_ESTOP 修复后基线)
+    "code_competition/USER/Remote/TEST.hex",
+    # 课程固件成品 + 资源证据
+    "code_stm32f1_mouse/USER/Object/Mouse.hex",
+    "code_stm32f1_mouse/USER/Mouse.map",
 }
 
 
@@ -84,10 +116,15 @@ def _excluded(rel: str) -> bool:
     for pre in EXCLUDE_DIR_PREFIX:
         if rel == pre or rel.startswith(pre + "/"):
             return True
-    # 任意层级的目录名匹配(如 __pycache__ 出现在 host/host/api/__pycache__)
+    # 任意层级的目录名匹配(如 host/host/api/__pycache__)
     if any(part in EXCLUDE_DIR_NAMES for part in rel.split("/")[:-1]):
         return True
+    name = rel.split("/")[-1]
     if rel.endswith(EXCLUDE_SUFFIX):
+        return True
+    if any(part in name for part in EXCLUDE_NAME_PARTS):
+        return True
+    if _host_top_artifact(rel):
         return True
     return False
 
@@ -136,73 +173,98 @@ def main() -> int:
     with zipfile.ZipFile(out_path) as z:
         names = set(z.namelist())
     must_have = [
+        # 归档三件套
         "release/归档说明.md",
         "release/make_archive.py",
         "release/verify_archive.py",
-        # 文档(设计 + 自动生成的接口参考)
+        # 文档(13 篇, 含 v3.0 方案/核查/参数表 + 自动生成的接口参考)
+        "docs/参数全量整定常量化-方案v3.0.md",
+        "docs/参数名称-功能-调整表.md",
+        "docs/参数JSON化与双向转换工具链设计方案.md",
+        "docs/参数JSON化-一致性核查报告.md",
+        "docs/比赛固件远程化移植方案.md",
+        "docs/通信协议规格.md",
+        "docs/算法详解.md",
+        "docs/遥测拉取器统一设计方案.md",
+        "docs/链路MTBF压测方法.md",
         "docs/api_reference.md",
-        "docs/CHANGELOG.md",
-        "docs/传输模式重构设计方案.md",
-        "docs/传输模式接口设计.md",
-        "docs/上位机接口化设计方案.md",
-        "docs/蓝牙上位机设计方案.md",
-        "docs/电机远程控制与双流传输.md",
-        "docs/安全测试模式与实时监视.md",
-        "docs/课程调参实验与参数设定.md",
-        "docs/数据收集与时间同步.md",
-        "docs/红外与电源测量回传设计方案.md",
-        "docs/迷宫状态机回传.md",
-        "docs/比赛固件空间不足诊断与瘦身方案.md",
-        # 上位机核心 + 各功能子 API
+        "docs/P3实机联调测试计划.md",
+        "docs/实机验证-USART1-NVIC修复.md",
+        "docs/真机取证记录-20261016.md",
+        # 上位机: 门面 + 协议 + 档位 + 模拟器 + 十套件 + 真机诊断
         "host/README.md",
+        "host/requirements.txt",
         "host/host/registry.py",
-        "host/host/clock.py",
-        "host/host/model/ring.py",
+        "host/host/fwprofile.py",
+        "host/host/protocol/codec.py",
+        "host/host/protocol/commands.py",
+        "host/host/sim/mouse_sim.py",
+        "host/host/api/client.py",
+        "host/host/cli.py",
         "host/host/monitor.py",
-        "host/host/api/telemetry.py",
-        "host/host/api/timesync.py",
-        "host/host/api/maze.py",
-        # 测试套件(v2.0: snap_smoke.py 随 SNAP 删除; v2.1: 新增 pull_smoke.py)
+        "host/host/api/calc.py",
+        "host/tools/gen_api_reference.py",
         "host/selftest.py",
         "host/contract_test.py",
         "host/facade_smoke.py",
-        "host/lesson_smoke.py",
-        "host/monitor_smoke.py",
-        "host/motor_lab_smoke.py",
-        "host/timesync_smoke.py",
         "host/maze_smoke.py",
+        "host/monitor_smoke.py",
         "host/pull_smoke.py",
-        # 真机诊断脚本(v2.1 排查自时钟灌死 / 定标停等参数时建立, 排查手法本身是交付物。
-        # 2026-10-05 精简: 一次性排查脚本(结论已进文档)已从工作区删除, 只留有复跑价值的)
-        "host/real_v21.py",
-        "host/real_burst.py",
-        "host/maze_launch_probe.py",
-        "host/raw_ping.py",
-        "host/maze_relaunch_repro.py",
-        "host/link_check.py",
-        "host/estop_latency.py",
-        "host/real_discriminate.py",
-        "host/real_throughput.py",
-        "host/real_lesson_sampling.py",
-        "host/live_read.py",
-        # 固件(公共路径 + 各档专属)
-        "code_stm32f1_mouse/USER/main.h",
-        "code_stm32f1_mouse/HARDWARE/link.c",
-        "code_stm32f1_mouse/HARDWARE/link.h",
-        "code_stm32f1_mouse/APP/lesson_lab.c",
+        "host/pace_smoke.py",
+        "host/stream_unified_smoke.py",
+        "host/timesync_smoke.py",
+        "host/motor_lab_smoke.py",
+        "host/safe_stop_smoke.py",
+        "host/basic_cmd_smoke.py",
+        "host/ev_capture.py",
+        # 参数工具链 v2 + v3
+        "tools/paramgen.py",
+        "tools/paramkit/tunable.py",
+        "tools/paramkit/registry.py",
+        "tools/paramkit/patch.py",
+        "tools/paramkit/render.py",
+        "tools/paramkit/pipeline.py",
+        "tools/params/params.competition.json",
+        "tools/params/params.competition.v3.json",
+        # 比赛固件: 工程 + 源码 + 两个 Target 的成品 hex
+        "code_competition/USER/TEST.uvprojx",
+        "code_competition/USER/TEST.hex",
+        "code_competition/USER/TEST.map",
+        "code_competition/USER/Remote/TEST.hex",
+        "code_competition/USER/test.c",
+        "code_competition/USER/user.c",
+        "code_competition/HARDWARE/TIMER/timer.c",
+        "code_competition/HARDWARE/ADC/adc.c",
+        "code_competition/UTILITY/utility.c",
+        "code_competition/STRATAGY/stratagy.c",
+        "code_competition/REMOTE/link.c",
+        "code_competition/REMOTE/link_port.c",
+        "code_competition/REMOTE/link.h",
+        # 课程固件(legacy 档依赖, fwprofile.py 指向)
+        "code_stm32f1_mouse/USER/Mouse.uvprojx",
         "code_stm32f1_mouse/USER/Object/Mouse.hex",
         "code_stm32f1_mouse/USER/Mouse.map",
-        # 五档批量构建工具 + 工作区清理工具
+        "code_stm32f1_mouse/HARDWARE/link.c",
+        "code_stm32f1_mouse/HARDWARE/link.h",
+        # 构建/清理工具 + 工作记忆
+        "build_competition_modes.py",
         "build_all_modes.py",
         "cleanup_workspace.py",
+        "README.md",
+        ".workbuddy/memory/MEMORY.md",
     ]
     bad = [m for m in must_have if m not in names]
     must_not = [n for n in names
                 if n.startswith("host/sessions/")
                 or "__pycache__" in n
+                or n.endswith(".pyc")
+                or n.startswith("code_competition - 副本/")
                 or n.startswith("code_stm32f1_mouse - 副本/")
                 or (n.startswith("code_stm32f1_mouse/USER/Object/")
-                    and not n.endswith("Mouse.hex"))]
+                    and not n.endswith("Mouse.hex"))
+                or (n.startswith("code_competition/USER/Remote/")
+                    and not (n.endswith("TEST.hex") or n.endswith("TEST.map")))
+                or n.endswith((".o", ".crf", ".d", ".axf", ".lnp", ".dep", ".zip"))]
     ok = True
     if bad:
         ok = False

@@ -1,10 +1,10 @@
-"""校验一个归档 zip: 清单是否齐全、有没有混进运行现场。
+"""校验一个归档 zip: 清单是否齐全、有没有混进运行现场 (v3.0.0 基线)。
 
 与 `make_archive.py` 的区别: 那个是"造包时顺手自查"; 这个是**独立校验**——
 拿到别人递来的包、或想确认半年前的包没坏,都用它。
 
-用法(在仓库根目录执行):
-    python release/verify_archive.py                          # 自动找 release/*.zip
+用法(在 RemoteControl/ 下执行):
+    python release/verify_archive.py                          # 自动找 release/*.zip 取最新
     python release/verify_archive.py path/to/xxx.zip
 """
 
@@ -18,71 +18,104 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELEASE = os.path.join(ROOT, "release")
 
-#: 包内必须存在的条目
+#: 包内必须存在的条目(与 make_archive.py 的 must_have 一致)
 MUST_HAVE = [
     "release/归档说明.md",
     "release/make_archive.py",
     "release/verify_archive.py",
+    # 文档(13 篇)
+    "docs/参数全量整定常量化-方案v3.0.md",
+    "docs/参数名称-功能-调整表.md",
+    "docs/参数JSON化与双向转换工具链设计方案.md",
+    "docs/参数JSON化-一致性核查报告.md",
+    "docs/比赛固件远程化移植方案.md",
+    "docs/通信协议规格.md",
+    "docs/算法详解.md",
+    "docs/遥测拉取器统一设计方案.md",
+    "docs/链路MTBF压测方法.md",
     "docs/api_reference.md",
-    "docs/CHANGELOG.md",
-    "docs/传输模式重构设计方案.md",
-    "docs/传输模式接口设计.md",
-    "docs/上位机接口化设计方案.md",
-    "docs/蓝牙上位机设计方案.md",
-    "docs/电机远程控制与双流传输.md",
-    "docs/安全测试模式与实时监视.md",
-    "docs/课程调参实验与参数设定.md",
-    "docs/数据收集与时间同步.md",
-    "docs/红外与电源测量回传设计方案.md",
-    "docs/迷宫状态机回传.md",
-    "docs/比赛固件空间不足诊断与瘦身方案.md",
+    "docs/P3实机联调测试计划.md",
+    "docs/实机验证-USART1-NVIC修复.md",
+    "docs/真机取证记录-20261016.md",
+    # 上位机
     "host/README.md",
     "host/requirements.txt",
+    "host/host/registry.py",
+    "host/host/fwprofile.py",
+    "host/host/protocol/codec.py",
+    "host/host/protocol/commands.py",
+    "host/host/sim/mouse_sim.py",
+    "host/host/api/client.py",
+    "host/host/cli.py",
+    "host/host/monitor.py",
+    "host/host/api/calc.py",
+    "host/tools/gen_api_reference.py",
     "host/selftest.py",
     "host/contract_test.py",
-    "host/timesync_smoke.py",
+    "host/facade_smoke.py",
     "host/maze_smoke.py",
+    "host/monitor_smoke.py",
     "host/pull_smoke.py",
-    "host/real_v21.py",
-    "host/maze_launch_probe.py",
-    "host/raw_ping.py",
-    "host/maze_relaunch_repro.py",
-    "host/link_check.py",
-    "host/estop_latency.py",
-    "host/real_burst.py",
-    "host/host/registry.py",
-    "host/host/clock.py",
-    "host/host/api/maze.py",
-    "host/host/cli.py",
-    "host/host/datalog.py",
-    "host/host/api/timesync.py",
-    "host/host/protocol/codec.py",
-    "host/host/sim/mouse_sim.py",
-    "build_all_modes.py",
-    "cleanup_workspace.py",
-    "code_stm32f1_mouse/USER/main.h",
-    "code_stm32f1_mouse/USER/main.c",
+    "host/pace_smoke.py",
+    "host/stream_unified_smoke.py",
+    "host/timesync_smoke.py",
+    "host/motor_lab_smoke.py",
+    "host/safe_stop_smoke.py",
+    "host/basic_cmd_smoke.py",
+    "host/ev_capture.py",
+    # 参数工具链 v2 + v3
+    "tools/paramgen.py",
+    "tools/paramkit/tunable.py",
+    "tools/paramkit/registry.py",
+    "tools/paramkit/patch.py",
+    "tools/paramkit/render.py",
+    "tools/paramkit/pipeline.py",
+    "tools/params/params.competition.json",
+    "tools/params/params.competition.v3.json",
+    # 比赛固件
+    "code_competition/USER/TEST.uvprojx",
+    "code_competition/USER/TEST.hex",
+    "code_competition/USER/TEST.map",
+    "code_competition/USER/Remote/TEST.hex",
+    "code_competition/USER/test.c",
+    "code_competition/USER/user.c",
+    "code_competition/HARDWARE/TIMER/timer.c",
+    "code_competition/HARDWARE/ADC/adc.c",
+    "code_competition/UTILITY/utility.c",
+    "code_competition/STRATAGY/stratagy.c",
+    "code_competition/REMOTE/link.c",
+    "code_competition/REMOTE/link_port.c",
+    "code_competition/REMOTE/link.h",
+    # 课程固件(legacy 档依赖)
     "code_stm32f1_mouse/USER/Mouse.uvprojx",
-    "code_stm32f1_mouse/HARDWARE/link.c",
-    "code_stm32f1_mouse/HARDWARE/link.h",
-    "code_stm32f1_mouse/APP/lesson_lab.c",
-    "code_stm32f1_mouse/APP/lesson_lab.h",
     "code_stm32f1_mouse/USER/Object/Mouse.hex",
     "code_stm32f1_mouse/USER/Mouse.map",
+    "code_stm32f1_mouse/HARDWARE/link.c",
+    "code_stm32f1_mouse/HARDWARE/link.h",
+    # 工具 + 工作记忆
+    "build_competition_modes.py",
+    "build_all_modes.py",
+    "cleanup_workspace.py",
+    "README.md",
+    ".workbuddy/memory/MEMORY.md",
 ]
 
-#: 出现即报错(运行现场 / 缓存 / 上游副本 / Keil 中间产物 / 包自身)
+#: 出现即报错(运行现场 / 缓存 / 上游副本 / Keil 中间产物 / 抓取现场 / 包自身)
 def _forbidden(name: str) -> str:
     if name.startswith("host/sessions/"):
         return "运行现场 sessions/"
-    if "__pycache__" in name:
+    if "__pycache__" in name or name.endswith(".pyc"):
         return "字节码缓存"
+    if name.startswith("code_competition - 副本/"):
+        return "上游原始副本"
     if name.startswith("code_stm32f1_mouse - 副本/"):
         return "上游原始副本"
     if name.startswith("code_stm32f1_mouse/USER/Object/") and not name.endswith("Mouse.hex"):
         return "Keil 中间产物"
-    if name.endswith((".pyc", ".uvguix.10994", ".uvguix.liuru")):
-        return "工具现场"
+    if name.startswith("code_competition/USER/Remote/") and not (name.endswith("TEST.hex") or name.endswith("TEST.map")):
+        return "Target_Remote 中间产物"
+    if name.endswith((".o", ".crf", ".d", ".axf", ".lnp", ".dep", ".lst")):
+        return "Keil 中间产物"
     if name.endswith(".zip"):
         return "归档自身"
     return ""
