@@ -13,6 +13,7 @@
     extract3  [v3] 全量整定常量 → 多套 JSON(`params.competition.v3.json`)
     apply3    [v3] 多套写回(每套独立锚点; 远程档套在 dropped, 永不写)
     check3    [v3] 多套对账: 站点覆盖 / 锚点指纹 / default_phase / 无远程套
+    render3   [v3] 多套参数表 → Markdown(--write 注入参数表文档 param-v3 标记区)
 
 用法(在 RemoteControl/ 下):
     python tools/paramgen.py extract --accept
@@ -23,6 +24,8 @@
     python tools/paramgen.py extract3 --accept      # v3 全量
     python tools/paramgen.py apply3                 # v3 预演
     python tools/paramgen.py check3
+    python tools/paramgen.py render3                # v3 参数表(打印)
+    python tools/paramgen.py render3 --write        # v3 参数表(注入文档)
 """
 from __future__ import annotations
 
@@ -333,6 +336,26 @@ def cmd_render(args):
 V3_JSON = os.path.join(HERE, "params", "params.competition.v3.json")
 
 
+def cmd_render3(args):
+    """[v3] 多套参数表: 默认 stdout; --write 注入 docs/参数名称-功能-调整表.md 标记区。"""
+    data = load_json(V3_JSON)
+    if not data:
+        print("请先跑 extract3 --accept")
+        return 1
+    body = RD.markdown_v3(data)
+    if args.write:
+        doc = os.path.join(ROOT, "docs", "参数名称-功能-调整表.md")
+        txt = RD.inject(doc, {"param-v3": body})
+        with open(doc, "w", encoding="utf-8", newline="") as f:
+            f.write(txt)
+        print("已注入 %s 的标记区 id=param-v3（sha=%s）"
+              % (os.path.relpath(doc, ROOT),
+                 __import__("hashlib").sha256(body.encode()).hexdigest()[:8]))
+    else:
+        print(body)
+    return 0
+
+
 def v3_merge_defaults(old: dict, new: dict) -> None:
     """保留人工指定过的 `default_phase`(前提: 它仍指向一个真实常量套)。"""
     oldmap = {p["name"]: p for p in old.get("params", [])}
@@ -495,6 +518,11 @@ def main():
     p = sub.add_parser("render", parents=[common], help="JSON → Markdown 生成区")
     p.add_argument("--write", action="store_true", help="注入 docs 的标记区")
     p.set_defaults(func=cmd_render)
+
+    p = sub.add_parser("render3", parents=[common], help="[v3] 多套参数表 → Markdown")
+    p.add_argument("--write", action="store_true",
+                   help="注入 docs/参数名称-功能-调整表.md 的 param-v3 标记区")
+    p.set_defaults(func=cmd_render3)
 
     p = sub.add_parser("extract3", parents=[common], help="[v3] 全量整定常量: 固件 → JSON")
     p.add_argument("--accept", action="store_true", help="写回 JSON(默认只预演)")
