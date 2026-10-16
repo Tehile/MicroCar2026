@@ -83,12 +83,20 @@ EXCLUDE_SUFFIX = (
 EXCLUDE_NAME_PARTS = (".uvgui", "JLink")
 
 
+#: host 顶层允许入档的 .txt(依赖清单是交付物, 不是抓取现场)
+HOST_TOP_KEEP_TXT = {"requirements.txt"}
+
+
 def _host_top_artifact(rel: str) -> bool:
     """host/ 顶层的抓取现场(*.csv/*.txt/*.json) —— 只作用于 host/ 第一层。"""
     if not rel.startswith("host/"):
         return False
     rest = rel[len("host/"):]
-    return "/" not in rest and rest.endswith((".csv", ".txt", ".json"))
+    if "/" in rest:
+        return False
+    if rest in HOST_TOP_KEEP_TXT:
+        return False
+    return rest.endswith((".csv", ".txt", ".json"))
 
 
 #: 例外: 即使父目录被排除也要收进来的文件
