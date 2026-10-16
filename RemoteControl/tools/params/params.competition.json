@@ -1,0 +1,3709 @@
+{
+  "schema_version": 2,
+  "profile": "competition",
+  "generated": {
+    "at": "2026-10-16T15:41:34+08:00",
+    "by": "tools/paramgen.py extract",
+    "git_rev": "1ea6e40",
+    "firmware_dir": "code_competition"
+  },
+  "firmware": {
+    "dir": "code_competition",
+    "fw_ver": 300,
+    "proto_ver": 8,
+    "mazetype": 16,
+    "link_p_num": {
+      "remote": 41
+    }
+  },
+  "wire": {
+    "encoding": "Q16.16",
+    "scale": 65536,
+    "page": 115,
+    "page_addr": "0x0801CC00",
+    "clamp_default": [
+      0,
+      6553600
+    ]
+  },
+  "redline": {
+    "hex_sha256": "68ad6be2272818269d6aac78e5356d9bb91036ddeaaa82c4ec3754a8a0948141",
+    "rom": 82040,
+    "ram": 20480,
+    "policy": "只在**故意**改参数值/新增参数时更新, 并同写 changelog"
+  },
+  "groups": [
+    {
+      "key": "calib",
+      "label": "生产标定",
+      "order": 1
+    },
+    {
+      "key": "ir",
+      "label": "红外测量",
+      "order": 2
+    },
+    {
+      "key": "power",
+      "label": "电源监控",
+      "order": 3
+    },
+    {
+      "key": "motion",
+      "label": "运动控制",
+      "order": 4
+    }
+  ],
+  "params": [
+    {
+      "name": "TRACKL",
+      "id": 1,
+      "macro": "LINK_P_TRACKL",
+      "macro_suffix": "TRACKL",
+      "group": "calib",
+      "kind": "float",
+      "wire": {
+        "slot": 0,
+        "qexpr": "link_F2Q(sysCfg.trackRatioL)",
+        "mirror": "sysCfg.trackRatioL",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "TrackRatioL",
+        "evidence": "TrackRatioL←REMOTE/link_port.c:262"
+      },
+      "fw": {
+        "value": 55.0855624,
+        "init": "54.9208*1.003",
+        "source": "USER/user.c",
+        "quantize": "none",
+        "raw_value": 55.0855624,
+        "loss": 0.0,
+        "decl": {
+          "file": "USER/user.c",
+          "line": 18,
+          "type": "float",
+          "const": false,
+          "sha16": "8ab9bf95614b3f0e"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "USER/user.c",
+          "line": 18,
+          "symbol": "TrackRatioL",
+          "ctype": "float",
+          "sha16": "8ab9bf95614b3f0e",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "USER/user.c",
+          "line": 18,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "float TrackRatioL=54.9208*1.003,TrackRatioR=55.1848*0.923;\t//编码器距离系数   //  TrackRatioL=54.9208*1.003,TrackRatioR=55.1848"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 25,
+          "gate": "!MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "const float TrackRatioL=54.9208*1.003,TrackRatioR=55.1848*0.923;\t//编码器距离系数   //  TrackRatioL=54.9208*1.003,TrackRatioR=5"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 438,
+          "text": "absolutetrackl=(float)(leftd+leftcycle*10000)/TrackRatioL;"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 55.0855624,
+        "expr": "54.9208*1.003",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "pulse/mm",
+        "decimals": 4,
+        "doc": "左轮里程系数; 走一格判据的直接因子, 最值得标定",
+        "origin": "2",
+        "func": "左编码器距离系数",
+        "tune": "按实际距离与目标距离比例调整",
+        "site": "isr.c · `ISR_Init()`",
+        "note": "同上",
+        "macro_comment": "sysCfg.trackRatioL   里程脉冲/mm"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "TRACKR",
+      "id": 2,
+      "macro": "LINK_P_TRACKR",
+      "macro_suffix": "TRACKR",
+      "group": "calib",
+      "kind": "float",
+      "wire": {
+        "slot": 1,
+        "qexpr": "link_F2Q(sysCfg.trackRatioR)",
+        "mirror": "sysCfg.trackRatioR",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "TrackRatioR",
+        "evidence": "TrackRatioR←REMOTE/link_port.c:263"
+      },
+      "fw": {
+        "value": 50.9355704,
+        "init": "55.1848*0.923",
+        "source": "USER/user.c",
+        "quantize": "none",
+        "raw_value": 50.9355704,
+        "loss": 0.0,
+        "decl": {
+          "file": "USER/user.c",
+          "line": 18,
+          "type": "float",
+          "const": false,
+          "sha16": "8ab9bf95614b3f0e"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "USER/user.c",
+          "line": 18,
+          "symbol": "TrackRatioR",
+          "ctype": null,
+          "sha16": "8ab9bf95614b3f0e",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "USER/user.c",
+          "line": 18,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "float TrackRatioL=54.9208*1.003,TrackRatioR=55.1848*0.923;\t//编码器距离系数   //  TrackRatioL=54.9208*1.003,TrackRatioR=55.1848"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 25,
+          "gate": "!MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "const float TrackRatioL=54.9208*1.003,TrackRatioR=55.1848*0.923;\t//编码器距离系数   //  TrackRatioL=54.9208*1.003,TrackRatioR=5"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 439,
+          "text": "absolutetrackr=(float)(rightd+rightcycle*10000)/TrackRatioR;"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 50.9355704,
+        "expr": "55.1848*0.923",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "pulse/mm",
+        "decimals": 4,
+        "doc": "右轮里程系数",
+        "origin": "3",
+        "func": "右编码器距离系数",
+        "tune": "同上",
+        "site": "isr.c · `ISR_Init()`",
+        "note": "同上",
+        "macro_comment": "sysCfg.trackRatioR"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "SPEEDL",
+      "id": 3,
+      "macro": "LINK_P_SPEEDL",
+      "macro_suffix": "SPEEDL",
+      "group": "calib",
+      "kind": "float",
+      "wire": {
+        "slot": 2,
+        "qexpr": "link_D2Q(sysCfg.speedRatioL)",
+        "mirror": "sysCfg.speedRatioL",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "SpeedRatioL",
+        "evidence": "SpeedRatioL←REMOTE/link_port.c:264"
+      },
+      "fw": {
+        "value": 0.56169,
+        "init": "0.6241*0.9",
+        "source": "USER/user.c",
+        "quantize": "none",
+        "raw_value": 0.56169,
+        "loss": 0.0,
+        "decl": {
+          "file": "USER/user.c",
+          "line": 20,
+          "type": "double",
+          "const": false,
+          "sha16": "93ddb828d88c6de6"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "USER/user.c",
+          "line": 20,
+          "symbol": "SpeedRatioL",
+          "ctype": "double",
+          "sha16": "93ddb828d88c6de6",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "USER/user.c",
+          "line": 20,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "double SpeedRatioL=0.6241*0.9,SpeedRatioR=0.6271*0.9;\t//编码器速度系数"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 27,
+          "gate": "!MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "const double SpeedRatioL=0.6241*0.9,SpeedRatioR=0.6271*0.9;\t//编码器速度系数"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1162,
+          "text": "if(task==0 && freemode==0) gdvl=(long)((double)speedSt.speedTargetL*SpeedRatioL);"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1165,
+          "text": "gdvl=setvl*SpeedRatioL;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1194,
+          "text": "speedl=gdspeedl/SpeedRatioL;"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 0.56169,
+        "expr": "0.6241*0.9",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "(pulse/ms)/(cm/s)",
+        "decimals": 6,
+        "doc": "左轮速度换算; 恒 = TRACKL/100, 由上位机派生",
+        "origin": "4",
+        "func": "左编码器速度系数",
+        "tune": "恒 = TrackRatioL/100",
+        "site": "isr.c · `ISR_Init()`",
+        "note": "上位机派生，无需手调",
+        "macro_comment": "sysCfg.speedRatioL   (pulse/ms)/(cm/s) = TRACKL/100"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "SPEEDR",
+      "id": 4,
+      "macro": "LINK_P_SPEEDR",
+      "macro_suffix": "SPEEDR",
+      "group": "calib",
+      "kind": "float",
+      "wire": {
+        "slot": 3,
+        "qexpr": "link_D2Q(sysCfg.speedRatioR)",
+        "mirror": "sysCfg.speedRatioR",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "SpeedRatioR",
+        "evidence": "SpeedRatioR←REMOTE/link_port.c:265"
+      },
+      "fw": {
+        "value": 0.56439,
+        "init": "0.6271*0.9",
+        "source": "USER/user.c",
+        "quantize": "none",
+        "raw_value": 0.56439,
+        "loss": 0.0,
+        "decl": {
+          "file": "USER/user.c",
+          "line": 20,
+          "type": "double",
+          "const": false,
+          "sha16": "93ddb828d88c6de6"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "USER/user.c",
+          "line": 20,
+          "symbol": "SpeedRatioR",
+          "ctype": null,
+          "sha16": "93ddb828d88c6de6",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "USER/user.c",
+          "line": 20,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "double SpeedRatioL=0.6241*0.9,SpeedRatioR=0.6271*0.9;\t//编码器速度系数"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 27,
+          "gate": "!MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "const double SpeedRatioL=0.6241*0.9,SpeedRatioR=0.6271*0.9;\t//编码器速度系数"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1179,
+          "text": "if(task==0 && freemode==0) gdvr=(long)((double)speedSt.speedTargetR*SpeedRatioR);"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1182,
+          "text": "gdvr=setvr*SpeedRatioR;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1195,
+          "text": "speedr=gdspeedr/SpeedRatioR;"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 0.56439,
+        "expr": "0.6271*0.9",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "(pulse/ms)/(cm/s)",
+        "decimals": 6,
+        "doc": "右轮速度换算; 恒 = TRACKR/100, 由上位机派生",
+        "origin": "5",
+        "func": "右编码器速度系数",
+        "tune": "恒 = TrackRatioR/100",
+        "site": "isr.c · `ISR_Init()`",
+        "note": "同上",
+        "macro_comment": "sysCfg.speedRatioR"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "GYRORATIO",
+      "id": 5,
+      "macro": "LINK_P_GYRO",
+      "macro_suffix": "GYRO",
+      "group": "calib",
+      "kind": "int",
+      "wire": {
+        "slot": 4,
+        "qexpr": "(s32)sysCfg.gyroRatio << 16",
+        "mirror": "sysCfg.gyroRatio",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "gangleratio",
+        "evidence": "gangleratio←REMOTE/link_port.c:266"
+      },
+      "fw": {
+        "value": 399,
+        "init": "423.926*1.0286*0.9167",
+        "source": "USER/user.c",
+        "quantize": "trunc",
+        "raw_value": 399.72729497612,
+        "loss": -0.1819,
+        "decl": {
+          "file": "USER/user.c",
+          "line": 17,
+          "type": "u16",
+          "const": false,
+          "sha16": "e0f0b7e8460aa253"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "USER/user.c",
+          "line": 17,
+          "symbol": "gangleratio",
+          "ctype": "u16",
+          "sha16": "e0f0b7e8460aa253",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "USER/user.c",
+          "line": 17,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "u16 gangleratio=423.926*1.0286*0.9167;\t//陀螺仪角度系数"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 24,
+          "gate": "!MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "const u16 gangleratio=423.926*1.0286*0.9167;\t//陀螺仪角度系数"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 349,
+          "text": "gangle=ganglet/gangleratio*(-1);"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 508,
+          "text": "ganglet=-a*gangleratio*(-1);"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 399,
+        "expr": "423.926*1.0286*0.9167",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "LSB/度",
+        "decimals": 0,
+        "doc": "陀螺角速率积分系数",
+        "origin": "8",
+        "func": "陀螺仪角度系数",
+        "tune": "手持悬空旋转，按实际角与目标角比例调整",
+        "site": "isr.c · `ISR_Init()`",
+        "note": "`CAL GYRORATIO` 可自动标定",
+        "macro_comment": "sysCfg.gyroRatio"
+      },
+      "latent": [],
+      "notes": [
+        "宏名 `LINK_P_GYRO` 与链路名 `GYRORATIO` 不一致: 宏名去掉前缀后不是链路名, 以 host 注册表为准"
+      ],
+      "history": []
+    },
+    {
+      "name": "ENCANGLE",
+      "id": 6,
+      "macro": "LINK_P_ENCANG",
+      "macro_suffix": "ENCANG",
+      "group": "calib",
+      "kind": "int",
+      "wire": {
+        "slot": 5,
+        "qexpr": "(s32)sysCfg.encAngleRatio << 16",
+        "mirror": "sysCfg.encAngleRatio",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "angleratio",
+        "evidence": "angleratio←REMOTE/link_port.c:267"
+      },
+      "fw": {
+        "value": 73,
+        "init": "81*0.91",
+        "source": "USER/user.c",
+        "quantize": "trunc",
+        "raw_value": 73.71,
+        "loss": -0.9632,
+        "decl": {
+          "file": "USER/user.c",
+          "line": 16,
+          "type": "u16",
+          "const": false,
+          "sha16": "fdd15263fdb00ce5"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "USER/user.c",
+          "line": 16,
+          "symbol": "angleratio",
+          "ctype": "u16",
+          "sha16": "fdd15263fdb00ce5",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "USER/user.c",
+          "line": 16,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "u16 angleratio=81*0.91;\t\t//编码器角度系数"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 23,
+          "gate": "!MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "const u16 angleratio=81*0.91;\t\t//编码器角度系数"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 382,
+          "text": "absoluteangle=(leftb-rightb+loopahead*10000)/angleratio;"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 73,
+        "expr": "81*0.91",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "pulse/度",
+        "decimals": 0,
+        "doc": "左右轮脉冲差 -> 角度; 固件为 u16, 取整",
+        "origin": "1",
+        "func": "编码器角度系数",
+        "tune": "按实际旋转角与目标角比例调整",
+        "site": "isr.c · `ISR_Init()`",
+        "note": "上位机标定算参可自动解算（`api/calc.py`）",
+        "macro_comment": "sysCfg.encAngleRatio"
+      },
+      "latent": [],
+      "notes": [
+        "宏名 `LINK_P_ENCANG` 与链路名 `ENCANGLE` 不一致: 宏名去掉前缀后不是链路名, 以 host 注册表为准"
+      ],
+      "history": []
+    },
+    {
+      "name": "WALLDIST",
+      "id": 7,
+      "macro": "LINK_P_WALLDIST",
+      "macro_suffix": "WALLDIST",
+      "group": "calib",
+      "kind": "int",
+      "wire": {
+        "slot": 6,
+        "qexpr": "(s32)sysCfg.distToWall << 16",
+        "mirror": "sysCfg.distToWall",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "dis2wall",
+        "evidence": "dis2wall←REMOTE/link_port.c:268"
+      },
+      "fw": {
+        "value": 40,
+        "init": "40",
+        "source": "USER/user.c",
+        "quantize": "trunc",
+        "raw_value": 40,
+        "loss": 0.0,
+        "decl": {
+          "file": "USER/user.c",
+          "line": 21,
+          "type": "u8",
+          "const": false,
+          "sha16": "640922afc1b98f86"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "USER/user.c",
+          "line": 21,
+          "symbol": "dis2wall",
+          "ctype": "u8",
+          "sha16": "640922afc1b98f86",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "USER/user.c",
+          "line": 21,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "u8 dis2wall=40;\t\t\t//车在中央时传感器测得到墙的距离"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 28,
+          "gate": "!MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "const u8 dis2wall=40;\t\t\t//车在中央时传感器测得到墙的距离"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 697,
+          "text": "setvl=speed_turn+(disr-dis2wall);"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 698,
+          "text": "setvr=speed_turn-(disr-dis2wall);"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 702,
+          "text": "setvl=speed_turn-(disl-dis2wall);"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 703,
+          "text": "setvr=speed_turn+(disl-dis2wall);"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 813,
+          "text": "e=disl-dis2wall;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 820,
+          "text": "e=dis2wall-disr;"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 40,
+        "expr": "40",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "车中心到墙距离; 固件为 u8, 取整",
+        "origin": "6",
+        "func": "迷宫中央时左/右红外到墙距离均值",
+        "tune": "采集对应红外数据修改",
+        "site": "isr.c · `ISR_Init()`",
+        "note": "**慎改**；`CAL WALLDIST` 可自动标定",
+        "macro_comment": "sysCfg.distToWall"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRTHRWALL",
+      "id": 22,
+      "macro": "LINK_P_IRTHRWALL",
+      "macro_suffix": "IRTHRWALL",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 7,
+        "qexpr": "(s32)wallSns.wallThresh << 16",
+        "mirror": "wallSns.wallThresh",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "sidewall_threshold",
+        "evidence": "sidewall_threshold←REMOTE/link_port.c:225"
+      },
+      "fw": {
+        "value": 130,
+        "init": "130",
+        "source": "HARDWARE/TIMER/timer.c",
+        "quantize": "trunc",
+        "raw_value": 130,
+        "loss": 0.0,
+        "decl": {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 50,
+          "type": "u8",
+          "const": false,
+          "sha16": "2570ca979c8d4fdf"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 50,
+          "symbol": "sidewall_threshold",
+          "ctype": "u8",
+          "sha16": "2570ca979c8d4fdf",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 50,
+          "gate": "",
+          "first_declarator": true,
+          "text": "u8 sidewall_threshold=130;"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 499,
+          "text": "if(disl<sidewall_threshold) lefthaswall=1;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 501,
+          "text": "if(disr<sidewall_threshold) righthaswall=1;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 102,
+          "text": "extern u8 sidewall_threshold;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1417,
+          "text": "sidewall_threshold=110;\t\t\t\t\tgoto BFL;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1423,
+          "text": "sidewall_threshold=110;\t\t\t\t\tgoto BFR;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1497,
+          "text": "sidewall_threshold=160;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1417,
+          "func": "?",
+          "func_line": 0,
+          "text": "sidewall_threshold=110;\t\t\t\t\tgoto BFL;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1423,
+          "func": "?",
+          "func_line": 0,
+          "text": "sidewall_threshold=110;\t\t\t\t\tgoto BFR;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1497,
+          "func": "?",
+          "func_line": 0,
+          "text": "sidewall_threshold=160;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1510,
+          "func": "?",
+          "func_line": 0,
+          "text": "sidewall_threshold=160;"
+        }
+      ],
+      "store": {
+        "value": 130,
+        "expr": "130",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "侧墙判定阈值; 唯一真源 = wallSns.wallThresh, 默认 160",
+        "origin": "7",
+        "func": "红外判断左右是否有墙的距离阈值",
+        "tune": "看不见路口改小，转弯判定过灵敏改大",
+        "site": "core.c · `CORE_Init()`",
+        "note": "**慎改**；⚠️ **有覆写警示**，见下方\"覆写与恢复\"",
+        "macro_comment": "irCfg.thrWall      侧墙阈值 mm"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRTHR45",
+      "id": 23,
+      "macro": "LINK_P_IRTHR45",
+      "macro_suffix": "IRTHR45",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 8,
+        "qexpr": "(s32)irCfg.thr45 << 16",
+        "mirror": "irCfg.thr45",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "45 度侧墙阈值(斜线矫正用); 默认 150",
+        "macro_comment": "irCfg.thr45        45 度阈值 mm"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 509,
+          "symbol": "(字面量)",
+          "value": "150",
+          "effect": "45° 侧墙阈值写死在判墙处"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 511,
+          "symbol": "(字面量)",
+          "value": "150",
+          "effect": "右 45° 同上"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRTHRCRIT",
+      "id": 24,
+      "macro": "LINK_P_IRTHRCRIT",
+      "macro_suffix": "IRTHRCRIT",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 9,
+        "qexpr": "(s32)irCfg.thrCritical << 16",
+        "mirror": "irCfg.thrCritical",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "临界墙阈值(斜线转弯起始点, 低于此值禁动); 默认 60",
+        "macro_comment": "irCfg.thrCritical  临界墙阈值 mm"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 521,
+          "symbol": "(字面量)",
+          "value": "60",
+          "effect": "临界墙判据写死"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 523,
+          "symbol": "(字面量)",
+          "value": "60",
+          "effect": "右侧同上"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRTHRFLO",
+      "id": 25,
+      "macro": "LINK_P_IRTHRFLO",
+      "macro_suffix": "IRTHRFLO",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 10,
+        "qexpr": "(s32)irCfg.thrFrontLo << 16",
+        "mirror": "irCfg.thrFrontLo",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "前墙远距-低(双传感器确认有墙); 默认 230",
+        "macro_comment": "irCfg.thrFrontLo   前墙远距-低 mm"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 503,
+          "symbol": "(字面量)",
+          "value": "230",
+          "effect": "前墙远距-低写死"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRTHRFMID",
+      "id": 26,
+      "macro": "LINK_P_IRTHRFMID",
+      "macro_suffix": "IRTHRFMID",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 11,
+        "qexpr": "(s32)irCfg.thrFrontMid << 16",
+        "mirror": "irCfg.thrFrontMid",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "前墙远距-中; 默认 240",
+        "macro_comment": "irCfg.thrFrontMid  前墙远距-中 mm"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 503,
+          "symbol": "(字面量)",
+          "value": "240",
+          "effect": "前墙远距-中写死"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRTHRFHI",
+      "id": 27,
+      "macro": "LINK_P_IRTHRFHI",
+      "macro_suffix": "IRTHRFHI",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 12,
+        "qexpr": "(s32)irCfg.thrFrontHi << 16",
+        "mirror": "irCfg.thrFrontHi",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "前墙远距-高; 默认 245",
+        "macro_comment": "irCfg.thrFrontHi   前墙远距-高 mm"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 503,
+          "symbol": "(字面量)",
+          "value": "245",
+          "effect": "前墙远距-高写死"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRTHRFNEAR",
+      "id": 28,
+      "macro": "LINK_P_IRTHRFNEAR",
+      "macro_suffix": "IRTHRFNEAR",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 13,
+        "qexpr": "(s32)irCfg.thrFrontNear << 16",
+        "mirror": "irCfg.thrFrontNear",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "前墙近距(单传感器即判定有墙); 默认 80",
+        "macro_comment": "irCfg.thrFrontNear 前墙近距 mm"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 503,
+          "symbol": "(字面量)",
+          "value": "65",
+          "effect": "前墙近距写死(文档写 80 是旧值)"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "IRKALQ",
+      "id": 29,
+      "macro": "LINK_P_IRKALQ",
+      "macro_suffix": "IRKALQ",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 14,
+        "qexpr": "(s32)irCfg.kalQ << 16",
+        "mirror": "irCfg.kalQ",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "Qf1",
+        "evidence": "Qf1←REMOTE/link_port.c:227"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "1e-4",
+        "decimals": 0,
+        "doc": "卡尔曼过程噪声 ×10000(越小越信任预测); 默认 100 = 0.0100",
+        "macro_comment": "irCfg.kalQ         卡尔曼 Q ×10000"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 144,
+          "symbol": "Qf1",
+          "value": "0.01",
+          "effect": "远程档被 link_port.c:227 每 tick 写 0 ⇒ kf≡1, 卡尔曼退化为直通"
+        }
+      ],
+      "notes": [
+        "★行为级: 远程档开机后 Q=P=0 ⇒ kf≡1, 与比赛档(Q=0.01/P=0.2)滤波行为不同"
+      ],
+      "history": []
+    },
+    {
+      "name": "IRKALP",
+      "id": 30,
+      "macro": "LINK_P_IRKALP",
+      "macro_suffix": "IRKALP",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 15,
+        "qexpr": "(s32)irCfg.kalP << 16",
+        "mirror": "irCfg.kalP",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "Pf1",
+        "evidence": "Pf1←REMOTE/link_port.c:228"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "1e-4",
+        "decimals": 0,
+        "doc": "卡尔曼测量噪声 ×10000(越大越平滑但迟钝); 默认 2000 = 0.2000",
+        "macro_comment": "irCfg.kalP         卡尔曼 P ×10000"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 144,
+          "symbol": "Pf1",
+          "value": "0.2",
+          "effect": "同上(Pf1=0); 此项是 IRKALQ 之外的第二半"
+        }
+      ],
+      "notes": [
+        "★行为级: 见 IRKALQ"
+      ],
+      "history": []
+    },
+    {
+      "name": "IRKALSW",
+      "id": 31,
+      "macro": "LINK_P_IRKALSW",
+      "macro_suffix": "IRKALSW",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 16,
+        "qexpr": "(s32)irCfg.kalOn << 16",
+        "mirror": "irCfg.kalOn",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "kalmanswitch",
+        "evidence": "kalmanswitch←REMOTE/link_port.c:226"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "0|1",
+        "decimals": 0,
+        "doc": "卡尔曼滤波开关; 默认 1",
+        "macro_comment": "irCfg.kalOn        卡尔曼开关 0/1"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/ADC/adc.c",
+          "line": 151,
+          "symbol": "kalmanswitch",
+          "value": "1",
+          "effect": "远程档被 link_port.c:226 写 irCfg.kalOn(=0) ⇒ 开关被关掉"
+        }
+      ],
+      "notes": [
+        "★行为级: 远程档卡尔曼开关被置 0"
+      ],
+      "history": []
+    },
+    {
+      "name": "IRFRONTMODE",
+      "id": 32,
+      "macro": "LINK_P_IRFRONTMODE",
+      "macro_suffix": "IRFRONTMODE",
+      "group": "ir",
+      "kind": "int",
+      "wire": {
+        "slot": 17,
+        "qexpr": "(s32)irCfg.frontMode << 16",
+        "mirror": "irCfg.frontMode",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "0-2",
+        "decimals": 0,
+        "doc": "前向综合距离: 0=均值(现状) 1=取小(更保守) 2=加权; 默认 0",
+        "macro_comment": "irCfg.frontMode    前向综合 0/1/2"
+      },
+      "latent": [],
+      "notes": [
+        "固件没有「前向综合模式」分支(恒为多传感器取与), SETQ 无效果"
+      ],
+      "history": []
+    },
+    {
+      "name": "BATTKV",
+      "id": 33,
+      "macro": "LINK_P_BATTKV",
+      "macro_suffix": "BATTKV",
+      "group": "power",
+      "kind": "int",
+      "wire": {
+        "slot": 18,
+        "qexpr": "(s32)((u32)powerCfg.battKv << 16)",
+        "mirror": "powerCfg.battKv",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "µV/LSB",
+        "decimals": 3,
+        "doc": "分压系数: mV = adcBatt × BATTKV / 1000; 默认 2417 (3.3V×3÷4096×1000)",
+        "macro_comment": "powerCfg.battKv    分压系数 uV/LSB"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1283,
+          "symbol": "(字面量)",
+          "value": "3.3*3/4096*100",
+          "effect": "分压换算写死"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "BATTLOWMV",
+      "id": 34,
+      "macro": "LINK_P_BATTLOWMV",
+      "macro_suffix": "BATTLOWMV",
+      "group": "power",
+      "kind": "int",
+      "wire": {
+        "slot": 19,
+        "qexpr": "(s32)powerCfg.battLowMv << 16",
+        "mirror": "powerCfg.battLowMv",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mV",
+        "decimals": 0,
+        "doc": "电量档下限(低于此值报低电); 默认 7000",
+        "macro_comment": "powerCfg.battLowMv 低电 mV"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1285,
+          "symbol": "(字面量)",
+          "value": "700",
+          "effect": "档位算式写死 battarypercent=(battary-700)/12"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "BATTHIGHMV",
+      "id": 35,
+      "macro": "LINK_P_BATTHIGHMV",
+      "macro_suffix": "BATTHIGHMV",
+      "group": "power",
+      "kind": "int",
+      "wire": {
+        "slot": 20,
+        "qexpr": "(s32)powerCfg.battHighMv << 16",
+        "mirror": "powerCfg.battHighMv",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mV",
+        "decimals": 0,
+        "doc": "满电参考; step = (HIGH-LOW)/MAXPCT; 默认 7960 (=8×120mV 步进)",
+        "macro_comment": "powerCfg.battHighMv 满电 mV"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1285,
+          "symbol": "(字面量)",
+          "value": "12",
+          "effect": "步进 12 = (7960-700)/8"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "BATTALPHA",
+      "id": 36,
+      "macro": "LINK_P_BATTALPHA",
+      "macro_suffix": "BATTALPHA",
+      "group": "power",
+      "kind": "int",
+      "wire": {
+        "slot": 21,
+        "qexpr": "(s32)powerCfg.battAlpha << 16",
+        "mirror": "powerCfg.battAlpha",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "1e-3",
+        "decimals": 0,
+        "doc": "电压一阶 IIR 系数 ×1000; 0=不滤波, 1000=完全跟随; 默认 100",
+        "macro_comment": "powerCfg.battAlpha IIR ×1000"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1284,
+          "symbol": "(字面量)",
+          "value": "1/9",
+          "effect": "IIR 权重 1:9 写死"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "BATTMAXPCT",
+      "id": 37,
+      "macro": "LINK_P_BATTMAXPCT",
+      "macro_suffix": "BATTMAXPCT",
+      "group": "power",
+      "kind": "int",
+      "wire": {
+        "slot": 22,
+        "qexpr": "(s32)powerCfg.battMaxPct << 16",
+        "mirror": "powerCfg.battMaxPct",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "1-8",
+        "decimals": 0,
+        "doc": "电量档上限; 默认 8",
+        "macro_comment": "powerCfg.battMaxPct 档位上限"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1287,
+          "symbol": "(字面量)",
+          "value": "8",
+          "effect": "档位上限写死"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "BATTMINPCT",
+      "id": 38,
+      "macro": "LINK_P_BATTMINPCT",
+      "macro_suffix": "BATTMINPCT",
+      "group": "power",
+      "kind": "int",
+      "wire": {
+        "slot": 23,
+        "qexpr": "(s32)powerCfg.battMinPct << 16",
+        "mirror": "powerCfg.battMinPct",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "0-8",
+        "decimals": 0,
+        "doc": "电量档下限; 默认 1",
+        "macro_comment": "powerCfg.battMinPct 档位下限"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 1286,
+          "symbol": "(字面量)",
+          "value": "1",
+          "effect": "档位下限写死"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "TRACKCOORD",
+      "id": 39,
+      "macro": "LINK_P_TRACKCOORD",
+      "macro_suffix": "TRACKCOORD",
+      "group": "motion",
+      "kind": "int",
+      "wire": {
+        "slot": 24,
+        "qexpr": "(s32)sysCfg.trackCoord << 16",
+        "mirror": "sysCfg.trackCoord",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0,
+        "init": null,
+        "source": "bss-zero",
+        "quantize": "none",
+        "raw_value": 0,
+        "loss": 0.0,
+        "decl": {
+          "file": "",
+          "line": 0,
+          "type": "struct-field",
+          "const": false,
+          "sha16": "",
+          "note": "无初始化式 ⇒ 开机必为 0"
+        }
+      },
+      "anchors": [],
+      "decls_all": [],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0,
+        "expr": null,
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "格",
+        "decimals": 0,
+        "doc": "纵向矫正灵敏度(有墙->无墙时重置格内里程); 默认 145",
+        "origin": "9",
+        "func": "转弯运行距离（纵向矫正灵敏度，格）",
+        "tune": "慎改；转弯后偏出中线时微调",
+        "site": "isr.c · `ISR_Init()`；isr.c · `doTaskSearch` 等消费",
+        "note": "**慎改**",
+        "macro_comment": "sysCfg.trackCoord   纵向矫正灵敏度(格)   默认 145"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 52,
+          "symbol": "trackcoor",
+          "value": "127",
+          "effect": "固件另有 const u8 trackcoor=127, 消费点 timer.c:885/886/909/910 settrack()"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 885,
+          "symbol": "settrack(trackcoor)",
+          "value": "127",
+          "effect": "真实消费点"
+        }
+      ],
+      "notes": [
+        "链路参数与固件常量**同名不同物**: 改参数不影响 timer.c 的 trackcoor"
+      ],
+      "history": []
+    },
+    {
+      "name": "TURNDELAY",
+      "id": 40,
+      "macro": "LINK_P_TURNDELAY",
+      "macro_suffix": "TURNDELAY",
+      "group": "motion",
+      "kind": "int",
+      "wire": {
+        "slot": 25,
+        "qexpr": "link_F2Q(turnDelay)",
+        "mirror": "turnDelay",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "turn_delay",
+        "evidence": "turn_delay←REMOTE/link_port.c:259"
+      },
+      "fw": {
+        "value": 5,
+        "init": "5",
+        "source": "UTILITY/utility.c",
+        "quantize": "trunc",
+        "raw_value": 5,
+        "loss": 0.0,
+        "decl": {
+          "file": "UTILITY/utility.c",
+          "line": 21,
+          "type": "u8",
+          "const": false,
+          "sha16": "844ac3f6ca81a540"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "UTILITY/utility.c",
+          "line": 21,
+          "symbol": "turn_delay",
+          "ctype": "u8",
+          "sha16": "844ac3f6ca81a540",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "UTILITY/utility.c",
+          "line": 21,
+          "gate": "",
+          "first_declarator": true,
+          "text": "u8 turn_delay = 5;"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 85,
+          "text": "turn_delay = 9;\t//搜索转弯延迟（参数值越大，转弯越晚） //10"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 96,
+          "text": "turn_delay = 0;\t//冲刺转弯延迟（参数值越大，转弯越晚）"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 850,
+          "text": "if(track>=turn_delay+27) //20"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 857,
+          "text": "if(track>=turn_delay+20)"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 869,
+          "text": "if(track>=turn_delay-2)"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 876,
+          "text": "if(track>=turn_delay-3)\t\t\t\t\t\t //3"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 85,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_delay = 9;\t//搜索转弯延迟（参数值越大，转弯越晚） //10"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 96,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_delay = 0;\t//冲刺转弯延迟（参数值越大，转弯越晚）"
+        }
+      ],
+      "store": {
+        "value": 5,
+        "expr": "5",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "格",
+        "decimals": 1,
+        "doc": "转弯延迟格数(浮点); ⚠️ 转弯后回落点固定 70 与冲刺路径会覆写, 见调整表",
+        "origin": "10",
+        "func": "转弯开始延迟距离（格，浮点）",
+        "tune": "转弯过早/过晚时调整；值越大拐得越晚",
+        "site": "motion.c · 定义 + `MOTION_MouseGoahead()` 消费",
+        "note": "**慎改**；⚠️ 覆写警示见下",
+        "macro_comment": "turnDelay(motion.c) 转弯延迟格数(float)   默认 16.5"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "SPDSEARCH",
+      "id": 41,
+      "macro": "LINK_P_SPDSEARCH",
+      "macro_suffix": "SPDSEARCH",
+      "group": "motion",
+      "kind": "int",
+      "wire": {
+        "slot": 26,
+        "qexpr": "(s32)speedCfg.search << 16",
+        "mirror": "speedCfg.search",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "speed_ss",
+        "evidence": "speed_ss←REMOTE/link_port.c:248"
+      },
+      "fw": {
+        "value": 40,
+        "init": "40",
+        "source": "HARDWARE/TIMER/timer.c",
+        "quantize": "trunc",
+        "raw_value": 40,
+        "loss": 0.0,
+        "decl": {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 54,
+          "type": "u16",
+          "const": false,
+          "sha16": "5c0676053b942c03"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 54,
+          "symbol": "speed_ss",
+          "ctype": "u16",
+          "sha16": "5c0676053b942c03",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 54,
+          "gate": "",
+          "first_declarator": true,
+          "text": "u16 speed_ss=40;"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 82,
+          "text": "speed_ss = 80;\t\t//搜索直线速度"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 93,
+          "text": "speed_ss = 100;\t\t//冲刺直线速度"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 796,
+          "text": "setvl=speed_ss-e*GOSTRAIGHT_kp;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 797,
+          "text": "setvr=speed_ss+e*GOSTRAIGHT_kp;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 833,
+          "text": "setvl=speed_ss-e*1;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 834,
+          "text": "setvr=speed_ss+e*1;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 82,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss = 80;\t\t//搜索直线速度"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 93,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss = 100;\t\t//冲刺直线速度"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1313,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss=(SpurtAccRatio+0.2)*track;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1315,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss=SpurtAccRatio*(track-(BottomSpeed/(SpurtAccRatio+0.2)))+BottomSpeed;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1317,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss=SpurtDecRatio*(dis-track)+BottomSpeed;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1319,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss=10;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1321,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss=TopSpeed;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1335,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_ss=(ObjectGoTo_TopSpeed-ObjectGoTo_BottomSpeed)*track/100+ObjectGoTo_BottomSpeed;"
+        }
+      ],
+      "store": {
+        "value": 40,
+        "expr": "40",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "cm/s",
+        "decimals": 0,
+        "doc": "搜索直线速度初值; ⚠️ 转弯后回落固定 70、运动中按工况重算",
+        "origin": "19",
+        "func": "直线速度（初值）",
+        "tune": "按需设定",
+        "site": "core.c · `CORE_Init()`；isr.c `doTaskSearch` 等消费",
+        "note": "⚠️ **只参数化初值**：转弯后回落固定 70（motion.c · `MOTION_MouseTurn()` 末尾），运动中还会按工况重算——见下方说明",
+        "macro_comment": "speedCfg.search     搜索直线速度          默认 95"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "SPDTURN",
+      "id": 42,
+      "macro": "LINK_P_SPDTURN",
+      "macro_suffix": "SPDTURN",
+      "group": "motion",
+      "kind": "int",
+      "wire": {
+        "slot": 27,
+        "qexpr": "(s32)speedCfg.turn << 16",
+        "mirror": "speedCfg.turn",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "speed_turn",
+        "evidence": "speed_turn←REMOTE/link_port.c:249"
+      },
+      "fw": {
+        "value": 30,
+        "init": "30",
+        "source": "HARDWARE/TIMER/timer.c",
+        "quantize": "trunc",
+        "raw_value": 30,
+        "loss": 0.0,
+        "decl": {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 55,
+          "type": "u16",
+          "const": false,
+          "sha16": "440bc1b215239be0"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 55,
+          "symbol": "speed_turn",
+          "ctype": "u16",
+          "sha16": "440bc1b215239be0",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 55,
+          "gate": "",
+          "first_declarator": true,
+          "text": "u16 speed_turn=30;"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "USER/user.c",
+          "line": 83,
+          "text": "//speed_turn = 30;\t//搜索转弯速度"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 94,
+          "text": "speed_turn = 70;\t//冲刺转弯速度"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 676,
+          "text": "setvl=speed_turn-e*0.1;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 677,
+          "text": "setvr=speed_turn+e*0.1;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 682,
+          "text": "setvl=speed_turn-e*0.6;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 683,
+          "text": "setvr=speed_turn+e*0.6;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "USER/user.c",
+          "line": 94,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_turn = 70;\t//冲刺转弯速度"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1221,
+          "func": "?",
+          "func_line": 0,
+          "text": "speed_turn=spd_turn;"
+        }
+      ],
+      "store": {
+        "value": 30,
+        "expr": "30",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "cm/s",
+        "decimals": 0,
+        "doc": "转弯速度; 冲刺路径会覆写为 80(远程档不进冲刺)",
+        "origin": "20",
+        "func": "转弯速度",
+        "tune": "按需设定",
+        "site": "core.c · `CORE_Init()`；isr.c `doTaskBefore180Turn` 等消费",
+        "note": "⚠️ 冲刺路径会覆写为 80（远程档不进冲刺）",
+        "macro_comment": "speedCfg.turn       转弯速度              默认 60"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "DISF60",
+      "id": 43,
+      "macro": "LINK_P_DISF60",
+      "macro_suffix": "DISF60",
+      "group": "motion",
+      "kind": "int",
+      "wire": {
+        "slot": 28,
+        "qexpr": "(s32)linkDisF60 << 16",
+        "mirror": "linkDisF60",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 60,
+        "init": "60",
+        "source": "REMOTE/link.c",
+        "quantize": "trunc",
+        "raw_value": 60,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 126,
+          "type": "u8",
+          "const": false,
+          "sha16": "9b48c3b68937cd5d"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 126,
+          "symbol": "linkDisF60",
+          "ctype": null,
+          "sha16": "9b48c3b68937cd5d",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 126,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "u8 linkDisF60 = 60;                                            /* == isr.c 原字面量 */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 60,
+        "expr": "60",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "mm",
+        "decimals": 0,
+        "doc": "180°前对正判据阈值(前墙距离>此值才对正); 默认 60",
+        "origin": "22",
+        "func": "原地回转 180° 前对正距离阈值",
+        "tune": "若 180° 旋转后不在迷宫中心可适当改变",
+        "site": "isr.c · `doTaskBefore180Turn()`（3 处比较）",
+        "note": "**慎改**；课件字面量 60 参数化",
+        "macro_comment": "linkDisF60          180deg前对正阈值 mm     默认 60"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 695,
+          "symbol": "(字面量)",
+          "value": "60",
+          "effect": "BEFORE180TURN 对正判据 disf>60"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 700,
+          "symbol": "(字面量)",
+          "value": "60",
+          "effect": "同上"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 705,
+          "symbol": "(字面量)",
+          "value": "60",
+          "effect": "同上"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "GSKP",
+      "id": 44,
+      "macro": "LINK_P_GSKP",
+      "macro_suffix": "GSKP",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 29,
+        "qexpr": "link_D2Q(pidGain.goStraight)",
+        "mirror": "pidGain.goStraight",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "GOSTRAIGHT_kp",
+        "evidence": "GOSTRAIGHT_kp←REMOTE/link_port.c:250"
+      },
+      "fw": {
+        "value": 0.4,
+        "init": "0.4",
+        "source": "HARDWARE/TIMER/timer.c",
+        "quantize": "none",
+        "raw_value": 0.4,
+        "loss": 0.0,
+        "decl": {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 57,
+          "type": "double",
+          "const": false,
+          "sha16": "ceef656e6d6a03e2"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 57,
+          "symbol": "GOSTRAIGHT_kp",
+          "ctype": "double",
+          "sha16": "ceef656e6d6a03e2",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 57,
+          "gate": "",
+          "first_declarator": true,
+          "text": "double GOSTRAIGHT_kp=0.4;"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 796,
+          "text": "setvl=speed_ss-e*GOSTRAIGHT_kp;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 797,
+          "text": "setvr=speed_ss+e*GOSTRAIGHT_kp;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 131,
+          "text": "extern double GOSTRAIGHT_kp;"
+        }
+      ],
+      "overwrites": [],
+      "store": {
+        "value": 0.4,
+        "expr": "0.4",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "盲走直行P增益; 默认 0.4",
+        "origin": "23",
+        "func": "无墙直线速度控制 P 参数",
+        "tune": "PID 调试方法",
+        "site": "core.c · `CORE_Init()`；isr.c 盲走直行消费",
+        "note": "",
+        "macro_comment": "pidGain.goStraight  盲走直行P增益         默认 0.4"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "TURNP",
+      "id": 45,
+      "macro": "LINK_P_TURNP",
+      "macro_suffix": "TURNP",
+      "group": "motion",
+      "kind": "int",
+      "wire": {
+        "slot": 30,
+        "qexpr": "link_D2Q(pidGain.turnP)",
+        "mirror": "pidGain.turnP",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "turn_kp",
+        "evidence": "turn_kp←REMOTE/link_port.c:251"
+      },
+      "fw": {
+        "value": 4,
+        "init": "4",
+        "source": "HARDWARE/TIMER/timer.c",
+        "quantize": "none",
+        "raw_value": 4,
+        "loss": 0.0,
+        "decl": {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "type": "double",
+          "const": false,
+          "sha16": "b401bc2cf3d1c1a8"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "decl",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "symbol": "turn_kp",
+          "ctype": "double",
+          "sha16": "b401bc2cf3d1c1a8",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "gate": "",
+          "first_declarator": true,
+          "text": "double turn_kp=4,turn_kd=4;"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 612,
+          "text": "setvl=*(turn_vl+tick)-e*turn_kp-(e-eh)*turn_kd;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 613,
+          "text": "setvr=*(turn_vr+tick)+e*turn_kp+(e-eh)*turn_kd;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 135,
+          "text": "extern double turn_kp,turn_kd;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1162,
+          "text": "turn_kp=4;   //8"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1174,
+          "text": "turn_kp=8;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1186,
+          "text": "turn_kp=10;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1162,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kp=4;   //8"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1174,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kp=8;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1186,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kp=10;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1219,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kp=turn_p;"
+        }
+      ],
+      "store": {
+        "value": 4,
+        "expr": "4",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "转弯P增益; ⚠️ 冲刺路径会覆写(8/10/4)且不恢复, 远程档不进冲刺",
+        "origin": "24",
+        "func": "转弯角度矫正 P 参数",
+        "tune": "PID 调试方法",
+        "site": "core.c · `CORE_Init()`；isr.c · `doTaskTurn` 消费",
+        "note": "⚠️ 冲刺路径覆写为 8/10/4 且**不恢复**（远程档不进冲刺）",
+        "macro_comment": "pidGain.turnP       转弯P增益             默认 5.0"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "TURND",
+      "id": 46,
+      "macro": "LINK_P_TURND",
+      "macro_suffix": "TURND",
+      "group": "motion",
+      "kind": "int",
+      "wire": {
+        "slot": 31,
+        "qexpr": "link_D2Q(pidGain.turnD)",
+        "mirror": "pidGain.turnD",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "A",
+        "sink": "turn_kd",
+        "evidence": "turn_kd←REMOTE/link_port.c:252"
+      },
+      "fw": {
+        "value": 4,
+        "init": "4",
+        "source": "HARDWARE/TIMER/timer.c",
+        "quantize": "none",
+        "raw_value": 4,
+        "loss": 0.0,
+        "decl": {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "type": "double",
+          "const": false,
+          "sha16": "b401bc2cf3d1c1a8"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "symbol": "turn_kd",
+          "ctype": null,
+          "sha16": "b401bc2cf3d1c1a8",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 61,
+          "gate": "",
+          "first_declarator": false,
+          "text": "double turn_kp=4,turn_kd=4;"
+        }
+      ],
+      "consumers": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 612,
+          "text": "setvl=*(turn_vl+tick)-e*turn_kp-(e-eh)*turn_kd;"
+        },
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 613,
+          "text": "setvr=*(turn_vr+tick)+e*turn_kp+(e-eh)*turn_kd;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 135,
+          "text": "extern double turn_kp,turn_kd;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1163,
+          "text": "turn_kd=2;    //5"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1175,
+          "text": "turn_kd=5;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1187,
+          "text": "turn_kd=7;"
+        }
+      ],
+      "overwrites": [
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1163,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kd=2;    //5"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1175,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kd=5;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1187,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kd=7;"
+        },
+        {
+          "file": "UTILITY/utility.c",
+          "line": 1220,
+          "func": "?",
+          "func_line": 0,
+          "text": "turn_kd=turn_d;"
+        }
+      ],
+      "store": {
+        "value": 4,
+        "expr": "4",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "转弯D增益; ⚠️ 同 TURNP",
+        "origin": "25",
+        "func": "转弯角度矫正 D 参数",
+        "tune": "PID 调试方法",
+        "site": "同上",
+        "note": "同上",
+        "macro_comment": "pidGain.turnD       转弯D增益             默认 4.5"
+      },
+      "latent": [],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "PTKP",
+      "id": 47,
+      "macro": "LINK_P_PTKP",
+      "macro_suffix": "PTKP",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 32,
+        "qexpr": "link_D2Q(linkPtKp)",
+        "mirror": "linkPtKp",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 2.5,
+        "init": "2.5",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 2.5,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "type": "double",
+          "const": false,
+          "sha16": "f34ae0ce74604c46"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "symbol": "linkPtKp",
+          "ctype": null,
+          "sha16": "f34ae0ce74604c46",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "double linkPtKp = 2.5, linkPtKi = 0.01, linkPtKd = 0.1;       /* == TURN_PID_KP/KI/KD */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 2.5,
+        "expr": "2.5",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "原地转P增益(POINTTURN90/TURNAROUND); 默认 2.5",
+        "origin": "26/27",
+        "func": "原地旋转 PID（课件公式 `e*2.5 + esum*0.01 + (e-eh)*0.1`）",
+        "tune": "PID 调试方法",
+        "site": "isr.c · `doTaskPointTurn`/`doTaskTurnaround`",
+        "note": "与课件数值逐项一致；远程档由宏门控改读变量，isr.c 使用点文本未动",
+        "macro_comment": "linkPtKp            原地转P增益           默认 2.5"
+      },
+      "latent": [],
+      "notes": [
+        "新固件点转走表驱动 + turn_kp/turn_kd, 已无 e*2.5+esum*0.01+(e-eh)*0.1 形态 ⇒ SETQ 无效果"
+      ],
+      "history": []
+    },
+    {
+      "name": "PTKI",
+      "id": 48,
+      "macro": "LINK_P_PTKI",
+      "macro_suffix": "PTKI",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 33,
+        "qexpr": "link_D2Q(linkPtKi)",
+        "mirror": "linkPtKi",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0.01,
+        "init": "0.01",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 0.01,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "type": "double",
+          "const": false,
+          "sha16": "f34ae0ce74604c46"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "symbol": "linkPtKi",
+          "ctype": null,
+          "sha16": "f34ae0ce74604c46",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "double linkPtKp = 2.5, linkPtKi = 0.01, linkPtKd = 0.1;       /* == TURN_PID_KP/KI/KD */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0.01,
+        "expr": "0.01",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "原地转I增益(仅 POINTTURN90); 默认 0.01",
+        "macro_comment": "linkPtKi            原地转I增益           默认 0.01"
+      },
+      "latent": [],
+      "notes": [
+        "同 PTKP"
+      ],
+      "history": []
+    },
+    {
+      "name": "PTKD",
+      "id": 49,
+      "macro": "LINK_P_PTKD",
+      "macro_suffix": "PTKD",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 34,
+        "qexpr": "link_D2Q(linkPtKd)",
+        "mirror": "linkPtKd",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "C",
+        "sink": null,
+        "evidence": "无出边(影子)"
+      },
+      "fw": {
+        "value": 0.1,
+        "init": "0.1",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 0.1,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "type": "double",
+          "const": false,
+          "sha16": "f34ae0ce74604c46"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "symbol": "linkPtKd",
+          "ctype": null,
+          "sha16": "f34ae0ce74604c46",
+          "note": "开机生效值 = 此声明"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 123,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "double linkPtKp = 2.5, linkPtKi = 0.01, linkPtKd = 0.1;       /* == TURN_PID_KP/KI/KD */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0.1,
+        "expr": "0.1",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "report",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "原地转D增益; 默认 0.1",
+        "macro_comment": "linkPtKd            原地转D增益           默认 0.1"
+      },
+      "latent": [],
+      "notes": [
+        "同 PTKP"
+      ],
+      "history": []
+    },
+    {
+      "name": "MKPL",
+      "id": 50,
+      "macro": "LINK_P_MKPL",
+      "macro_suffix": "MKPL",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 35,
+        "qexpr": "link_D2Q(linkMtrKpL)",
+        "mirror": "linkMtrKpL",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "kpl",
+        "evidence": "kpl←REMOTE/link_port.c:253"
+      },
+      "fw": {
+        "value": 10.75,
+        "init": "10.75",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 10.75,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "type": "double",
+          "const": false,
+          "sha16": "6f579cf6accaa521"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "symbol": "linkMtrKpL",
+          "ctype": null,
+          "sha16": "6f579cf6accaa521",
+          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "double linkMtrKpL = 10.75, linkMtrKiL = 0.55, linkMtrKdL = 0.55; /* == MOTOR_KP/KI/KD_L */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 10.75,
+        "expr": "10.75",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "左轮电机P(freemode=0 每周期生效); 默认 10.75",
+        "origin": "28",
+        "func": "左电机 PID",
+        "tune": "PID 调试方法",
+        "site": "motor.c · `MOTOR_LoopControl()`（freemode=0 每周期生效）",
+        "note": "改完立即生效于速度环",
+        "macro_comment": "linkMtrKpL          左轮电机P             默认 10.75"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kpl",
+          "value": "3",
+          "effect": "被 link.c:124 镜像初值覆盖"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "symbol": "kpl",
+          "value": "13",
+          "effect": "parameter_search() 赛道整定值, 远程档同样被覆盖"
+        }
+      ],
+      "notes": [
+        "★行为级: 远程档电机 PID 由 link.c 决定, 与比赛档 parameter_search/spurt 无关"
+      ],
+      "history": []
+    },
+    {
+      "name": "MKIL",
+      "id": 51,
+      "macro": "LINK_P_MKIL",
+      "macro_suffix": "MKIL",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 36,
+        "qexpr": "link_D2Q(linkMtrKiL)",
+        "mirror": "linkMtrKiL",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "kil",
+        "evidence": "kil←REMOTE/link_port.c:254"
+      },
+      "fw": {
+        "value": 0.55,
+        "init": "0.55",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 0.55,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "type": "double",
+          "const": false,
+          "sha16": "6f579cf6accaa521"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "symbol": "linkMtrKiL",
+          "ctype": null,
+          "sha16": "6f579cf6accaa521",
+          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "double linkMtrKpL = 10.75, linkMtrKiL = 0.55, linkMtrKdL = 0.55; /* == MOTOR_KP/KI/KD_L */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0.55,
+        "expr": "0.55",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "左轮电机I; 默认 0.55",
+        "macro_comment": "linkMtrKiL          左轮电机I             默认 0.55"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kil",
+          "value": "2",
+          "effect": "被 link.c:124 覆盖"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "symbol": "kil",
+          "value": "0.74",
+          "effect": "parameter_search() 整定值"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "MKDL",
+      "id": 52,
+      "macro": "LINK_P_MKDL",
+      "macro_suffix": "MKDL",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 37,
+        "qexpr": "link_D2Q(linkMtrKdL)",
+        "mirror": "linkMtrKdL",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "kdl",
+        "evidence": "kdl←REMOTE/link_port.c:255"
+      },
+      "fw": {
+        "value": 0.55,
+        "init": "0.55",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 0.55,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "type": "double",
+          "const": false,
+          "sha16": "6f579cf6accaa521"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "symbol": "linkMtrKdL",
+          "ctype": null,
+          "sha16": "6f579cf6accaa521",
+          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 124,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "double linkMtrKpL = 10.75, linkMtrKiL = 0.55, linkMtrKdL = 0.55; /* == MOTOR_KP/KI/KD_L */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0.55,
+        "expr": "0.55",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "左轮电机D; 默认 0.55",
+        "macro_comment": "linkMtrKdL          左轮电机D             默认 0.55"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kdl",
+          "value": "0.1",
+          "effect": "被 link.c:124 覆盖"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 80,
+          "symbol": "kdl",
+          "value": "0.9",
+          "effect": "parameter_search() 整定值"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "MKPR",
+      "id": 53,
+      "macro": "LINK_P_MKPR",
+      "macro_suffix": "MKPR",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 38,
+        "qexpr": "link_D2Q(linkMtrKpR)",
+        "mirror": "linkMtrKpR",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "kpr",
+        "evidence": "kpr←REMOTE/link_port.c:256"
+      },
+      "fw": {
+        "value": 10.2,
+        "init": "10.20",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 10.2,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "type": "double",
+          "const": false,
+          "sha16": "4ce58c2a776e12f5"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "symbol": "linkMtrKpR",
+          "ctype": null,
+          "sha16": "4ce58c2a776e12f5",
+          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": true,
+          "text": "double linkMtrKpR = 10.20, linkMtrKiR = 0.5, linkMtrKdR = 0.5;   /* == MOTOR_KP/KI/KD_R */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 10.2,
+        "expr": "10.20",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "右轮电机P; 默认 10.20",
+        "origin": "29",
+        "func": "右电机 PID",
+        "tune": "PID 调试方法",
+        "site": "同上",
+        "note": "同上",
+        "macro_comment": "linkMtrKpR          右轮电机P             默认 10.20"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kpr",
+          "value": "3",
+          "effect": "被 link.c:125 覆盖"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "symbol": "kpr",
+          "value": "13",
+          "effect": "parameter_search() 整定值"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "MKIR",
+      "id": 54,
+      "macro": "LINK_P_MKIR",
+      "macro_suffix": "MKIR",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 39,
+        "qexpr": "link_D2Q(linkMtrKiR)",
+        "mirror": "linkMtrKiR",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "kir",
+        "evidence": "kir←REMOTE/link_port.c:257"
+      },
+      "fw": {
+        "value": 0.5,
+        "init": "0.5",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 0.5,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "type": "double",
+          "const": false,
+          "sha16": "4ce58c2a776e12f5"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "symbol": "linkMtrKiR",
+          "ctype": null,
+          "sha16": "4ce58c2a776e12f5",
+          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "double linkMtrKpR = 10.20, linkMtrKiR = 0.5, linkMtrKdR = 0.5;   /* == MOTOR_KP/KI/KD_R */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0.5,
+        "expr": "0.5",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "右轮电机I; 默认 0.5",
+        "macro_comment": "linkMtrKiR          右轮电机I             默认 0.5"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kir",
+          "value": "2",
+          "effect": "被 link.c:125 覆盖"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "symbol": "kir",
+          "value": "0.74",
+          "effect": "parameter_search() 整定值"
+        }
+      ],
+      "notes": [],
+      "history": []
+    },
+    {
+      "name": "MKDR",
+      "id": 55,
+      "macro": "LINK_P_MKDR",
+      "macro_suffix": "MKDR",
+      "group": "motion",
+      "kind": "float",
+      "wire": {
+        "slot": 40,
+        "qexpr": "link_D2Q(linkMtrKdR)",
+        "mirror": "linkMtrKdR",
+        "case_present": true
+      },
+      "arbitration": {
+        "class": "B",
+        "sink": "kdr",
+        "evidence": "kdr←REMOTE/link_port.c:258"
+      },
+      "fw": {
+        "value": 0.5,
+        "init": "0.5",
+        "source": "REMOTE/link.c",
+        "quantize": "none",
+        "raw_value": 0.5,
+        "loss": 0.0,
+        "decl": {
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "type": "double",
+          "const": false,
+          "sha16": "4ce58c2a776e12f5"
+        }
+      },
+      "anchors": [
+        {
+          "kind": "effective",
+          "style": "member",
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "symbol": "linkMtrKdR",
+          "ctype": null,
+          "sha16": "4ce58c2a776e12f5",
+          "note": "开机生效值 = 此处镜像初值(固件侧同名常量每 tick 被覆盖)"
+        }
+      ],
+      "decls_all": [
+        {
+          "file": "REMOTE/link.c",
+          "line": 125,
+          "gate": "MOUSE_REMOTE",
+          "first_declarator": false,
+          "text": "double linkMtrKpR = 10.20, linkMtrKiR = 0.5, linkMtrKdR = 0.5;   /* == MOTOR_KP/KI/KD_R */"
+        }
+      ],
+      "consumers": [],
+      "overwrites": [],
+      "store": {
+        "value": 0.5,
+        "expr": "0.5",
+        "state": "in-sync",
+        "why": "",
+        "since": ""
+      },
+      "policy": "apply",
+      "doc": {
+        "unit": "",
+        "decimals": 3,
+        "doc": "右轮电机D; 默认 0.5",
+        "macro_comment": "linkMtrKdR          右轮电机D             默认 0.5"
+      },
+      "latent": [
+        {
+          "file": "HARDWARE/TIMER/timer.c",
+          "line": 75,
+          "symbol": "kdr",
+          "value": "0",
+          "effect": "被 link.c:125 覆盖"
+        },
+        {
+          "file": "USER/user.c",
+          "line": 81,
+          "symbol": "kdr",
+          "value": "0.9",
+          "effect": "parameter_search() 整定值"
+        }
+      ],
+      "notes": [],
+      "history": []
+    }
+  ],
+  "gaps": [
+    {
+      "param": "IRFRONTMODE",
+      "level": "info",
+      "kind": "no_host",
+      "msg": "C 类(无固件宿主): SETQ/SAVE 值无人消费; 应登记 latent[] 字面量出处"
+    },
+    {
+      "param": "PTKP",
+      "level": "info",
+      "kind": "no_host",
+      "msg": "C 类(无固件宿主): SETQ/SAVE 值无人消费; 应登记 latent[] 字面量出处"
+    },
+    {
+      "param": "PTKI",
+      "level": "info",
+      "kind": "no_host",
+      "msg": "C 类(无固件宿主): SETQ/SAVE 值无人消费; 应登记 latent[] 字面量出处"
+    },
+    {
+      "param": "PTKD",
+      "level": "info",
+      "kind": "no_host",
+      "msg": "C 类(无固件宿主): SETQ/SAVE 值无人消费; 应登记 latent[] 字面量出处"
+    }
+  ],
+  "changelog": []
+}
