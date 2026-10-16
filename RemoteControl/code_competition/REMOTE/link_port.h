@@ -44,6 +44,13 @@
 #include "led.h"
 #include "usart.h"
 
+/* 以下 4 个标准头原在 REMOTE/main.h 垫片中(link.c 的 printf/strcmp/math 需要);
+   2026-10-16 移除垫片后并入本文件, 使 link.h 只需 include 本文件一处。 */
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /*------------------------------------  常量换表  ------------------------------------*/
 
 /* ---- Flash 访问: 旧 flash.h -> 新 stmflash.h(函数签名逐一致, 直接别名) ----
