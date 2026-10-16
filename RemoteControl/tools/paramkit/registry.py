@@ -108,15 +108,22 @@ class Registry:
         for line in self.lines("REMOTE/link.h"):
             m = R.RE_COND.match(line)
             if m:
-                kind, rest = m.group(1), m.group(2)
+                kind, rest = m.group(1), m.group(2).strip()
                 if kind in (b"if", b"ifdef", b"ifndef"):
-                    depth.append(rest.strip())
+                    depth.append((b"!" if kind == b"ifndef" else b"") + rest)
+                elif kind in (b"else", b"elif"):
+                    if depth:
+                        depth[-1] = b"!" + depth[-1].lstrip(b"!")
                 elif kind == b"endif" and depth:
                     depth.pop()
                 continue
             m = R.RE_PM_NUM.match(line)
             if m:
-                key = "remote" if b"MOUSE_REMOTE" in b"|".join(depth) else "competition"
+                # 取**最内层**的 MOUSE_REMOTE 项判档:
+                # `!MOUSE_REMOTE` 里也含子串 `MOUSE_REMOTE`, 不能用 `in`;
+                # 用最内层而不是 any(), 是因为 link.h:1 还有一层整文件 `#ifdef MOUSE_REMOTE`。
+                ms = [t for t in depth if t in (b"MOUSE_REMOTE", b"!MOUSE_REMOTE")]
+                key = "remote" if (ms and ms[-1] == b"MOUSE_REMOTE") else "competition"
                 out.setdefault(key, int(m.group(1)))
         return out
 

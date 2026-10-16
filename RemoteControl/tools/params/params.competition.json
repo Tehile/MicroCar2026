@@ -2,9 +2,9 @@
   "schema_version": 2,
   "profile": "competition",
   "generated": {
-    "at": "2026-10-16T15:41:34+08:00",
+    "at": "2026-10-16T17:40:41+08:00",
     "by": "tools/paramgen.py extract",
-    "git_rev": "1ea6e40",
+    "git_rev": "3168d56",
     "firmware_dir": "code_competition"
   },
   "firmware": {
@@ -13,7 +13,8 @@
     "proto_ver": 8,
     "mazetype": 16,
     "link_p_num": {
-      "remote": 41
+      "remote": 41,
+      "competition": 24
     }
   },
   "wire": {

@@ -5,7 +5,8 @@
     "root": "code_competition",
     "redline_sha256": "68ad6be2272818269d6aac78e5356d9bb91036ddeaaa82c4ec3754a8a0948141",
     "link_p_num": {
-      "remote": 41
+      "remote": 41,
+      "competition": 24
     }
   },
   "phases": [
@@ -5068,5 +5069,5 @@
     }
   ],
   "gaps": [],
-  "generated": "2026-10-16T17:33:58"
+  "generated": "2026-10-16T17:40:39"
 }
