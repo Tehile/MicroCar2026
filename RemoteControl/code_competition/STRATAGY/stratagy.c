@@ -7,6 +7,9 @@
 #include "utility.h"
 #include "stratagy.h"
 #include "led.h"
+#ifdef MOUSE_REMOTE
+#include "link_port.h" /* P2: 协作式中止查询 LP_AbortRequested() */
+#endif
 
  
  
@@ -50,7 +53,9 @@ uchar    GucMapBlock[MAZETYPE][MAZETYPE]={0};
                                                                         
                                                                         
 uchar    GucMapGet[MAZETYPE][MAZETYPE]={0}; 
+#ifndef MOUSE_REMOTE
 extern int setvl,setvr;
+#endif
 extern u8 task;
 extern uchar    GucMouseTask;
 
@@ -70,7 +75,12 @@ u8 ObjectGoTo_Flag=0;
 
 void stop()
 {
-	task=NULL;GucMouseTask=99;setvl=0;setvr=0;while(1);
+	task=NULL;GucMouseTask=99;setvl=0;setvr=0;
+#ifdef MOUSE_REMOTE
+	/* P2: 中止来自 MAZE STOP/ESTOP 时不堕入死循环, 返回让调用方逐层 unwind */
+	if (LP_AbortRequested()) return;
+#endif
+	while(1);
 }
 
 																	   

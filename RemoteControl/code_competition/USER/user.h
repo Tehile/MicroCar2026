@@ -31,13 +31,24 @@ extern const short gyro_r_spurt[1];
 
 extern u16 speed_ss,speed_turn, speed_fastss;
 
-extern const u16 angleratio;	
-extern const u16 gangleratio;	
-extern const float TrackRatioL;	
-extern const float TrackRatioR;	
-extern const double SpeedRatioL;	
+#ifdef MOUSE_REMOTE
+/* 远程档: 可被链路层在线改写, 与 user.c 的定义门控成对(见 §4.3 参数可变性) */
+extern u16 angleratio;
+extern u16 gangleratio;
+extern float TrackRatioL;
+extern float TrackRatioR;
+extern double SpeedRatioL;
+extern double SpeedRatioR;
+extern u8 dis2wall;
+#else
+extern const u16 angleratio;
+extern const u16 gangleratio;
+extern const float TrackRatioL;
+extern const float TrackRatioR;
+extern const double SpeedRatioL;
 extern const double SpeedRatioR;
-extern const u8 dis2wall;	
+extern const u8 dis2wall;
+#endif
 
 
 

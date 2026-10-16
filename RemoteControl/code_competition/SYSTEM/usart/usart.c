@@ -1,5 +1,8 @@
 #include "sys.h"
 #include "usart.h"
+#ifdef MOUSE_REMOTE
+#include "link.h" /* 移植 P2: printf 改走链路 TX 环 + DMA(与遥测帧共队列, 不抢 DR) */
+#endif
 
 //////////////////////////////////////////////////////////////////
 //加入以下代码,支持printf函数,而不需要选择use MicroLIB	  
@@ -23,9 +26,18 @@ _sys_exit(int x)
 //重定义fputc函数 
 int fputc(int ch, FILE *f)
 {      
+#ifdef MOUSE_REMOTE
+	/* 移植 P2(旧工程同款纪律): USART1_TX 已被 DMA1_Channel4 接管供遥测帧,
+	 * 此处再轮询 TXE 写 DR 会与 DMA 抢同一外设; 且 TXE 轮询若在 SysTick
+	 * 上下文被调用(printf 诊断行)会长时间卡住中断。故统一进链路 TX 环,
+	 * 由 LINK_Tick 里的 link_TxDrain 搬运。环满时静默丢弃(best-effort)。 */
+	(void)LINK_PutChar((u8)ch);
+	return ch;
+#else
 	while((USART1->SR&0X40)==0);//循环发送,直到发送完毕   
 	USART1->DR = (u8) ch;      
 	return ch;
+#endif
 }
 #endif 
 //end

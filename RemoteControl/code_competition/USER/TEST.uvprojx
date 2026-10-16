@@ -877,6 +877,21 @@
               <FilePath>.\test.c</FilePath>
             </File>
             <File>
+              <FileName>link_port.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\REMOTE\link_port.c</FilePath>
+            </File>
+            <File>
+              <FileName>link.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\REMOTE\link.c</FilePath>
+            </File>
+            <File>
+              <FileName>link.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\REMOTE\link.h</FilePath>
+            </File>
+            <File>
               <FileName>user.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\user.c</FilePath>

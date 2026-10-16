@@ -9,6 +9,9 @@
 #include "led.h"
 #include "stmflash.h"
 #include "user.h"
+#ifdef MOUSE_REMOTE
+#include "link.h" /* 移植 P2: 链路层(LINK_Init/Tick + MAZE 值守 API) */
+#endif
 int testi = 0;
 extern uchar spurtTestAction[200]; 
 extern u8 sidewall_threshold;
@@ -79,10 +82,14 @@ extern uchar    GucMapBlock[MAZETYPE][MAZETYPE];
                                                                         
 extern uchar	GucMapGet[MAZETYPE][MAZETYPE];
 
+#ifndef MOUSE_REMOTE
 extern u16 disf1,disf2,disf,disl,disr,disl45,disr45,disl45h,disr45h,disl45hh,disr45hh;
+#endif
 extern u8 leftwallcritical,rightwallcritical,leftwallcriticalh,rightwallcriticalh;
 extern u8 righthaswall;
+#ifndef MOUSE_REMOTE
 extern int setvl,setvr;
+#endif
 extern int gyroinit,ganglet;
 extern double g;
 extern u8 task;
@@ -103,7 +110,9 @@ extern u16 tick,turnaround_tick;
 extern u16 speed_ss,speed_turn,speed_fastss;
 extern u8 kalmanswitch;
 
+#ifndef MOUSE_REMOTE
 extern u16 dataf1[240],dataf2[240],datal[220],datar[220];
+#endif
 extern int rawf1,rawf2,rawl,rawr,rawf1h,rawf2h,rawlh,rawrh;
 int rawf1avrgnear,rawf2avrgnear,rawlavrgnear,rawravrgnear,rawf1avrgfar,rawf2avrgfar,rawlavrgfar,rawravrgfar;
 int iii;
@@ -187,6 +196,12 @@ void hardware_init()
 		ledoff(0);
 		sleepmode=0;
 	}
+#ifdef MOUSE_REMOTE
+	/* 移植 P2: 链路初始化(RX 抢占优先级/USART1 TX DMA/标定参数载入/看门狗)。
+	 * 必须在各硬件 Init 之后 —— 与旧工程 main.c 的 HARDWARE_Init -> LINK_Init 同序。
+	 * 之后遥测/命令通道即活, 主循环还在跑菜单/值守都不受影响。 */
+	LINK_Init();
+#endif
 }
 
 int main()
@@ -224,6 +239,9 @@ int main()
 
 	 
 	u8 keyfunc=0,keytmp=0,c=0;
+#ifdef MOUSE_REMOTE
+	u8 mazeBlind=0; /* 移植 P2: 本次发车目标(0=BLIND 只探索不冲刺, 1=RACE 全流程) */
+#endif
 	u32 ft=0;
 	u16 keydelay=0,ispressed=0;
 	long flashtemp;
@@ -275,6 +293,23 @@ int main()
 	
 fuction_Choose:
 	ledoff(0);ledon(6);
+#ifdef MOUSE_REMOTE
+	/* ================= 远程档值守循环(移植 P2) =================
+	 * 不等按键: 等上位机 `MAZE RUN` 命令。linkMazeReq 由 link.c 在 SysTick
+	 * 上下文置位(边沿信号), LINK_MazeStarted() 消费它并清协作式中止标志。
+	 * 值守态安全设置与旧工程 main.c 一致: 电机输出恒 0(freemode=1)、不休眠
+	 * (sleepmode=0, 保证传感器与链路持续工作)、红外发射开。 */
+	freemode=1;
+	sleepmode=0;
+	irswitch=1;
+	while (!LINK_MazeRequested())
+	{
+		ledoff(0); ledon(6); delay_ms(250); ledoff(0); delay_ms(250);
+	}
+	LINK_MazeStarted();
+	mazeBlind = (LINK_MazeTarget() == 0); /* LINK_MAZE_BLIND=0 / LINK_MAZE_RACE=1 */
+	goto maze_run; /* 跳过按键菜单, 直接进比赛流程(见下方 maze_run 标签) */
+#else
 	while(1)				 
 	{
 		if(BUTTON1==0 && ispressed==0)					 
@@ -327,6 +362,7 @@ fuction_Choose:
 		}
 	}
 	while(BUTTON1);		 
+#endif
 	
 	freemode=0;
 	
@@ -615,6 +651,14 @@ go_to_case_5:
 		
 		
 	
+#ifdef MOUSE_REMOTE
+maze_run: /* 远程档发车入口(值守循环 goto 到此; 每次发车重跑下面的
+          * Flash 擦除/读图/parameter_search, 即"每次远程发车都是一轮新探索") */
+    /* P2 重复发车状态复位: 以下均为全局量, 上次跑位后被改写, 不清则二次跑叠加/错乱 */
+    n = 0;               /* 交叉点栈索引(全局, 搜索中递增) */
+    GucMouseTask = WAIT; /* 上次跑位停在 END(=6), 不清则二次跑直接进 case END 空转 */
+    spurt_flag = 0;      /* 上次跑位置 1, 不清则二次跑 sleepmode 不复位 => 冲刺趴窝 */
+#endif
 	#if 1
 		freemode=1;	
 		#ifdef FLASHSAVE
@@ -686,6 +730,12 @@ go_to_case_5:
 	while (1)
 	{ 
 		
+#ifdef MOUSE_REMOTE
+        /* P2 协作式中止: MAZE STOP/ESTOP/STOP 经 LP_StopMotion 置 linkRunAbort,
+         * timer.c SysTick 已把 task/track/tick/setvl/setvr 强制清零(各类忙等循环
+         * 随即退出); 此处退出状态机, 经 maze_done 复位链路状态回待命值守循环 */
+        if (LP_AbortRequested()) goto maze_done;
+#endif
         switch (GucMouseTask) {                                          
             
         case WAIT:
@@ -1119,6 +1169,11 @@ speedmode=LOW;
 				STMFLASH_Unlock();STMFLASH_WriteHalfWord(FLASH_ADDR_GOPATH+flashaddr,FastwayAction[tmptt].action);flashaddr+=2;
 			}
      printf("Start pose: (%d,%d) Dir=%d\n", GmcMouse.cX, GmcMouse.cY, GucMouseDir);   //打印起点和是否冲刺
+#ifdef MOUSE_REMOTE
+            /* BLIND: 路径已由上方 fastway 算好并写 Flash(GOPATH 写段), 跳过物理冲刺,
+             * 直接进 END => maze_done 回待命态 */
+            if (mazeBlind) { GucMouseTask = END; break; }
+#endif
       		if(spurt_flag==0)
 				{					sleepmode=0;		
 
@@ -1233,6 +1288,11 @@ speedmode=LOW;
 			break;
 
 
+#ifdef MOUSE_REMOTE
+		case END:
+			/* 远程档: 不进 LED 死循环, 退出状态机经 maze_done 回待命态(等下一次 MAZE RUN) */
+			goto maze_done;
+#else
 		case END:
 			sleepmode = 1;
 			while (1)
@@ -1241,11 +1301,19 @@ speedmode=LOW;
 				ledoff(0); ledon(c); delay_ms(1000); c++;
 			}
 			break;
+#endif
 			
         default:
             break;
         }
     }
+#ifdef MOUSE_REMOTE
+maze_done:
+    /* 一次跑位结束(正常到 END, 或被 STOP/ESTOP 中止跳出状态机):
+     * 复位链路"跑位中"标志使下一次 MAZE RUN 可被接受, 回 fuction_Choose 待命值守 */
+    LINK_MazeFinished();
+    goto fuction_Choose;
+#endif
 }
 		
 

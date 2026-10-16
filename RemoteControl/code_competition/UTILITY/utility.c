@@ -8,6 +8,9 @@
 #include "led.h"
 #include "stmflash.h"
 #include "user.h"
+#ifdef MOUSE_REMOTE
+#include "link_port.h" /* P2: 协作式中止查询 LP_AbortRequested() */
+#endif
 
 const short vouter_spurt[1]={0};
 const short vinner_spurt[1]={0};
@@ -78,11 +81,15 @@ extern long e,eh,esum;
 extern int speedl,speedr,speed;
 extern long disf1,disf2,disf,disl,disr;
 extern long dislh,disrh,dislhh,disrhh,disl45h,disr45h,disl45hh,disr45hh;
+#ifndef MOUSE_REMOTE
 extern u16 disl45,disr45;
+#endif
 extern long leftb,rightb,leftbh,rightbh,loopahead,absoluteangle,baseangle,angle;
 extern long gangleh,ganglehh,peakgangle,peakgangleh;
 extern long leftd,rightd,leftdh,rightdh,leftcycle,rightcycle,absolutetrack,absolutetrackl,absolutetrackr,basetrack,basetrackl,basetrackr,trackl,trackr,track;
+#ifndef MOUSE_REMOTE
 extern int setvl,setvr;
+#endif
  
 extern int ganglet,gangle;
  
@@ -747,6 +754,9 @@ void mazeSearch()
 	 
 	while(1)
 	{
+#ifdef MOUSE_REMOTE
+		if (LP_AbortRequested()) break; /* P2: 协作式中止(SysTick 已强制停轮), 退出搜索循环 */
+#endif
 		if(track>=180) 
 		{	
 			blocknum++; 
@@ -774,7 +784,11 @@ void mazesearchhaswall()
 		task=NULL;
 		delay_ms(300);
 	sleepmode=1;
+#ifdef MOUSE_REMOTE
+	while(1){if (LP_AbortRequested()) return; sleepmode=1;ledoff(0);delay_ms(500);ledon(1);ledon(2);delay_ms(500);}
+#else
 	while(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(1);ledon(2);delay_ms(500);}
+#endif
 	}
 	
 	if(LastSearchAction!=Stright) settrack(track+20);	 
@@ -795,7 +809,11 @@ void mazesearchnowall()
 		task=NULL;
 		delay_ms(300);
 		sleepmode=1;
+#ifdef MOUSE_REMOTE
+	while(1){if (LP_AbortRequested()) return; sleepmode=1;ledoff(0);delay_ms(500);ledon(3);ledon(4);delay_ms(500);}
+#else
 		while(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(3);ledon(4);delay_ms(500);}
+#endif
 	}
 	if(LastSearchAction!=Stright) settrack(track+20);
 	LastSearchAction=1;
@@ -1102,6 +1120,9 @@ void mouseGoahead(char cNBlock)
 	task=SMARTSTRAIGHT;
 	while(1)
 	{
+#ifdef MOUSE_REMOTE
+		if (LP_AbortRequested()) break; /* P2: 协作式中止(SysTick 已强制停轮), 退出搜索循环 */
+#endif
 		if(track>=180) 
 		{	
 			blocknum++; 
@@ -1445,6 +1466,9 @@ BFLV:
 		{
 			task=STRAIGHT45;
 			if(leftwallcriticalhhh==1 && leftwallcriticalhh==1 && leftwallcriticalh==1 && leftwallcritical==0) break;
+#ifdef MOUSE_REMOTE
+			if (LP_AbortRequested()) break; /* P2: 墙沿跳变判据在中止停轮后冻结, 给出中止出口 */
+#endif
 		}
 		settrack(0);
 		while(track<beforeturntrack)task=STRAIGHT45;
@@ -1454,6 +1478,9 @@ BFRV:
 		{
 			task=STRAIGHT45;
 			if(rightwallcriticalhhh==1 && rightwallcriticalhh==1 && rightwallcriticalh==0 && rightwallcritical==0) break;
+#ifdef MOUSE_REMOTE
+			if (LP_AbortRequested()) break; /* P2: 墙沿跳变判据在中止停轮后冻结, 给出中止出口 */
+#endif
 		}
 		settrack(0);
 		while(track<beforeturntrack) task=STRAIGHT45;
@@ -1463,6 +1490,9 @@ BFL:
 		{
 			task=SMARTSTRAIGHTSPURTL;
 			if(lefthaswallh==1 && lefthaswall==0) break;
+#ifdef MOUSE_REMOTE
+			if (LP_AbortRequested()) break; /* P2: 墙沿跳变判据在中止停轮后冻结, 给出中止出口 */
+#endif
 		}
 		sidewall_threshold=160;
 		settrack(0);
@@ -1473,6 +1503,9 @@ BFR:
 		{
 			task=SMARTSTRAIGHTSPURTL;
 			if( righthaswallh==1 && righthaswall==0) break;
+#ifdef MOUSE_REMOTE
+			if (LP_AbortRequested()) break; /* P2: 墙沿跳变判据在中止停轮后冻结, 给出中止出口 */
+#endif
 		}
 		sidewall_threshold=160;
 		settrack(0);

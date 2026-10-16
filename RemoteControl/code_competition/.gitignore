@@ -29,5 +29,6 @@ __Previews/
 *.cPreview
 desktop.ini
 
-# Target_Remote 构建输出目录(见 USER/TEST.uvprojx 的 OutputDirectory)
-Remote/
+# Target_Remote 构建输出目录(见 USER/TEST.uvprojx 的 OutputDirectory => USER/Remote/)
+# ⚠️ 必须锚定 USER/ 前缀: 裸 'Remote/' 在 Windows 大小写不敏感下会连带忽略源码目录 REMOTE/
+USER/Remote/

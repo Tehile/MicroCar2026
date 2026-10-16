@@ -11,6 +11,9 @@
 #include "stm32f10x_rcc.h"
 #include <math.h>
 #include "user.h"
+#ifdef MOUSE_REMOTE
+#include "link_port.h" /* 移植 P2: 镜像/钩子/协作式中止(仅远程档; 与整文件门控的 link_port.c 同款纪律) */
+#endif
 
 u16 led_test=0; 
 int 	TIM2CNT=0; 
@@ -428,6 +431,35 @@ void SysTick_Handler()
 		trackl=absolutetrackl-basetrackl;
 		trackr=absolutetrackr-basetrackr;				   
 		track=absolutetrack-basetrack;
+
+	/* ================= 协作式中止(移植 P2, 仅远程档) =================
+	 * linkRunAbort 置位期间(MAZE STOP / ESTOP / STOP / MCU RESET 经
+	 * LP_StopMotion 置位; LINK_MazeStarted 清除), 每 tick 强制清理运动状态机,
+	 * 使主循环里的忙等原语在 1ms 内退出:
+	 *   task=0             -> task 开关不再算 setvl(各 case 都不跑)
+	 *   step=1             -> while(1) if(step==1 && tick>N) break; 类循环可退出
+	 *   tick=60000         -> while(tick<N) 类循环可退出
+	 *   track=0x7FFFFFFF   -> while(track<N) / if(track>=N) 类循环可退出
+	 *   absolutetrack(l/r) -> while(absolutetrack-begintrack<dis) 类循环可退出
+	 *   setvl=setvr=0      -> 双保险(PID 目标清零)
+	 * ※ 故意不碰 freemode: 远程 MOVE/CAL 的直驱覆盖条件是 task==0 && freemode==0,
+	 *   碰了会把远程直行/标定扫描一并停掉。
+	 * ※ 位置: 必须在里程段之后(否则 track/absolutetrack 被上面的重算覆盖),
+	 *   task 开关之前(task=0 时开关不写 setvl, setvl=0 才能存活到 PID 段)。 */
+	#ifdef MOUSE_REMOTE
+	if(LP_AbortRequested())
+	{
+		task=0;
+		step=1;
+		tick=60000;
+		track=0x7FFFFFFF;
+		absolutetrack=0x7FFFFFFF;
+		absolutetrackl=0x7FFFFFFF;
+		absolutetrackr=0x7FFFFFFF;
+		setvl=0;
+		setvr=0;
+	}
+	#endif
  
  
  
@@ -1103,9 +1135,23 @@ void SysTick_Handler()
 		if(emergency_delay==200) sleepmode=1;
 	 
 	}
+	#ifdef MOUSE_REMOTE
+	/* 固件侧急停(EMERGENCYON 变量=1 时的 PWM 饱和/setvl 越界检测)锁存到链路层:
+	 * 之后 MOVE/CAL/MAZE RUN 一律 ERR_ESTOP, 直到 STOP / MAZE STOP 解锁
+	 * (与旧工程 isr.c 每 ms 调 LINK_EStopTrip 同语义)。 */
+	LINK_EStopTrip();
+	#endif
  
  
 	 
+	#ifdef MOUSE_REMOTE
+	/* 远程 MOVE/CAL 直驱(移植 P2): 固件任务状态机没在跑(task==0)且电机使能
+	 * (freemode==0)时, 目标速度取自链路镜像 speedSt.speedTargetL/R(cm/s),
+	 * 换算与旧工程 motor.c 一致(target = cm/s x SpeedRatio = Pulse/ms)。
+	 * 其余情况(比赛迷宫/急停/休眠)走原固件逻辑, 一字节不变。 */
+	if(task==0 && freemode==0) gdvl=(long)((double)speedSt.speedTargetL*SpeedRatioL);
+	else
+	#endif
 	gdvl=setvl*SpeedRatioL;						 
 	lw=TIM2->CNT;		  
 	gdspeedl=lw-lwh;									  
@@ -1119,6 +1165,10 @@ void SysTick_Handler()
 	if(errls<-1200) errls=-1200;				 
 	
 	 
+	#ifdef MOUSE_REMOTE
+	if(task==0 && freemode==0) gdvr=(long)((double)speedSt.speedTargetR*SpeedRatioR);
+	else
+	#endif
 	gdvr=setvr*SpeedRatioR;						 
 	rw=TIM3->CNT;		  
 	gdspeedr=rw-rwh;
@@ -1276,6 +1326,12 @@ void SysTick_Handler()
  
 	if(isemergency==1) ledon(0);
 }
+	#ifdef MOUSE_REMOTE
+	/* 蓝牙链路 1ms 心跳(移植 P2): 收命令/组帧/标定与运动状态机/喂狗。
+	 * 必须在 if(sleepmode) 之外 —— 休眠/终态下命令通道也要活着
+	 * (否则迷宫跑完 sleepmode=1 后, MAZE RUN/STOP 全部失联)。 */
+	LINK_Tick();
+	#endif
 }
 
 
