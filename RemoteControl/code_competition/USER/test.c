@@ -720,6 +720,19 @@ maze_run: /* 远程档发车入口(值守循环 goto 到此; 每次发车重跑下面的
  
 	parameter_search();
 	
+#ifdef MOUSE_REMOTE
+	/* 远程档(2026-10-20 修): 下面这段"等前方红外被遮挡(disf2<20)才起步"是
+	 * **没有远程链路时的手动发车手段** —— 操作者用手/挡板挡住车头红外, 程序才
+	 * 认为"已在起跑位"。远程发车由 `MAZE RUN` 显式触发, 语义上本就已就位, 故整段跳过:
+	 *   · 不等待遮挡 —— 悬空/空旷工况 disf2 恒 >100, 原来的 while(1) 会永久自旋
+	 *     (真机实测: ACK OK 但 task 恒 WAIT、一步不走, 且 MAZE STOP 退不出来,
+	 *      只能 MCU RESET);
+	 *   · 不打那 1 s 的 LED6 就位提示 —— 远程档的发车时刻标记是 `MAZE RUN` 被接受时
+	 *     4 灯齐亮 300 ms(见 link.c 的 LINK_LAUNCH_MARK_MS)。
+	 * goaheadnum 保持原值: 活代码里它只进遥测帧的 U_GOAHEAD 字节, 不参与控制流
+	 * (唯一读取点在下方已被注释掉的 SPURT 段), 故不影响起步。
+	 * ※ 整段包在 #ifdef 里 => 按键比赛档预处理后与改前**逐字节一致**。 */
+#else
 	if(GucMouseTask!=SPURT_45 && GucMouseTask!=SPURT_90)
 	{
 		while(1)
@@ -729,6 +742,7 @@ maze_run: /* 远程档发车入口(值守循环 goto 到此; 每次发车重跑下面的
 		}
 		ledon(6);delay_ms(1000);ledoff(0);
 	}
+#endif
 	flashenable=0;			 
 	irswitch=1;
 	biaodingmode=0;
