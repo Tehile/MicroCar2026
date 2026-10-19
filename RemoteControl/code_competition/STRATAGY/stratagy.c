@@ -329,6 +329,16 @@ void objectGoTo (char  cXdst, char  cYdst)
      
     while ((cX != cXdst) || (cY != cYdst))
 	{
+#ifdef MOUSE_REMOTE
+        /* 远程档协作式中止(2026-10-20 真机): 本循环靠 mouseGoahead/mouseTurn*
+         * 让车真的走, 再由末尾 cX = GmcMouse.cX 读回坐标来推进。中止后
+         * setvl/setvr 已被 SysTick 归零、各运动原语 1ms 内返回, 坐标永远不变
+         * => 外层 while 变成纯空转: 不动、不打印、不响应, 主循环回不到
+         * test.c 的状态机顶部, 于是 mazeTask 恒 SEARCH、LINK_MazeFinished
+         * 永不执行、下一次 MAZE RUN 恒 ERR_BUSY(真机实测)。这里直接退出,
+         * 由调用方一路 unwind 回 maze_done。 */
+        if (LP_AbortRequested()) { ObjectGoTo_Flag=0; return; }
+#endif
         ucStep = GucMapStep[cX][cY];
          
         if ((GucMapBlock[cX][cY] & 0x01) &&                              

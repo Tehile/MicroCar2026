@@ -1334,6 +1334,12 @@ speedmode=LOW;
 maze_done:
     /* 一次跑位结束(正常到 END, 或被 STOP/ESTOP 中止跳出状态机):
      * 复位链路"跑位中"标志使下一次 MAZE RUN 可被接受, 回 fuction_Choose 待命值守 */
+    GucMouseTask = WAIT; /* 退出状态机后迷宫任务机确实是 WAIT, 必须如实写回:
+                          * 否则遥测的 mazeTask 一直停在 SEARCH, 上位机
+                          * running_now() 会把待命误判成"在跑", force_idle() 因此
+                          * 平白升级到 ESTOP + MCU RESET(2026-10-20 真机)。
+                          * 与下方 maze_run 入口的 GucMouseTask=WAIT 是同一条语义,
+                          * 这里只是提前把"已回到待命"这件事表达出来。 */
     LINK_MazeFinished();
     goto fuction_Choose;
 #endif
