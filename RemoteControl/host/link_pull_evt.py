@@ -367,6 +367,11 @@ def main() -> int:
     ap.add_argument("--min-period-ms", type=float, default=30.0,
                     help="硬闸: 两条 PULL 的最小间隔。正常周期≡RTT(远超此值)故不生效, "
                          "但它保证任何异常通路都不能把蓝牙模块灌爆(灌爆后须物理断电)")
+    ap.add_argument("--max-hz", type=float, default=13.3,
+                    help="**帧率容量硬闸**(Hz, 默认 13.3 = 实测真实容量)。动态 t 模式下 "
+                         "每周期把 N 钳到 floor(max_hz·RTT/1000) —— 超过它(如 N=8 @RTT300 "
+                         "≈26Hz)会把**透传模块灌死**: COM7 仍可开、模块不再转发、静候不自愈、"
+                         "须物理断电(2026-10-20 实测复现两次)。0 = 关闭硬闸(仅限离线/模拟器)")
     ap.add_argument("--duration", type=float, default=120.0)
     ap.add_argument("--gap-timeout", type=float, default=3.0, help="连续无帧判断连(s)")
     ap.add_argument("--timeout", type=float, default=2.0, help="单条命令超时(s)")
@@ -405,6 +410,13 @@ def main() -> int:
     if not want_N:
         print("⚠ --frames 0 = 固定 t 探针模式(非方案本体): t 已固定为 %d ms。"
               "方案用法是 --frames N(N 是唯一旋钮)" % t)
+        # 固定 t 模式的容量硬闸: 速率 ≡ 1000/t, 与 RTT 无关 ⇒ 启动时就能判
+        if a.max_hz > 0 and 1000.0 / t > a.max_hz:
+            t_new = int(math.ceil(1000.0 / a.max_hz))
+            print("  ⚠ 容量硬闸: t=%d ms ⇒ %.1f Hz > --max-hz %.1f ⇒ t 上调到 %d ms"
+                  "(再快会把透传模块灌死, 须物理断电)" % (t, 1000.0 / t, a.max_hz, t_new))
+            t = max(1, min(T_MS_MAX_FW, t_new))
+    cap_warned = False
     rtt_hist: collections.deque = collections.deque(maxlen=max(3, a.rtt_window))
     # ★ 解缠参照改用**每条命令自己的往返时间**(send → ACK), 不再用"触发→触发"的周期:
     #    周期是**环路健康的产物** —— 环路一旦被判据带偏(误发命令), 周期会腰斩, 参照跟着塌,
@@ -894,6 +906,23 @@ def main() -> int:
                         #   下一条 PULL 抢占 ⇒ N_eff = 1, 即**先前长期稳定的单帧拉取模式**。
                         #   ⚠️ 只有 `--trigger frame` 还怕 t > 127 —— 那条通路在此单独告警。
                         t = max(1, min(T_MS_MAX_FW, int(math.floor(rtt_ref / want_N)) + 1))
+                        # ★ 容量硬闸(2026-10-20 实证): 速率 ≈ want_N/RTT。实测链路真实容量
+                        #   ≈13.3 Hz, 而 N=8 @RTT≈300ms ⇒ 25.3 Hz ⇒ **模块 6.9~8.7s 灌死**
+                        #   (COM7 仍可开、模块不再转发、静候 25s 不自愈、须物理断电)。
+                        #   与 `--min-period-ms`(防命令过密)是两条**不同**的闸: 那条管命令,
+                        #   这条管**上行总字节率**; 只有两条都在, 灌死才真正不可达。
+                        if a.max_hz > 0:
+                            n_cap = max(1, int(math.floor(a.max_hz * rtt_ref / 1000.0)))
+                            if n_cap < want_N:
+                                t = max(1, min(T_MS_MAX_FW,
+                                               int(math.floor(rtt_ref / n_cap)) + 1))
+                                if not cap_warned:
+                                    cap_warned = True
+                                    print("  ⚠ 容量硬闸: N=%d @RTT≈%.0fms ⇒ %.1f Hz > "
+                                          "--max-hz %.1f ⇒ 本周期起 N 钳到 %d(%.1f Hz)。"
+                                          "再往上会把透传模块灌死(须物理断电)"
+                                          % (want_N, rtt_ref, 1000.0 * want_N / rtt_ref,
+                                             a.max_hz, n_cap, 1000.0 * n_cap / rtt_ref))
                         if use_frame and t > 127 and not frame_t_warned:
                             frame_t_warned = True
                             print("  ⚠ --trigger frame 且 t=%d > 127 ms: ms8 间隙判据会与 "
