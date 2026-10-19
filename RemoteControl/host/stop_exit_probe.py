@@ -76,8 +76,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="MAZE STOP 退出状态机三步验收")
     ap.add_argument("port", nargs="?", default="COM7")
     ap.add_argument("--hold", type=float, default=3.0, help="发车后跑位观察秒数")
-    ap.add_argument("--stop-timeout", type=float, default=4.0,
-                    help="MAZE STOP 后等待命的秒数（应为 1 秒级）")
+    ap.add_argument("--stop-timeout", type=float, default=6.0,
+                    help="MAZE STOP 后等待命的秒数（优雅退出 1s 级；走兜底软复位约 3.5s）")
     ap.add_argument("--no-relaunch", action="store_true", help="不做第二次发车（第③步）")
     args = ap.parse_args()
 
