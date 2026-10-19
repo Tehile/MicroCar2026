@@ -240,6 +240,12 @@ def main() -> int:
     frames_csv = out_csv.replace(".csv", "_frames.csv")
     n_frames = max(1, min(16, a.batch))
 
+    print("⚠ 这是**排程式**拉取(按时间表无条件发 PULL), 已被事件触发式"
+          " `link_pull_evt.py` 取代。\n"
+          "  2026-10-20 远程档(fw=300)实测: 12Hz/n=2 跑到 6.9s 批尾即**链路全静默**\n"
+          "  (CH340 仍在、模块不再转发, 静候 25s 不自愈, 须物理断电)。\n"
+          "  ⇒ 真机长跑请用 `link_pull_evt.py`(周期≡RTT 自锁, 在途恒 ≤1)。\n")
+
     mc = MouseClient(auto_session=False, auto_stream=False)
     if not mc.connect(a.port):
         print("✗ 连接失败:", mc.state_detail)
