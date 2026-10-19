@@ -106,6 +106,13 @@ void mapStepEdit (char  cX, char  cY)//洪水填充算法实现  步数地图生成
      
     while (n)
 	{
+#ifdef MOUSE_REMOTE
+        /* 中止请求挂着就退出。本函数不驱动电机, SysTick 的中止段对它是无效的:
+         * ucStep 是 uchar, 地图处于半更新状态时回绕会让 GucMapStep[..] > ucStep
+         * 永远成立 => n 永不减到 0 => 死循环(真机 2026-10-20 实测)。
+         * 返回的是半成品步数图, 但调用方的中止检查会一路 unwind 回 maze_done。 */
+        if (LP_AbortRequested()) return;
+#endif
         GucMapStep[cX][cY] = ucStep++;                                   
 
          
@@ -321,6 +328,12 @@ void objectGoTo (char  cXdst, char  cYdst)
     uchar ucStep = 1;
     char cNBlock = 0, cDirTemp;
     char cX,cY;
+#ifdef MOUSE_REMOTE
+    /* 中止请求已挂 => 不再启动新一轮规划。理由: 下面的 mapStepEdit 是纯计算的
+     * 洪水填充, 在"中止瞬间的半更新地图"上会退化成死循环(真机 2026-10-20:
+     * objectGoToFlag 恒 1、其余遥测全冻结、第二次 MAZE RUN 恒 ERR_BUSY)。 */
+    if (LP_AbortRequested()) return;
+#endif
 	ledon(4);ledon(5);
 	ObjectGoTo_Flag=1;
     cX = GmcMouse.cX;

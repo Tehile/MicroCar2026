@@ -179,6 +179,15 @@ static u8 linkResetCause;
  * 否则上位机什么都收不到, 只能看到超时, 无从判断到底成没成。
  * 复位后 PING 的 rst 会变成 `SW` —— 那才是最终的成功凭据。 */
 static u16 linkMcuResetDelay;
+/* MAZE STOP / ESTOP 的中止**兜底**超时(ms)。协作式中止要求主循环自己从迷宫
+ * 状态机里爬出来, 但迷宫里有不查中止标志的纯计算循环(objectGoTo->mapStepEdit
+ * 的洪水填充等) —— 真机 2026-10-20 实测偶发卡死: 电机停了, 但 mazeTask 恒
+ * SEARCH、LINK_MazeFinished() 永不执行、第二次 MAZE RUN 恒 ERR_BUSY。
+ * 中止请求挂着而 linkMazeRun 仍为 1 超过这个时间即软复位收场(进程等价于
+ * MCU RESET), 保证"MAZE STOP 一定能把车带出来", 不必人工断电。
+ * 正常退出实测 0.2~1.0s, 取 2000ms 留足余量、避免误伤。 */
+#define LINK_ABORT_WATCH_MS 2000
+static u16 linkAbortWatch;
 #endif
 
 /* ---- 时间同步 / 发车(独立于校准与各测试档; 见 link.h 与 docs/数据收集与时间同步.md) ----
@@ -3384,6 +3393,23 @@ void LINK_Tick(void)
 			Sys_Soft_Reset();
 	}
 #endif
+
+	/* 0a2. MAZE STOP / ESTOP 退出兜底(2026-10-20 真机)。与上一段同理放在中断
+	 * 上下文: 主循环可能卡在某个不查中止标志的纯计算死循环里, 只有这里能救。
+	 * 判据只用"中止请求挂着"+"迷宫仍标记为在跑" —— 正常退出时 maze_done 会
+	 * 先调 LINK_MazeFinished() 把 linkMazeRun 清 0, 本段随即复位计时, 不会误触发。 */
+	if (LP_AbortRequested() && linkMazeRun)
+	{
+		if (++linkAbortWatch >= LINK_ABORT_WATCH_MS)
+		{
+			linkAbortWatch = 0;
+			Sys_Soft_Reset(); /* 复位原因记成 SW, 下一次 PING 可见 */
+		}
+	}
+	else
+	{
+		linkAbortWatch = 0;
+	}
 
 	/* 0. 时间基准灯: 发车后以 1Hz(50% 占空比)闪烁, 供外部(摄像头/光电/人眼)
 	 *    与回传的时间戳做互相印证。这里直接写引脚(不走 LED_On/Off),

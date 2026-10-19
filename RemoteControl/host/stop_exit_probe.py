@@ -25,7 +25,7 @@
 
 用法:
     python stop_exit_probe.py COM7                     # 三步全跑
-    python stop_exit_probe.py COM7 --hold 5            # 跑位观察窗 5 s
+    python stop_exit_probe.py COM7 --hold 3            # 跑位观察窗 3 s（默认）
     python stop_exit_probe.py COM7 --no-relaunch       # 只验 1、2（不发第二次车）
 """
 from __future__ import annotations
@@ -75,7 +75,7 @@ def wait_idle(mc: MouseClient, seconds: float):
 def main() -> int:
     ap = argparse.ArgumentParser(description="MAZE STOP 退出状态机三步验收")
     ap.add_argument("port", nargs="?", default="COM7")
-    ap.add_argument("--hold", type=float, default=4.0, help="发车后跑位观察秒数")
+    ap.add_argument("--hold", type=float, default=3.0, help="发车后跑位观察秒数")
     ap.add_argument("--stop-timeout", type=float, default=4.0,
                     help="MAZE STOP 后等待命的秒数（应为 1 秒级）")
     ap.add_argument("--no-relaunch", action="store_true", help="不做第二次发车（第③步）")
@@ -93,8 +93,9 @@ def main() -> int:
             print("等首帧超时 —— 链路没起来，中止")
             return 1
         dev = mc.device or {}
+        rst0 = dev.get("rst") or mc.reset_cause or "?"
         print(f"设备: proto={dev.get('proto')} fw={dev.get('fw')} "
-              f"rst={dev.get('rst') or mc.reset_cause}  stream={mc.stream.mode}")
+              f"rst={rst0}  stream={mc.stream.mode}")
 
         # ---------------- 步骤 1：发车 ----------------
         print("\n=== ① MAZE RUN（车应悬空/空旷）===")
@@ -135,6 +136,18 @@ def main() -> int:
         verdict["stop"] = idle
         if idle:
             print(f"  => ✅ {took:.1f}s 内自己回到待命（mazeTask={f.get('mazeTaskName')}）")
+            # 区分「优雅退出」与「中止兜底复位」：固件 LINK_Tick 里有 2s 看门狗，
+            # 状态机卡死时会软复位收场。两者都表现为"回到待命"，但后者 rst 会由
+            # POR 变 SW —— 那是"兜底生效"而不是"协作式退出成功"。
+            try:
+                mc.cmd.ping(timeout=2.0)
+                rst = mc.reset_cause or rst0
+            except Exception:             # noqa: BLE001
+                rst = rst0
+            if rst != rst0:
+                verdict["bailout"] = True
+                print(f"  ⚠ 复位原因 {rst0} -> {rst}：状态机没能自己爬出来，"
+                      f"由固件的「中止兜底」软复位收场（可用，但属降级路径）")
         else:
             mt = (f or {}).get("mazeTaskName")
             print(f"  => ❌ {took:.1f}s 内未回到待命（mazeTask={mt}）")
@@ -167,7 +180,8 @@ def main() -> int:
         print("\n" + "=" * 70)
         print("汇总")
         print(f"  ① 发车真跑      : {'✅' if verdict.get('launch') else '❌'}")
-        print(f"  ② STOP 自回待命 : {'✅' if verdict.get('stop') else '❌'}")
+        print(f"  ② STOP 自回待命 : {'✅' if verdict.get('stop') else '❌'}"
+              f"{'  ⚠ 走了中止兜底复位' if verdict.get('bailout') else ''}")
         if "relaunch" in verdict:
             print(f"  ③ 二次发车接受  : {'✅' if verdict['relaunch'] else '❌'}")
         all_ok = verdict.get("launch") and verdict.get("stop") and \
