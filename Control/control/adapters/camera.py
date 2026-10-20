@@ -325,7 +325,8 @@ class CameraAdapter:
             # ⚠️ 这里**不能**再同步调 status()：那样会把事件线程按在 HTTP 上（本机一次
             # 失败探测 2 s），断线时反而更卡、更容易堆积。改成：① 立刻作废快照并踢一次
             # 重探；② 用现有快照发一条把 reconnected 标出来的事件。
-            self.bus.log("info", "相机事件流重连 —— 作废快照并主动重探，通知客户端重新对齐", source='camera')
+            # ⚠️ 这条是**进底栏的界面文案**：不许带破折号（铁律 2，B13 守着）。
+            self.bus.log("info", "相机事件流重连：已作废快照并主动重探，请重新对齐", source='camera')
             self.kick_probe()
             self.bus.publish("camera.status", {"reconnected": True, "health": self.health()})
             self._reached(True)

@@ -2084,6 +2084,177 @@ def main(argv=None) -> int:
                if i29_ok else
                f"**低电闸不对**：{json.dumps(res, ensure_ascii=False, default=str) if res else rc.stdout[-300:] + rc.stderr[-300:]}")
 
+        # ------------------------------------------------------------ I34 / I35（纯函数，无需设备）
+        # ---- I34：终点锁死 (7,7)(7,8)(8,7)(8,8)（改版二十三）
+        # 用户拍板"终点位置锁死 (7,7)(7,8)(8,7)(8,8)，不需要传输数据了"⇒
+        # 判据就是那把锁本身，四面都要钉：
+        #   ① 常量 `maze_rec.GOAL_CELLS` 必须就是这四格（改它 = 改赛道定义，必须先改判据）；
+        #   ② `_GOAL_SET` 从同一常量派生（不许另写一份坐标表 —— 铁律 32）；
+        #   ③ 端点端出的 `goal_cells` 与常量**同一个对象**（routes 只是搬运）；
+        #   ④ GOAL 事件：走进终点区**首次**报一次；**负向**：一直不进 ⇒ 一条都没有。
+        head("13c. 判据 I34：终点锁死四格（常量 / 派生集 / 端点同源 / GOAL 只报首次）")
+        i34_bad, i34_got = [], []
+        try:
+            from control import maze_rec as MR
+            from control.api import routes as RT
+            cells = tuple(tuple(c) for c in MR.GOAL_CELLS)
+            if cells != ((7, 7), (7, 8), (8, 7), (8, 8)):
+                i34_bad.append(f"GOAL_CELLS 不是锁死的四格：{cells!r}")
+            else:
+                i34_got.append("常量=锁死四格")
+            if MR._GOAL_SET != frozenset(cells):
+                i34_bad.append(f"_GOAL_SET 与 GOAL_CELLS 不同源：{MR._GOAL_SET!r}")
+            if RT.GOAL_CELLS is not MR.GOAL_CELLS:
+                i34_bad.append("routes 的 GOAL_CELLS 不是 maze_rec 的同一个对象（两条来路）")
+            else:
+                i34_got.append("端点同源")
+
+            def _fr34(x, y, task=2):
+                return {"mazeTask": task, "posX": x, "posY": y,
+                        "dir": 0, "motionTask": 1}
+
+            # ④ 正面：从区外走进 (7,7)，再在区内移动 ⇒ GOAL 只报 1 条
+            dec = MR.MazeDecisions(codes=None)
+            evs = []
+            evs += dec.feed(_fr34(0, 0, 0), 0)      # 第一帧：只播种（WAIT）
+            evs += dec.feed(_fr34(1, 0, 2), 100)    # 离开 WAIT
+            evs += dec.feed(_fr34(7, 7, 2), 200)    # 进终点区
+            evs += dec.feed(_fr34(7, 8, 2), 300)    # 区内移动（不许再报）
+            evs += dec.feed(_fr34(8, 8, 2), 400)
+            goals = [e for e in evs if e.get("kind") == "GOAL"]
+            if len(goals) != 1:
+                i34_bad.append(f"进终点区应只报 1 条 GOAL，实得 {len(goals)}：{goals}")
+            elif (goals[0].get("x"), goals[0].get("y")) != (7, 7):
+                i34_bad.append(f"GOAL 的坐标不对：{goals[0]}")
+            else:
+                i34_got.append("GOAL 报 1 次")
+            # 负向：一直在终点区外 ⇒ 一条 GOAL 都不许有（负向要造得出来 —— 铁律 12）
+            dec2 = MR.MazeDecisions(codes=None)
+            ev2 = []
+            for i, (x, y) in enumerate([(0, 0), (1, 0), (2, 0), (6, 6), (0, 6)]):
+                ev2 += dec2.feed(_fr34(x, y, 2 if i else 0), i * 100)
+            if any(e.get("kind") == "GOAL" for e in ev2):
+                i34_bad.append(f"没进终点区却报了 GOAL：{ev2}")
+            else:
+                i34_got.append("负向不误报")
+        except Exception as e:                                    # noqa: BLE001
+            i34_bad.append(f"跑 I34 时抛异常：{type(e).__name__}: {e}")
+        i34_ok = not i34_bad
+        record("I34", "PASS" if i34_ok else "FAIL",
+               f"终点锁死 (7,7)(7,8)(8,7)(8,8)：{'；'.join(i34_got)}"
+               if i34_ok else
+               f"**终点锁死不对**：{i34_bad[:4]}")
+
+        # ---- I35：JUNC 判据已下线（改版二十三）
+        # `stackIdx` 上游换基线那轮就恒 0、v9 连字节都删了 ⇒ 原"岔路栈深度变化"的
+        # JUNC 判据已下线（§11.25）。这条判据守两面：
+        #   ① **不许再产出 JUNC**：喂岔路口形状的帧序列（有 ROAD 也没关系）⇒ 事件里
+        #      没有 JUNC —— "判据还在但永不触发"是静默失效的温床，摘干净才算下线；
+        #   ② **不许留残渣**：`maze_rec.py` 源码里不再出现 `stackIdx`（找不到数据来源
+        #      的判据留着 = 有人以为它还在工作）。
+        head("13d. 判据 I35：JUNC 判据已下线（不产出、源码无 stackIdx）")
+        i35_bad, i35_got = [], []
+        try:
+            import inspect
+            src = inspect.getsource(MR)
+            # ⚠️ 只查**代码引用**（带引号的键名），不查全文：模块注释里本来就写着
+            #   "`stackIdx` 已下线"的缘由 —— 全文匹配会把这段文档判成残渣（假红）。
+            if ('"stackIdx"' in src) or ("'stackIdx'" in src):
+                i35_bad.append("maze_rec.py 代码仍引用 stackIdx（该字段 v9 已删）")
+            else:
+                i35_got.append("代码无 stackIdx 引用")
+            # 喂一段"有岔路"的帧序列（三面墙变化，路口形状）——
+            # 即使有码表时 ROAD 会认出来，也**不许**冒出 JUNC
+            dec3 = MR.MazeDecisions(codes=None)
+            ev3 = []
+            seq = [(0, 0, 0, 0, 0, 0), (1, 0, 0, 1, 1, 2), (2, 0, 1, 1, 0, 2),
+                   (3, 0, 0, 1, 1, 2), (4, 0, 1, 0, 1, 2)]
+            for i, (x, y, wl, wf, wr, task) in enumerate(seq):
+                ev3 += dec3.feed({"mazeTask": task, "posX": x, "posY": y, "dir": 0,
+                                  "motionTask": 1, "wallLeft": wl, "wallFront": wf,
+                                  "wallRight": wr}, i * 100)
+            junc = [e for e in ev3 if e.get("kind") == "JUNC"]
+            if junc:
+                i35_bad.append(f"JUNC 已下线却还在产出：{junc}")
+            else:
+                i35_got.append("不产出 JUNC")
+            kinds = sorted({str(e.get("kind")) for e in ev3})
+            i35_got.append("事件种类=" + ",".join(kinds))
+        except Exception as e:                                    # noqa: BLE001
+            i35_bad.append(f"跑 I35 时抛异常：{type(e).__name__}: {e}")
+        i35_ok = not i35_bad
+        record("I35", "PASS" if i35_ok else "FAIL",
+               f"JUNC 已下线：{'；'.join(i35_got)}"
+               if i35_ok else
+               f"**JUNC 下线不干净**：{i35_bad[:4]}")
+
+        # ---- I36：完整性 drop_seen 已退化为本机 seq_lost 差量（改版二十三）
+        # 设备侧 `dropCnt` v9 已删（召回也没落地）⇒ `feed()` 里不许再读它；
+        # 收尾时按 `stats()["seq_lost"]`/`bad_crc` 的**差量**判（§11.24 第二组 #3）。
+        # 这条判据守三面：
+        #   ① **不许留残渣**：源码里不许再有带引号的 `dropCnt`（注释里提到不算）；
+        #   ② **差量要真的算出来**：钉假 stats 0→3 ⇒ drop_seen=True、delta=3；
+        #      3→3（没丢）⇒ False、delta=0；
+        #   ③ **三态不许抹平**：不注入取数 ⇒ delta=None（没探到 ≠ 没丢，不是 0）；
+        #      计数器中途清零 5→2 ⇒ drop_seen=True（链路断过，数据不完整）。
+        head("13e. 判据 I36：完整性按本机 seq_lost 差量（不读 dropCnt / 三态）")
+        i36_bad, i36_got = [], []
+        try:
+            import inspect
+            import tempfile
+            src = inspect.getsource(MR)
+            # ⚠️ 只查**代码引用**（带引号的键名）——注释里本来就写着下线缘由（I35 同款）
+            if ('"dropCnt"' in src) or ("'dropCnt'" in src):
+                i36_bad.append("maze_rec.py 代码仍引用 dropCnt（该字段 v9 已删）")
+            else:
+                i36_got.append("代码无 dropCnt 引用")
+
+            def _run36(seq0, seq1, inject=True):
+                """钉住假链路统计，跑一段最小记录，回 `stop()` 摘要（产物落临时目录）。"""
+                tmp = Path(tempfile.mkdtemp(prefix="mz_i36_"))
+                try:
+                    state = {"seq_lost": int(seq0), "bad_crc": 0}
+                    rec = MR.MazeRecorder(
+                        tmp,
+                        get_channels=lambda: ["mazeTask", "posX", "posY"],
+                        get_link_stats=(lambda: dict(state)) if inject else None)
+                    rec.start(why="i36")
+                    rec.feed({"mazeTask": 2, "posX": 1, "posY": 1}, None)
+                    state["seq_lost"] = int(seq1)
+                    out = rec.stop(why="i36")
+                    return (out.get("drop_seen"), out.get("seq_lost_delta"),
+                            out.get("ok"))
+                finally:
+                    _rmtree_quiet(tmp)
+
+            got_a = _run36(0, 3)
+            if not (got_a[2] and got_a[0] is True and got_a[1] == 3):
+                i36_bad.append(f"丢了 3 条应报 drop_seen=True/delta=3，实得 {got_a}")
+            else:
+                i36_got.append("0→3 报丢")
+            got_b = _run36(3, 3)
+            if not (got_b[0] is False and got_b[1] == 0):
+                i36_bad.append(f"没丢应报 drop_seen=False/delta=0，实得 {got_b}")
+            else:
+                i36_got.append("3→3 不误报")
+            got_c = _run36(0, 0, inject=False)
+            if not (got_c[0] is False and got_c[1] is None):
+                i36_bad.append(f"没探到应 delta=None（不是 0），实得 {got_c}")
+            else:
+                i36_got.append("没探到回 None")
+            got_d = _run36(5, 2)
+            if not (got_d[0] is True):
+                i36_bad.append(f"计数器中途清零（链路断过）应 drop_seen=True，实得 {got_d}")
+            else:
+                i36_got.append("计数器清零也判不完整")
+        except Exception as e:                                    # noqa: BLE001
+            i36_bad.append(f"跑 I36 时抛异常：{type(e).__name__}: {e}")
+        i36_ok = not i36_bad
+        record("I36", "PASS" if i36_ok else "FAIL",
+               f"完整性按本机 seq_lost 差量：{'；'.join(i36_got)}"
+               if i36_ok else
+               f"**完整性差量不对**：{i36_bad[:4]}")
+
         # ------------------------------------------------------------ I15~I17
         # 这三条是**上游 1.2/1.3/1.4 更新**带来的新失败模式，需要一条活链路才能判。
         head("14b. 判据 I15 / I16 / I17：跟上游更新（需要模拟器）")

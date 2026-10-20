@@ -21,6 +21,7 @@ from aiohttp import web
 from .. import __version__
 from ..clock import anchor_snapshot, mono_to_ms, now_ms
 from ..decode import decode_y
+from ..maze_rec import GOAL_CELLS
 from ..store import new_session_id
 from .errors import ApiError, body_json, ok
 from .ws import ws_handler
@@ -70,7 +71,9 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_get("/api/v1/mouse/maze/summary", _maze_summary)
     r.add_post("/api/v1/mouse/maze/reset", _maze_reset)
     # 上游 2.1.1 新能力：**收车**（`MAZE STOP`）。v2.0 时代"发过一次车就只能断电"，
-    # 现在有一个明确的收车口 —— 但它**车在运动时不可靠**，所以旁边还要有【复位】。
+    # 现在有一个明确的收车口。2026-10-16 上游补了三个中止出口 + `LINK_Tick` 2 s
+    # 兜底软复位 ⇒ 它现在**正常 0.2~1 s 就退出**，不必再"改为复位"。
+    # ⚠️ 【复位】仍保留：语义不同（整机重来 vs 正常退出），且连不上时只有它能用。
     r.add_post("/api/v1/mouse/maze/stop", _maze_stop)
     # 上游 2.2.0 新能力：**复位**（整机软复位 `MCU RESET`）。固件主循环有 30 余处
     # 非协作式阻塞等待，`STOP` 会让它们永远等不到 ⇒ "越停越死"，软复位是唯一出口。
@@ -649,8 +652,14 @@ async def _maze_reconstruct(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
     sec = _float(request, "seconds", 30.0) or 30.0
     loop = asyncio.get_running_loop()
-    return ok(await loop.run_in_executor(None,
-                                         lambda: ctx.mouse.maze_reconstruct(sec)))
+    out = await loop.run_in_executor(None,
+                                     lambda: ctx.mouse.maze_reconstruct(sec))
+    # 终点区：**赛道属性**，不是设备状态（v9 删了 `goalX/goalY`，帧里没有这个信号）。
+    # 常量只有一处真相（`maze_rec.GOAL_CELLS`）⇒ 由后端端给界面，
+    # 前端**不再自己写一份**（铁律 32：一个元素只许一条真相来路）。
+    out["goal_cells"] = [list(c) for c in GOAL_CELLS]
+    out["goal_note"] = "赛道固定：中心 2×2（16×16 迷宫）"
+    return ok(out)
 
 
 async def _maze_decisions(request: web.Response) -> web.Response:
@@ -691,7 +700,14 @@ async def _maze_decisions(request: web.Response) -> web.Response:
     if task is None:
         run = None                       # 判不了 ≠ 停止（三态纪律）
     else:
-        run = int(task) >= 2             # 2=SEARCH 起才算"在跑"（0 WAIT / 1 START 是待命）
+        # 在跑 = **2..5**（SEARCH / SPURT / SPURT45 / SPURT90）。
+        # 两个边界都要看：
+        #   · 下界不含 0=WAIT / 1=START（START 只是发车那一瞬的过渡态）；
+        #   · 上界不含 6=END（上游 2.11 换基线新增的**跑位收尾态**，固件已进 maze_done，
+        #     车不动了）。只写 `>= 2` 会把"跑完待收尾"报成"还在跑"。
+        # ⚠️ 与 `mod_maint.busyWhy()`、`mod_race.renderState()` 是**同一个判据**，
+        #    改一处要一起改（铁律 50④）。
+        run = 2 <= int(task) <= 5
     out["running"] = run
     out["task"] = task
     out["taskName"] = (st or {}).get("taskName")
@@ -764,8 +780,9 @@ async def _maze_record_stop(request: web.Request) -> web.Response:
     没有人工兜底，模拟器上根本收不了尾。
 
     ⚠️ 2.1.1 起"收尾"这件事**多了两个正经动作**（本题只负责存盘，不负责动车）：
-      · 【收车】`MAZE STOP` —— 停车 + 复位发车状态 + 解锁急停（**车在运动时不可靠**）；
-      · 【复位】`MCU RESET` —— 整机软复位（可靠，但会把车的位置假设也清掉）。
+      · 【收车】`MAZE STOP` —— 停车 + 复位发车状态 + 解锁急停
+        （正常 0.2~1 s 退出；爬不出来则固件 2 s 后自己软复位）；
+      · 【复位】`MCU RESET` —— 整机软复位（连不上、卡死时用它；不复位物理位置）。
     ⇒ 收车与存盘是**两件事**，界面上也是两个按钮：先收车（让车停下来、让曲线有意义），
     再【停止并保存】。把两者混成一个按钮会让"只存盘不收车"变得不可能，
     而复盘恰恰需要后者（车还在跑时也想把已收到的先存下来）。
@@ -833,11 +850,13 @@ async def _maze_stop(request: web.Request) -> web.Response:
     跑完只能复位或重连"，因为 `MAZE RUN` 之后固件主循环停在 `LESSON_Blind8()` 的
     `while(1)` 里、发车状态永不复位 ⇒ 再发车永远 `ERR_BUSY`。
 
-    ⚠️ 但它**车在运动时不可靠**（`linkMazeAbort` 标志的检查在 while(1) 顶部，
-    而主循环有 30 余处非协作式阻塞等待，运动时程序正卡在那些循环内部）⇒
-    真机实测：回 `OK` 但 `mazeTask` 仍 `SEARCH`。
-    ⇒ 所以应答里**带实测状态**（`state` / `reliable`），让界面当场判"到底收住没有"；
-    界面据此提示"没用就用【复位】"。**不许只看 `OK` 就宣布收车成功。**
+    ⚠️ 2026-10-16 之前它**车在运动时不可靠**（`linkMazeAbort` 标志的检查在 while(1)
+    顶部，而主循环有 30 余处非协作式阻塞等待，运动时程序正卡在那些循环内部 ⇒
+    回 `OK` 但 `mazeTask` 仍 `SEARCH`）。上游为此补了三个中止出口 + `LINK_Tick`
+    **2 s 兜底软复位** ⇒ 现在正常 **0.2~1 s** 退出；极端情况 2 s 后固件自己软复位
+    （`PING` 的 `rst` 由 `POR` 变 `SW`）。
+    ⇒ 应答里仍**带实测状态**（`state` / `reliable`），让界面当场判"到底收住没有"。
+       **不许只看 `OK` 就宣布收车成功**（`OK` 只表示命令被接受）。
     """
     ctx = request.app["ctx"]
     _need_mouse(ctx)

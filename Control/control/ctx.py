@@ -44,7 +44,11 @@ class Ctx:
         # 详细理由写在 `maze_rec.py` 的模块 docstring 里 —— 那是个"会静默没数据"的坑。
         self.maze_rec = MazeRecorder(
             Path(str(cfg.get("records.maze_root", "records/maze"))),
-            get_channels=lambda: list(getattr(self.mouse, "_unified_channels", []) or []))
+            get_channels=lambda: list(getattr(self.mouse, "_unified_channels", []) or []),
+            # 完整性差量的取数：本机链路统计（`seq_lost`/`bad_crc`）。
+            # 设备侧 `dropCnt` v9 已删 ⇒ 只能退化为本机口径，见
+            # `maze_rec._probe_losses`（不许在记录器里自己比 seq）。
+            get_link_stats=self.mouse.link_stats)
         # 决策差分的**码表**（上游的路口分类器与名字表）—— 从鼠适配器取，不在这里
         # import 上游（路径注入、能力探测都在适配器里，这一层不该再摸一遍）。
         # 适配器那时**可能还没装载完**（`ctx` 先于 `_load()` 的某些时机）⇒ 取不到就不注入，

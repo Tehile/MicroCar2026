@@ -49,11 +49,14 @@ RESOLVER = {
     #    而它们在上游 2.0.0 就没了：`ScopeAPI`/`SnapAPI` 连模块都不存在）：
     #    ScopeAPI（SCOPE/DUMP 整套）、SnapAPI（SNAP 整套）、SNAP_DOMAINS、SNAP_FIELDS、
     #    MAZE_FLAG_NAMES、MAZE_EV_BITS。
+    #    ⚠️ **`PullRequester` / `PacePull` 也是这一类**：上游 2.10.0 把停等式与批式
+    #    合并成单一 `TelemetryPuller`（n=1 退化为停等、n≥2 批式）⇒ 两个类名都没了。
+    #    本层只走**门面**（`mc.stream.pace / pace_off / mode`），从不引用具体类
+    #    ⇒ 名字从表里删掉。`TelemetryPuller` 也**不列**（本层不引用它，
+    #    表只放"本层真的用到的符号"，不是上游符号清单）。
     #    ⇒ 本表只放**当前真的存在**的符号 —— 否则"名字写错"会被误读成"上游改名了"。
     "Link": "host.transport.link",
     "Event": "host.api.events",
-    # 2.1.2 / 2.2.0：拉取器的让路机制与复位口（`PullRequester` 是 2.1.0 起的停等拉取器）
-    "PullRequester": "host.api.stream",
     # 1.2.0 / 1.3.0 / 1.4.0 新增的三个子 API 与它们的纯函数
     "MotorLabAPI": "host.api.lab",
     "RunResult": "host.api.lab",

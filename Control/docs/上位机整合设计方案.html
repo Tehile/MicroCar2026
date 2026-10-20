@@ -161,6 +161,8 @@ li{margin:.28em 0}
 <li><a href="#1121">11.21 迷宫墙图画错一格：近端墙偏移 + 最底行没有格线（改版十八）</a></li>
 <li><a href="#1122-290">11.22 接入上游 2.9.0 批式拉取（改版十九）</a></li>
 <li><a href="#1123-v27">11.23 接回上游 v2.7 按键菜单远程化（改版二十）</a></li>
+<li><a href="#1124-210-212-v9">11.24 跟上游 2.10 ~ 2.12（协议 v9 帧重排）（改版二十二）</a></li>
+<li><a href="#1125">11.25 下线「无记忆走迷宫」+ 地图预览迁入比赛 + 终点锁死（改版二十三）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -554,6 +556,47 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 的值与 <code>adapters/mouse.py</code> 的 <code>DEFAULT_STREAM_MODE</code> 常量（配置缺键时<strong>不许</strong>悄悄
 换一种模式）；判据 <strong>B41</strong> 的 ① 随之反转（断言 <code>caps.stream_mode == "stopwait"</code>），
 切换序列改成"批式 → 停等"（末态回默认，两个方向都点一遍）。细节见 §11.22 §四。</p>
+<p><strong>改版记录 2026-10-20（二十二）</strong>：<strong>跟上游 2.10 ~ 2.12（协议 v9：统一帧 49 → 30 B）</strong>。
+上游在 10-16 ~ 10-20 连走四步：<strong>2.10.0</strong> 把停等 <code>PullRequester</code> 与批式 <code>PacePull</code>
+合并成单一 <code>TelemetryPuller</code>（<strong>两个类名消失</strong>；停等式断连判定变成 <strong>7 s</strong>）；
+<strong>2.10.1</strong> 修 <code>BUTTON1</code> 极性（远程档 <code>MAZE RUN</code> 从"回 ACK OK 却永不发车、<code>MAZE STOP</code>
+也救不回"变成<strong>真发车</strong>）；<strong>2.11.0</strong> 换基线 <code>code_competition</code>（<strong>迷宫 7 → 16</strong>、
+<code>GucMouseTask</code> 新增 <code>END = 6</code>）；<strong>2.12.0</strong> 端出 <strong>PROTO 9</strong>，统一帧 <strong>49 → 30 B</strong>，
+删 20 个通道、状态 B 拆 B0/B1、<code>irSwitch</code> 迁进 <code>flags.0x10</code>。
+本层<strong>通道数与 mazetype 一直是现取</strong>（不写死）⇒ 帧长/网格自动跟上，逻辑零改动；
+真正要改的是<strong>建在那 20 个通道上的显示与记录判据</strong>：<code>maze_rec.py</code> 的 <strong>GOAL / JUNC
+两条判据会静默失效</strong>（<code>goalX/goalY</code>、<code>stackIdx</code> 已删，<code>_i(...,-2)</code> 让等值判定永不成立
+⇒ 不报错、只是少记录），<code>mod_params.js</code> 14 行通道读数变"—"，比赛页 <code>fastwayCount90</code>
+变"—"，<code>mazeTask = 6</code>（<code>END</code>）在本层码表里没有（显示裸 <code>6</code>）。
+⚠️ 四处"照直觉写就会错"：① <code>frontNear</code> <strong>删了但仍返回</strong>（现算派生量，不占环缓冲列）；
+② <code>dropCnt</code> 的替代 <code>seq_lost</code> 是<strong>上位机本地统计</strong>，语义比设备计数窄一圈；
+③ <code>stackIdx</code> 其实<strong>早在 10-16 换基线那轮就恒 0</strong> 了，v9 只是把那个恒 0 的字节也去掉；
+④ <code>fastwayCount*</code> 上游方案说"改由 <code>PATHPLAN</code> 事件回一次"，但<strong>那个事件没有落地</strong> ⇒ 现在真拿不到。
+⚠️ <strong>一条现场经验被上游修掉了</strong>：<code>MAZE STOP</code> 现在正常 0.2~1 s 优雅退出，爬不出来则 <strong>2 s
+兜底软复位</strong>（<code>PING</code> 的 <code>rst</code> 由 <code>POR</code> 变 <code>SW</code>）⇒ 本层六处"车在运动时不可靠、改用复位"
+要改写；<strong>三个按钮仍不合并</strong>（语义仍不同）。
+⚠️ 权威变更记录<strong>换了地方</strong>：上游 <code>docs/CHANGELOG.md</code> <strong>整文件已删</strong> ⇒ 全仓改指
+<code>通信协议规格.md</code> <strong>§9 版本与兼容矩阵</strong>。
+判据：<code>check_iface_table</code> 现状 <strong>4 PASS / 1 FAIL</strong>（<code>PullRequester</code> 已删）需回到 5/0；
+新增 <strong>B43 / B44 / I34 / I35</strong>。<strong>本节是方案，逐项改法与待拍板项见 §11.24。</strong></p>
+<p><strong>改版记录 2026-10-20（二十三）</strong>：<strong>「无记忆走迷宫」整页下线，地图预览迁入比赛卡，
+终点位置锁死 (7,7)(7,8)(8,7)(8,8) 不需要传输数据了</strong>（用户拍板三句）。新基线
+（2.11 换 <code>code_competition</code> 后）只跑比赛跑法，BLIND 那套状态机/决策时间线/记录复盘
+不再维护 ⇒ 那张卡连同 <code>views/mod_maze8.js</code>（1425 行）整页下线；它里面唯一还有独立
+价值的<strong>中栏那张图</strong>（"车认为世界长什么样"）搬进比赛卡（新区块 <code>C.parts.wallmap</code>）。
+<strong>终点锁死</strong>：v9 删了 <code>goalX/goalY</code> 后帧里再没有终点信号，而比赛终点是赛道固定的
+中心 2×2 四格 ⇒ 写成后端常量 <code>maze_rec.GOAL_CELLS</code>，经 <code>GET /mouse/maze/reconstruct</code>
+的 <code>goal_cells</code> 端给界面，前端<strong>只消费不重写</strong>（铁律 32）；<code>MazeDecisions</code> 的 GOAL
+判定同源。"完成全部任务" = §11.24 三组改法全做（显示 + 记录 + 文案）。
+两处 UI 缺口随迁移补上：<strong>【停止并保存】</strong>与<strong>低电预检</strong>都跟到比赛卡
+（<code>#rc-recstop</code> / <code>#rc-hint</code>）—— 记录的生命周期整段落在发车这一页了。
+判据：B24 卡数 4 → <strong>3</strong>；B30 去 <code>mod_maze8</code> 条目；B34 哨兵换 v9 存活通道
+（<code>mazeTask=6 ⇒ END</code>，负向：已删通道不进静态表）；<strong>B35 整段换成 B44</strong>
+（地图预览 + 锁死四格 + 缺数据不瞎画）；B36/B37/B38 迁宿主到比赛卡；drill 新增
+<strong>I34</strong>（终点锁死四格，含负向）/ <strong>I35</strong>（JUNC 判据已下线，不产出不伪造）/
+<strong>I36</strong>（完整性 <code>drop_seen</code> 退化为<strong>本机</strong> <code>stats()["seq_lost"]</code>/<code>bad_crc</code> 差量 ——
+设备侧 <code>dropCnt</code> 召回没落地，语义窄一圈、<code>None</code> ≠ 0，含三态负向）。
+细节见 §11.25。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -3617,7 +3660,8 @@ SAVE 时把<strong>输入框里的值</strong>一并提交。<strong>不许</str
 <hr />
 <h3 id="1110-210v20">11.10 上游 2.1.0「拉取模式」的跟进记录（v2.0 的自时钟被真机推翻）</h3>
 <blockquote>
-<p>权威文档：<code>RemoteControl/docs/CHANGELOG.md</code> <code>[2.1.0]</code>、
+<p>权威文档：<code>RemoteControl/docs/通信协议规格.md</code> <strong>§9</strong>（原 <code>CHANGELOG.md</code> 的 <code>[2.1.0]</code> 段
+随整文件删除，2.1.0 的条目现见 §9 版本矩阵）、
 <code>传输模式重构设计方案.md</code> §6.1（事故与整改）、<code>传输模式接口设计.md</code> §3.5.1（拉取器）。
 一句话：<strong>协议主线原则不变</strong>（单流 / 请求-响应 / 上位机能算的不传），
 <strong>帧格式零改动</strong>（仍 53 B / <code>TYPE=0x0A</code> / 39 个扁平通道），
@@ -5610,6 +5654,416 @@ frontFar  = front &amp;&amp; min(f1,f2) &gt;= IRTHRFNEAR              # 提前: 
 没有做"把 Flash 墙图重载进内存"这个动作</strong>。⇒ §二.2 那条副作用在 <code>--sim</code> 下<strong>验不了</strong>：
 I33 只验"后端把副作用声明端出来了"，墙图真被换掉这件事<strong>留真机验</strong>（如实标注，不当成通过）。</p>
 <hr />
+<h3 id="1124-210-212-v9">11.24 跟上游 2.10 ~ 2.12（协议 v9 帧重排）（改版二十二）</h3>
+<blockquote>
+<p><strong>状态：已实施（改版二十三，2026-10-20）。</strong> 本节是"要改什么、为什么、怎么改"的清单；
+实施结果与两处被拍板改写的点（GOAL 判据、B44/I34/I35 的定义）见 §11.25。
+⚠️ 三处<strong>实施与方案不同</strong>，以实际落地为准（回填自改版二十三）：
+  ① 影响面 #1 的 GOAL 判据<strong>没有</strong>改走 <code>mazeTask==END</code>（<code>END</code> 只覆盖 BLIND 路径）——
+     用户拍板<strong>终点锁死 (7,7)(7,8)(8,7)(8,8)</strong>，改用常量 <code>maze_rec.GOAL_CELLS</code>（§11.25 §二）；
+  ② <code>mod_maze8.js</code> 那一组显示（#7/#8）<strong>整页下线</strong>，不是逐行删；
+  ③ 判据表里 B43/B44/I34/I35 的定义被拍板改写，见 §五的回填注。</p>
+</blockquote>
+<h4 id="_63">一、上游这四步到底改了什么</h4>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>日期</th>
+<th>性质</th>
+<th>对本层意味着</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>2.10.0</strong></td>
+<td>10-16</td>
+<td>纯上位机：停等式 <code>PullRequester</code> 与批式 <code>PacePull</code> 合并成单一 <code>TelemetryPuller</code>（n=1 退化为停等）；新增批中锚刷新 30 s、<strong>停等式断连判定 7 s</strong></td>
+<td>门面（<code>stream.pace/on/off</code>）没动 ⇒ 逻辑零改动。<strong>但两个类的名字没了，本层的符号登记表会红</strong>；且 7 s 这个数本层不知道</td>
+</tr>
+<tr>
+<td><strong>2.10.1</strong></td>
+<td>10-16</td>
+<td>纯固件：<code>main.c</code> 的 <code>BUTTON1</code> 极性写反 ⇒ 远程档 <code>MAZE RUN</code> 从"回 ACK OK 却<strong>永不发车</strong>、随后恒 <code>ERR_BUSY</code>、<code>MAZE STOP</code> 救不回"变成<strong>真发车</strong></td>
+<td>本层零改动，<strong>但这推翻了本层一条写进文档的现场经验</strong>（见 §三.4）</td>
+</tr>
+<tr>
+<td><strong>2.11.0</strong></td>
+<td>10-16</td>
+<td>换基线 <code>code_competition</code>：远程层整体移植；<strong>迷宫 7 → 16</strong>（MAP 帧自适应）；<code>GucMouseTask</code> 新增 <strong><code>END = 6</code></strong>（跑位收尾态）；CAL 家族补齐平台通路</td>
+<td>通道数与 mazetype 本层都<strong>现取</strong>（不写死）⇒ 跟得上；<strong>但 <code>END=6</code> 本层码表里没有</strong>，会显示成裸 <code>6</code></td>
+</tr>
+<tr>
+<td><strong>2.12.0</strong></td>
+<td>10-20</td>
+<td><strong>PROTO 9</strong>：统一帧 49 → <strong>30 B</strong>，删 20 个通道，状态 B 拆 B0/B1，<code>irSwitch</code> 迁进 <code>flags.0x10</code>；fw 310、<code>PONG 9 310 16 1024</code></td>
+<td><strong>主战场</strong>：本层有一批显示与一条记录判据建在删掉的字段上</td>
+</tr>
+</tbody>
+</table>
+<p>另外两条<strong>不改代码但改说法</strong>的：</p>
+<ul>
+<li><code>MAZE STOP</code> 上游连修三处（<code>721d568</code> 加中止出口 / <code>892ab29</code> 加 <code>mapStepEdit</code> 出口 +
+  <strong><code>LINK_Tick</code> 2 s 兜底软复位</strong>）：现在是"正常 0.2~1 s 优雅退出；爬不出来就 2 s 后软复位，
+  复位原因报 <code>SW</code>"。本层写的是"运动中不可靠、改用复位"，<strong>已经过期</strong>。</li>
+<li>权威变更记录换了地方：上游 <code>docs/CHANGELOG.md</code> <strong>整文件已删</strong>（1711 行），
+  现在看 <code>RemoteControl/docs/通信协议规格.md</code> <strong>§9 版本与兼容矩阵</strong>。本层文档与记忆里
+  到处引用旧文件名，全部要改指。</li>
+</ul>
+<h4 id="_64">二、影响面清单（按"后果"排序）</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>本层位置</th>
+<th>消费了什么</th>
+<th>v9 怎么变</th>
+<th>现在的后果</th>
+<th>改法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>maze_rec.py:451-455</code></td>
+<td><code>goalX</code> / <code>goalY</code></td>
+<td><strong>删</strong>（整字节）</td>
+<td><strong>GOAL 事件永不触发</strong>：<code>_i(rec.get("goalX"), -2)</code> 恒 −2，<code>posX</code> 永不等于它 ⇒ 记录里少一类关键事件（<strong>静默</strong>，不报错）</td>
+<td>改用 <strong><code>mazeTask == 6 (END)</code></strong> 判终点 —— 但<strong>只对无记忆（BLIND）路径成立</strong>：固件里 <code>END</code> 只有一处真赋值，在 <code>USER/test.c:1198</code> 的 <code>if (mazeBlind)</code> 分支（<code>#ifdef MOUSE_REMOTE</code> 内，另一处 <code>:1177</code> 是注释掉的老代码）⇒ <strong>比赛（RACE）路径没有 <code>END</code></strong>，它的终点仍没有帧内信号，只能靠外部（相机/人工/收车时刻）</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>maze_rec.py:332</code> / <code>390-391</code></td>
+<td><code>stackIdx</code></td>
+<td><strong>删</strong>，且上游明说<strong>恒 0</strong>（"新固件无全局岔路栈索引"）</td>
+<td><strong>JUNC 事件永不触发</strong>：<code>st != prev</code> 恒假</td>
+<td><strong>下线该判据</strong>，如实写"上游已无岔路栈，JUNC 不可得"；不要伪造</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>maze_rec.py:738-741</code></td>
+<td><code>dropCnt</code></td>
+<td><strong>删</strong>（上游 §6：改走低频诊断通道）</td>
+<td>完整性判定失效</td>
+<td>改读上游 <code>stats["seq_lost"]</code> / <code>bad_crc</code>（<strong>本机统计，不是设备计数</strong>，注释要说清）</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>mod_params.js:110-150</code> 通道表</td>
+<td><code>cellOdom</code> <code>pidErr</code> <code>motionStep</code> <code>stackIdx</code> <code>fastwayCount</code> <code>critL</code> <code>critR</code> <code>left45</code> <code>right45</code> <code>wallThresh</code> <code>irAdcF1/F2/L/R</code> <code>dropCnt</code></td>
+<td><strong>删</strong></td>
+<td>一屏显示"—"（14 行）</td>
+<td><strong>删静态表</strong>，改按 <code>caps.unified_channels</code> 现取（与 <code>#mp-ch</code> 既有做法统一，铁律 32）</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>mod_params.js:131</code></td>
+<td><code>irSwitch</code> 标签"红外档位"</td>
+<td><strong>改义</strong>：原 <code>DUMPING</code>（恒 0）→ 现"红外采样轮在跑"</td>
+<td>标签是错的</td>
+<td>改标签为"红外采样"，并注明"为 0 = 本拍跳过 <code>getdistance()</code>，这是'这一段为什么没墙数据'的唯一帧内证据"</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>mouse.py:142-143</code> <code>WAVE_CHANNELS</code></td>
+<td><code>pidErr</code> <code>cellOdom</code></td>
+<td>删</td>
+<td>波形少 2 路（本层"缺的自动跳过"已容错）⇒ 不炸，但<strong>调参核心误差波形没了</strong></td>
+<td>从元组去掉两项，注释写明"v9 删，上游 §9 把它列为'失去的能力'"</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>mod_maze8.js:390/482</code></td>
+<td><code>goalX</code>/<code>goalY</code></td>
+<td>删</td>
+<td>终点显示"—"、网格不标终点</td>
+<td>跟 #1 同源：用 <code>mazeTask==END</code> 表达"已到终点"</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>mod_maze8.js:383/392/393/1303</code></td>
+<td><code>motionStep</code> / <code>stackIdx</code> / <code>fastwayCount</code></td>
+<td>删</td>
+<td>四行显示"—"</td>
+<td>删这几行（<strong>不留空壳</strong>）</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>mod_race.js:201/325</code></td>
+<td><code>fastwayCount90</code></td>
+<td>删</td>
+<td>比赛页"—"</td>
+<td>删，或标"上游暂不可得（<code>PATHPLAN</code> 事件未落地）"</td>
+</tr>
+<tr>
+<td>10</td>
+<td>前端 <code>mazeTask</code> 码表</td>
+<td>缺 <code>6 = END</code></td>
+<td><strong>新增</strong></td>
+<td>显示裸 <code>6</code></td>
+<td>补 <code>6: 'END'</code>（跑位收尾）</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>check_iface_table.py:56</code></td>
+<td><code>PullRequester</code> @ <code>host.api.stream</code></td>
+<td><strong>类已删</strong></td>
+<td><strong>实测 <code>A0</code> FAIL</strong>：<code>PullRequester.resume</code> / <code>.suspend</code> 缺 2 个</td>
+<td>删该条登记，注释写"2.10.0 合并进 <code>TelemetryPuller</code>"</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>mouse.py:1863-1865</code></td>
+<td><code>n = 7</code> 兜底</td>
+<td>mazetype <strong>16</strong></td>
+<td>取不到 mazetype 时<strong>按 7×7 建图</strong>（错尺寸，静默）</td>
+<td>兜底改成"取不到就不建图、如实报 <code>mazetype=None</code>"</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>mouse.py:598</code>、<code>mod_params.js:391/639</code></td>
+<td>"连续 <strong>3 s</strong> 无帧判死"</td>
+<td>停等式是 <strong>7 s</strong>（<code>TELEM_GAP_TIMEOUT_S</code>）</td>
+<td>文案与判据都写错 3 s ⇒ 现场按 3 s 判断会误以为"没断"</td>
+<td>全改 7 s；<strong>判据同改</strong></td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>mouse.py:1286-1289</code>、<code>routes.py:767</code>、<code>maze_rec.py:50</code>、<code>mod_maze8.js:38/866/869</code></td>
+<td>"<code>MAZE STOP</code> <strong>车在运动时不可靠</strong>，改用复位"</td>
+<td><strong>已修</strong>：0.2~1 s 优雅退出，2 s 兜底软复位（<code>rst=SW</code>）</td>
+<td>现场会白等、白复位</td>
+<td>改写为"收车正常 0.2~1 s 退出；若仍停在 <code>SEARCH</code>，2 s 后固件自己软复位（<code>PING</code> 的 <code>rst</code> 由 <code>POR</code> 变 <code>SW</code>），不必人工断电"。【三个按钮仍不合并】，但【收车】的 hint 换掉</td>
+</tr>
+<tr>
+<td>15</td>
+<td>文档 / README / 记忆</td>
+<td>引用 <code>RemoteControl/docs/CHANGELOG.md</code></td>
+<td>文件<strong>已删</strong></td>
+<td>权威来源失效（照它查会 404）</td>
+<td>全改指 <code>docs/通信协议规格.md</code> <strong>§9</strong></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_65">三、五条"照直觉写就会错"的点</h4>
+<ol>
+<li><strong><code>frontNear</code> 删了，但 <code>decode_unified</code> 里还返回它</strong>（<code>codec.py:403-404</code> 现算派生量）。
+   ⇒ 拿 <code>grep frontNear</code> 命中就断言"v9 没动它"是<strong>错的</strong>；它现在<strong>不占环缓冲列</strong>。
+   同理 <code>motors_off</code> 还在、但上游标注"保留恒 0、无发送方"。</li>
+<li><strong><code>dropCnt</code> 的替代不是"换个名字"</strong>：上游指的是 <code>stats["seq_lost"]</code>，那是<strong>上位机本地
+   统计</strong>（按 <code>seq</code> 缺口算），不是设备侧的 TX 环写失败计数 —— 语义窄了一圈，文案不能照搬。</li>
+<li><strong><code>stackIdx</code> 不是"v9 才删"</strong>：上游 10-16 那轮就明说"新固件无全局岔路栈索引 ⇒ 恒 0，
+   帧字段保留仅为兼容"。v9 只是把那个恒 0 的字节也去掉了 ⇒ 本层 JUNC 其实<strong>已经空了两周</strong>，
+   只是没人发现（因为 <code>_i(..., 0)</code> 让它安静地永不触发）。</li>
+<li><strong><code>fastwayCount</code> / <code>fastwayCount90</code> 现在根本拿不到</strong>：上游方案说"改由 <code>PATHPLAN</code> 事件
+   或 <code>GET ALL</code> 回一次"，但<strong><code>PATHPLAN</code> 没有落地</strong>（全仓搜不到实现，固件 <code>MAZE RUN</code> 仍是
+   裸 <code>link_Ack(seq, "OK")</code>）。⇒ 本层<strong>不要</strong>寄望事件，直接如实标"暂不可得"。</li>
+<li><strong><code>END</code> 只覆盖无记忆路径</strong>。固件里 <code>GucMouseTask = END</code> 只有一处真赋值（<code>USER/test.c:1198</code>），条件 <code>if (mazeBlind)</code> 且包在 <code>#ifdef MOUSE_REMOTE</code> 里；注释原文说的是"路径规划完上放 fastway 会改丢 Flash（<code>GOPATH</code> 写入），所以跳过不写，直接进 END ⇒ <code>maze_done</code> 收车态"。⇒ ① 比赛（RACE）<strong>没有</strong> <code>END</code>，别拿它当通用终点判据；② 远程档 BLIND 的完成态是 <code>END</code> 而<strong>不是</strong> <code>WAIT</code>。</li>
+<li><strong>"<code>MAZE RUN</code> 回 ACK OK 就一定会发车"是从 10-16 起才成立的</strong>。本层若在 2.10.1 之前记过
+   "发车不可靠"的经验，那条经验的<strong>根因是固件 <code>BUTTON1</code> 极性</strong>，已修，不能当现状用
+   （铁律 35：别把真机现象写成普适断言）。</li>
+</ol>
+<h4 id="_66">四、逐项改法（拍板后按此顺序做）</h4>
+<p><strong>第一组：让界面不说假话（纯删/改标签，低风险）</strong></p>
+<ol>
+<li><code>mod_params.js</code> 通道表删静态项、改读 <code>caps.unified_channels</code>（#4/#5）；</li>
+<li><code>mod_maze8.js</code> / <code>mod_race.js</code> 删已删字段的显示行（#7/#8/#9），<code>mazeTask</code> 补 <code>END</code>（#10）；</li>
+<li><code>WAVE_CHANNELS</code> 去掉两项（#6）；</li>
+<li>全仓 "3 s" → "7 s"（#13），文案与判据同改。</li>
+</ol>
+<p><strong>第二组：让记录恢复判据（有设计选择，见 §六待拍板）</strong></p>
+<ol start="5">
+<li><code>maze_rec.py</code> GOAL 改 <code>mazeTask==END</code>（#1）；JUNC 下线（#2）；完整性改 <code>seq_lost</code>（#3）；</li>
+<li><code>mouse.py</code> mazetype 兜底不再写 7（#12）。</li>
+</ol>
+<p><strong>第三组：改说法（不改行为）</strong></p>
+<ol start="7">
+<li><code>MAZE STOP</code> 六处文案改写（#14）；</li>
+<li>文档/README/记忆里的权威来源改指 §9（#15）；</li>
+<li><code>check_iface_table.py</code> 删 <code>PullRequester</code> 登记（#11）。</li>
+</ol>
+<p><strong>明确不做的</strong>：</p>
+<ul>
+<li><strong>不碰上游源码</strong>（铁律：本层只消费不修改）；</li>
+<li><strong>不把删掉的字段塞回帧里</strong>（上游 §9 明说正确做法是"新增按需请求命令"，
+  不是"塞回每帧"）；若要找回 <code>fastwayCount</code>，应是<strong>给上游提需求</strong>，不是本层绕过；</li>
+<li><strong>不合并三个按钮</strong>（【停止并保存】/【收车】/【复位】语义仍不同，铁律 28 的结论不变，
+  只是【收车】的可靠性说明变了）。</li>
+</ul>
+<h4 id="_67">五、判据</h4>
+<blockquote>
+<p><strong>回填（改版二十三）</strong>：下表是方案时点的定义。实施时被用户拍板改写了四条 ——
+<strong>B43 并入 B34</strong>（哨兵 <code>mazeTask=6 ⇒ END</code> + 负向"已删通道不进静态表"）；
+<strong>B44 改为「地图预览 + 锁死终点」</strong>（原"负向 caps 少一路"的手法并进 B34 的哨兵机制）；
+<strong>I34 改为「终点锁死四格」</strong>（原"GOAL 走 <code>mazeTask==END</code>"被锁死常量取代）；
+<strong>I35 改为「JUNC 判据已下线」</strong>（原"断连文案 7 s"是纯文案修正，无独立判据，由
+文案与断言同改的纪律覆盖）。实际落地以 §11.25 §五 的判据表为准。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>守什么</th>
+<th>怎么验</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A0</strong>（既有）</td>
+<td>符号登记表里每个名字都已存在</td>
+<td><code>check_iface_table.py</code> ⇒ 必须回到 <strong>5 PASS / 0 FAIL</strong>（现状 4 PASS / 1 FAIL）</td>
+</tr>
+<tr>
+<td><strong>B43</strong>（新）</td>
+<td>界面<strong>不显示已删字段</strong>：<code>#mp-ch</code> 通道列表里不含 <code>pidErr</code>/<code>cellOdom</code>/<code>critL</code>/<code>irAdcF1</code> 等，<strong>且不含空壳</strong>；<code>mazeTask=6</code> 显示 <strong><code>END</code></strong> 而非 <code>6</code></td>
+<td><code>browser_check.py</code>：读 DOM 文本断言</td>
+</tr>
+<tr>
+<td><strong>B44</strong>（新）</td>
+<td><strong>负向</strong>：伪造 <code>caps.unified_channels</code> 少一路（如去掉 <code>battMv</code>）⇒ 通道表跟着少，<strong>不报错</strong>（证明是现取不是写死）</td>
+<td><code>browser_check.py</code> 临时改 <code>C.state.caps</code> 后重渲染</td>
+</tr>
+<tr>
+<td><strong>I34</strong>（新）</td>
+<td>记录的 <strong>GOAL 判定走 <code>mazeTask==END</code></strong>：喂一段"走到终点"的帧序列 ⇒ 产出 GOAL 事件；<strong>负向</strong>：<code>mazeTask</code> 一直是 <code>SEARCH</code> ⇒ 不产出</td>
+<td><code>drill.py --sim</code>（模拟器 v9 已能出 <code>END</code>？需核）</td>
+</tr>
+<tr>
+<td><strong>I35</strong>（新）</td>
+<td>断连文案是 <strong>7 s</strong>：断开后 3 s 时<strong>不</strong>报 <code>link_lost</code>、7 s 时报</td>
+<td><code>drill.py --sim</code> 断链注入</td>
+</tr>
+<tr>
+<td><strong>I9</strong>（既有）</td>
+<td>上游工作区干净</td>
+<td>现状 WARN（三上游各 51 处改动），属外部因素</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_68">六、待拍板的三个点</h4>
+<p>见 §12 的"未决项"新增段（<code>GOAL/JUNC</code> 的替代方案、<code>fastwayCount*</code> 的处置、<code>MAZE STOP</code>
+文案改写力度）。</p>
+<hr />
+<h3 id="1125">11.25 下线「无记忆走迷宫」+ 地图预览迁入比赛 + 终点锁死（改版二十三）</h3>
+<blockquote>
+<p>用户拍板三句：<strong>"无记忆走迷宫直接去掉，新版本没有这个东西了。其中关于地图预览的部分
+放在比赛中。终点位置锁死 (7,7)(7,8)(8,7)(8,8)，不需要传输数据了。完成全部任务。"</strong></p>
+</blockquote>
+<h4 id="_69">一、下线的边界：只下线界面，不下线后端能力</h4>
+<ul>
+<li><strong>理由</strong>：新基线（2.11 换 <code>code_competition</code>）只跑比赛跑法；BLIND 那套状态机 /
+  决策时间线 / 记录复盘 UI 不再维护 ⇒ 那张卡连同 <code>views/mod_maze8.js</code>（1425 行）
+  <strong>整页下线</strong>，<code>SYS_DEF.mouse.mods</code> 回到<strong>三卡</strong>（实时状态与参数设定 / 比赛 / 维护与自检）。</li>
+<li><strong>后端能力全保留</strong>：<code>maze/record/*</code>、<code>maze/decisions*</code>、<code>maze/reconstruct</code>、<code>maze/state</code>
+  端点一字不删 —— 比赛发车仍自动记录，脚本与判据还在用它们。</li>
+<li><strong>随页消失的三个控件不迁</strong>（决策历程【清空】/ 停止原因胶囊 / 网格尺寸选择）：
+  它们服务的是"趟一遍迷宫"那个过程，比赛页要的是"按地图冲一圈"。判据 B38 五件随之
+  收窄为两件 —— <strong>不给已下线的功能留空壳判据</strong>（如实）。</li>
+</ul>
+<h4 id="_70">二、终点锁死：不需要传输数据</h4>
+<ul>
+<li>v9 删 <code>goalX/goalY</code> ⇒ 帧里再没有终点信号；而比赛终点是<strong>赛道固定的中心 2×2 四格</strong>
+  （与跑法无关的赛道属性）⇒ 写成后端常量 <strong><code>maze_rec.GOAL_CELLS = ((7,7),(7,8),(8,7),(8,8))</code></strong>。</li>
+<li>同源链（铁律 32，一个元素一条来路）：<code>_GOAL_SET</code> 从常量派生；<code>GET /mouse/maze/reconstruct</code>
+  的 <code>goal_cells</code> 把它端出去；<code>MazeDecisions._is_goal()</code> 判 GOAL 用同一个集合；
+  前端 <code>C.parts.wallmap</code> <strong>只消费不重写</strong>。</li>
+<li>⚠️ <strong><code>END=6</code> 不是终点判据</strong>：<code>GucMouseTask=END</code> 只在 BLIND 路径赋值（<code>USER/test.c:1198</code>），
+  RACE 根本不进 <code>END</code> ⇒ §11.24 影响面 #1 原方案"GOAL 改走 <code>mazeTask==END</code>"<strong>不成立</strong>，
+  改锁死常量（U7 由此结案）。<code>END</code> 本身进码表（<code>END (6)</code>）只当"跑位收尾态"显示。</li>
+</ul>
+<h4 id="cpartswallmap">三、地图预览迁移（<code>C.parts.wallmap</code>，住在比赛卡里）</h4>
+<ul>
+<li><strong>只搬图</strong>：<code>GET /mouse/maze/reconstruct</code>（主机按帧重建，零上游调用）+ 固件墙图对账</li>
+<li>前墙档位三态；状态机 / 决策时间线 / 记录复盘 / 汇总<strong>没有</strong>跟过来。</li>
+<li>挂载：<code>mod_race</code> 的 <code>innerHTML</code> 之后 <code>C.parts.wallmap.mount(el)</code>；终点文字
+  <code>goalsText()</code> / <code>hasGoals()</code> 由 wallmap 端出，比赛卡状态行共用（不各写一份坐标表）。</li>
+<li><strong>缺数据不瞎画</strong>：没数据时画布写「未连接电脑鼠 / 还没有重建数据」，不画空网格冒充"没墙"；
+  端点不给 <code>goal_cells</code> 时写「后端没给终点区」，不臆造坐标。</li>
+</ul>
+<h4 id="ui">四、两个 UI 缺口随迁移补上（缺了就静默丢功能）</h4>
+<ol>
+<li><strong>【停止并保存】</strong>（<code>#rc-recstop</code> → <code>POST /mouse/maze/record/stop</code>，弹窗写<strong>完整路径</strong>）：
+   记录的"停止"没有权威信号（固件不发"迷宫结束"事件）⇒ 自动收尾只是弱判据，
+   <strong>人工兜底必须保留</strong>（铁律 28）。⚠️ 与【收车】/【复位】<strong>三按钮不合并</strong>；
+   它<strong>不门控</strong> —— 断链时记录器只置"该收尾"标记，落盘仍要有人推一把。</li>
+<li><strong>低电预检</strong>（<code>#rc-hint</code> ← <code>GET /mouse/launch_precheck</code>）：发车页现在是比赛卡 ⇒
+   预检跟过来；门控行合并"未连接"与"低电警告"（门控优先：连都没连上时说电池没意义）。</li>
+</ol>
+<h4 id="1124">五、判据（实际落地，取代 §11.24 §五 的方案定义）</h4>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>守什么</th>
+<th>怎么验</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>B24</strong>（改）</td>
+<td>入口页小车控制 <strong>3 卡</strong>（写死的数字跟改版走）</td>
+<td>卡片计数断言 4 → 3</td>
+</tr>
+<tr>
+<td><strong>B30</strong>（改）</td>
+<td>三卡模块真的挂上并有内容（<code>mod_params</code> / <code>mod_race</code> / <code>mod_maint</code>）</td>
+<td>控件清单去 m8 条目、补比赛卡与维护卡条目</td>
+</tr>
+<tr>
+<td><strong>B34</strong>（改）</td>
+<td>v9 存活通道逐行渲染；<code>mazeTask=6</code> 翻成 <strong><code>END</code></strong>；<strong>负向</strong>：已删通道不进静态分组表</td>
+<td>哨兵换 <code>trackR</code>/<code>irSwitch</code>；喂 <code>channels:[]</code> 把静态表画出来查残渣</td>
+</tr>
+<tr>
+<td><strong>B44</strong>（新）</td>
+<td>地图预览在比赛卡活着（画布真渲染 + 起点标记）；<strong>终点锁死四格</strong>（端点常量 / 画图入参 / <code>goalsText</code> 三处一致）；<strong>缺数据不瞎画</strong>；<strong>负向</strong>：不给 <code>goal_cells</code> ⇒ 写「后端没给终点区」</td>
+<td>真打一次 <code>/maze/reconstruct</code> 断 <code>goal_cells</code> + 拦 <code>C.api</code> 喂合成文档 + 钉 <code>C.draw.maze</code> 入参；<strong>不看帧 ⇒ <code>--sim</code> 不 SKIP</strong></td>
+</tr>
+<tr>
+<td><strong>B36</strong>（改）</td>
+<td>【停止并保存】【收车】【复位】按钮 + 低电门控两面（warn 摆出实测电压 / ok 时行空）</td>
+<td>宿主迁比赛卡；<code>rc-recstop</code> <strong>不门控</strong>断言</td>
+</tr>
+<tr>
+<td><strong>B37</strong>（改）</td>
+<td>前墙近/远两档 + 恒等式当场自校验；<strong>负向①</strong>老上游形状写「—」不许画"无墙"；<strong>负向②</strong>矛盾档必须报「对不上」</td>
+<td>拦 <code>/maze/state</code> 喂合成状态；<code>--sim</code> 仍 SKIP（真帧冲假状态）</td>
+</tr>
+<tr>
+<td><strong>B38</strong>（改）</td>
+<td>「救援」→「复位」（页内 + 设备窗口）；停止并保存弹窗写<strong>完整路径</strong></td>
+<td>五件收窄为两件；钉数据手法 ⇒ 不再需要 <code>--sim</code> SKIP</td>
+</tr>
+<tr>
+<td><strong>I34</strong>（新）</td>
+<td><strong>终点锁死</strong>：常量就是四格、<code>_GOAL_SET</code> 同源、routes 端的是同一个对象、GOAL 只报首次；<strong>负向</strong>：不进终点区不误报</td>
+<td><code>drill.py</code> 纯函数（无需设备）</td>
+</tr>
+<tr>
+<td><strong>I35</strong>（新）</td>
+<td><strong>JUNC 判据已下线</strong>：喂岔路形状帧序列不产出 JUNC；代码无 <code>stackIdx</code> 引用（不许留永不触发的残渣）</td>
+<td><code>drill.py</code> 纯函数（无需设备）</td>
+</tr>
+<tr>
+<td><strong>I36</strong>（新）</td>
+<td><strong>完整性退化为本机 <code>seq_lost</code> 差量</strong>：代码无 <code>dropCnt</code> 引用；差量 0→3 报丢、3→3 不误报；<strong>三态</strong>：没注入取数 ⇒ delta=<code>None</code>（不是 0）；计数器中途清零也判不完整</td>
+<td><code>drill.py</code> 纯函数（无需设备）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_71">六、如实标注</h4>
+<ul>
+<li>记录的<strong>自动收尾仍是弱判据</strong>（三个条件各判各的）；跑长了仍要人点【停止并保存】。</li>
+<li><code>fastwayCount*</code> 仍不可得（<code>PATHPLAN</code> 事件没落地，§11.24 §三.4）⇒ 界面如实标"上游暂不可得"。
+  <code>dropCnt</code> 的退化<strong>已落地</strong>（§11.24 第二组 #3）：完整性 <code>drop_seen</code> 改按<strong>上位机本地</strong>
+  <code>stats()["seq_lost"]</code>/<code>bad_crc</code> 的<strong>差量</strong>算（<code>maze_rec._probe_losses</code>，判据 I36）——
+  语义比设备计数<strong>窄一圈</strong>（只回答"主机少收到了几条"，分不清设备没发还是链路没送），
+  文案不冒充设备计数；<code>seq_lost_delta</code> 为 <code>None</code> 是"没探到"，<strong>不等于 0</strong>。
+  <code>stackIdx</code> 彻底消失 ⇒ JUNC 下线。</li>
+<li>接口对照表里 <code>MAZE RUN [BLIND|RACE]</code> 的说明<strong>保留</strong>（命令还收 BLIND）；只是界面
+  只剩 RACE 入口（想跑 BLIND 走脚本/串口）。</li>
+</ul>
+<hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>
 <thead>
@@ -5720,6 +6174,24 @@ I33 只验"后端把副作用声明端出来了"，墙图真被换掉这件事<s
 <td>是否需要把 <code>Control</code> 的会话目录也做成"可被别的程序消费"的接口（像 PhoneCamera 那样）</td>
 <td>影响是否要提前做 <code>capabilities</code> 声明</td>
 <td>建议<strong>不提前做</strong>；等真有第二个消费者再加</td>
+</tr>
+<tr>
+<td>U7</td>
+<td><strong>GOAL 判定改走 <code>mazeTask == 6 (END)</code></strong>：上游 v9 删了 <code>goalX/goalY</code>，原来"格坐标等值"的判据失效</td>
+<td>记录里 GOAL 事件完全消失（静默）</td>
+<td><strong>已结案（改版二十三）</strong>：核实 <code>END</code> 只在 BLIND 路径赋值（<code>USER/test.c:1198</code>，<code>if (mazeBlind)</code>，<code>#ifdef MOUSE_REMOTE</code> 内；<code>:1177</code> 是注释掉的老代码）⇒ RACE 不进 <code>END</code>，"GOAL 改走 END"<strong>不成立</strong>。改判<strong>终点锁死四格</strong>常量 <code>maze_rec.GOAL_CELLS</code>（§11.25 §二）；<code>END (6)</code> 只进码表当"跑位收尾态"显示</td>
+</tr>
+<tr>
+<td>U8</td>
+<td><strong>JUNC（岔路栈）判据的替代</strong>：<code>stackIdx</code> 已删，且上游 10-16 起就恒 0</td>
+<td>该记录判据已两周形同虚设</td>
+<td><strong>已结案（改版二十三）</strong>：JUNC 判据<strong>直接下线</strong>并如实标注"上游无岔路栈"，不用别的量凑形似替代（铁律 35）；判据 I35 守"不产出 + 无残渣"两面</td>
+</tr>
+<tr>
+<td>U9</td>
+<td><strong><code>fastwayCount</code> / <code>fastwayCount90</code> / <code>dropCnt</code> 的召回路径</strong>：上游方案指了 <code>PATHPLAN</code> 事件与低频诊断通道，但<strong>都没落地</strong></td>
+<td>界面上三项永远是"—"</td>
+<td><strong>部分结案（改版二十三）</strong>：<code>fastwayCount*</code> 如实标"上游暂不可得"并向上游提需求（本层不绕过、不塞回帧）；<code>dropCnt</code> <strong>已退化</strong>为本机 <code>stats()["seq_lost"]</code>/<code>bad_crc</code> 差量（<code>maze_rec._probe_losses</code>，判据 I36），语义窄一圈、<code>None</code> ≠ 0（§11.25 §六）</td>
 </tr>
 </tbody>
 </table>

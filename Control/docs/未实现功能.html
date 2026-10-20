@@ -128,8 +128,8 @@ li{margin:.28em 0}
 <tr>
 <td>小车控制</td>
 <td>实验 8 · 无记忆走迷宫</td>
-<td><strong>可用</strong>（真机未验证）</td>
-<td><strong>三栏</strong>：<code>GET /api/v1/mouse/maze/reconstruct</code>（<strong>中栏重构示意</strong>，零上游调用）、<code>GET /api/v1/mouse/maze/state</code>、<code>GET /api/v1/mouse/maze/history</code>、<code>GET /api/v1/mouse/maze/summary</code>、<code>POST /api/v1/mouse/maze/reset</code>、<code>GET /api/v1/mouse/maze</code>（固件墙图，对账用）。<strong>记录与复盘</strong>：<code>POST …/maze/record/start｜stop</code>、<code>GET …/maze/record</code>、<code>GET …/maze/records[/{name}]</code>、<code>POST …/maze/records/import</code>。⚠️ 2.0.0 删了 <code>maze/events</code> 与 <code>maze/snap</code>：<strong>迁移序列改由主机差分相邻帧</strong>取得</td>
+<td><strong>界面已下线</strong>（改版二十三）</td>
+<td>「无记忆走迷宫」卡<strong>整页下线</strong>（<code>mod_maze8.js</code> 已删，新基线只跑比赛跑法）；<strong>地图预览迁入「比赛」卡</strong>（<code>C.parts.wallmap</code>：<code>GET …/maze/reconstruct</code> + 终点锁死四格 <code>goal_cells</code>）。<strong>后端能力全保留</strong>：<code>GET …/maze/reconstruct｜state｜history｜summary</code>、<code>POST …/maze/reset</code>、<code>GET/POST …/maze/record/*</code>、<code>GET …/maze/decisions*</code>、<code>GET …/maze</code>（固件墙图对账）—— 脚本/逃生舱仍可用。⚠️ 2.0.0 删了 <code>maze/events</code> 与 <code>maze/snap</code>：<strong>迁移序列改由主机差分相邻帧</strong>取得</td>
 </tr>
 <tr>
 <td>相机</td>
@@ -164,14 +164,15 @@ li{margin:.28em 0}
 </tbody>
 </table>
 <blockquote>
-<p>「实验 8」标注<strong>真机未验证</strong>：状态机回传是上游 1.5.5 新加的，上游自己列了 6 项真机待办
+<p>迷宫记录（原「实验 8」，真机未验证）：状态机回传是上游 1.5.5 新加的，上游自己列了 6 项真机待办
 （路口判定与现场是否一致、<code>EVQ</code> 是否为 0 等）。模拟器上<strong>帧 + 差分序列</strong>全通（判据 I23）。
 ⚠️ 2.0.0 起 <code>classify_road()</code> 由<strong>主机侧复刻</strong>（固件不再上报路口分类），所以
-"路口判定与现场是否一致"这件事现在多了一层：<strong>要看主机复刻得对不对</strong>。</p>
-<p>⚠️ <strong>「实验 8」的自动收尾是弱判据</strong>（如实标注，不假装通过）：固件<strong>没有"迷宫结束"事件</strong>
+"路口判定与现场是否一致"这件事现在多了一层：<strong>要看主机复刻得对不对</strong>。
+⚠️ <strong>记录的自动收尾是弱判据</strong>（如实标注，不假装通过）：固件<strong>没有"迷宫结束"事件</strong>
 （<code>MAZE RUN</code> 之后一直处于迷宫态）⇒"从发车到停止"里的<strong>"停止"没有权威信号</strong>，
 只能组合弱判据（<code>STOPPED</code> 事件 / 任务机回到 WAIT 持续 N 秒 / 断链 / 帧数上限）。
-⇒ 界面上<strong>必须有【停止并保存】人工兜底</strong>，且这一点写在界面文案里。
+⇒ 界面上<strong>必须有【停止并保存】人工兜底</strong>（现在挂在「比赛」卡上，且<strong>不门控</strong>），
+且这一点写在界面文案里。
 ⚠️ 2.1.1 / 2.2.0 起"收尾"多了两个<strong>正经动作</strong>（【收车】<code>MAZE STOP</code> / 【复位】<code>MCU RESET</code>），
 但它们是<strong>动车</strong>、不是存盘，所以与【停止并保存】<strong>分成三个按钮</strong>，不合并。</p>
 </blockquote>

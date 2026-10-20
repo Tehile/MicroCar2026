@@ -317,11 +317,25 @@ C.draw = (function () {
       g.stroke();
     }
 
-    // ---- 目标格（决策结果：它认为该去哪儿）
-    if (o.goal && o.goal[0] != null) {
-      const p = mid(o.goal[0], o.goal[1]);
+    // ---- 终点区（**锁死的固定格**，不是帧里的量）
+    //
+    // 上游 v9 把 `goalX/goalY` 整字节删了（§11.24 影响面 #1），终点也不再有帧内信号。
+    // 而比赛的终点本来就是**赛道固定的中心 2×2 四格** ⇒ 由调用方传常量进来
+    // （`o.goals`，见 `part_wallmap.js` 的 `GOAL_CELLS`），不从数据里猜。
+    // ⚠️ 画**整格**（淡底 + 外框），不是一个圆点：四格是一个"区"，
+    //   画成点会让人以为只有某一格算终点，从而误判"还没到"。
+    // ⚠️ 越界的格**不画**（`mazetype` 不是 16 时 (8,7)/(8,8) 不存在）——
+    //   宁可少画，也不把一格画到画布外面去。
+    if (o.goals && o.goals.length) {
       g.strokeStyle = '#38d17a'; g.lineWidth = 2;
-      g.beginPath(); g.arc(p[0], p[1], cs * 0.26, 0, Math.PI * 2); g.stroke();
+      for (let i = 0; i < o.goals.length; i++) {
+        const gx = o.goals[i][0], gy = o.goals[i][1];
+        if (gx == null || gy == null) continue;
+        if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+        g.fillStyle = 'rgba(56,209,122,.16)';
+        g.fillRect(PX(gx), PY(gy), cs, cs);
+        g.strokeRect(PX(gx) + 1, PY(gy) + 1, Math.max(1, cs - 2), Math.max(1, cs - 2));
+      }
     }
 
     // ---- 墙：实线=有墙 / 虚线=不知道 / 不画=确认通

@@ -257,14 +257,19 @@ C.parts.maint = (function () {
 
   /* ------------------------------------------------------------ 门控 */
   /* 车在跑时固件一律 `ERR_BUSY` ⇒ 事先别让他点。
-     ⚠️ 判据取 `mazeTask >= 2`（SEARCH 起）：上游码表 `0=WAIT / 1=START / 2=SEARCH…`，
-     `START` 只是发车那一瞬的过渡态，把它算成"在跑"会让整块在待机时也点不动。
-     **这条阈值必须与后端同源** ——`routes.py` 的 `_maze_decisions` 里
-     `run = int(task) >= 2`（注释原文：0 WAIT / 1 START 是待命），`mod_maze8.js` 的
-     `runState()` 也按这一条判。三处是同一个判据，改一处就要一起改。 */
+     ⚠️ 判据取 **`2 <= mazeTask <= 5`**（SEARCH / SPURT / SPURT45 / SPURT90），两个边界都要看：
+       · **下界** 不含 `0=WAIT` / `1=START`：`START` 只是发车那一瞬的过渡态，
+         把它算成"在跑"会让整块在待机时也点不动；
+       · **上界** 不含 `6=END`：那是上游 2.11 换基线时新增的**跑位收尾态**
+         （固件已进 `maze_done`），车已经不动了。只写 `>= 2` 会把"跑完待收尾"
+         当成"还在跑" ⇒ 这一块永远点不动，而 `END` 恰恰是**最该能操作**的时候
+         （要清发车状态、要擦路径）。
+     **这条阈值必须与后端同源** —— `routes.py` 的 `_maze_decisions` 里
+     `run = 2 <= task <= 5`（注释原文：0 WAIT / 1 START 是待命、6 END 是收尾）。 */
   function busyWhy() {
     const u = ((C.state || {}).telemetry || {}).unified;
-    if (u && Number(u.mazeTask) >= 2) return '车正在跑迷宫，先点【收车】，等它停稳';
+    const t = Number(u && u.mazeTask);
+    if (u && t >= 2 && t <= 5) return '车正在跑迷宫，先点【收车】，等它停稳';
     return null;
   }
 

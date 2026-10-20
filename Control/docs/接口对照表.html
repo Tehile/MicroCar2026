@@ -395,7 +395,7 @@ li{margin:.28em 0}
 <td><code>POST /api/v1/timesync/maze_run</code></td>
 <td>A</td>
 <td><code>TimeSyncAPI.maze_run</code></td>
-<td>远程发车跑迷宫。<strong>2.4.0 起可带 <code>{"target":"BLIND"\|"RACE"}</code></strong>：<code>BLIND</code>（默认，省略目标词）= 无记忆走迷宫；<code>RACE</code> = 读 Flash 地图选档/定冲刺后跑。⚠️ 老上游不认 <code>target</code> ⇒ 传 <code>RACE</code> 回 <strong>400</strong>（不是 500）</td>
+<td>远程发车跑迷宫。<strong>2.4.0 起可带 <code>{"target":"BLIND"\|"RACE"}</code></strong>：<code>BLIND</code>（默认，省略目标词）= 无记忆走迷宫（<strong>界面只剩 RACE 入口</strong>，想跑 BLIND 走脚本/逃生舱 —— 改版二十三）；<code>RACE</code> = 读 Flash 地图选档/定冲刺后跑。⚠️ 老上游不认 <code>target</code> ⇒ 传 <code>RACE</code> 回 <strong>400</strong>（不是 500）</td>
 </tr>
 <tr>
 <td>（帧时间换算，内部）</td>

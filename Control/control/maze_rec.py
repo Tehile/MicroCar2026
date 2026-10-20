@@ -47,8 +47,9 @@
   跑完那一刻才碰巧命中。
   ⚠️ 2.1.1 / 2.2.0 起"收尾"多了两个**正经动作**，但它们是**动车**、不是存盘，
   所以各自独立成按钮，**不并进本记录器**：
-    · 【收车】`MAZE STOP` —— 停车 + 复位发车状态 + 解锁急停（**车在运动时不可靠**）；
-    · 【复位】`MCU RESET` —— 整机软复位（可靠，但复位不复位物理位置）。
+    · 【收车】`MAZE STOP` —— 停车 + 复位发车状态 + 解锁急停
+      （2026-10-16 上游修好：正常 0.2~1 s 退出，爬不出来则 2 s 后固件自己软复位）；
+    · 【复位】`MCU RESET` —— 整机软复位（连不上/卡死时用它；不复位物理位置）。
   ⇒ 记录器只管"把已经收到的东西存下来"，**不主动发任何命令**：
     这样"车还在跑时先把已收到的存一份"这件事才成立（现场真的需要）。
 
@@ -67,7 +68,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 #: 落盘格式号。**改结构就要改它** —— 导入端按它判断能不能读。
 #: 为什么要个格式号：这个文件是要**跨时间**用的（今天的记录明天复盘、甚至换机器），
@@ -112,6 +113,18 @@ _STEP = {0: (0, -1), 1: (1, 0), 2: (0, 1), 3: (-1, 0)}
 #: 反向。用于"这道墙的另一面属于邻居格"。
 _OPP = {0: 2, 1: 3, 2: 0, 3: 1}
 
+#: 比赛终点区 —— 赛道固定的**中心 2×2 四格**（16×16 迷宫 ⇒ 索引 7 / 8）。
+#:
+#: ⚠️ 为什么是常量而不是从帧里读：上游 v9 把 `goalX` / `goalY` 整字节删了
+#: （`RemoteControl/docs/通信协议规格.md` §9），终点在帧里**没有任何信号**。
+#: 而终点位置本来就是**赛道属性**（由场地决定），不是设备状态 ⇒ 写在唯一一处，
+#: 由 `GET /mouse/maze/reconstruct` 的 `goal_cells` 端给界面。
+#: ⚠️ 前端**不许**自己再写一份同值的数组（铁律 32：一个元素只许一条真相来路）——
+#: 两份各写一个坐标表 = "图上标了一个区、记录里认另一个区"的静默分裂。
+#: ⚠️ 换赛道 = 只改这里；判据 I34 直接比对"记录判据用的集合"与"端点端出去的"。
+GOAL_CELLS: Tuple[Tuple[int, int], ...] = ((7, 7), (7, 8), (8, 7), (8, 8))
+_GOAL_SET = frozenset(GOAL_CELLS)
+
 
 def _i(v: Any, default: int = 0) -> int:
     try:
@@ -130,7 +143,13 @@ class MazeWallMap:
     必须长得不一样（同本层的三态纪律：判不了 ≠ 不通过）。
     """
 
-    def __init__(self, n: int = 7) -> None:
+    #: 兜底边长。上游 2.11 换基线后迷宫 **7 → 16**（`MAP` 帧自适应）。
+    #: ⚠️ 这只是"调用方没给尺寸时"的默认值；**真实尺寸永远取设备上报的 `mazetype`**
+    #: （`mouse.maze_reconstruct` / `mouse.maze.mazetype()`）。给不出尺寸时
+    #: `mouse.py` 的兜底是"不建图 + 如实报 None"，不是猜一个 7（那会画出错尺寸的图）。
+    DEFAULT_N = 16
+
+    def __init__(self, n: int = DEFAULT_N) -> None:
         self.n = int(n)
         self.reset()
 
@@ -272,15 +291,19 @@ class MazeDecisions:
     | `ROAD` | 路口分类变化，**仅 `task==SEARCH`** 且**连续 2 帧一致** | §4（固件只在决策态评估 + 20 ms 去抖） |
     | `TURN` | `motionTask` 进转弯类码 | `MOTION_TASK_NAMES`（当年 `MAZE EV TURN`） |
     | `STRAIGHT` | `motionTask` 进直行类码 | **本层加的**，当年事件流没有这一条 |
-    | `JUNC` | `stackIdx` 变化（岔路栈深度） | 当年 `MAZE EV JUNC <stack>` |
     | `CELL` | `(posX,posY)` 变化 | 当年 `MAZE EV CELL`（**默认关**，因为量最大） |
     | `HEAD` | `dir` 变化 | 帧里的 `dir`；"朝向变了"是**事实**，与"转向动作"不是一回事 |
-    | `GOAL` | `posX==goalX && posY==goalY` **首次**为真 | §4「终点判定」 |
+    | `GOAL` | `(posX,posY)` 进 **`GOAL_CELLS`**（赛道固定的中心 2×2）**首次** | 赛道属性，见常量注释 |
 
-    ⚠️ `GOAL` 的判据**比固件窄**：固件的判据是"落在**两个**目标格（起/止）的并集里"
-    （`(x==xGoal0||x==xGoal1) && (y==yGoal0||y==yGoal1)`），而统一帧只给了一对
-    `goalX/goalY` ⇒ 主机这边只能做等值判定。所以它报的是"**进入了它认为的那个目标格**"，
-    不是"固件的终点区判定为真"。这处差异如实记在报告里，不假装一致。
+    ⚠️ **`JUNC` 已下线（改版二十三）**：它原本靠 `stackIdx`（岔路栈深度）变化触发，
+    而上游换基线那轮就明说"新固件无全局岔路栈索引 ⇒ 恒 0"，v9 顺手把那个恒 0 的字节
+    也删了 ⇒ 判据 `st != prev` **恒假**，那条事件其实已经两周没产出过（因为取不到时
+    `_i(...,0)` 让它安静地永不触发，没人发现）。⇒ 直接摘掉，**不拿别的量凑一个形似的
+    替代**（铁律 35）。要恢复得等上游真端出岔路信息。
+
+    ⚠️ **`GOAL` 现在不读任何帧字段**：v9 删了 `goalX/goalY`，原来"posX==goalX"的等值
+    判定会静默失效（`_i(...,-2)` 恒 −2）。终点是**赛道属性**（由场地决定、与跑法无关）
+    ⇒ 写成常量 `GOAL_CELLS`，口径与界面那张图**同一处来源**（端点端出去）。
 
     ## 码表从外面注入
 
@@ -329,7 +352,6 @@ class MazeDecisions:
         x, y = _i(rec.get("posX"), 0), _i(rec.get("posY"), 0)
         d = _i(rec.get("dir"), 0)
         mo = _i(rec.get("motionTask"), 0)
-        st = _i(rec.get("stackIdx"), 0)
         out: List[Dict[str, Any]] = []
         p = self._prev
 
@@ -386,11 +408,6 @@ class MazeDecisions:
         if mo != self._motion:
             self._motion = mo
 
-        # ---- JUNC：岔路栈深度变化（当年 `MAZE EV JUNC <stack>`）
-        if st != _i(p.get("stackIdx"), 0):
-            out.append(self._mk(t_ms, "JUNC", stack=st, prev=_i(p.get("stackIdx"), 0),
-                                road=(self._road or ""), x=x, y=y, dir=d))
-
         # ---- CELL：进入新格（当年 `MAZE EV CELL <x> <y> <dir>`）
         if (x, y) != (_i(p.get("posX"), 0), _i(p.get("posY"), 0)):
             out.append(self._mk(t_ms, "CELL", x=x, y=y, dir=d))
@@ -399,11 +416,12 @@ class MazeDecisions:
         if d != _i(p.get("dir"), 0):
             out.append(self._mk(t_ms, "HEAD", dir=d, prev=_i(p.get("dir"), 0), x=x, y=y))
 
-        # ---- GOAL：首次进入它认为的目标格（**只报一次**）
+        # ---- GOAL：首次进入终点区（**只报一次**）
+        # ⚠️ 判据是常量（`GOAL_CELLS`），不读帧里的 `goalX/goalY` —— 那两个字节
+        #    v9 已删，读出来恒 0（详见常量注释）。
         g = self._is_goal(rec)
         if g and not self._at_goal:
-            out.append(self._mk(t_ms, "GOAL", x=x, y=y,
-                                goalX=_i(rec.get("goalX"), 0), goalY=_i(rec.get("goalY"), 0)))
+            out.append(self._mk(t_ms, "GOAL", x=x, y=y))
         self._at_goal = g
 
         self._prev = rec
@@ -446,13 +464,15 @@ class MazeDecisions:
         self._road = nm if task == 2 else None
 
     def _is_goal(self, rec: Dict[str, Any]) -> bool:
-        """是否在**它认为的**目标格。
+        """是否在**终点区**里（赛道固定的中心 2×2 四格，见 `GOAL_CELLS`）。
 
-        ⚠️ 比固件窄：固件是"两个目标格（起/止）的并集"，帧只给一对 `goalX/goalY`
-        ⇒ 只能等值判定（见类 docstring）。
+        ⚠️ 历史：v9 之前这里读帧里的 `goalX/goalY` 做等值判定。v9 把那两个字节删了
+        ⇒ `_i(..., -2)` 恒 −2、永不等于 `posX` ⇒ GOAL 事件**静默消失**（不报错、
+        只是少一类记录）。现在判据**不依赖任何帧字段**，位置取不到时按"不在终点"处理。
         """
-        return (_i(rec.get("posX"), -1) == _i(rec.get("goalX"), -2)
-                and _i(rec.get("posY"), -1) == _i(rec.get("goalY"), -2))
+        x = _i(rec.get("posX"), -1)
+        y = _i(rec.get("posY"), -1)
+        return (x, y) in _GOAL_SET
 
     def _mk(self, t_ms: int, kind: str, **kw: Any) -> Dict[str, Any]:
         d: Dict[str, Any] = {"t_ms": int(t_ms), "kind": kind}
@@ -494,9 +514,13 @@ class MazeRecorder:
     MAX_FRAMES = 200_000
 
     def __init__(self, root: Path, get_channels=None,
-                 codes: Optional[Dict[str, Any]] = None) -> None:
+                 codes: Optional[Dict[str, Any]] = None,
+                 get_link_stats=None) -> None:
         self.root = Path(root)
         self._get_channels = get_channels or (lambda: [])
+        # 完整性差量的取数（可缺）：回**上位机本地**链路统计 dict（含
+        # `seq_lost` / `bad_crc`）。为什么必须从外面拿，见 `_probe_losses`。
+        self._get_link_stats = get_link_stats
         self._lock = threading.RLock()
         self._rec: Optional[Dict[str, Any]] = None      # 在记的一段（None = 没在记）
         self.start_ms: Optional[int] = None
@@ -550,6 +574,44 @@ class MazeRecorder:
             self._dec_t0 = None
             self._dec_t0_kind = "rx"
             self._dec_prev_ms = None
+
+    # ------------------------------------------------------------ 完整性（本机丢帧计数）
+
+    def _probe_losses(self) -> Optional[Dict[str, Optional[int]]]:
+        """读**上位机本地**的丢帧计数（`stats()["seq_lost"]` / `bad_crc`）。
+
+        ⚠️ 这**不是**设备侧的 `dropCnt`（TX 环写失败计数）—— 上游 v9 已删那个通道，
+        召回路径（低频诊断）也没落地，现在真拿不到。本机这份是**按 seq 缺口推算的
+        上行丢失条数**（帧 + 事件共用一个 1 字节序号，见上游 `model/ring.py`），
+        语义比设备计数**窄一圈**：分不清"设备没发出来"与"链路没送到"，
+        只回答"主机少收到了几条"。**不冒充设备计数**（§11.24 第二组 #3）。
+
+        ⚠️ 为什么不在 `feed()` 里自己比帧 seq：事件行与帧**共用**同一计数器，
+        中间还夹着 TEXT/PONG 等上行消息 —— 记录器只见其中两类，自己比会把
+        "正常的交织"误报成丢帧。上游 `stats()["seq_lost"]` 是唯一把**全部**上行
+        消息都算进去的计数（铁律 32：一个量只许一条真相来路）。
+
+        取不到（没注入 / 没连接 / 上游没这个键）回 `None` —— **没探到 ≠ 没丢**。
+        """
+        fn = self._get_link_stats
+        if fn is None:
+            return None
+        try:
+            st = fn()
+        except Exception:                                    # noqa: BLE001
+            return None
+        if not isinstance(st, dict):
+            return None
+        out: Dict[str, Optional[int]] = {}
+        for k in ("seq_lost", "bad_crc"):
+            v = st.get(k)
+            try:
+                out[k] = None if v is None else int(v)
+            except (TypeError, ValueError):
+                out[k] = None
+        if out["seq_lost"] is None and out["bad_crc"] is None:
+            return None
+        return out
 
     # ------------------------------------------------------------ 纪元（一段的边界）
 
@@ -666,7 +728,9 @@ class MazeRecorder:
                 "left_wait": False,     # 见 AUTO_END_S 的说明
                 "wait_since_ms": None,
                 "evq_seen": False,
-                "drop_seen": False,
+                # 这一段开头的**本机**丢帧计数快照（v9 起设备侧 `dropCnt` 没了）。
+                # 收尾时再读一次做差量 —— 见 `_probe_losses`。取不到就是 None。
+                "drop_base": self._probe_losses(),
                 "auto_end": None,
             }
             return {"ok": True, "started_ms": self.start_ms, "fresh_epoch": True}
@@ -735,11 +799,12 @@ class MazeRecorder:
                 # 用后者会让时间轴开头凭空多出一段空白。
                 self.start_ms = now_ms
             frames.append((now_ms, rec, (None if t_dev_ms is None else int(t_dev_ms))))
-            # ---- 完整性：EVQ 与 dropCnt 要**如实记**（不是告警，是"这段数据完不完整"）
+            # ---- 完整性：EVQ 要**如实记**（不是告警，是"这段数据完不完整"）。
+            # ⚠️ 丢帧**不在这里逐帧读**：设备侧的 `dropCnt` v9 已删（召回也没落地），
+            #    改在收尾时按**本机** `seq_lost` 差量算 —— 语义与不自己比 seq 的
+            #    理由都写在 `_probe_losses` 的 docstring 里。
             if rec.get("evq"):
                 r["evq_seen"] = True
-            if _i(rec.get("dropCnt"), 0):
-                r["drop_seen"] = True
             # ---- 决策：这一段自己的差分器（**绝对毫秒**，落盘时再减零点）
             # ⚠️ **不在常驻环里顺手切片**是有意的：常驻环的零点是"开始收到帧"，
             #    与这一段的零点不同（差着发车前的那些帧）⇒ 用环去凑会整体错位。
@@ -873,6 +938,8 @@ class MazeRecorder:
             "end_why": why, "auto_end": r.get("auto_end"),
             "tiny": doc["integrity"]["tiny"],
             "evq_seen": doc["integrity"]["evq_seen"],
+            "drop_seen": doc["integrity"]["drop_seen"],
+            "seq_lost_delta": doc["integrity"]["seq_lost_delta"],
             "decisions": len(doc.get("decisions") or []),
         }
         with self._lock:
@@ -1009,6 +1076,23 @@ class MazeRecorder:
         except Exception:                                     # noqa: BLE001
             has_codes = bool(self._codes)
 
+        # ---- 完整性：`drop_seen` 按**本机**丢帧计数的**差量**算（不是设备计数）。
+        # 语义窄一圈与"不自己比 seq"的理由见 `_probe_losses`。
+        base = r.get("drop_base")
+        now = self._probe_losses()
+
+        def _dlt(key: str) -> Optional[int]:
+            b = (base or {}).get(key)
+            n = (now or {}).get(key)
+            if b is None or n is None:
+                return None          # 没探到 ≠ 没丢（三态：None 就是 None，不编 0）
+            return int(n) - int(b)
+
+        d_lost, d_crc = _dlt("seq_lost"), _dlt("bad_crc")
+        # 差量 ≠ 0 就是这段数据不完整：>0 丢了；<0 是计数器中途被清零（链路重开过）
+        # ⇒ 上行流断过，同样不完整。
+        drop_seen = any(d is not None and d != 0 for d in (d_lost, d_crc))
+
         doc: Dict[str, Any] = {
             "format": FORMAT,
             "created_ms": end_ms,
@@ -1036,7 +1120,12 @@ class MazeRecorder:
                 "frames": len(frames),
                 "t0_pc_ms": t0,
                 "evq_seen": bool(r.get("evq_seen")),
-                "drop_seen": bool(r.get("drop_seen")),
+                # 本机口径（§11.24 第二组 #3）：seq 缺口推算的上行丢失，语义比
+                # 设备计数窄一圈。`seq_lost_delta`/`bad_crc_delta` 为 None =
+                # 没探到（≠ 0），别当"没丢"读。
+                "drop_seen": drop_seen,
+                "seq_lost_delta": d_lost,
+                "bad_crc_delta": d_crc,
                 "tiny": len(frames) < MIN_FRAMES,
                 "decisions": len(dec),
             },

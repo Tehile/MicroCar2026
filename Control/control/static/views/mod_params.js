@@ -97,8 +97,8 @@ C.mods.mod_params = (function () {
      标在行上，因为现场对着上游文档查字段时，能对得上的只有键名。
 
      ⚠️ 单位只写**上游明确标过**的那些（`link.h` 的 `LINK_U_*` 注释 / 设计方案 §4 表）：
-       speedL/R = cm/s、trackL/trackR/cellOdom = mm、ir* = mm、battMv = mV、ms8 = ms。
-       `gyroAngle` / `encAngle` / `pidErr` 上游**没标单位** ⇒ 这里也**不臆造**一个
+       speedL/R = cm/s、trackL/trackR = mm、ir* = mm、battMv = mV、ms8 = ms。
+       `gyroAngle` / `encAngle` 上游**没标单位** ⇒ 这里也**不臆造**一个
        （写错的单位比没有单位更坏：现场会拿它去换算）。
      第 3、4 项分别是单位与小数位，省略即"无单位 / 整数"。
 
@@ -107,44 +107,49 @@ C.mods.mod_params = (function () {
      （现场调参时要知道"前墙现在算的是近端还是远端"）；「比赛」页负责解释它们。
      ⚠️ **恒等式**：`frontNear | frontFar == wallFront`，且二者互斥（码表 0=无墙 /
      1=近端（贴脸）/ 2=远端（提前量））。分组里把它俩并排放在 `wallFront` 旁边，
-     就是为了让这个恒等式在界面上一眼可比 —— 对不上就是固件那一档的判断出问题了。 */
+     就是为了让这个恒等式在界面上一眼可比 —— 对不上就是固件那一档的判断出问题了。
+
+     ## v9（上游 2.12.0）删掉的 20 个通道：表里也一并删掉（改版二十三）
+     协议 v9 把统一帧 49 → 30 B，删了 20 个通道。这里**跟着删**而不是留着一排"—"：
+     这些键不在流里、`liveGroups()` 本来也不会画（它只画流里真有的），留着就是死代码；
+     而"死代码留在表里"的坏处是：下次有人看到 `['goalX','目标 X']` 会以为"这个量能读，
+     只是没数据"，从而去查一个**已经不存在的字段**。
+     删掉的：`pidErr` `motionStep` `cellOdom` `goalX` `goalY` `stackIdx`
+     `fastwayCount` `critL` `critR` `left45` `right45` `wallThresh` `fastwayCount90`
+     `irAdcF1/F2/L/R` `dropCnt`。
+     ⚠️ **终点（`goalX/goalY`）不是"暂时读不到"**：它是**赛道固定的中心 2×2 四格**，
+     现在由「比赛」页的地图与状态行报（后端常量 `maze_rec.GOAL_CELLS`），不从帧读。
+     ⚠️ `irSwitch` **不是删了，是换了语义**：老固件那个字节是 `DUMPING`（恒 0），
+     v9 起表示"**红外采样在跑**"—— 为 0 = 本拍跳过 `getdistance()`，
+     也就是"这一段为什么没有墙数据"的**唯一帧内证据**。所以它留在表里、只改标签。 */
   const CH_GROUPS = [
     { name: '运动与姿态', keys: [
       ['speedL', '左轮速', ' cm/s', 1], ['speedR', '右轮速', ' cm/s', 1],
-      ['pidErr', '控制误差'],
       ['gyroAngle', '陀螺角'], ['encAngle', '编码器角'],
-      ['motionTask', '动作'], ['motionStep', '动作步'], ['dir', '朝向'],
+      ['motionTask', '动作'], ['dir', '朝向'],
     ] },
     { name: '里程与位置', keys: [
       ['trackL', '左里程', ' mm', 0], ['trackR', '右里程', ' mm', 0],
-      ['cellOdom', '格内里程', ' mm', 0],
       ['posX', '位置 X'], ['posY', '位置 Y'],
-      ['goalX', '目标 X'], ['goalY', '目标 Y'],
-      ['stackIdx', '岔路栈'], ['fastwayCount', '路径动作计数'],
     ] },
     { name: '迷宫判定', keys: [
       ['mazeTask', '迷宫任务'],
       ['wallLeft', '墙·左'], ['wallFront', '墙·前'], ['wallRight', '墙·右'],
       ['frontNear', '前墙·近端'], ['frontFar', '前墙·远端'], ['frontBoth', '前墙·双档'],
-      ['critL', '临界·左'], ['critR', '临界·右'],
-      ['left45', '左 45°'], ['right45', '右 45°'],
-      ['wallThresh', '侧墙阈值'], ['irSwitch', '红外档位'],
+      ['irSwitch', '红外采样'],
     ] },
     { name: '比赛冲刺（2.3.0）', keys: [
       ['spurtMode', '冲刺档位'], ['spurtFlag', '冲刺标志'],
       ['goOrBack', '去/回'], ['spurtTestFlag', '冲刺试探'],
       ['objectGoToFlag', '物体去向'], ['goaheadnum', '前冲计数'],
-      ['fastwayCount90', '90° 快路计数'],
     ] },
     { name: '四路红外', keys: [
       ['irF1', '前左', ' mm', 0], ['irF2', '前右', ' mm', 0],
       ['irL', '左', ' mm', 0], ['irR', '右', ' mm', 0],
-      ['irAdcF1', '前左 ADC'], ['irAdcF2', '前右 ADC'],
-      ['irAdcL', '左 ADC'], ['irAdcR', '右 ADC'],
     ] },
     { name: '电源与链路', keys: [
       ['battMv', '电池', ' mV', 0], ['ms8', '帧时基低 8 位', ' ms', 0],
-      ['dropCnt', '丢帧计数'], ['flags', '标志位'],
+      ['flags', '标志位'],
     ] },
   ];
 
@@ -388,7 +393,9 @@ C.mods.mod_params = (function () {
       + '\n⇒ 复位设备后重跑一次，才能拿到完整过程';
   }
 
-  /* 链路断了（上游 v2.9 `link_lost`：连续 3 s 无帧判死）。
+  /* 链路断了（上游 `link_lost`）。判死时长 = **7 s**（停等拉取，上游 2.10.0 的
+     `TELEM_GAP_TIMEOUT_S`；其他命令 3 s）—— 旧文案写"3 s"是错的：现场按 3 s 判断
+     会把"一轮往返有余量的正常停顿"当成断链，白拔一次电。
      ⚠️ 不能只躺在集成栏里 —— 那是"看一眼日志的人"才看得见的地方，
      而这一页正是"等数据却等不到"的人在看的那一页。⇒ errbox 显式报 + 可照做清单。
      ⚠️ 只在**真的断过**时显示（`linkLost` 置位），帧恢复后由 `onMsg` 清掉。 */
@@ -396,7 +403,7 @@ C.mods.mod_params = (function () {
     const f = el.querySelector('#mp-link');
     if (!f) return;
     if (!linkLost) { f.textContent = ''; return; }
-    f.textContent = '链路已断（连续 3 s 无遥测帧）\n⇒ ' + linkHint;
+    f.textContent = '链路已断（连续 7 s 无遥测帧）\n⇒ ' + linkHint;
   }
 
   /* 参数表**不是**自动刷新的：只在点【读取全部】时读一次。
@@ -636,7 +643,7 @@ C.mods.mod_params = (function () {
     onMsg: function (m) {
       if (m.type === 'mouse.telemetry') {
         noteMsg();               // 界面 FPS 由**前端自己数**到达时刻（最诚实）
-        // 帧又来了 ⇒ 链路是通的（`link_lost` 是"连续 3 s 无帧"判的，
+        // 帧又来了 ⇒ 链路是通的（`link_lost` 是"连续 7 s 无帧"判的，
         // 帧恢复就是反证）⇒ 清掉那一格。放在 telemetry 分支里而不是 error 分支，
         // 因为"恢复"没有专门事件，只能靠这个正信号。
         if (linkLost) { linkLost = false; }
@@ -644,7 +651,7 @@ C.mods.mod_params = (function () {
         return;
       }
       if (m.type !== 'mouse.error') return;
-      // v2.9 的 link_lost：显式报 + 后端给的可照做清单（见 renderLink）。
+      // link_lost：显式报 + 后端给的可照做清单（见 renderLink）。
       // 别的 error 仍只进集成栏（console.js 已带 hint）—— 这一页不堆无关告警。
       if (m.kind === 'link_lost') {
         linkLost = true;

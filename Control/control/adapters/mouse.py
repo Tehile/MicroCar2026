@@ -139,8 +139,12 @@ SAMPLE_HZ = 10.0
 #: 波形页要看的通道（从统一帧的 39 个扁平通道里挑"随时间有用"的那几个）。
 #: **不把 39 路全推**：一屏画 39 条线没有意义，39×N 的二进制帧既大又慢（判据 I10）。
 #: 名字必须与上游 `UNIFIED_CHANNELS` 一致 —— 缺的那几路会在采样时自动跳过。
-WAVE_CHANNELS = ("speedL", "speedR", "gyroAngle", "encAngle", "pidErr",
-                 "trackL", "trackR", "cellOdom",
+#: 波形默认通道（调参时最常一起看的几路）。
+#: ⚠️ v9（上游 2.12.0）删了 `pidErr`（控制误差）与 `cellOdom`（格内里程）——
+#: 它们是调参时最想画的两路"误差"，现在上游把它们列为"失去的能力"（§9）。
+#: 本层不塞回帧（那是绕过协议），如实少画两路；要找回得给上游提需求。
+WAVE_CHANNELS = ("speedL", "speedR", "gyroAngle", "encAngle",
+                 "trackL", "trackR",
                  "irF1", "irF2", "irL", "irR", "battMv")
 
 
@@ -595,8 +599,10 @@ class MouseAdapter:
 
         def on_error(m) -> None:
             d = m.data or {}
-            # v2.9 的 `link_lost`（连续 3 s 无帧判死）：上游 msg 里带的是
-            # **API 术语**（"mc.stream.pace() 恢复"）—— 现场照不了。
+            # `link_lost` 的判死时长：停等拉取是 **7 s**（上游 2.10.0 合并拉取器后
+            # `TELEM_GAP_TIMEOUT_S = 7`），其他命令 3 s。旧文案写"连续 3 s 无帧"是错的
+            # —— 现场按 3 s 判断会以为"还没断"，实际只是停等式一轮往返的余量。
+            # 上游 msg 里带的是**API 术语**（"mc.stream.pace() 恢复"）—— 现场照不了。
             # ⇒ `hint` 给**界面动作**版的可照做清单，msg 仍留上游原话（取证）。
             # ⚠️ 两者都要发：msg 是真相，hint 是"下一步点哪"，缺一个都违背界面纪律。
             hint = ""
@@ -1266,8 +1272,9 @@ class MouseAdapter:
             raise MouseError(
                 f"发车失败：已经在跑迷宫（ERR_BUSY）"
                 f"\n  ⇒ 发车状态没复位。以前这种情况只能断电，现在有正经的收车口："
-                f"\n  ⇒ 先点【收车】（`MAZE STOP`）。若任务机**仍停在 SEARCH**，说明车还在动"
-                f"（`MAZE STOP` 只置\"请退出\"标志，车在运动时轮不到检查），改用【复位】（软复位）。")
+                f"\n  ⇒ 先点【收车】（`MAZE STOP`）。若 2 s 后任务机**仍停在 SEARCH**，"
+                f"固件会自己走 2 秒兜底软复位（`LINK_Tick`），复位原因报 `SW`；"
+                f"等它落地再发车。")
         raise MouseError(
             f"远程发车失败：{st}\n"
             f"  ⇒ `MAZE RUN` 只在 MOUSE_DATA_LOG 档固件里实现；其余档位会返回 ERR_VALUE。"
@@ -1282,13 +1289,17 @@ class MouseAdapter:
           · 【收车】`MAZE STOP` = **正常收车 + 复位发车状态 + 解锁急停**。
         两个都能把车带出迷宫循环（本层两处都做成"带出"，见 §11.12）。
 
-        ⚠️⚠️ **车在运动时它不可靠**（这一点必须如实告诉现场，否则会以为命令失效）：
-        `MAZE STOP` 只置一个"请退出"标志（`linkMazeAbort`），而标志的检查在
-        `LESSON_Blind8()` 的 `while(1)` **顶部**；而主循环有 30 余处**非协作式阻塞等待**
-        （`motion.c` 的 `while (cellOdom < dis)` 等）。车在运动时程序正卡在那些循环
-        **内部**，标志根本轮不到 ⇒ 真机实测：`MAZE STOP` 回 `OK`，但 `mazeTask` 仍 `SEARCH`、
-        `MAZE RUN` 仍 `ERR_BUSY`。
-        ⇒ **可靠收车手段是【复位】（`MCU RESET`，整机软复位，BSS 清零把发车状态一起清掉）。**
+        ⚠️ **收车现在可靠了（2026-10-16 上游连修三处，别再照旧经验讲）**：
+        `MAZE STOP` 只置一个"请退出"标志（`linkMazeAbort`），标志的检查原本只在
+        `LESSON_Blind8()` 的 `while(1)` **顶部**，而主循环有 30 余处**非协作式阻塞等待**
+        （`motion.c` 的 `while (cellOdom < dis)` 等）⇒ 车在运动时程序卡在那些循环内部，
+        标志根本轮不到（旧现象：回 `OK` 但 `mazeTask` 仍 `SEARCH`、`MAZE RUN` 仍 `ERR_BUSY`）。
+        上游为此补了三处：`objectGoTo` 中止出口、`mapStepEdit` 出口、以及
+        **`LINK_Tick` 的 2 s 兜底软复位** ⇒ 现在的行为是：
+          · 正常：**0.2~1 s 优雅退出**（回到待机）；
+          · 爬不出来：**2 s 后固件自己软复位**（`PING` 的 `rst` 由 `POR` 变 `SW`）。
+        ⇒ 现场不必再"手动断电/手动点复位"，也**不要白等**。但【收车】与【复位】仍是
+        两个按钮（语义不同：一个是正常退出，一个是整机重来），**不合并**。
 
         所以本方法**把实测状态一并返回**（`task`），让界面能当场判"到底收住没有"，
         而不是只看一个 `OK` 就以为收车成功（`OK` 只表示"命令被接受"）。
@@ -1862,7 +1873,14 @@ class MouseAdapter:
         try:
             n = int(mc.maze.mazetype())
         except Exception:                                     # noqa: BLE001
-            n = 7
+            n = None
+        # ⚠️ 取不到真实尺寸时**不建图**。以前兜底写 7（那时迷宫就是 7×7）；
+        #   新基线是 16×16（上游 2.11 换基线），再拿 7 去喂一张 16 格的帧序列，
+        #   结果是一张**错位的图**——而错位的图看起来"有内容"，比空白更坏（静默错）。
+        if not n or n < 2:
+            return {"n": 0, "mazetype": None, "frames_used": 0,
+                    "window_s": float(seconds), "source": "ring",
+                    "note": "设备没报迷宫尺寸（mazetype）⇒ 不重建"}
         m = MazeWallMap(n)
         if n_frames:
             # 逐帧喂。⚠️ **不能用 `latest()`**：重建要的是**序列**（走过的每一格），
@@ -2526,19 +2544,23 @@ def _dev_ms_of(d: Dict[str, Any]) -> Optional[int]:
 
 
 def _task_wait(state: Any) -> bool:
-    """迷宫任务机是否**已经不在跑**（`mazeTask` ∈ {WAIT=0, START=1}）。
+    """迷宫任务机是否**已经不在跑**（不在 SEARCH / SPURT / SPURT45 / SPURT90 这四档）。
 
     为什么要拿**数值**判而不是拿 `taskName` 比字符串：码表是上游的自然语言
     （`MAZE_TASK_NAMES`），改名不该让"收车收住没有"这个判断失效。
-    数值 `0/1` 才是结构事实（与 `docs/上位机整合设计方案.md` 的"断言绑结构"一致）。
+    数值才是结构事实（与 `docs/上位机整合设计方案.md` 的"断言绑结构"一致）。
 
-    用在收车之后：`MAZE STOP` 回 `OK` **只说明命令被接受**，收住没有要看任务机
-    （车在运动时它根本轮不到检查，见 `maze_stop()` 的说明）。
+    ⚠️ 判据是 **"不在 2..5"**，不是 `<= 1`：上游 2.11 换基线新增了 **`END = 6`**
+    （跑位收尾态，固件已进 `maze_done`）。只写 `<= 1` 会把"正常跑完停在 END"
+    报成"还没收住" ⇒ 现场会以为收车失败、白点一次复位。
+    （同一条阈值在 `routes._maze_decisions` 与 `mod_maint.busyWhy()` 也有一份。）
+
+    用在收车之后：`MAZE STOP` 回 `OK` **只说明命令被接受**，收住没有要看任务机。
     """
     if not isinstance(state, dict):
         return False
     try:
-        return int(state.get("task", -1)) <= 1
+        return int(state.get("task", -1)) not in (2, 3, 4, 5)
     except Exception:                                         # noqa: BLE001
         return False
 

@@ -71,8 +71,7 @@
     { id: 'mouse', name: '小车控制', sub: 'RemoteControl', mods: [
       { id: 'mod_params', name: '实时状态与参数设定',
         desc: '统一帧实时读数 + 参数表 · 手动运动' },
-      { id: 'mod_maze8', name: '无记忆走迷宫', desc: '发车跑迷宫 · 状态机 / 事件流 / 记录复盘' },
-      { id: 'mod_race', name: '比赛', desc: '比赛发车（读地图选档）+ 冲刺状态监视' },
+      { id: 'mod_race', name: '比赛', desc: '比赛发车（读地图选档）+ 冲刺状态 + 迷宫重构' },
       { id: 'mod_maint', name: '维护与自检',
         desc: '按键菜单远程化 · 诊断 / 红外标定 / 清空路径' },
     ] },
