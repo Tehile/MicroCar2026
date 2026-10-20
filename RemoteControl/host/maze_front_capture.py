@@ -40,11 +40,11 @@ from host.registry import LAUNCH_MIN_MV  # noqa: E402
 
 #: 每帧记录这些字段
 FIELDS = [
-    "t", "ms8", "battMv", "mazeTask", "motionTask", "motionStep",
-    "cellOdom", "speedL", "speedR", "irF1", "irF2",
+    "t", "ms8", "battMv", "mazeTask", "motionTask",
+    "speedL", "speedR", "irF1", "irF2",
     "wallFront", "frontNear", "frontFar", "frontBoth",
-    "spurtMode", "spurtFlag", "goaheadnum", "fastwayCount90",
-    "posX", "posY", "stackIdx", "dropCnt", "roadName",
+    "spurtMode", "spurtFlag", "goaheadnum",
+    "posX", "posY", "roadName",
 ]
 
 
@@ -194,8 +194,7 @@ def main() -> int:
             print(f"  出现过的迷宫任务: {tasks}")
             sp_max = max(r["spurtMode"] or 0 for r in rows)
             gah = sorted({r["goaheadnum"] for r in rows})
-            print(f"  冲刺档最大值 {sp_max}；goaheadnum 取值 {gah}；"
-                  f"fastway90 最大 {max(r['fastwayCount90'] or 0 for r in rows)}")
+            print(f"  冲刺档最大值 {sp_max}；goaheadnum 取值 {gah}")
             print(f"  电压 min/max: {min(r['battMv'] for r in rows)}/"
                   f"{max(r['battMv'] for r in rows)} mV")
             if args.out:

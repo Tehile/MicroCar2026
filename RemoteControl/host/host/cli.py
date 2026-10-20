@@ -461,14 +461,12 @@ def cmd_maze(args) -> None:
             if st is None:
                 print("（还没收到统一帧。未在拉取? 迷宫没在跑?）")
                 return
-            print(f"任务 {st['taskName']}  动作 {st['motionName']}  步 {st['motionStep']}  "
+            print(f"任务 {st['taskName']}  动作 {st['motionName']}  "
                   f"路口 {st['roadKind']}({st['roadName']})  "
                   f"开口(L,F,R)=({st['wallLeft']},{st['wallFront']},{st['wallRight']})")
             print(f"前墙 {st['frontName']}  "
                   f"(近端 {st['frontNear']} / 远端 {st['frontFar']} / 双路互证 {st['frontBoth']})")
-            print(f"位置 ({st['posX']},{st['posY']}) 朝向 {st['dirName']}  "
-                  f"终点 ({st['goalX']},{st['goalY']})  岔路栈 {st['stack']}  "
-                  f"快路径计数 {st['fastwayCount']}")
+            print(f"位置 ({st['posX']},{st['posY']}) 朝向 {st['dirName']}")
             if st["evDropped"]:
                 print("⚠️ 上行事件有丢弃(链路拥塞): 事件流不完整")
             return
@@ -483,7 +481,7 @@ def cmd_maze(args) -> None:
                 return
             print(f"冲刺档 {sp_['modeName']}({sp_['mode']})  冲刺标志 {sp_['spurtFlag']}  "
                   f"去/回 {sp_['goOrBack']}")
-            print(f"冲刺前行格数 {sp_['goaheadnum']}  90°路径计数 {sp_['fastwayCount90']}  "
+            print(f"冲刺前行格数 {sp_['goaheadnum']}  "
                   f"冲刺测试 {sp_['spurtTestFlag']}  回坐标中 {sp_['objectGoToFlag']}")
             print("（只读监视: 冲刺入口由比赛固件里的人工贴墙选档决定, 上位机不能设置）")
             return

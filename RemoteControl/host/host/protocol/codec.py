@@ -21,6 +21,14 @@ v2.3(2026-10-07): 统一帧载荷 45 -> **49 B**(帧 53 -> 57 B, 协议号 3 -> 
         47 冲刺前行格数(goaheadnum)
         48 90°路径动作计数(fastwayCount90)
     同时修正 `MOTION_TASK_NAMES` 与固件 `core.h` 枚举的**错位**(见该表注释)。
+
+v9(2026-10-20): 载荷 49 -> **30 B**(帧 57 -> 38 B, PROTO 8 -> 9)。只留动态量:
+    删 irAdc[4] / cellOdom / pidErr / goal / wallThresh / stackIdx /
+        fastwayCount / fastwayCount90 / dropCnt / motionStep / critL / critR /
+        left45 / right45 / irSwitch(进 flags) / frontNear(可推导);
+    状态B 拆 B0/B1(motionTask 7bit + spurtFlag + goOrBack = 9bit);
+    前墙远近并入状态C, 冲刺档位与 goaheadnum 合并为"冲刺上下文"字节。
+    理由与取舍见 docs/通信协议v9-统一帧重排方案.md。
 """
 
 from __future__ import annotations
@@ -38,37 +46,27 @@ FRAME_OVERHEAD = 8  # 同步2 + LEN2 + TYPE1 + SEQ1 + CRC2
 TYPE_MAP = 0x07      # 墙图整块(静态数据, 按需拉取)
 TYPE_UNIFIED = 0x0A  # 统一遥测帧(唯一周期帧)
 
-UNIFIED_LEN = 49
+UNIFIED_LEN = 30
 
 #: 统一帧载荷里各字段的字节偏移(与固件 link.h 的 LINK_U_* 逐项对齐)。
 #: **这是一处必须两侧同步的常量** —— 改动它等于改协议。
+#: v9(2026-10-20): 49 -> 30 B, 只留动态量; 偏移映射见 docs/通信协议v9-统一帧重排方案.md。
 U_MS8 = 0
-U_IRADC = 1
-U_IRMM = 9
-U_BATTMV = 17
-U_SPEEDL = 19
-U_SPEEDR = 21
-U_GYRO = 23
-U_ENCANG = 25
-U_TRACKL = 27
-U_TRACKR = 29
-U_CELLODOM = 31
-U_PIDERR = 33
-U_STATE_A = 35
-U_STATE_B = 36
-U_STATE_C = 37
-U_FLAGS = 38
-U_POS = 39
-U_GOAL = 40
-U_WALLTHR = 41
-U_STACKIDX = 42
-U_FASTWAY = 43
-U_DROP = 44
-# ---- v2.3 新增(纯只读监视) ----
-U_FRONT = 45      # 位打包: 前墙双档 + 双路互证
-U_SPURT = 46      # 位打包: 冲刺档位与标志
-U_GOAHEAD = 47    # u8 冲刺前行格数
-U_FASTWAY90 = 48  # u8 90°路径动作计数
+U_IRMM = 1
+U_BATTMV = 9
+U_SPEEDL = 11
+U_SPEEDR = 13
+U_GYRO = 15
+U_ENCANG = 17
+U_TRACKL = 19
+U_TRACKR = 21
+U_STATE_A = 23
+U_STATE_B0 = 24
+U_STATE_B1 = 25
+U_STATE_C = 26
+U_FLAGS = 27
+U_POS = 28
+U_SPURT = 29
 
 #: 统一帧的"扁平化"通道名 —— 位打包字段在解码时**直接展开**成独立键,
 #: 于是 ring/monitor/analyze 看到的都是平铺字段, 不需要知道打包细节。
@@ -76,39 +74,35 @@ U_FASTWAY90 = 48  # u8 90°路径动作计数
 UNIFIED_CHANNELS: List[str] = [
     # 测量量
     "ms8",
-    "irAdcF1", "irAdcF2", "irAdcL", "irAdcR",
     "irF1", "irF2", "irL", "irR",
     "battMv",
     "speedL", "speedR",
     "gyroAngle", "encAngle",
-    "trackL", "trackR", "cellOdom",
-    "pidErr",
-    # 状态机(由位打包解出)
-    "dir", "mazeTask",
-    "wallLeft", "wallFront", "wallRight",
-    "motionTask", "irSwitch",
-    "motionStep", "critL", "critR", "left45", "right45",
+    "trackL", "trackR",
+    # 状态A: 身份层
+    "dir", "mazeTask", "objectGoToFlag",
+    # 状态B0: 执行层
+    "motionTask",
+    # 状态B1: 冲刺控制布尔
+    "spurtFlag", "goOrBack",
+    # 状态C: 墙位 + 前墙远近
+    "wallLeft", "wallFront", "wallRight", "frontFar", "frontBoth",
     "flags",
-    "posX", "posY", "goalX", "goalY",
-    "wallThresh", "stackIdx", "fastwayCount", "dropCnt",
-    # ---- v2.3: 前墙双档 / 比赛冲刺状态(纯只读监视) ----
-    "frontNear", "frontFar", "frontBoth",
-    "spurtMode", "spurtFlag", "goOrBack", "spurtTestFlag", "objectGoToFlag",
-    "goaheadnum", "fastwayCount90",
+    "posX", "posY",
+    # 冲刺上下文
+    "spurtMode", "spurtTestFlag", "goaheadnum",
 ]
-#: 展平后共 49 项 —— 49 B 载荷里位打包的字节在这里被拆成独立键,
-#: 所以列数(49) 与字节数(49) 恰好相等是**巧合**(v2.3 起), 不是约束。
-#: `stackIdx` 自 2026-10-16 起**废弃**(deprecated): 新基线固件无全局岔路栈索引,
-#: 恒 0; 帧字段保留仅为 PROTO 8 兼容, 勿用于逻辑判断。
+#: v9 起 30 B 载荷展平成 29 个通道(pos 拆两项、四个位打包字节装 12 个字段)。
+#: `frontNear` 是**派生量**(= wallFront & !frontFar), 由 decode 现算, 不占列。
 #: 改动打包要同步这个数与 U_* 偏移。
-assert len(UNIFIED_CHANNELS) == 49, len(UNIFIED_CHANNELS)
+assert len(UNIFIED_CHANNELS) == 29, len(UNIFIED_CHANNELS)
 
-#: 统一帧的**额定上限**帧率(Hz) —— 57B/帧 ÷ 11.52 KB/s ≈ 202 Hz。
+#: 统一帧的**额定上限**帧率(Hz) —— 38B/帧 ÷ 11.52 KB/s ≈ 303 Hz(v9: 30B 载荷)。
 #: ⚠️ v2.1 起遥测是**拉取式**的, 实际帧率由链路能力与请求窗口决定(真机实测这条
 #: 蓝牙链路只有约 100~200 B/s, 故实际只有个位数 Hz)。本值只用于**环形缓冲的容量
 #: 估算**(按上限开, 保证任何速率下都能存满时间窗)与缺省显示, 不代表实际帧率。
 #: 要实际帧率请用 `mc.telemetry.hz()`(按到达间隔实算)。
-UNIFIED_HZ = 202.0
+UNIFIED_HZ = 303.0
 
 # 统一帧 flags 位
 FLAG_FREEMODE = 0x01    # 自由模式 freemode==1: 电机输出被强制为 0(不是"解锁"!)
@@ -119,7 +113,9 @@ FLAG_PULLF1 = 0x08      # v2.6.1(fw 219): 本帧 = 收到 `RATE PULL` 后发出�
                         #   ⚠️ 复用原 `FLAG_SCOPING`(0x08) 位 —— 那套 SCOPE 机制 v2.0 已删除,
                         #   该位自 v2.0 起恒 0 且全树无置位点。改名而非新开位, 因为 flags 字节
                         #   8 位已满。见 docs/链路MTBF压测方法.md §14.15。
-FLAG_DUMPING = 0x10     # [v2.0 恒 0] 已删除的 dump 机制
+FLAG_IR_SWITCH = 0x10   # v9: 红外采样轮在跑(irswitch==1)。占用原 DUMPING 恒 0 位;
+                        #   为 0 表示本 tick 跳过 getdistance() —— 高速段可能主动关红外,
+                        #   这是判"这一段为什么没有墙数据"的唯一帧内证据。
 FLAG_MOTOR_OFF = 0x20   # 固件安全测试模式: 电机被物理禁用
 FLAG_ESTOP_LOCK = 0x40  # 急停**锁存**中: 新的 MOVE/CAL 会被拒, 须 STOP 解锁
 FLAG_EVQ = 0x80         # v2.0(替代 RUNLOG): 有事件行被丢弃 → 事件流不完整
@@ -129,27 +125,31 @@ FLAG_NAMES: Dict[int, str] = {
     FLAG_SLEEP: "休眠",
     FLAG_EMERG: "急停",
     FLAG_PULLF1: "PULL 批首帧",
-    FLAG_DUMPING: "回传中(已废弃)",
+    FLAG_IR_SWITCH: "红外采样开",
     FLAG_MOTOR_OFF: "安全模式(电机禁用)",
     FLAG_ESTOP_LOCK: "急停锁存",
     FLAG_EVQ: "事件有丢弃",
 }
 
-# ---- v2.3: 前墙双档位(偏移 U_FRONT) ----
+# ---- v9: 状态C 的墙位(偏移 U_STATE_C) ----
 #: ⚠️ **不要**用 `FLAG_` 前缀 —— `contract_test` 会把 `FLAG_*` 当作统一帧 flags 位
-#: 去和固件的 `LINK_FLAG_*` 逐个比对。这里是**另一个字节**的位, 故另起前缀。
-FRONT_NEAR = 0x01  # 贴脸: 任一路 < thrFrontNear(默认 80mm)
-FRONT_FAR = 0x02   # 提前: 有墙但两路都还没进近距档
-FRONT_BOTH = 0x04  # 原式①②"双传感器互证"成立(调试/后继决策用)
+#: 去和固件的 `LINK_FLAG_*` 逐个比对; 也不要用 `U_` 前缀(那会被当成载荷偏移)。
+STATE_C_WALL_LEFT = 0x01
+STATE_C_WALL_FRONT = 0x02
+STATE_C_WALL_RIGHT = 0x04
+STATE_C_FRONT_FAR = 0x08   # 1 = 远墙档, 0 = 近墙档(仅 wallFront=1 时有效)
+STATE_C_FRONT_BOTH = 0x10  # 原式①②"双传感器互证"成立(调试/后继决策用)
 
-#: 前墙档位 -> 人话。恒等式: `frontNear | frontFar == wallFront`(两者互斥)。
+#: 前墙档位 -> 人话。v9 恒等式: `frontNear == wallFront and not frontFar`。
 FRONT_NAMES: Dict[int, str] = {0: "无墙", 1: "近端(贴脸)", 2: "远端(提前量)"}
 
-# ---- v2.3: 冲刺档位与标志(偏移 U_SPURT) ----
-SPURTBF_FLAG = 0x08    # taskSt.spurtFlag
-SPURTBF_GOBACK = 0x10  # taskSt.goOrBack(去/回)
-SPURTBF_TEST = 0x20    # mazeState.spurtTestFlag
-SPURTBF_OBJECT = 0x40  # mazeState.objectGoToFlag(回坐标中)
+# ---- v9: 状态A / 状态B1 / 冲刺上下文 的位定义 ----
+STATE_A_OBJECT = 0x20       # mazeState.objectGoToFlag(回坐标中)
+STATE_B1_SPURTFLAG = 0x01   # taskSt.spurtFlag
+STATE_B1_GOBACK = 0x02      # taskSt.goOrBack(去/回)
+SP_TEST = 0x08              # mazeState.spurtTestFlag
+SP_GOAHEAD_SHIFT = 4        # goaheadnum 左移位数
+SP_GOAHEAD_MASK = 0xF0
 
 #: 冲刺速度档(spurtmode 的线上编码)。固件里是 SpurtSpeed_t 的 60..63,
 #: 帧里压成 3 bit 的 0..4(0=未选)。与固件 link.c 的映射逐项一致。
@@ -353,78 +353,60 @@ def decode_unified(p: bytes) -> dict:
     b = p[:UNIFIED_LEN] + b"\x00" * max(0, UNIFIED_LEN - len(p))
 
     (ms8,) = struct.unpack_from("<B", b, U_MS8)
-    adc_f1, adc_f2, adc_l, adc_r = struct.unpack_from("<HHHH", b, U_IRADC)
     ir_f1, ir_f2, ir_l, ir_r = struct.unpack_from("<hhhh", b, U_IRMM)
     (batt_mv,) = struct.unpack_from("<H", b, U_BATTMV)
-    sp_l, sp_r, gyro, enc, tkl, tkr, cell, perr = struct.unpack_from("<hhhhhhhh", b, U_SPEEDL)
+    sp_l, sp_r, gyro, enc, tkl, tkr = struct.unpack_from("<hhhhhh", b, U_SPEEDL)
 
     sa = b[U_STATE_A]
-    sb = b[U_STATE_B]
+    sb0 = b[U_STATE_B0]
+    sb1 = b[U_STATE_B1]
     sc = b[U_STATE_C]
     flags = b[U_FLAGS]
     pos = b[U_POS]
-    goal = b[U_GOAL]
-    fb = b[U_FRONT]
     sp = b[U_SPURT]
-    fmode = 0
-    if fb & FRONT_NEAR:
-        fmode = 1
-    elif fb & FRONT_FAR:
-        fmode = 2
+
+    wall_front = 1 if (sc & STATE_C_WALL_FRONT) else 0
+    front_far = 1 if (sc & STATE_C_FRONT_FAR) else 0
+    fmode = 0 if not wall_front else (2 if front_far else 1)
 
     d = {
         "ms8": ms8,
-        "irAdcF1": adc_f1, "irAdcF2": adc_f2, "irAdcL": adc_l, "irAdcR": adc_r,
         "irF1": ir_f1, "irF2": ir_f2, "irL": ir_l, "irR": ir_r,
         "battMv": batt_mv,
         "speedL": sp_l, "speedR": sp_r,
         "gyroAngle": gyro, "encAngle": enc,
-        "trackL": tkl, "trackR": tkr, "cellOdom": cell,
-        "pidErr": perr,
-        # -- 状态A --
+        "trackL": tkl, "trackR": tkr,
+        # -- 状态A: 身份层 --
         "dir": sa & 0x03,
         "mazeTask": (sa >> 2) & 0x07,
-        "wallLeft": (sa >> 5) & 0x01,
-        "wallFront": (sa >> 6) & 0x01,
-        "wallRight": (sa >> 7) & 0x01,
-        # -- 状态B --
-        "motionTask": sb & 0x7F,
-        "irSwitch": (sb >> 7) & 0x01,
-        # -- 状态C --
-        "motionStep": sc & 0x0F,
-        "critL": (sc >> 4) & 0x01,
-        "critR": (sc >> 5) & 0x01,
-        "left45": (sc >> 6) & 0x01,
-        "right45": (sc >> 7) & 0x01,
+        "objectGoToFlag": (sa >> 5) & 0x01,
+        # -- 状态B0/B1: 执行层 + 冲刺控制布尔 --
+        "motionTask": sb0 & 0x7F,
+        "spurtFlag": sb1 & 0x01,
+        "goOrBack": (sb1 >> 1) & 0x01,
+        # -- 状态C: 墙位 + 前墙远近 --
+        "wallLeft": sc & 0x01,
+        "wallFront": wall_front,
+        "wallRight": (sc >> 2) & 0x01,
+        "frontFar": front_far,
+        "frontBoth": (sc >> 4) & 0x01,
         "flags": flags,
-        # -- 坐标/决策 --
+        # -- 坐标 --
         "posX": pos & 0x0F,
         "posY": (pos >> 4) & 0x0F,
-        "goalX": goal & 0x0F,
-        "goalY": (goal >> 4) & 0x0F,
-        "wallThresh": b[U_WALLTHR],
-        "stackIdx": b[U_STACKIDX],
-        "fastwayCount": b[U_FASTWAY],
-        "dropCnt": b[U_DROP],
-        # -- v2.3: 前墙双档(派生量, 恒等式 frontNear|frontFar == wallFront) --
-        "frontNear": fb & FRONT_NEAR,
-        "frontFar": (fb >> 1) & 0x01,
-        "frontBoth": (fb >> 2) & 0x01,
-        # -- v2.3: 比赛冲刺状态(测试档不跑冲刺时全 0) --
+        # -- 冲刺上下文 --
         "spurtMode": sp & 0x07,
-        "spurtFlag": (sp >> 3) & 0x01,
-        "goOrBack": (sp >> 4) & 0x01,
-        "spurtTestFlag": (sp >> 5) & 0x01,
-        "objectGoToFlag": (sp >> 6) & 0x01,
-        "goaheadnum": b[U_GOAHEAD],
-        "fastwayCount90": b[U_FASTWAY90],
+        "spurtTestFlag": (sp >> 3) & 0x01,
+        "goaheadnum": (sp >> 4) & 0x0F,
     }
-    # 派生的可读量(纯复算, 不占带宽)
+    # 派生量(纯复算, 不占带宽)
+    # v9: frontNear 不再上线 —— 由 wallFront & !frontFar 唯一确定(两者互斥且穷尽)
+    d["frontNear"] = 1 if (wall_front and not front_far) else 0
     d["freemode"] = bool(flags & FLAG_FREEMODE)
     d["sleep"] = bool(flags & FLAG_SLEEP)
     d["emerg"] = bool(flags & FLAG_EMERG)
     d["pullf1"] = bool(flags & FLAG_PULLF1)
-    d["dumping"] = bool(flags & FLAG_DUMPING)
+    d["irSwitch"] = bool(flags & FLAG_IR_SWITCH)
     d["motors_off"] = bool(flags & FLAG_MOTOR_OFF)
     d["estop_lock"] = bool(flags & FLAG_ESTOP_LOCK)
     d["evq"] = bool(flags & FLAG_EVQ)
@@ -440,7 +422,7 @@ def decode_unified(p: bytes) -> dict:
 
 
 def pack_unified(d: dict) -> bytes:
-    """扁平 dict -> 统一帧 45B 载荷。**decode_unified 的对偶**, 供模拟器与测试使用。
+    """扁平 dict -> 统一帧 30B 载荷。**decode_unified 的对偶**, 供模拟器与测试使用。
 
     ⚠️ 这是"协议常量"的第二处实现(第一处是固件 link_UnifiedFrame)。两侧靠
     `U_*` 偏移与位打包规则对齐; `contract_test` 会用
@@ -457,48 +439,33 @@ def pack_unified(d: dict) -> bytes:
     out = bytearray(UNIFIED_LEN)
     out[U_MS8] = g("ms8") & 0xFF
 
-    struct.pack_into("<HHHH", out, U_IRADC,
-                     _sat16(g("irAdcF1")) & 0xFFFF, _sat16(g("irAdcF2")) & 0xFFFF,
-                     _sat16(g("irAdcL")) & 0xFFFF, _sat16(g("irAdcR")) & 0xFFFF)
     struct.pack_into("<hhhh", out, U_IRMM,
                      _sat16(g("irF1")), _sat16(g("irF2")),
                      _sat16(g("irL")), _sat16(g("irR")))
     struct.pack_into("<H", out, U_BATTMV, _sat16(g("battMv")) & 0xFFFF)
-    struct.pack_into("<hhhhhhhh", out, U_SPEEDL,
+    struct.pack_into("<hhhhhh", out, U_SPEEDL,
                      _sat16(g("speedL")), _sat16(g("speedR")),
                      _sat16(g("gyroAngle")), _sat16(g("encAngle")),
-                     _sat16(g("trackL")), _sat16(g("trackR")),
-                     _sat16(g("cellOdom")), _sat16(g("pidErr")))
+                     _sat16(g("trackL")), _sat16(g("trackR")))
 
     out[U_STATE_A] = ((g("dir") & 0x03)
                       | ((g("mazeTask") & 0x07) << 2)
-                      | ((g("wallLeft") & 0x01) << 5)
-                      | ((g("wallFront") & 0x01) << 6)
-                      | ((g("wallRight") & 0x01) << 7))
-    out[U_STATE_B] = (g("motionTask") & 0x7F) | ((g("irSwitch") & 0x01) << 7)
-    out[U_STATE_C] = ((g("motionStep") & 0x0F)
-                      | ((g("critL") & 0x01) << 4)
-                      | ((g("critR") & 0x01) << 5)
-                      | ((g("left45") & 0x01) << 6)
-                      | ((g("right45") & 0x01) << 7))
+                      | ((g("objectGoToFlag") & 0x01) << 5))
+    out[U_STATE_B0] = g("motionTask") & 0x7F
+    out[U_STATE_B1] = ((g("spurtFlag") & 0x01)
+                       | ((g("goOrBack") & 0x01) << 1))
+    # v9: 前墙只写 far; frontNear 若显式给了而 far 没给, 反向补 far=0 的语义
+    front_far = g("frontFar") & 0x01
+    out[U_STATE_C] = ((g("wallLeft") & 0x01)
+                      | ((g("wallFront") & 0x01) << 1)
+                      | ((g("wallRight") & 0x01) << 2)
+                      | (front_far << 3)
+                      | ((g("frontBoth") & 0x01) << 4))
     out[U_FLAGS] = g("flags") & 0xFF
     out[U_POS] = (g("posX") & 0x0F) | ((g("posY") & 0x0F) << 4)
-    out[U_GOAL] = (g("goalX") & 0x0F) | ((g("goalY") & 0x0F) << 4)
-    out[U_WALLTHR] = g("wallThresh") & 0xFF
-    out[U_STACKIDX] = g("stackIdx") & 0xFF
-    out[U_FASTWAY] = g("fastwayCount") & 0xFF
-    out[U_DROP] = g("dropCnt") & 0xFF
-    # ---- v2.3 ----
-    out[U_FRONT] = ((g("frontNear") & 0x01)
-                    | ((g("frontFar") & 0x01) << 1)
-                    | ((g("frontBoth") & 0x01) << 2))
     out[U_SPURT] = ((g("spurtMode") & 0x07)
-                    | ((g("spurtFlag") & 0x01) << 3)
-                    | ((g("goOrBack") & 0x01) << 4)
-                    | ((g("spurtTestFlag") & 0x01) << 5)
-                    | ((g("objectGoToFlag") & 0x01) << 6))
-    out[U_GOAHEAD] = g("goaheadnum") & 0xFF
-    out[U_FASTWAY90] = g("fastwayCount90") & 0xFF
+                    | ((g("spurtTestFlag") & 0x01) << 3)
+                    | ((g("goaheadnum") & 0x0F) << SP_GOAHEAD_SHIFT))
     return bytes(out)
 
 

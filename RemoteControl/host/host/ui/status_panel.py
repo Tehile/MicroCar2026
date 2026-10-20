@@ -122,7 +122,7 @@ class StatusPanel(QWidget):
         # ---------- 系统 ----------
         self.c_sys = _Card("系统")
         self.f_volt = _Field("电池电压", "V")
-        self.f_drop = _Field("投递丢弃", "")
+        self.f_drop = _Field("红外采样", "")
         self.f_lost = _Field("上行丢失", "")
         for f in (self.f_volt, self.f_drop, self.f_lost):
             self.c_sys.add(f)
@@ -187,12 +187,12 @@ class StatusPanel(QWidget):
         self.f_irF.set(f"{int(f.get('irF1', 0)):4d}/{int(f.get('irF2', 0)):4d}")
         self.f_irLR.set(f"{int(f.get('irL', 0)):4d}/{int(f.get('irR', 0)):4d}")
         bits = [("左", int(f.get("wallLeft", 0))), ("右", int(f.get("wallRight", 0))),
-                ("前", int(f.get("wallFront", 0))), ("左45", int(f.get("left45", 0))),
-                ("右45", int(f.get("right45", 0)))]
+                ("前", int(f.get("wallFront", 0))), ("远", int(f.get("frontFar", 0))),
+                ("互", int(f.get("frontBoth", 0)))]
         self.f_wall.set(" ".join(f"{n}{'●' if v else '○'}" for n, v in bits))
 
-        drop = int(f.get("dropCnt", 0))
-        self.f_drop.set(f"{drop:5d}", C_OK if drop == 0 else C_WARN)
+        irsw = bool(f.get("irSwitch"))
+        self.f_drop.set("开" if irsw else "关", C_OK if irsw else C_WARN)
         lost = int(self.store.event_health().get("up_lost", 0))
         self.f_lost.set(f"{lost:5d}", C_OK if lost == 0 else C_WARN)
 

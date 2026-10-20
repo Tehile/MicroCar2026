@@ -278,7 +278,7 @@ def selftest() -> int:
 
     # --- 5) 统一帧解码契约 ---
     rec = decode_unified(bytes(UNIFIED_LEN))
-    need = {"ms8", "irAdcF1", "irAdcF2", "irF1", "irF2", "wallFront",
+    need = {"ms8", "irF1", "irF2", "wallFront",
             "frontNear", "frontFar", "frontBoth", "battMv", "speedL",
             "speedR", "trackL", "trackR"}
     miss = need - set(rec.keys())
@@ -376,7 +376,7 @@ def main() -> int:
             check("统一帧 payload 长度 = %d" % UNIFIED_LEN,
                   len(fr0[0]) == UNIFIED_LEN, "实际 %d 字节" % len(fr0[0]))
             rec = decode_unified(fr0[0])
-            need = {"ms8", "irAdcF1", "irAdcF2", "irF1", "irF2",
+            need = {"ms8", "irF1", "irF2",
                     "wallFront", "frontNear", "frontFar", "frontBoth",
                     "battMv", "speedL", "speedR", "trackL", "trackR"}
             miss = need - set(rec.keys())

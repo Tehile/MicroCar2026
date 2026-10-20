@@ -133,8 +133,8 @@ def fmt_payload(p) -> str:
             f"batt={f.get('battMv')}mV "
             f"f1={f.get('irF1')} f2={f.get('irF2')} "
             f"front={f.get('wallFront')} near={f.get('frontNear')} "
-            f"stackIdx={f.get('stackIdx')} pullf1={int(f.get('pullf1', 0))} "
-            f"err={f.get('pidErr')}")
+            f"pullf1={int(f.get('pullf1', 0))} "
+            f"irsw={int(bool(f.get('irSwitch')))}")
 
 
 def show(tag: str, payload, lines, raw: bytes, rtt: float, need_frame: bool = True) -> bool:

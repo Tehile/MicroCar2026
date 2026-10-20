@@ -1148,6 +1148,10 @@ static u8 link_Flags(void)
 		f |= LINK_FLAG_SLEEP;
 	if (emergMon.active == 1)
 		f |= LINK_FLAG_EMERG;
+	/* v9: 红外采样轮是否在跑(timer.c 的 irswitch)。0 = 本 tick 跳过 getdistance(),
+	 * 高速段可能主动关红外 => 这是判"为什么这一段没有墙数据"的唯一帧内证据。 */
+	if (wallSns.irSwitch)
+		f |= LINK_FLAG_IR_SWITCH;
 	/* v2.4: LINK_FLAG_MOTOR_OFF 不再有发送方 —— "电机物理禁用"的安全档已随双档简化取消。 */
 	/* 急停锁存是独立于 emergMon 的**链路层**事实: 表示"必须显式 STOP 才能再动"。 */
 	if (linkEStop)
@@ -1179,7 +1183,7 @@ static u8 link_Flags(void)
 static void link_SendUnified(void)
 {
 	u8 pl[LINK_UNIFIED_LEN];
-	u8 sa, sb, sc;
+	u8 sa, sb0, sb1, sc;
 	u8 fr, sp, sm;
 	long dmin;
 
@@ -1188,11 +1192,6 @@ static void link_SendUnified(void)
 	 * 与请求到达时刻只差一个 tick, 所以 ms8 与同一次 `TELEM` 应答里的完整 upMs
 	 * 天然对齐 —— 上位机拿 ACK 的锚还原绝对时刻即可。 */
 	pl[LINK_U_MS8] = (u8)(linkTimeMs & 0xFFu);
-
-	link_Put16(&pl[LINK_U_IRADC + 0], link_Sat16((long)irCalib.rawf1));
-	link_Put16(&pl[LINK_U_IRADC + 2], link_Sat16((long)irCalib.rawf2));
-	link_Put16(&pl[LINK_U_IRADC + 4], link_Sat16((long)irCalib.rawl));
-	link_Put16(&pl[LINK_U_IRADC + 6], link_Sat16((long)irCalib.rawr));
 
 	link_Put16(&pl[LINK_U_IRMM + 0], link_Sat16(irDist.f1));
 	link_Put16(&pl[LINK_U_IRMM + 2], link_Sat16(irDist.f2));
@@ -1206,27 +1205,46 @@ static void link_SendUnified(void)
 	link_Put16(&pl[LINK_U_ENCANG], link_Sat16(odomStr.angle));
 	link_Put16(&pl[LINK_U_TRACKL], link_Sat16(odomStr.trackL));
 	link_Put16(&pl[LINK_U_TRACKR], link_Sat16(odomStr.trackR));
-	link_Put16(&pl[LINK_U_CELLODOM], link_Sat16(odomStr.cellOdom));
-	link_Put16(&pl[LINK_U_PIDERR], link_Sat16(motionCtrl.pidErr));
 
-	/* ---- 状态机(位打包) ----
+	/* ---- 前墙远近(派生量, v9 起与墙位同字节) ----
+	 * 原 `wallSns.front` 由 ISR 按"4 个条件取或"写死, 这里不再碰它, 只用同一组阈值
+	 * 把结果**拆成近端/远端**:
+	 *     near = 有墙 且 min(f1,f2) < thrFrontNear   (贴脸, 必须处理)
+	 *     far  = 有墙 且 min(f1,f2) >= thrFrontNear  (提前量, 可用于提前决策)
+	 * 两者互斥且穷尽 => 帧里只传 frontFar 一位, 上位机按
+	 * `frontNear = wallFront && !frontFar` 推出, 前墙信息一位不丢。
+	 * 另把原式①②的"双传感器互证"单独记一位(frontBoth), 便于区分
+	 * "两路都看到墙"与"单路贴脸兜底"。 */
+	dmin = (irDist.f1 < irDist.f2) ? irDist.f1 : irDist.f2;
+	fr = 0u;
+	if (wallSns.front && dmin >= (long)irCfg.thrFrontNear)
+		fr |= LINK_C_FRONT_FAR;
+	if ((irDist.f1 < (long)irCfg.thrFrontLo && irDist.f2 < (long)irCfg.thrFrontHi)
+	    || (irDist.f2 < (long)irCfg.thrFrontMid && irDist.f1 < (long)irCfg.thrFrontHi))
+		fr |= LINK_C_FRONT_BOTH;
+
+	/* ---- 状态机(位打包, v9 重排) ----
 	 * 注: motionTask 与 mazeTask 是**两个不同**的状态机 ——
 	 *     前者是"正在执行的运动动作"(core.h 的 MOTION_TASK_*), 后者是迷宫任务机。
-	 * motionStep 裁到 4 bit(0..15), 超出截断 —— 见设计方案 §13.2 未决项。 */
+	 * v9 三处变化:
+	 *   ① 墙位三兄弟从 A 移到 C, 与前墙远近同字节;
+	 *   ② B 要装 motionTask(7) + spurtFlag + goOrBack = 9 bit, 一字节放不下 => 拆 B0/B1;
+	 *   ③ objectGoToFlag 从冲刺字节移到 A(它描述"在不在按坐标回调", 属身份层)。
+	 * ※ irSwitch 移到 flags.0x10 —— 它描述"传感器在不在采样", 与运动任务无关。 */
 	sa = (u8)(((u8)mazeState.mouseDirection & 0x03u)
 	          | (((u8)mazeState.mouseTask & 0x07u) << 2)
-	          | (wallSns.left ? 0x20u : 0u)
-	          | (wallSns.front ? 0x40u : 0u)
-	          | (wallSns.right ? 0x80u : 0u));
-	sb = (u8)(((u8)motionCtrl.task & 0x7Fu) | (wallSns.irSwitch ? 0x80u : 0u));
-	sc = (u8)(((u8)motionCtrl.step & 0x0Fu)
-	          | (wallSns.critL ? 0x10u : 0u)
-	          | (wallSns.critR ? 0x20u : 0u)
-	          | (wallSns.left45 ? 0x40u : 0u)
-	          | (wallSns.right45 ? 0x80u : 0u));
+	          | (mazeState.objectGoToFlag ? LINK_A_OBJECT : 0u));
+	sb0 = (u8)((u8)motionCtrl.task & 0x7Fu);
+	sb1 = (u8)((taskSt.spurtFlag ? LINK_B1_SPURTFLAG : 0u)
+	           | (taskSt.goOrBack ? LINK_B1_GOBACK : 0u));
+	sc = (u8)((wallSns.left ? LINK_C_WALL_LEFT : 0u)
+	          | (wallSns.front ? LINK_C_WALL_FRONT : 0u)
+	          | (wallSns.right ? LINK_C_WALL_RIGHT : 0u)
+	          | (fr & (LINK_C_FRONT_FAR | LINK_C_FRONT_BOTH)));
 
 	pl[LINK_U_STATE_A] = sa;
-	pl[LINK_U_STATE_B] = sb;
+	pl[LINK_U_STATE_B0] = sb0;
+	pl[LINK_U_STATE_B1] = sb1;
 	pl[LINK_U_STATE_C] = sc;
 	pl[LINK_U_FLAGS] = link_Flags();
 #ifdef MOUSE_REMOTE
@@ -1240,45 +1258,14 @@ static void link_SendUnified(void)
 		linkPullF1 = 0u;
 	}
 #endif
-	/* posX/posY 各 4 bit; goalX/goalY 同为 char(初值 7), 4 bit 覆盖 0..15 */
+	/* posX/posY 各 4 bit; 迷宫 16x16 时坐标 0..15 正好占满 */
 	pl[LINK_U_POS] = (u8)(((u8)mazeState.mousePos.cX & 0x0Fu)
 	                      | (((u8)mazeState.mousePos.cY & 0x0Fu) << 4));
-	pl[LINK_U_GOAL] = (u8)(((u8)mazeState.goalX & 0x0Fu)
-	                       | (((u8)mazeState.goalY & 0x0Fu) << 4));
-	/* 运行时侧墙阈值: 被 state.c:225(->140) 与 motion.c:418(->110) 改写,
-	 * 与参数 IRTHRWALL(160) 不是一回事 —— 不传就无法解释侧墙判定, 故必须进帧。 */
-	pl[LINK_U_WALLTHR] = wallSns.wallThresh;
-	pl[LINK_U_STACKIDX] = mazeState.stackIdx;
-	pl[LINK_U_FASTWAY] = mazeState.fastwayCount;
-	pl[LINK_U_DROP] = (u8)(linkDrop & 0xFFu);
 
-	/* ---- v2.3 新增: 纯只读监视量 ----
-	 * 这一段**不改变任何决策**, 只把固件内部已经能区分、但接口上看不到的量搬出来。 */
-
-	/* 前墙双档(*派生量*): 原 `wallSns.front` 由 ISR 按"4 个条件取或"写死,
-	 * 这里不再碰它, 只用同一组阈值把结果**拆成近端/远端**:
-	 *     frontNear = 有墙 且 min(f1,f2) < thrFrontNear   (贴脸, 必须处理)
-	 *     frontFar  = 有墙 且 min(f1,f2) >= thrFrontNear  (提前量, 可用于提前决策)
-	 * 恒等式 frontNear | frontFar == wallSns.front(两者互斥), 因此
-	 * maze.c/isr.c/motion.c/lesson.c 里 5 个读 `wallSns.front` 的点**一行都不用改**。
-	 * 另把原式①②的"双传感器互证"单独记一位(frontBoth), 便于上位机区分
-	 * "两路都看到墙"与"单路贴脸兜底"。 */
-	dmin = (irDist.f1 < irDist.f2) ? irDist.f1 : irDist.f2;
-	fr = 0u;
-	if (wallSns.front)
-	{
-		if (dmin < (long)irCfg.thrFrontNear)
-			fr |= LINK_FRONT_NEAR;
-		else
-			fr |= LINK_FRONT_FAR;
-	}
-	if ((irDist.f1 < (long)irCfg.thrFrontLo && irDist.f2 < (long)irCfg.thrFrontHi)
-	    || (irDist.f2 < (long)irCfg.thrFrontMid && irDist.f1 < (long)irCfg.thrFrontHi))
-		fr |= LINK_FRONT_BOTH;
-	pl[LINK_U_FRONT] = fr;
-
-	/* 比赛冲刺选档/状态(只读镜像; 这些量在比赛固件 [5] 里才有意义,
-	 * 测试档不跑冲刺时恒为 0/未选, 上位机据此判断"现在是不是在冲刺、用哪一档")。 */
+	/* ---- 冲刺上下文(偏移 29, v9 合并) ----
+	 * 档位码 60..63 压成 3 bit; 原字节里的 spurtFlag/goOrBack 已进状态B1,
+	 * objectGoToFlag 已进状态A, 空出的 4 bit 正好装 goaheadnum(实际只取 0..4)。
+	 * 这些量只在比赛固件里有意义; 待命时恒 0/未选, 上位机据此判断"是不是在冲刺"。 */
 	sm = 0u;
 	if (spurtmode == SPURT_SPEED_90_LOW)
 		sm = 1u;
@@ -1289,18 +1276,10 @@ static void link_SendUnified(void)
 	else if (spurtmode == SPURT_SPEED_HIGH)
 		sm = 4u;
 	sp = (u8)(sm & 0x07u);
-	if (taskSt.spurtFlag)
-		sp |= LINK_SPURTBF_FLAG;
-	if (taskSt.goOrBack)
-		sp |= LINK_SPURTBF_GOBACK;
 	if (mazeState.spurtTestFlag)
-		sp |= LINK_SPURTBF_TEST;
-	if (mazeState.objectGoToFlag)
-		sp |= LINK_SPURTBF_OBJECT;
+		sp |= LINK_SP_TEST;
+	sp |= (u8)(((u8)taskSt.goaheadnum & 0x0Fu) << LINK_SP_GOAHEAD_SHIFT);
 	pl[LINK_U_SPURT] = sp;
-
-	pl[LINK_U_GOAHEAD] = taskSt.goaheadnum;
-	pl[LINK_U_FASTWAY90] = mazeState.fastwayCount90;
 
 	link_SendFrame(LINK_TYPE_UNIFIED, pl, LINK_UNIFIED_LEN);
 }

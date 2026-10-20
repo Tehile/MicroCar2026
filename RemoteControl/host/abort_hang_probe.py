@@ -27,10 +27,10 @@ sys.path.insert(0, __file__.rsplit("\\", 1)[0] if "\\" in __file__ else ".")
 from host.api import MouseClient          # noqa: E402
 import v210_launch_pull_test as P         # noqa: E402
 
-KEYS = ("mazeTaskName", "motionTaskName", "motionStep", "speedL", "speedR", "freemode",
+KEYS = ("mazeTaskName", "motionTaskName", "speedL", "speedR", "freemode",
         "posX", "posY", "gyroAngle", "goaheadnum", "estop_lock", "flags",
-        "objectGoToFlag", "fastwayCount", "fastwayCount90", "spurtFlag",
-        "spurtModeName", "roadName", "frontName", "critL", "critR",
+        "objectGoToFlag", "spurtFlag",
+        "spurtModeName", "roadName", "frontName",
         "irF1", "irF2", "irL", "irR", "trackL", "trackR")
 
 SKIP = ("_rx_mono", "_seq")
@@ -108,7 +108,7 @@ def main() -> int:
                 moving = [k for k in sorted(f2) if k not in SKIP and f1.get(k) != f2.get(k)]
                 print(f"   ⏱ 1.5s 后仍在变的量: {moving if moving else '（全部冻结 = 纯空转）'}")
                 print(f"   motionTask={f2.get('motionTaskName')} objectGoToFlag={f2.get('objectGoToFlag')} "
-                      f"fastwayCount={f2.get('fastwayCount')} spurtMode={f2.get('spurtModeName')} "
+                      f"spurtMode={f2.get('spurtModeName')} "
                       f"road={f2.get('roadName')} front={f2.get('frontName')}")
                 print(f"   whole: { {k: v for k, v in sorted(f2.items()) if k not in SKIP} }")
                 break

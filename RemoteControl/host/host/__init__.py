@@ -27,10 +27,15 @@
                        `while (BUTTON1 == 0)` 永久自旋 ⇒ main 永不消费 `MAZE RUN`
                        (`MAZE RUN` 回 ACK OK 却永不发车、随后恒 ERR_BUSY)。
                        命令集/帧格式/参数表一字未动 ⇒ 协议号仍停 8, fw 221→222。
+                     v2.12 **统一帧重排 49→30 B**(v9): 删原始 ADC / 格内里程 / 控制误差 /
+                     原始 goal / 运行时墙阈 / 岔路栈 / 快路径计数 / 丢帧计数 / motionStep /
+                     critL,critR / left45,right45 / frontNear; 状态B 拆 B0/B1; 前墙远近
+                     并入状态C; 冲刺档位与 goaheadnum 合并为"冲刺上下文"。
+                     帧布局不兼容 ⇒ 协议号 8→9, fw 300→310。
 """
 
-__version__ = "2.10.1"
-PROTO_VER = 8
+__version__ = "2.12.0"
+PROTO_VER = 9
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)
 

@@ -461,7 +461,7 @@ class MainWindow(QMainWindow):
             self.lbl_status.setText(
                 f"坐标 ({f.get('posX')},{f.get('posY')})  {f.get('mazeTaskName','')}   "
                 f"红外 F{f.get('irF1')}/{f.get('irF2')} L{f.get('irL')} R{f.get('irR')} mm   "
-                f"里程 L{f.get('trackL')} R{f.get('trackR')}  格 {f.get('cellOdom')}"
+                f"里程 L{f.get('trackL')} R{f.get('trackR')}"
             )
 
     def _log(self, text: str) -> None:

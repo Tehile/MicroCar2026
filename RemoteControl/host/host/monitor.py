@@ -147,11 +147,9 @@ def render(
         add("    左轮 " + c(f"{sl:+7.1f}", "cyan") + " cm/s   "
             "右轮 " + c(f"{sr:+7.1f}", "cyan") + " cm/s")
         add(f"    航向 {float(f.get('gyroAngle', 0)):+8.1f} °            "
-            f"pid误差 {float(f.get('pidErr', 0)):+7.1f}   "
-            f"任务 {MOTION_TASK_NAMES.get(int(f.get('motionTask', 0)), str(f.get('motionTask', '?')))}"
-            f"  步 {int(f.get('motionStep', 0))}")
+            f"任务 {MOTION_TASK_NAMES.get(int(f.get('motionTask', 0)), str(f.get('motionTask', '?')))}")
         add(f"    里程 L{int(f.get('trackL', 0)):6d} R{int(f.get('trackR', 0)):6d} "
-            f"格 {int(f.get('cellOdom', 0))}   编码角 {float(f.get('encAngle', 0)):+.1f}")
+            f"编码角 {float(f.get('encAngle', 0)):+.1f}")
     else:
         add("")
         add(c("  运动  —— 尚未收到统一帧", "dim"))
@@ -164,13 +162,12 @@ def render(
         add(c("  传感器", "bold"))
         add(f"    前 f1 {f1:4d} {_bar(f1, 0, 255, 8)}   f2 {f2:4d} {_bar(f2, 0, 255, 8)}  mm")
         add(f"    左 {l:4d} {_bar(l, 0, 255, 8)}     右 {r:4d} {_bar(r, 0, 255, 8)}  mm")
-        add(f"    原始 ADC  F1 {int(f.get('irAdcF1', 0)):4d}  F2 {int(f.get('irAdcF2', 0)):4d}  "
-            f"L {int(f.get('irAdcL', 0)):4d}  R {int(f.get('irAdcR', 0)):4d}")
         names = [("左", int(f.get("wallLeft", 0))), ("前", int(f.get("wallFront", 0))),
                  ("右", int(f.get("wallRight", 0)))]
         walls = " ".join(f"{n}{c('●', 'red') if v else '○'}" for n, v in names)
         add(f"    墙位 {walls}      坐标 ({int(f.get('posX', 0))},{int(f.get('posY', 0))})"
-            f"  {f.get('mazeTaskName', '')} {f.get('dirName', '')}  阈值 {int(f.get('wallThresh', 0))}")
+            f"  {f.get('mazeTaskName', '')} {f.get('dirName', '')}  "
+            f"前墙 {f.get('frontName', '无墙')}")
     else:
         add("")
         add(c("  传感器  —— 尚未收到统一帧", "dim"))
@@ -195,8 +192,8 @@ def render(
     add(f"  系统   电压 {c(f'{volt:5.2f} V', vcolor)}   统一帧 {int(stats.get('unified', 0))}   "
         f"事件 {int(stats.get('event', 0))}   文本 {int(stats.get('text', 0))}")
     if f:
-        add(f"    快路径计数 {int(f.get('fastwayCount', 0))}   "
-            f"投递丢弃 {int(f.get('dropCnt', 0))}   stackIdx {int(f.get('stackIdx', 0))}")
+        add(f"    红外采样 {'开' if f.get('irSwitch') else '关'}   "
+            f"冲刺档 {f.get('spurtModeName', '未选')}   前行格数 {int(f.get('goaheadnum', 0))}")
     add(c(line, "dim"))
     return "\n".join(out)
 

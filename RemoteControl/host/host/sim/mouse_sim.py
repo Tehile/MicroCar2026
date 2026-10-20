@@ -46,6 +46,7 @@ from ..protocol.codec import (
     FLAG_ESTOP_LOCK,
     FLAG_EVQ,
     FLAG_FREEMODE,
+    FLAG_IR_SWITCH,
     FLAG_MOTOR_OFF,
     FLAG_PULLF1,
     FLAG_SLEEP,
@@ -610,6 +611,7 @@ class MouseSim:
             f |= FLAG_FREEMODE
         if self.sleepmode:
             f |= FLAG_SLEEP
+        f |= FLAG_IR_SWITCH  # 模拟器: 红外采样恒开(v9 起这一位在 flags, 不再占状态B)
         if self.emerg:
             f |= FLAG_EMERG
         if self.safe:
@@ -846,7 +848,7 @@ class MouseSim:
 
     def _unified_frame(self) -> bytes:
         """组一帧统一帧 —— 与固件 `link_UnifiedFrame()` 逐字段镜像。"""
-        # v2.3: 前墙双档是**派生量**(恒等式 frontNear|frontFar == wallFront)。
+        # v9: 前墙远近由同一组阈值二分(仅 wallFront=1 时有效); near 不上帧, 可推导。
         # 模拟器按与固件 link.c 相同的规则算: 有墙 且 min(f1,f2) < thrFrontNear -> 近端。
         near_thr = int(self.params[28])          # 28 = IRTHRFNEAR
         fmin = min(self.ir[0], self.ir[1])
@@ -855,8 +857,6 @@ class MouseSim:
         front_far = 1 if (wf and not front_near) else 0
         d = {
             "ms8": self.link_time_ms & 0xFF,
-            "irAdcF1": self._ir_adc(0), "irAdcF2": self._ir_adc(1),
-            "irAdcL": self._ir_adc(2), "irAdcR": self._ir_adc(3),
             "irF1": _i16(self.ir[0]), "irF2": _i16(self.ir[1]),
             "irL": _i16(self.ir[2]), "irR": _i16(self.ir[3]),
             "battMv": self.batt_mv,
@@ -864,32 +864,24 @@ class MouseSim:
             "gyroAngle": _i16(self.gyro),
             "encAngle": _i16(self.enc_diff_acc / max(1.0, self.params[6])),
             "trackL": _i16(self.dist_l_mm), "trackR": _i16(self.dist_r_mm),
-            "cellOdom": _i16(self.cell_odom), "pidErr": _i16(self.pid_err),
+            # ---- 状态A: 身份层 ----
             "dir": self.dir,
             "mazeTask": self.mouse_task,
+            "objectGoToFlag": 0,
+            # ---- 状态B0/B1 ----
+            "motionTask": self.motion_task & 0x7F,
+            "spurtFlag": 0, "goOrBack": 0,
+            # ---- 状态C: 墙位 + 前墙远近(v9: near 由 wallFront & !far 推出) ----
             "wallLeft": self.wall_bits & 0x01,
             "wallRight": (self.wall_bits >> 1) & 0x01,
             "wallFront": (self.wall_bits >> 2) & 0x01,
-            "motionTask": self.motion_task & 0x7F,
-            "irSwitch": 0,
-            "motionStep": self.motion_step & 0x0F,
-            "critL": 1 if (self.wall_bits & 0x01) and self.ir[2] < self.params[24] else 0,
-            "critR": 1 if (self.wall_bits & 0x02) and self.ir[3] < self.params[24] else 0,
-            "left45": 0, "right45": 0,
-            "flags": self._flags(),
-            "posX": self.pos[0], "posY": self.pos[1],
-            "goalX": self.goal[0], "goalY": self.goal[1],
-            "wallThresh": self.wall_thresh,
-            "stackIdx": 0,
-            "fastwayCount": 0,
-            "dropCnt": 0,
-            # ---- v2.3: 前墙双档 / 冲刺状态(模拟器不跑冲刺, 全 0) ----
-            "frontNear": front_near,
             "frontFar": front_far,
             "frontBoth": front_far,   # 模拟器近似: 远端档即"两路都看到"
-            "spurtMode": 0, "spurtFlag": 0, "goOrBack": 0,
-            "spurtTestFlag": 0, "objectGoToFlag": 0,
-            "goaheadnum": 0, "fastwayCount90": 0,
+            "flags": self._flags(),
+            # ---- 坐标 ----
+            "posX": self.pos[0], "posY": self.pos[1],
+            # ---- 冲刺上下文(模拟器不跑冲刺, 全 0) ----
+            "spurtMode": 0, "spurtTestFlag": 0, "goaheadnum": 0,
         }
         pl = pack_unified(d)
         assert len(pl) == UNIFIED_LEN, len(pl)

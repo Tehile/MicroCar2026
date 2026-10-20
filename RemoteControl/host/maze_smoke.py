@@ -2,8 +2,8 @@
 
 v2.0(2026-10-05) 的重大简化 —— 迷宫状态**全部搬到统一帧**里:
     · `MAZE EV` 事件流 / `LINK_TYPE_MAZE` 1Hz 状态帧 / `SNAP MAZE` 点查 **三条全删**;
-    · 状态量(mazeTask / dir / posX,posY / wallLeft,Front,Right / goalX,goalY /
-      stackIdx / motionTask+motionStep)本来就在 45B 统一帧里(≈217Hz);
+    · 状态量(mazeTask / dir / posX,posY / wallLeft,Front,Right+frontFar /
+      motionTask)本来就在 30B 统一帧里(≈217Hz);
     · 8 类路口的分类**不再由固件上报**, 改由主机侧 `codec.classify_road()` 用三位
       墙原语复刻(固件 `link_RoadKind()` 的逐分支镜像);
     · "任务迁移序列"不再由固件推事件, 由主机差分相邻帧得到(`maze.task_changes()`)。
@@ -101,9 +101,9 @@ def test_offline() -> None:
 
     # 统一帧承载迷宫状态(取代已删除的 MAZE 事件/状态帧/SNAP)
     d = _blank()
-    d.update({"mazeTask": 2, "dir": 1, "posX": 3, "posY": 4, "goalX": 7, "goalY": 7,
-              "wallLeft": 1, "wallFront": 0, "wallRight": 1, "stackIdx": 9,
-              "motionTask": 32, "motionStep": 3})
+    d.update({"mazeTask": 2, "dir": 1, "posX": 3, "posY": 4,
+              "wallLeft": 1, "wallFront": 0, "wallRight": 1,
+              "motionTask": 32, "frontFar": 0})
     rec = decode_unified(pack_unified(d))
     check("统一帧解出迷宫状态机字段",
           rec["mazeTask"] == 2 and rec["dir"] == 1 and (rec["posX"], rec["posY"]) == (3, 4),
@@ -113,11 +113,11 @@ def test_offline() -> None:
           str((rec["wallLeft"], rec["wallFront"], rec["wallRight"])))
     check("统一帧派生路口分类(仅前方开口 -> THRU)",
           rec["road"] == 1 and rec["roadName"] == "THRU", f"{rec['road']} {rec['roadName']}")
-    check("统一帧解出终点/任务名/动作",
-          (rec["goalX"], rec["goalY"]) == (7, 7)
-          and rec["mazeTaskName"] == "SEARCH"
+    # v9: goal 已出帧(静态决策结果), 这里只验任务名/动作名解析
+    check("统一帧解出任务名/动作名",
+          rec["mazeTaskName"] == "SEARCH"
           and rec["motionTaskName"] == "SMARTSTRAIGHTFAST",
-          str({k: rec[k] for k in ("goalX", "goalY", "mazeTaskName", "motionTaskName")}))
+          str({k: rec[k] for k in ("mazeTaskName", "motionTaskName")}))
     check("迷宫字段 pack/decode 往返一致", decode_unified(pack_unified(rec)) == rec)
 
     # 协议登记: v2.0 只有 2 种帧; 迷宫不再有专用帧/专用命令

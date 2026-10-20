@@ -11,8 +11,9 @@
 
 原先迷宫状态有三条通道: `MAZE EV` 事件流 / `LINK_TYPE_MAZE` 1Hz 状态帧 / `SNAP MAZE`
 点查。**三条全部删除** —— 因为状态量已全部在统一帧里:
-`mazeTask` / `posX,posY` / `wallLeft,Front,Right` / `goalX,goalY` / `stackIdx`(已废弃·恒 0) /
-`motionTask`+`motionStep`。于是本 API 变成"读帧"而不是"攒事件":
+`mazeTask` / `posX,posY` / `wallLeft,Front,Right`(+ `frontFar`) / `motionTask`。
+v9 起 `goalX/goalY`、`stackIdx`、`motionStep`、`fastwayCount*` 已出帧
+(静态规划结果改由事件行上报)。于是本 API 变成"读帧"而不是"攒事件":
 
     state()     从 `mc.telemetry.latest()` 直接取
     road()      用 `codec.classify_road()` 由三位墙原语在主机侧重算路口类型
@@ -78,8 +79,6 @@ class MazeAPI:
             "dirName": DIR_NAMES.get(int(f.get("dir", 0)), "?"),
             "posX": int(f.get("posX", 0)),
             "posY": int(f.get("posY", 0)),
-            "goalX": int(f.get("goalX", 0)),
-            "goalY": int(f.get("goalY", 0)),
             "wallLeft": int(f.get("wallLeft", 0)),
             "wallFront": int(f.get("wallFront", 0)),
             "wallRight": int(f.get("wallRight", 0)),
@@ -91,9 +90,6 @@ class MazeAPI:
             "frontName": str(f.get("frontName", "无墙")),
             "motion": int(f.get("motionTask", 0)),
             "motionName": MOTION_TASK_NAMES.get(int(f.get("motionTask", 0)), "?"),
-            "motionStep": int(f.get("motionStep", 0)),
-            "stack": int(f.get("stackIdx", 0)),
-            "fastwayCount": int(f.get("fastwayCount", 0)),
             "road": int(f.get("road", 0)),
             "roadName": str(f.get("roadName", "NONE")),
             "roadKind": ROAD_KINDS.get(str(f.get("roadName", "NONE")), "未判定"),
@@ -119,7 +115,6 @@ class MazeAPI:
             "spurtTestFlag": int(f.get("spurtTestFlag", 0)),
             "objectGoToFlag": int(f.get("objectGoToFlag", 0)),
             "goaheadnum": int(f.get("goaheadnum", 0)),
-            "fastwayCount90": int(f.get("fastwayCount90", 0)),
         }
 
     def road(self) -> int:
@@ -244,11 +239,8 @@ class MazeAPI:
             "roadKind": st.get("roadKind"),
             "opens": (st.get("wallLeft"), st.get("wallFront"), st.get("wallRight")) if st else None,
             "pos": (st.get("posX"), st.get("posY")) if st else None,
-            "goal": (st.get("goalX"), st.get("goalY")) if st else None,
             "dir": st.get("dirName"),
-            "stack": st.get("stack"),
             "motion": st.get("motionName"),
-            "fastwayCount": st.get("fastwayCount"),
             "evDropped": bool(st.get("evDropped", False)),
             "taskSeq": [(a, b) for _t, a, b in self.task_changes(20)],
         }
@@ -259,9 +251,8 @@ class MazeAPI:
             return ["（还没有迷宫状态数据: 先 maze.run 发车并开始拉取 mc.stream.on()）"]
         lines = [
             f"状态机   : 任务 {s['task']}  动作 {s['motion']}  朝向 {s['dir']}",
-            f"路口     : {s['roadKind']}({s['road']})  开口(L,F,R)={s['opens']}  岔路栈 {s['stack']}",
-            f"位置     : ({s['pos'][0]},{s['pos'][1]})   终点 ({s['goal'][0]},{s['goal'][1]})",
-            f"快路径计数: {s['fastwayCount']}",
+            f"路口     : {s['roadKind']}({s['road']})  开口(L,F,R)={s['opens']}",
+            f"位置     : ({s['pos'][0]},{s['pos'][1]})",
         ]
         if s["taskSeq"]:
             seq = " → ".join([str(s["taskSeq"][0][0])] + [str(t[1]) for t in s["taskSeq"]])

@@ -71,7 +71,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.11.0"  # v2.11.0: P5 上位机适配新基线 code_competition(fw 300 / MAZETYPE 16) —— 固件档位入口 host/fwprofile.py、MAZE_TASK_NAMES 补 END=6、sim 跟档位; PROTO 仍 8
+API_VERSION = "2.12.0"  # v2.12.0: PROTO 9 / 统一帧 49→30 B(v9 帧重排), 详见 docs/通信协议v9-统一帧重排方案.md; 比赛档 hex 不变
 
 
 # ---------------------------------------------------------------- 命令表

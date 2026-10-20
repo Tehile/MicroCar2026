@@ -6,7 +6,7 @@
   偏移 46  冲刺位   `spurtMode`(b0-2) / `spurtFlag` / `goOrBack` /
                     `spurtTestFlag` / `objectGoToFlag`
   偏移 47  `goaheadnum`（冲刺前行格数）
-  偏移 48  `fastwayCount90`（90° 路径计数）
+  偏移 29  `冲刺上下文`(spurtMode/spurtTestFlag/goaheadnum)
 
 前墙双档是**派生量**：固件在 `link.c` 组帧时算
     frontNear = front && min(f1,f2) <  IRTHRFNEAR(80)
@@ -45,7 +45,6 @@ except ImportError:  # pragma: no cover
 sys.path.insert(0, __file__.rsplit("\\", 1)[0] if "\\" in __file__ else ".")
 
 from host.protocol.codec import (  # noqa: E402
-    FRONT_NEAR,
     FrameStreamParser,
     TYPE_UNIFIED,
     crc16_modbus,
@@ -176,8 +175,7 @@ def main() -> int:
             rows.append((f, ok))
             flag = "" if ok else " ⚠️恒等式失败"
             print(f"  [{i + 1:2d}] {rtt:5.0f}ms  "
-                  f"F1={f['irF1']:4d}mm(adc {f['irAdcF1']:5d})  "
-                  f"F2={f['irF2']:4d}mm(adc {f['irAdcF2']:5d})  "
+                  f"F1={f['irF1']:4d}mm  F2={f['irF2']:4d}mm  "
                   f"front={f['wallFront']}  near={f['frontNear']} "
                   f"far={f['frontFar']}  both={f['frontBoth']}  "
                   f"→ {f['frontName']}{flag}")
@@ -185,7 +183,7 @@ def main() -> int:
                 print(f"        冲刺: 档 {f['spurtModeName']}({f['spurtMode']})  "
                       f"flag={f['spurtFlag']} goOrBack={f['goOrBack']} "
                       f"test={f['spurtTestFlag']} objGoTo={f['objectGoToFlag']}  "
-                      f"goaheadnum={f['goaheadnum']}  fastway90={f['fastwayCount90']}")
+                      f"goaheadnum={f['goaheadnum']}")
 
         if not rows:
             print("\n没有采到任何帧。")

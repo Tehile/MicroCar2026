@@ -60,20 +60,25 @@
  *     故 P_NUM/PROTO_VER/FW_VER 三个宏都按 MOUSE_REMOTE 取值 ——
  *     比赛档保持 v2.4 语义与**逐字节不变**的产物, 远程档承载新协议。 */
 #ifdef MOUSE_REMOTE
-#define LINK_PROTO_VER 8 /* v2.7: `CAL` 家族扩展 —— 新增 6 个子命令(ERASEIR/IRSELF/
-                          *        SENSOR/IRCAP/BLOCK/ERASEALL), 把按键菜单 2/4/5/6/7/8
-                          *        项的能力远程化。**帧格式与参数表均未变**, 进位只因
-                          *        命令集变化(先例: v2.4 的 `MAZE RUN`、v2.6 的 RATE 族)。 */
-#define LINK_FW_VER 300  /* 3.00 —— 新基线 `code_competition`(比赛固件) 的远程档标记。
-                          *        与课程固件(222)区分: 迷宫 16x16、单体 main() 状态机、
-                          *        参数宿主变量/Flash 页/动作枚举来源全不同。**协议文本/
-                          *        命令集/参数表均未变**(PROTO 8 不变), 只是宿主实现换代,
-                          *        host 按本号选定名表与 sim 迷宫尺寸(见 host/host/fwprofile.py)。 */
+#define LINK_PROTO_VER 9 /* v9(2026-10-20): **统一帧重排 49 -> 30 B**。删掉的是
+                          *        "静态规划结果/本地计数"与"可从现有位推出"的量:
+                          *        原始 ADC、格内里程、控制误差、goal、运行时墙阈、岔路栈、
+                          *        快路径计数(fastwayCount/90)、丢帧计数(dropCnt)、motionStep、
+                          *        critL/R、left45/right45、frontNear; 状态B 拆 B0/B1(9bit),
+                          *        前墙远近并入状态C, 冲刺档位与 goaheadnum 合并为"冲刺上下文"。
+                          *        帧布局不兼容 => 进位。详见 docs/通信协议v9-统一帧重排方案.md。 */
+#define LINK_FW_VER 310  /* 3.10 —— 宿主实现同 3.00(迷宫 16x16 / 单体 main / 参数宿主),
+                          *        叠加 PROTO 9 帧重排。host 按 proto 判帧长与位布局,
+                          *        按 fw 选名表与 sim 迷宫尺寸(见 host/host/fwprofile.py)。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(新工程基线 hex sha256 68ad6be2...)。 */
 #endif
 /* 历史版本记录:
+ *  310 = v9: **统一帧 30 B**(PROTO 9) —— 见 LINK_PROTO_VER 的说明。删除项都属
+ *        "静态规划结果"(fastwayCount/90)、"本地健康计数"(dropCnt)或"可推导量"
+ *        (frontNear = wallFront & !frontFar); 动态状态一位未丢。
+ *        改动全在 REMOTE/ 且本段按 MOUSE_REMOTE 取值 => 比赛档 hex 不变。
  *  222 = v2.10.1: **远程档发车请求消费修复** —— `USER/main.c` 值守循环(等 `MAZE RUN`)
  *        里那条"按键进菜单"分支把 `BUTTON1` 极性写反(原 `if (BUTTON1 == 0)` 当按下;
  *        真值 **idle=0 / 按下=1**, 见 menu.c:33 的"4s 未按键自动进主流程"倒计时与
@@ -140,7 +145,7 @@
 
 /* ================= 统一帧 =================
  * 见 docs/传输模式重构设计方案.md §4 / docs/传输模式接口设计.md §1。
- * 形态: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(49) | CRC16(2)  ->  57 B
+ * 形态: AA 55 | LEN(2,LE) | TYPE | SEQ | PAYLOAD(30) | CRC16(2)  ->  38 B
  *
  * **拉取式(v2.1)**: 收到一条 `TELEM` 就发一帧, 没有任何周期任务、没有开流开关。
  *   于是设备端**不存在"自己发多了"的可能** —— 上限完全由上位机的请求窗口决定。
@@ -157,81 +162,80 @@
  *   锚不会陈旧, 失锁能立刻自愈。
  *   ※ `TELEM` **不参与幂等重放簿记**(既不查也不写 linkLastSeq) —— 它是持续流量,
  *   若参与就会把待重放的真实命令(如 MOVE/CAL)冲掉, 使重发变成重复执行。见 link.c。 */
-#define LINK_UNIFIED_LEN 49
+#define LINK_UNIFIED_LEN 30
 
 /* ---- 统一帧长度 ----
  * v2.6 起就是 LINK_UNIFIED_LEN 这一个值: v2.6-exp 曾在帧尾追加 2B 目标帧率,
  * 随 AIMD 一并删除后已无第二个长度。此处不再保留 LINK_UNIFIED_LEN_EXP 别名。 */
 
-/* 载荷偏移(与上位机 codec.UNIFIED_CHANNELS 逐字段对齐; 改动须同步) */
+/* 载荷偏移(与上位机 codec.UNIFIED_CHANNELS 逐字段对齐; 改动须同步)
+ *
+ * v9(2026-10-20) 帧重排: 49 -> 30 B。原则 = 帧里只留"每帧会变的动态量";
+ * 静态规划结果(fastwayCount/fastwayCount90)与本地健康计数(linkDrop)移出帧,
+ * 改由事件行 / PING 文本低频上报。详见 docs/通信协议v9-统一帧重排方案.md。 */
 #define LINK_U_MS8 0       /* u8     设备毫秒时基低 8 位        */
-#define LINK_U_IRADC 1     /* u16×4  原始 ADC: F1 F2 L R        */
-#define LINK_U_IRMM 9      /* u16×4  距离 mm: F1 F2 L R         */
-#define LINK_U_BATTMV 17   /* u16    电池 mV(IIR 后)            */
-#define LINK_U_SPEEDL 19   /* s16    左轮速度 cm/s              */
-#define LINK_U_SPEEDR 21   /* s16    右轮速度 cm/s              */
-#define LINK_U_GYRO 23     /* s16    陀螺积分角度               */
-#define LINK_U_ENCANG 25   /* s16    编码器角度(与陀螺角不同物理量) */
-#define LINK_U_TRACKL 27   /* s16    左轮相对里程 **mm**(非 pulse)  */
-#define LINK_U_TRACKR 29   /* s16    右轮相对里程 mm            */
-#define LINK_U_CELLODOM 31 /* s16    格内里程 mm                */
-#define LINK_U_PIDERR 33   /* s16    控制误差(调参核心信号)     */
-#define LINK_U_STATE_A 35  /* 位打包: 见下                      */
-#define LINK_U_STATE_B 36  /* 位打包: 见下                      */
-#define LINK_U_STATE_C 37  /* 位打包: 见下                      */
-#define LINK_U_FLAGS 38    /* u8     LINK_FLAG_*                */
-#define LINK_U_POS 39      /* 位打包: posX(4) | posY(4)         */
-#define LINK_U_GOAL 40     /* 位打包: goalX(4) | goalY(4)       */
-#define LINK_U_WALLTHR 41  /* u8     **运行时**侧墙阈值(非参数值)  */
-#define LINK_U_STACKIDX 42 /* u8     岔路栈深度                 */
-#define LINK_U_FASTWAY 43  /* u8     路径动作计数               */
-#define LINK_U_DROP 44     /* u8     累计丢帧低 8 位            */
-/* ---- v2.3 新增(纯只读监视, 不改任何决策) ---- */
-#define LINK_U_FRONT 45    /* 位打包: 前墙双档 + 双路互证(见下) */
-#define LINK_U_SPURT 46    /* 位打包: 冲刺档位与标志(见下)      */
-#define LINK_U_GOAHEAD 47  /* u8     冲刺前行格数(taskSt.goaheadnum) */
-#define LINK_U_FASTWAY90 48 /* u8    90deg路径动作计数(mazeState.fastwayCount90) */
+#define LINK_U_IRMM 1      /* u16x4  距离 mm: F1 F2 L R         */
+#define LINK_U_BATTMV 9    /* u16    电池 mV(IIR 后)            */
+#define LINK_U_SPEEDL 11   /* s16    左轮速度 cm/s              */
+#define LINK_U_SPEEDR 13   /* s16    右轮速度 cm/s              */
+#define LINK_U_GYRO 15     /* s16    陀螺积分角度               */
+#define LINK_U_ENCANG 17   /* s16    编码器角度(与陀螺角不同物理量) */
+#define LINK_U_TRACKL 19   /* s16    左轮相对里程 **mm**(非 pulse)  */
+#define LINK_U_TRACKR 21   /* s16    右轮相对里程 mm            */
+#define LINK_U_STATE_A 23  /* 位打包: 见下                      */
+#define LINK_U_STATE_B0 24 /* 位打包: 见下                      */
+#define LINK_U_STATE_B1 25 /* 位打包: 见下                      */
+#define LINK_U_STATE_C 26  /* 位打包: 见下                      */
+#define LINK_U_FLAGS 27    /* u8     LINK_FLAG_*                */
+#define LINK_U_POS 28      /* 位打包: posX(4) | posY(4)         */
+#define LINK_U_SPURT 29    /* 位打包: 冲刺上下文(档位/测试/格数)  */
+/* v9 删除(不再占帧): IRADC / CELLODOM / PIDERR / GOAL / WALLTHR / STACKIDX /
+ * FASTWAY / DROP / FRONT / GOAHEAD / FASTWAY90。
+ *   前墙远近并入状态C, goaheadnum 并入偏移 29, 路径动作计数改由事件行上报。 */
 
-/* 位打包明细(偏移 35/36/37/39/40/45/46) */
-/*  35 状态A: bit0-1 dir(0=UP 1=RIGHT 2=DOWN 3=LEFT)
- *            bit2-4 mazeTask(0=WAIT 1=START 2=SEARCH 3=SPURT 4=SPURT45 5=SPURT90)
- *            bit5   wallLeft   bit6 wallFront   bit7 wallRight        */
-/*  36 状态B: bit0-6 motionTask(0..107, 见 core.h)   bit7 irSwitch      */
-/*  37 状态C: bit0-3 motionStep   bit4 critL   bit5 critR
- *            bit6   left45                       bit7 right45          */
-/*  39        bit0-3 posX(0-6)                     bit4-7 posY(0-6)     */
-/*  40        bit0-3 goalX                         bit4-7 goalY         */
-/*  45 前墙  : bit0 frontNear  bit1 frontFar  bit2 frontBoth  bit3-7 预留
- *            ※ **派生量**, 由 wallSns.front + irCfg.thrFrontNear 在组帧时算出;
- *              恒等式 `frontNear | frontFar == wallSns.front` 且两者互斥 =>
- *              "墙落在哪一档"可直接读, 而 wallSns.front 的既有消费点一字未改。 */
-/*  46 冲刺  : bit0-2 spurtMode(0=未选 1=90LOW 2=45LOW 3=MED 4=HIGH)
- *            bit3 spurtFlag  bit4 goOrBack  bit5 spurtTestFlag
- *            bit6 objectGoToFlag   bit7 预留                          */
+/* 位打包明细(偏移 23/24/25/26/28/29) */
+/*  23 状态A : bit0-1 dir(0=UP 1=RIGHT 2=DOWN 3=LEFT)
+ *            bit2-4 mazeTask(0=WAIT 1=START 2=SEARCH 3=SPURT 4=SPURT45 5=SPURT90 6=END)
+ *            bit5   objectGoToFlag            bit6-7 预留              */
+/*  24 状态B0: bit0-6 motionTask(0..107, 见 core.h)   bit7 预留        */
+/*  25 状态B1: bit0 spurtFlag  bit1 goOrBack  bit2-7 预留              */
+/*  26 状态C : bit0 wallLeft  bit1 wallFront  bit2 wallRight
+ *            bit3 frontFar(1=远墙档 / 0=近墙档)  bit4 frontBoth  bit5-7 预留
+ *            ※ frontFar 仅 wallFront=1 时有意义; frontNear 由上位机按
+ *              `wallFront & !frontFar` 推出 => 前墙三档信息一位不丢。
+ *            ※ irSwitch 不在本字节, 已移到 flags.0x10。 */
+/*  28       : bit0-3 posX(0-15)   bit4-7 posY(0-15)                   */
+/*  29 冲刺  : bit0-2 spurtMode(0=未选 1=LOW_90 2=LOW 3=MED 4=HIGH)
+ *            bit3 spurtTestFlag   bit4-7 goaheadnum(0..15)            */
 
 /* 位宽与值域上限(供组帧裁剪与上位机静态断言共用) */
 #define LINK_UB_DIR_W 2
 #define LINK_UB_MAZETASK_W 3
-#define LINK_UB_MAZETASK_MAX 5
+#define LINK_UB_MAZETASK_MAX 6
 #define LINK_UB_MOTIONTASK_W 7
 #define LINK_UB_MOTIONTASK_MAX 107 /* 见未决项: 枚举再扩张就会溢出, 须加静态断言 */
-#define LINK_UB_MOTIONSTEP_W 4
 #define LINK_UB_POS_W 4
-#define LINK_UB_GOAL_W 4
+#define LINK_UB_GOAHEAD_W 4
+#define LINK_UB_GOAHEAD_MAX 15
 
-/* ---- v2.3 新增位定义 ----
- * 前墙双档(偏移 45): 三者互斥性由构造保证 —— near/far 二选一(有墙时),
- * both 是"原双传感器互证式成立"(与 near/far 正交, 供调试与后继决策)。 */
-#define LINK_FRONT_NEAR 0x01 /* 贴脸: 任一路 < irCfg.thrFrontNear */
-#define LINK_FRONT_FAR 0x02  /* 提前: 有墙但两路都还没进近距档 */
-#define LINK_FRONT_BOTH 0x04 /* 原式条件①/②(双传感器互证)成立 */
-/* 冲刺档位与标志(偏移 46) */
+/* ---- v9 位定义 ----
+ * 状态C 的墙位(偏移 26): 前墙远近由同一组阈值二分, 见上。 */
+#define LINK_C_WALL_LEFT 0x01
+#define LINK_C_WALL_FRONT 0x02
+#define LINK_C_WALL_RIGHT 0x04
+#define LINK_C_FRONT_FAR 0x08  /* 远墙档: 有墙但两路都没进近距档 */
+#define LINK_C_FRONT_BOTH 0x10 /* 原式条件①/②(双传感器互证)成立 */
+/* 状态A 的扫描标志(偏移 23 bit5) */
+#define LINK_A_OBJECT 0x20     /* mazeState.objectGoToFlag(回坐标中) */
+/* 状态B1 的冲刺控制布尔(偏移 25) */
+#define LINK_B1_SPURTFLAG 0x01 /* taskSt.spurtFlag */
+#define LINK_B1_GOBACK 0x02    /* taskSt.goOrBack(去/回) */
+/* 冲刺上下文(偏移 29) */
 #define LINK_UB_SPURTMODE_W 3
 #define LINK_UB_SPURTMODE_MAX 4 /* 见 spurt.h SpurtSpeed_t(60..63 -> 1..4) */
-#define LINK_SPURTBF_FLAG 0x08   /* taskSt.spurtFlag */
-#define LINK_SPURTBF_GOBACK 0x10 /* taskSt.goOrBack(去/回) */
-#define LINK_SPURTBF_TEST 0x20   /* mazeState.spurtTestFlag */
-#define LINK_SPURTBF_OBJECT 0x40 /* mazeState.objectGoToFlag(回坐标中) */
+#define LINK_SP_TEST 0x08       /* mazeState.spurtTestFlag */
+#define LINK_SP_GOAHEAD_SHIFT 4 /* goaheadnum 左移位数 */
+#define LINK_SP_GOAHEAD_MASK 0xF0
 
 /* ---- 时间同步基准灯(相对独立于校准与各测试档) ----
  * 毫秒时基 linkTimeMs 由 SysTick 每 1ms 自增(u32, 49 天不绕), 上电起走。
@@ -267,7 +271,7 @@
                                  *  ms8 帧间隙**推算**, 四类误判(归档错/折回/换档/1ms 刀锋)都
                                  *  会让它**提前触发** => 多发命令 => 速率顶过链路容量。现在
                                  *  判据直接读这一位 = 读事实。见 docs/链路MTBF压测方法.md §14.15。 */
-#define LINK_FLAG_DUMPING 0x10  /* [v2.0 恒 0] dump 传输中 */
+#define LINK_FLAG_IR_SWITCH 0x10 /* v9: 红外采样轮在跑(irswitch==1); 占用原 DUMPING 恒 0 位 */
 #define LINK_FLAG_MOTOR_OFF 0x20 /* [保留恒 0] 曾用于"安全测试模式(电机禁用)"; v2.4 取消该档后无发送方 */
 #define LINK_FLAG_ESTOP_LOCK 0x40 /* 急停**锁存**中: 新的 MOVE/CAL 会被拒(ERR_ESTOP), 须 STOP 解锁 */
 #define LINK_FLAG_EVQ 0x80        /* v2.0(替代 RUNLOG): 有事件行因 TX 空间不足被丢弃 -> 事件流不完整 */

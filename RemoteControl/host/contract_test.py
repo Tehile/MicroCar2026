@@ -167,18 +167,27 @@ def _test_enum_tables_vs_firmware() -> None:
               if k in _c.MAZE_TASK_NAMES and _norm(fw_maze[k]) != _norm(_c.MAZE_TASK_NAMES[k])]
     check("MAZE_TASK_NAMES 名称逐项一致(归一化后)", not nm_bad, " | ".join(nm_bad))
 
-    # ---- v2.3 新增位宏: 主机 FRONT_*/SPURTBF_* <-> 固件 LINK_FRONT_*/LINK_SPURTBF_* ----
+    # ---- v9 位宏: 主机 STATE_*/SP_* <-> 固件 LINK_C_*/LINK_A_*/LINK_B1_*/LINK_SP_*
+    # 名字不是简单加前缀(主机按字节语义命名, 固件按字节位置命名), 故用显式配对表。
     def _macro(name: str):
         mm = re.search(r"#define\s+" + re.escape(name) + r"\s+(0[xX][0-9a-fA-F]+|\d+)", link_h)
         return int(mm.group(1), 0) if mm else None
 
-    bad = []
-    for hn in ("FRONT_NEAR", "FRONT_FAR", "FRONT_BOTH",
-               "SPURTBF_FLAG", "SPURTBF_GOBACK", "SPURTBF_TEST", "SPURTBF_OBJECT"):
-        fv = _macro("LINK_" + hn)
-        if fv != getattr(_c, hn):
-            bad.append(f"{hn}: 主机 {getattr(_c, hn)} != 固件 {fv}")
-    check(f"前墙/冲刺位宏 {7} 项与固件一致", not bad, " | ".join(bad))
+    bit_pairs = (
+        ("STATE_C_WALL_LEFT", "LINK_C_WALL_LEFT"),
+        ("STATE_C_WALL_FRONT", "LINK_C_WALL_FRONT"),
+        ("STATE_C_WALL_RIGHT", "LINK_C_WALL_RIGHT"),
+        ("STATE_C_FRONT_FAR", "LINK_C_FRONT_FAR"),
+        ("STATE_C_FRONT_BOTH", "LINK_C_FRONT_BOTH"),
+        ("STATE_A_OBJECT", "LINK_A_OBJECT"),
+        ("STATE_B1_SPURTFLAG", "LINK_B1_SPURTFLAG"),
+        ("STATE_B1_GOBACK", "LINK_B1_GOBACK"),
+        ("SP_TEST", "LINK_SP_TEST"),
+        ("SP_GOAHEAD_SHIFT", "LINK_SP_GOAHEAD_SHIFT"),
+    )
+    bad = [f"{hn}: 主机 {getattr(_c, hn)} != 固件 {_macro(fwn)}"
+           for hn, fwn in bit_pairs if _macro(fwn) != getattr(_c, hn)]
+    check(f"状态位宏 {len(bit_pairs)} 项与固件一致", not bad, " | ".join(bad))
 
     # ---- 冲刺档位 60..63(两代含义相同, 来源不同: 旧 spurt.h 的 SpurtSpeed_t;
     #      新 utility.h 的 LOW_90/LOW/MEDIUM/HIGH) ----
@@ -1082,27 +1091,23 @@ def _payload_unified() -> bytes:
     d = {c: 0 for c in UNIFIED_CHANNELS}
     d.update({
         "ms8": 0x5A,
-        "irAdcF1": 2600, "irAdcF2": 2610, "irAdcL": 900, "irAdcR": 620,
         "irF1": 232, "irF2": 231, "irL": 42, "irR": 43,
         "battMv": 7620,
         "speedL": 68, "speedR": -12,
         "gyroAngle": 90, "encAngle": 5,
         "trackL": 1200, "trackR": -300,
-        "cellOdom": 88, "pidErr": -12,
-        # ---- 状态机位打包三字节 ----
-        "dir": 1, "mazeTask": 2,
+        # ---- 状态A: 身份层 ----
+        "dir": 1, "mazeTask": 2, "objectGoToFlag": 1,
+        # ---- 状态B0/B1: 执行层 + 冲刺控制 ----
+        "motionTask": 32, "spurtFlag": 1, "goOrBack": 0,
+        # ---- 状态C: 墙位 + 前墙远近(frontFar=1 => 派生 frontNear=0) ----
         "wallLeft": 0, "wallFront": 1, "wallRight": 1,
-        "motionTask": 32, "irSwitch": 1,
-        "motionStep": 3, "critL": 1, "critR": 0, "left45": 0, "right45": 0,
-        "flags": 0x41,
-        # ---- 坐标 / 决策 ----
-        "posX": 3, "posY": 4, "goalX": 7, "goalY": 7,
-        "wallThresh": 140, "stackIdx": 2, "fastwayCount": 9, "dropCnt": 1,
-        # ---- v2.3: 前墙双档 / 比赛冲刺状态 ----
-        "frontNear": 1, "frontFar": 0, "frontBoth": 0,
-        "spurtMode": 3, "spurtFlag": 1, "goOrBack": 0,
-        "spurtTestFlag": 1, "objectGoToFlag": 0,
-        "goaheadnum": 5, "fastwayCount90": 7,
+        "frontFar": 1, "frontBoth": 0,
+        "flags": 0x51,  # FREEMODE | IR_SWITCH | ESTOP_LOCK
+        # ---- 坐标 ----
+        "posX": 3, "posY": 4,
+        # ---- 冲刺上下文 ----
+        "spurtMode": 3, "spurtTestFlag": 1, "goaheadnum": 5,
     })
     return pack_unified(d)
 

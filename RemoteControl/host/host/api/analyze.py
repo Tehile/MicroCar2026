@@ -26,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .client import MouseClient
 
 #: 统一帧里与运动控制分析最相关的通道
-MOTION_CHANNELS = ("motionTask", "gyroAngle", "speedL", "speedR", "pidErr")
+MOTION_CHANNELS = ("motionTask", "gyroAngle", "speedL", "speedR")
 
 
 class AnalyzeAPI:
@@ -79,7 +79,6 @@ class AnalyzeAPI:
             "gyroAngle": np.asarray(h.get("gyroAngle", []), dtype=float),
             "speedL": np.asarray(h.get("speedL", []), dtype=float),
             "speedR": np.asarray(h.get("speedR", []), dtype=float),
-            "pidErr": np.asarray(h.get("pidErr", []), dtype=float),
         }
 
     def history_segments(self, h: Dict[str, np.ndarray]) -> List[Dict[str, Any]]:
@@ -196,7 +195,8 @@ class AnalyzeAPI:
     ) -> Dict[str, Any]:
         """从"原始 ADC ↔ 距离"配对序列里拟合标定曲线(幂律 `ADC = a * d^b`)。
 
-        数据来自统一帧: `irAdcF1..irAdcR` 与 `irF1..irR` 本身就是逐帧同步的,
+        调用方负责给 `adc` —— v9 起统一帧**不再携带原始 ADC**(只留 mm),
+        故本函数现在吃的是离线数据(闪存标定表 / 独立采集脚本的 npz)。
         把鼠标推着走一遍就能得到整条测距曲线, 用来**校验或重建** `irs.c` 里的
         250 点标定表, 而不是靠手工摆两次(近点/远点)。
 
