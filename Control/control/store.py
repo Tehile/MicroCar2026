@@ -1,14 +1,20 @@
 """统一会话目录 + 时间轴 + meta.json（设计方案 §5）。
 
-目录布局见 §5.1：`mouse/` 是鼠侧原生产物（复用上游格式，原样），`camera.json` 只记
-**引用**不搬帧（3.9 GB/会话，复制一份毫无意义），`locate/` 是定位产物，
+目录布局见 §5.1：`mouse/` 是鼠侧原生产物（复用上游格式，原样），
 `timeline.csv` 是"整合"这件事唯一的可验证产物。
 
-原子性（§5.3）：三路同生同死。
-    开：先开鼠会话（本地目录，失败代价≈0）→ 再起手机采集（物理副作用，贵）→
-        任一步失败**回滚已成功的步骤**（判据 I5：不许留下半个会话目录）。
-    停：先停手机采集 → 等 delivery_done → 再收鼠会话
-        （因为要先把 `locate/` 写进那个会话，鼠会话必须最后收）。
+⚠️ **改版二十四：相机与场地定位整块下线。** 位置数据不再来自实时帧流，而是
+"一段视频 → Auto Locate 会话解析 → 轨迹"，那条链的产物在 `video.out_root` 下、
+**按视频会话单独成目录**，不并进这里的录制会话（两者的时间基不同源：
+录制会话按 `t_pc_ms`，视频按帧号/`t_video_s`）。于是本类只剩两件事：
+**开/停鼠会话** 与 **写 timeline.csv**。
+历史会话目录里可能仍留着 `locate/`、`camera.json`、`thumbs/`、`frames/` ——
+**只读容忍、不删**（那是当时那场记录的证据，本层没有资格替人清掉）。
+
+原子性（§5.3）：开失败必须回滚干净。
+    开：先建目录 → 再开鼠会话 → 任一步失败**回滚已成功的步骤**
+        （判据 I5：不许留下半个会话目录）。
+    停：收鼠会话 → 写 meta.json（时间轴最后落盘）。
 """
 
 from __future__ import annotations
@@ -77,12 +83,17 @@ def new_session_id(when: Optional[int] = None) -> str:
 
 
 def git_info(path: str | os.PathLike) -> dict:
-    """读一个仓库的 commit 与工作区洁净度。
+    """读一个上游目录的 commit 与**它自己那块**的洁净度。
 
-    **为什么要记**（§5.4）：三个上游都在活跃迭代，不记 commit 就等于复现不了；
+    **为什么要记**（§5.4）：上游都在活跃迭代，不记 commit 就等于复现不了；
     工作区脏（有未提交改动）时更要记 —— 那意味着产物的前提不是任何已发布的版本。
+
+    ⚠️ **必须按 pathspec 限定到该目录**：本工程的目录布局是"单仓库 + 若干上游子目录"
+    （`RemoteControl/`、`Auto Locate/` 都在同一个 git 仓库里，没有各自的 `.git`）。
+    不限定的话，`git status` 报的是**整个仓库**的改动 —— 包括 Control 自己正在改的文件。
+    那样这条判据永远红、且红得毫无意义（"上游脏了"其实是"我刚改了 Control"）。
     """
-    p = Path(path)
+    p = Path(path).resolve()
     out: Dict[str, Any] = {"path": str(p)}
     repo = p
     for _ in range(4):                          # 向上找 .git
@@ -94,11 +105,15 @@ def git_info(path: str | os.PathLike) -> dict:
     else:
         return out
     try:
+        rel = str(p.relative_to(repo)) or "."
+    except ValueError:
+        rel = "."
+    try:
         out["git"] = subprocess.run(
             ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, timeout=5).stdout.strip() or None
         dirty = subprocess.run(
-            ["git", "-C", str(repo), "status", "--porcelain"],
+            ["git", "-C", str(repo), "status", "--porcelain", "--", rel],
             capture_output=True, text=True, timeout=8).stdout.strip()
         out["dirty"] = bool(dirty)
         out["dirty_files"] = len(dirty.splitlines())
@@ -115,34 +130,20 @@ class Session:
     root: Path
     started_ms: int = field(default_factory=now_ms)
     ended_ms: Optional[int] = None
-    #: 三路各自的 phase：closed | opening | open | closing | failed
-    phase: Dict[str, str] = field(default_factory=lambda: {
-        "mouse": "closed", "camera": "closed", "locate": "closed"})
+    #: 各路 phase：closed | opening | open | closing | failed
+    #: 改版二十四只剩鼠一路（相机/定位下线）。保留 dict 而不是改成单值：
+    #: `session.phase` 事件与历史 meta.json 里都是这个形状，前端照旧按 key 遍历。
+    phase: Dict[str, str] = field(default_factory=lambda: {"mouse": "closed"})
     detail: Dict[str, str] = field(default_factory=dict)
-    counts: Dict[str, int] = field(default_factory=lambda: {
-        "camera_frames_verified": 0, "locate_valid": 0, "locate_invalid": 0,
-        "timeline_rows": 0})
+    counts: Dict[str, int] = field(default_factory=lambda: {"timeline_rows": 0})
     mouse_path: Optional[str] = None
-    camera_ref: Optional[dict] = None
     notes: List[str] = field(default_factory=list)
-    #: 本次会话冻结的 arena / locator / clock 快照（写进 meta.json）
+    #: 本次会话冻结的 arena / clock 快照（写进 meta.json）
     snapshot: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def path(self) -> Path:
         return self.root / self.session_id
-
-    @property
-    def locate_dir(self) -> Path:
-        return self.path / "locate"
-
-    @property
-    def thumbs_dir(self) -> Path:
-        return self.path / "thumbs"
-
-    @property
-    def frames_dir(self) -> Path:
-        return self.path / "frames"
 
     @property
     def timeline_path(self) -> Path:
@@ -161,7 +162,6 @@ class Session:
             "detail": dict(self.detail),
             "counts": dict(self.counts),
             "mouse_path": self.mouse_path,
-            "camera_ref": self.camera_ref,
             "notes": list(self.notes),
         }
 
@@ -198,13 +198,11 @@ class Store:
                 raise FileExistsError(
                     f"会话目录已存在：{d}。换一个 session_id —— 覆盖已有会话是不可逆的。")
             d.mkdir(parents=True)
-            (d / "locate").mkdir()
-            (d / "thumbs").mkdir()
-            (d / "frames").mkdir()
             s = Session(session_id=sid, root=self.root, notes=list(notes),
                         snapshot=dict(snapshot or {}))
             s.phase["mouse"] = "opening"
-            # timeline 表头 —— 先建好，再让三路上线（顺序在 §5.3 有讲究）
+            # timeline 表头 —— 先建好，再让鼠那路上线（顺序在 §5.3 有讲究：
+            # 表头落到盘上之后才可能有事件，否则第一行会被当成表头吃掉）
             self._tl_f = open(s.timeline_path, "w", newline="", encoding="utf-8-sig")
             self._tl_w = csv.writer(self._tl_f)
             self._tl_w.writerow(TIMELINE_HEADER)
@@ -215,12 +213,12 @@ class Store:
     # ------------------------------------------------------------ timeline
     def mark(self, source: str, kind: str, ref: str = "", note: str = "",
              t_pc_ms: Optional[int] = None, t_src: str = "", dev_ms: Optional[int] = None) -> None:
-        """往 timeline.csv 追加一行。**所有跨三路的事件都必须经过这里。**
+        """往 timeline.csv 追加一行。**所有跨来源的事件都必须经过这里。**
 
-        后两列是**这次跟新加的关键**，都在回答同一个问题：**这一行的 t_pc_ms 是哪一种时间？**
+        后两列是**跟新加的关键**，都在回答同一个问题：**这一行的 t_pc_ms 是哪一种时间？**
 
-          · `t_src`  —— `send`：帧真正**发出/拍摄**的时刻（固件时基或手机 epoch，
-                        经各自偏移换算过来）。这是**准确**的那种。
+          · `t_src`  —— `send`：帧真正**发出**的时刻（固件时基，经各自偏移换算过来）。
+                        这是**准确**的那种。
                        `arrival`：只能拿到"主机收到"的时刻（链路抖动被算进去了）。
                        `local`：本层自己产生的事件（开会话、点按钮），没有别的来源。
           · `dev_ms` —— 发车以来的毫秒数（设备时基）。有它才能和上游的
@@ -254,16 +252,7 @@ class Store:
                         n += 1
             return n
 
-    # ------------------------------------------------------------ 三路快照
-    def set_camera_ref(self, ref: dict) -> None:
-        with self._lock:
-            s = self._current
-            if s is None:
-                return
-            s.camera_ref = ref
-            (s.path / "camera.json").write_text(
-                json.dumps(ref, ensure_ascii=False, indent=2), encoding="utf-8")
-
+    # ------------------------------------------------------------ 备注
     def note(self, text: str) -> None:
         with self._lock:
             s = self._current
@@ -280,7 +269,7 @@ class Store:
             if s is None:
                 return None
             s.ended_ms = now_ms()
-            for k in ("mouse", "camera", "locate"):
+            for k in ("mouse",):
                 if s.phase.get(k) == "open":
                     s.phase[k] = "closed"
             if self._tl_f is not None:
@@ -333,13 +322,6 @@ class Store:
             **s.snapshot,
             "counts": dict(s.counts),
         }
-        if s.camera_ref:
-            meta.setdefault("camera", {})
-            meta["camera"] = {
-                "session_id": s.camera_ref.get("session_id"),
-                "data_dir": s.camera_ref.get("data_dir"),
-                "store": s.camera_ref.get("store"),
-            }
         if s.mouse_path:
             meta["mouse_path"] = s.mouse_path
         if extra:
@@ -370,8 +352,10 @@ class Store:
                         item["timeline_rows"] = max(0, sum(1 for _ in f) - 1)
                 except OSError:
                     pass
-            rj = d / "locate" / "results.jsonl"
-            item["has_locate"] = rj.is_file()
+            # ⚠️ 改版二十四：原来这里还报 `has_locate`（`locate/results.jsonl` 在不在）。
+            # 定位那一路随相机下线，读数没有去处 ⇒ 整条删掉，不用 `false` 占位
+            # （占位会被读成"这次没定位"，而不是"这个功能已经不在了"）。
+            # 历史目录里的 `locate/` **不动**，`size_bytes` 照样把它算进体积。
             item["size_bytes"] = _dir_size(d)
             out.append(item)
         return out
@@ -400,7 +384,12 @@ class Store:
         return rows
 
     def export(self, session_id: str, kind: str = "zip") -> Path:
-        """导出会话。`zip` 打包整个目录；`csv`/`jsonl` 只取那一份主产物。"""
+        """导出会话。`zip` 打包整个目录；`csv` 只取 `timeline.csv`。
+
+        **改版二十四删掉了 `jsonl`**（那是 `locate/results.jsonl` 的快捷方式，
+        定位下线后它没有来路）。历史会话里那份文件仍在目录内，用 `zip` 能拿到 ——
+        所以删掉的只是一个会指向空文件的按钮，不是数据。
+        """
         d = self.root / session_id
         if not d.is_dir():
             raise FileNotFoundError(f"没有这个会话：{session_id}")
@@ -409,9 +398,7 @@ class Store:
             return Path(shutil.make_archive(str(base), "zip", root_dir=str(d)))
         if kind == "csv":
             return d / "timeline.csv"
-        if kind == "jsonl":
-            return d / "locate" / "results.jsonl"
-        raise ValueError(f"不支持的导出类型 {kind!r}（可选 zip / csv / jsonl）")
+        raise ValueError(f"不支持的导出类型 {kind!r}（可选 zip / csv）")
 
 
 def _dir_size(p: Path) -> int:

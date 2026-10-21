@@ -106,9 +106,10 @@ RESOLVER = {
     #    `getattr(host.registry, "registry")`，直接 AttributeError（踩过）。
     "LAUNCH_MIN_MV": "host.registry",
     "CommandSpec": "host.registry",
-    # 模块 B：PhoneCamera/pc
-    "HostLink": "hostlink",
-    # 模块 C：Auto Locate
+    # 模块 B：Auto Locate
+    # ⚠️ 改版二十四：原来这里还有 `"HostLink": "hostlink"`（PhoneCamera 的长连接）。
+    # 手机相机整块下线 ⇒ 那个符号不再被消费，表里也不该再出现它 ——
+    # "替一个已经不用了的上游守着符号存在性"，只会在它消失时给出无关的红。
     "ArucoLocator": "aruco_locator",
     "create_locator": "aruco_locator",
     "parameter_catalog": "aruco_locator",
@@ -137,11 +138,12 @@ def head(t: str) -> None:
 
 
 def ensure_paths() -> None:
-    """把三个上游目录挂上 sys.path —— 它们是**平级目录**，不是包。"""
+    """把上游目录挂上 sys.path —— 它们是**平级目录**，不是包。"""
     from control.adapters import ensure_path
     from control.config import bootstrap
     cfg = bootstrap()
-    for k in ("remotecontrol_host", "autolocate", "phonecamera_pc"):
+    # 改版二十四：`phonecamera_pc` 随相机下线（上游只剩 RemoteControl + Auto Locate）
+    for k in ("remotecontrol_host", "autolocate"):
         p = cfg.get(f"paths.{k}")
         if p:
             ensure_path(str(p))
@@ -196,7 +198,7 @@ def main() -> int:
     head("0. 挂上游路径")
     try:
         ensure_paths()
-        record("S0", "PASS", "三个上游目录已加入 sys.path")
+        record("S0", "PASS", "上游目录（RemoteControl / Auto Locate）已加入 sys.path")
     except Exception as e:                                    # noqa: BLE001
         record("S0", "FAIL", f"挂不上上游路径：{type(e).__name__}: {e}")
         return 1

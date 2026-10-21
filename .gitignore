@@ -19,6 +19,11 @@ RemoteControl/host/*.txt
 # ---- Control: 运行草稿目录(日志/截图/回放/yuv/视频) ----
 Control/.tmp/
 
+# ---- Control 视频复盘: 素材与产物(大文件, 一律不入库) ----
+# video/ 是 config.yaml 里 `video.root` 的默认位置: 把手机/相机拍的 mp4 丢进来,
+# 界面里就能直接选。产物在 Control/records/video(已被上面的 Control/records 覆盖)。
+video/
+
 # ---- 通用临时文件 ----
 *.tmp
 

@@ -17,38 +17,47 @@ import yaml
 
 #: 允许出现的顶层键 —— 多一个就报错
 TOP_KEYS = {
-    "server", "mouse", "camera", "locator", "arena", "clock", "paths",
+    "server", "mouse", "arena", "clock", "paths",
     # 实验 8 的迷宫记录目录（`records.maze_root`）。加这一段而不是塞进 `server`：
     # 它是**产物目录**，与"服务怎么跑"不是一类东西（将来会话/导出目录也会归这里）。
     "records",
+    # 视频复盘（改版二十四）：视频来源 + 会话产物根 + 交给上游的项目配置。
+    "video",
 }
+#: ⚠️ 改版二十四删掉的段：`camera`（PhoneCamera 的 base/token/launcher…）与
+#: `locator`（在线定位的 profile/queue）。**段删了，历史 config.yaml 也必须跟着删** ——
+#: 本模块"未知键直接报错"是故意的：留着没人读的段，现场改它不会有任何反应，
+#: 那比报错更难查。（`arena` 留着：8×8 场地几何仍是画轨迹的背景网格。）
 
 #: 顶层键 -> 允许的子键。空集合表示"该段是自由格式"。
 SCHEMA: Dict[str, Optional[set]] = {
     "server": {"host", "port", "session_root", "log_ring"},
     "mouse": {"target", "baud", "auto_stream", "scheduler_hz", "telemetry_window_s",
               "wave_window_ms", "auto_reconnect", "stream_mode"},
-    "camera": {"base", "token", "timeout", "default_plan", "offline_import_root",
-               "probe_interval_s", "probe_interval_bad_s", "launcher"},
-    "locator": {"config", "profile", "online", "offline"},
-    "arena": {"grid", "pitch_mm", "field_mm", "fw_to_arena", "calibrated",
-              "nadir_xy", "camera_height_mm"},
+    # `arena` 只剩几何（画轨迹的背景网格）。原来的相机外参四项
+    # （`fw_to_arena` / `calibrated` / `nadir_xy` / `camera_height_mm`）随相机下线删掉：
+    # 视觉标定现在归上游 Auto Locate 的配置，本层不该再持有一份没人写的副本。
+    "arena": {"grid", "pitch_mm", "field_mm"},
     "clock": {"offset_ms", "uncertainty_ms", "source"},
-    "paths": {"remotecontrol_host", "autolocate", "phonecamera_pc"},
+    "paths": {"remotecontrol_host", "autolocate"},
     "records": {"maze_root"},
+    "video": {"root", "out_root", "config", "stride", "maze", "timeout_s"},
 }
 
 #: 需要在装载后解析成绝对路径的键（点号路径）
 _PATH_KEYS = {
     "paths.remotecontrol_host",
     "paths.autolocate",
-    "paths.phonecamera_pc",
-    "camera.offline_import_root",
-    "locator.config",
     # 实验 8 的记录目录。**必须在这里**：不进来的话 `Path("records/maze")` 会相对
     # **当前工作目录**解析 —— 从别处起服务（`python Control/app.py`）就把记录写到
     # 别的地方去了，而现场表现是"记录列表是空的"（文件其实在，只是找不到）。
     "records.maze_root",
+    # 视频复盘的三个路径（改版二十四）。`video.config` 尤其要在里面：
+    # 它是**交给子进程**的参数，相对路径会在子进程的当前目录下解析 —— 子进程
+    # 从哪儿起不确定，于是"配置悄悄没生效"就成了一个查不到的静默错。
+    "video.root",
+    "video.out_root",
+    "video.config",
 }
 
 
@@ -228,8 +237,10 @@ class Config:
             # ⚠️ `head` **必须 strip**：`body` 是整行（含前面的缩进），
             # 而下面又要再拼一次 `indent` ⇒ 不 strip 就会把缩进写两遍。
             # 这个 bug 只在**嵌套键**上现形（缩进 0 的顶层键看不出来）：
-            # 曾经把 `camera.launcher.autostart` 从 4 空格写成 8 空格，
-            # 于是 config.yaml **下一次就解析不了**（ParserError）—— 服务直接起不来。
+            # 曾经把 `camera.launcher.autostart`（两级嵌套，已随相机下线删掉）从
+            # 4 空格写成 8 空格，于是 config.yaml **下一次就解析不了**（ParserError）
+            # —— 服务直接起不来。键删了，**这一类错还在**：现在改用
+            # `video.out_root` 守着同一件事。
             # 判据：`tools/drill.py` 的 I24（在临时副本上改嵌套键，必须重新 load 得动、
             # 缩进不变、注释还在）。
             head = body.split(":", 1)[0].strip()

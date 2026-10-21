@@ -114,117 +114,6 @@ C.draw = (function () {
     return r;
   }
 
-  /* 场地：8×8 网格 + 固件位置 + 视觉位置 + 轨迹 */
-  function arena(cv, o) {
-    const r = fit(cv, o.height);
-    const g = r.g, w = r.w, h = r.h;
-    const size = Math.min(w, h) - 24;
-    const x0 = (w - size) / 2, y0 = (h - size) / 2;
-    const px = function (nx, ny) { return [x0 + nx * size, y0 + (1 - ny) * size]; };
-
-    g.fillStyle = '#0b0d12';
-    g.fillRect(x0, y0, size, size);
-    g.strokeStyle = '#2c313d'; g.lineWidth = 1;
-    const G = o.grid || 8;
-    for (let i = 0; i <= G; i++) {
-      const p = px(i / G, 0);
-      g.beginPath(); g.moveTo(p[0], y0); g.lineTo(p[0], y0 + size); g.stroke();
-      const q = px(0, i / G);
-      g.beginPath(); g.moveTo(x0, q[1]); g.lineTo(x0 + size, q[1]); g.stroke();
-    }
-    g.strokeStyle = '#4a5468'; g.lineWidth = 2;
-    g.strokeRect(x0, y0, size, size);
-
-    // 坐标轴提示（Auto Locate 的原点在左下角）
-    g.fillStyle = '#5e6675'; g.font = '10px Consolas,monospace';
-    g.fillText('(0,0) 原点在左下', x0, y0 + size + 14);
-    g.fillText('+x →', x0 + size - 26, y0 + size + 14);
-
-    if (o.watermark) {
-      g.fillStyle = 'rgba(232,176,60,.85)';
-      g.font = 'bold 13px Consolas,monospace';
-      g.fillText(o.watermark, x0 + 8, y0 + 20);
-    }
-
-    // 轨迹
-    function poly(pts, color, width, dash) {
-      if (!pts || pts.length < 2) return;
-      g.strokeStyle = color; g.lineWidth = width || 1.5;
-      if (dash) g.setLineDash(dash);
-      g.beginPath();
-      pts.forEach(function (p, i) {
-        const q = px(p[0], p[1]);
-        if (i === 0) g.moveTo(q[0], q[1]); else g.lineTo(q[0], q[1]);
-      });
-      g.stroke();
-      g.setLineDash([]);
-    }
-    poly(o.trackOnline, 'rgba(77,163,255,.55)', 1.5);            // 在线：稀疏、半透明
-    poly(o.trackOffline, '#38d17a', 2);                          // 离线：全量、权威
-
-    // 固件自述位置 △
-    if (o.fw) {
-      const c = px((o.fw[0] + 0.5) / G, (o.fw[1] + 0.5) / G);
-      g.fillStyle = '#e8b03c';
-      g.beginPath();
-      g.moveTo(c[0], c[1] - 7); g.lineTo(c[0] - 6, c[1] + 5); g.lineTo(c[0] + 6, c[1] + 5);
-      g.closePath(); g.fill();
-    }
-    // 视觉位置 ▲
-    if (o.vis && o.vis.valid && o.vis.x !== null && o.vis.x !== undefined) {
-      const c = px(o.vis.x, o.vis.y);
-      g.fillStyle = '#4da3ff';
-      g.beginPath();
-      g.moveTo(c[0] + 7, c[1] - 6); g.lineTo(c[0] - 5, c[1] - 6); g.lineTo(c[0] + 1, c[1] + 6);
-      g.closePath(); g.fill();
-      if (o.vis.theta_deg !== null && o.vis.theta_deg !== undefined) {
-        const th = o.vis.theta_deg * Math.PI / 180;
-        g.strokeStyle = '#4da3ff'; g.lineWidth = 1.5;
-        g.beginPath(); g.moveTo(c[0], c[1]);
-        g.lineTo(c[0] + Math.cos(th) * 26, c[1] - Math.sin(th) * 26);
-        g.stroke();
-      }
-    }
-    if (o.playback) {
-      g.fillStyle = '#e8b03c'; g.font = '11px Consolas,monospace';
-      g.fillText('回放 @ ' + o.playback, x0 + 8, y0 + size - 8);
-    }
-    return { r: r, px: px, size: size, x0: x0, y0: y0 };
-  }
-
-  /* 时间轴带：一行事件带（source 分三色） */
-  function timeline(cv, rows, t0, t1, cursor) {
-    const r = fit(cv, 54);
-    const g = r.g, w = r.w, h = r.h;
-    const pad = { l: 8, r: 8, t: 6, b: 16 };
-    const lanes = { mouse: 0, camera: 1, locate: 2, session: 3, arena: 3 };
-    const colors = { mouse: '#e8b03c', camera: '#4da3ff', locate: '#38d17a',
-                     session: '#a06bff', arena: '#ff7ac6' };
-    const xw = w - pad.l - pad.r;
-    const laneH = (h - pad.t - pad.b) / 4;
-    g.fillStyle = '#5e6675'; g.font = '9px Consolas,monospace';
-    ['电脑鼠', '相机', '定位', '会话'].forEach(function (t, i) {
-      g.fillText(t, pad.l, pad.t + laneH * i + 8);
-    });
-    const span = Math.max(1, t1 - t0);
-    rows.forEach(function (row) {
-      const lane = lanes[row.source];
-      if (lane === undefined) return;
-      const t = Number(row.t_pc_ms);
-      if (!isFinite(t)) return;
-      const x = pad.l + xw * ((t - t0) / span);
-      const y = pad.t + laneH * lane + laneH - 4;
-      g.fillStyle = colors[row.source] || '#8b94a6';
-      g.fillRect(x, y - 3, 1.5, 6);
-    });
-    if (cursor !== undefined && cursor !== null) {
-      const x = pad.l + xw * ((cursor - t0) / span);
-      g.strokeStyle = '#fff'; g.lineWidth = 1;
-      g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, h - pad.b); g.stroke();
-    }
-    return { r: r, pad: pad, xw: xw, span: span, t0: t0 };
-  }
-
   /* 迷宫"重构示意"—— 实验 8 的中栏。
 
      ## 三种边长得不一样，这是这一张图最要紧的事
@@ -504,6 +393,10 @@ C.draw = (function () {
   const COLORS = ['#4da3ff', '#e8b03c', '#38d17a', '#ff7ac6', '#a06bff',
                   '#ff9f43', '#4dd6d6', '#d6d64d', '#ff5c5c', '#8b94a6'];
 
-  return { waves: waves, arena: arena, timeline: timeline, maze: maze,
-           colors: COLORS, fmtv: fmtv };
+  /* ⚠️ 改版二十四：原来的 `arena`（8×8 场地 + 在线/离线轨迹 + 固件位置三角）与
+     `timeline`（按 source 分道的四行事件带）随"数据页去掉轨迹对比/定位统计"一起删掉 ——
+     它们的数据源（`/locate/track`、`/locate/results`、在线视觉位置）已经不存在。
+     轨迹现在由「视频复盘 · 轨迹」页自己画（`mod_track.js`，入参是视频会话产物），
+     不复用这里的约定，也就不该在这里留一份走不上的旧实现。 */
+  return { waves: waves, maze: maze, colors: COLORS, fmtv: fmtv };
 })();

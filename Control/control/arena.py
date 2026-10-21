@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Tuple
 
 
 @dataclass
@@ -39,15 +39,18 @@ class FwToArena:
 
 @dataclass
 class Arena:
-    """场地几何 + 两套坐标的换算。"""
+    """场地几何 + 两套坐标的换算。
+
+    ⚠️ 改版二十四：原来的相机外参三项（`calibrated` / `nadir_xy` /
+    `camera_height_mm`）**已删**。它们是"镜头在场地什么位置、离地多高"的标定结果，
+    属于相机那一路；相机下线后没有任何东西能把它们写出来，留着就是一份
+    "改了不会有反应"的假配置。视觉侧的标定现在归上游 Auto Locate 的配置。
+    """
 
     grid: int = 8
     pitch_mm: float = 180.0
     field_mm: float = 1440.0
     fw_to_arena: FwToArena = field(default_factory=FwToArena)
-    calibrated: bool = False
-    nadir_xy: Tuple[float, float] = (0.5, 0.5)
-    camera_height_mm: Optional[float] = None
 
     # ------------------------------------------------------------ 派生量
     @property
@@ -124,29 +127,20 @@ class Arena:
         return {
             "grid": self.grid, "pitch_mm": self.pitch_mm, "field_mm": self.field_mm,
             "fw_to_arena": self.fw_to_arena.to_dict(),
-            "calibrated": self.calibrated,
-            "nadir_xy": list(self.nadir_xy),
-            "camera_height_mm": self.camera_height_mm,
         }
 
 
 def from_config(cfg: Any) -> Arena:
-    """从 Control 的 config 取 arena 段。"""
-    fa = cfg.get("arena.fw_to_arena") or {}
-    off = fa.get("marker_offset_mm") or [0.0, 0.0]
+    """从 Control 的 config 取 arena 段。
+
+    `fw_to_arena` 现在**没有配置来路**（改版二十四删了 `arena.fw_to_arena`）：
+    它只在"把固件格号映到视觉归一化坐标"时才需要，而那条对照（`/api/v1/arena` 的 Δ）
+    随相机一起下线。所以这里用默认值，等真要做这件事时再实测后加回来。
+    """
     return Arena(
         grid=int(cfg.get("arena.grid", 8)),
         pitch_mm=float(cfg.get("arena.pitch_mm", 180.0)),
         field_mm=float(cfg.get("arena.field_mm", 1440.0)),
-        fw_to_arena=FwToArena(
-            y_flip=bool(fa.get("y_flip", True)),
-            x_flip=bool(fa.get("x_flip", False)),
-            marker_offset_mm=(float(off[0]), float(off[1])),
-            theta_offset_deg=float(fa.get("theta_offset_deg", 0.0)),
-        ),
-        calibrated=bool(cfg.get("arena.calibrated", False)),
-        nadir_xy=tuple(cfg.get("arena.nadir_xy") or (0.5, 0.5)),   # type: ignore[arg-type]
-        camera_height_mm=cfg.get("arena.camera_height_mm"),
     )
 
 

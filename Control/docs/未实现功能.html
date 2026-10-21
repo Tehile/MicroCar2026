@@ -76,8 +76,8 @@ li{margin:.28em 0}
 <li><a href="#_1">未实现功能清单</a><ul>
 <li><a href="#1">1. 完成度</a></li>
 <li><a href="#2">2. 未接通项</a><ul>
-<li><a href="#21">2.1 迷宫结构解析（定位）</a></li>
-<li><a href="#22">2.2 综合运动（推迟）</a></li>
+<li><a href="#21">2.1 视频复盘的未接通项</a></li>
+<li><a href="#22">2.2 综合运动</a></li>
 </ul>
 </li>
 <li><a href="#3-2026-10-04">3. 与上游能力的对应（2026-10-04 核对）</a></li>
@@ -132,34 +132,34 @@ li{margin:.28em 0}
 <td>「无记忆走迷宫」卡<strong>整页下线</strong>（<code>mod_maze8.js</code> 已删，新基线只跑比赛跑法）；<strong>地图预览迁入「比赛」卡</strong>（<code>C.parts.wallmap</code>：<code>GET …/maze/reconstruct</code> + 终点锁死四格 <code>goal_cells</code>）。<strong>后端能力全保留</strong>：<code>GET …/maze/reconstruct｜state｜history｜summary</code>、<code>POST …/maze/reset</code>、<code>GET/POST …/maze/record/*</code>、<code>GET …/maze/decisions*</code>、<code>GET …/maze</code>（固件墙图对账）—— 脚本/逃生舱仍可用。⚠️ 2.0.0 删了 <code>maze/events</code> 与 <code>maze/snap</code>：<strong>迁移序列改由主机差分相邻帧</strong>取得</td>
 </tr>
 <tr>
-<td>相机</td>
-<td>图像回传测试（灰度）</td>
+<td>视频复盘</td>
+<td>视频会话</td>
 <td><strong>可用</strong></td>
-<td><code>GET /api/v1/camera/mjpeg</code>（监视道）</td>
+<td><code>GET/POST /api/v1/video/*</code>（列表 / 开始解析 / 进度 / 取消 / 退出）；解析由上游 <code>python -m aruco_locator.session</code> 子进程做，本层只转交配置并读产物</td>
+</tr>
+<tr>
+<td>视频复盘</td>
+<td>轨迹</td>
+<td><strong>可用</strong></td>
+<td><code>GET /api/v1/video/session/{id}/track</code>（只读 <code>trajectory.csv</code> + <code>frames.jsonl</code>），带时间轴自洽状态（I38）</td>
 </tr>
 <tr>
 <td>相机</td>
-<td>图像回传测试（彩色）</td>
-<td><strong>可用</strong></td>
-<td><code>POST /api/v1/camera/start</code>（<code>capture_mode=live</code>）+ 同一条 MJPEG</td>
+<td>图像回传测试（灰度 / 彩色）</td>
+<td><strong>已下线</strong>（改版二十四）</td>
+<td>——（相机整组下线：PhoneCamera / 8765 / MJPEG / 配对 / 代启都没了。要画面就拍一段视频走「视频复盘」）</td>
 </tr>
 <tr>
 <td>定位</td>
-<td>定位测试</td>
-<td><strong>可用</strong></td>
-<td><code>GET /api/v1/locate/preview</code>、<code>GET /api/v1/locate/annotated/{seq}.jpg</code></td>
-</tr>
-<tr>
-<td>定位</td>
-<td>迷宫结构解析</td>
-<td><strong>未接通</strong></td>
-<td>——</td>
+<td>定位测试 · 迷宫结构解析</td>
+<td><strong>已下线</strong>（改版二十四）</td>
+<td>——（在线定位整块下线；位置改由离线视频给。<strong>算法没丢</strong>：<code>aruco_locator</code> 仍在，只是不再逐帧驱动）</td>
 </tr>
 <tr>
 <td>综合运动</td>
 <td>全部</td>
-<td><strong>推迟</strong></td>
-<td>原有两栏九页保留可用</td>
+<td><strong>可用</strong></td>
+<td>单栏五页 + 数据（改版二十四：①场地 ②采集两页随相机下线，左栏整栏删除）</td>
 </tr>
 </tbody>
 </table>
@@ -178,34 +178,54 @@ li{margin:.28em 0}
 </blockquote>
 <hr />
 <h2 id="2">2. 未接通项</h2>
-<h3 id="21">2.1 迷宫结构解析（定位）</h3>
-<p><strong>为什么列在这里</strong>：上游 Auto Locate 已经把算法做出来了 —— 仓库根目录的独立脚本
-<code>maze_extract.py</code>，核心接口：</p>
-<pre><code class="language-python">extract_maze(frame_bgr, H_img2field, cfg) -&gt; (Maze, 正射图, 红色掩码)
-</code></pre>
-<p>它从<strong>红色墙线</strong>解出 8×8 迷宫的墙结构，并输出邻接图与结构示意图。</p>
-<p><strong>卡在哪一步</strong>：本层手上没有<strong>彩色帧</strong>。</p>
-<ul>
-<li>PhoneCamera 的<strong>交付道</strong>落盘的是<strong>原始 Y 平面</strong>（灰度），Control 的 <code>decode_y()</code>
-  只是把它铺成三通道；那张图里没有红色 ⇒ <code>extract_maze</code> 解不出墙。</li>
-<li>彩色只存在于<strong>实时道</strong>（<code>capture_mode=live</code>），而实时道<strong>不落盘</strong>（"只看不留"）。</li>
-</ul>
-<p><strong>因此缺的是</strong>：一个"彩色帧的落盘来源"。这属于上游能力，不在整合层伪造。</p>
-<p><strong>接通后要做的</strong>（留给后续）：</p>
-<ol>
-<li>拿到彩色帧的落盘路径 / 或一条"取一帧彩色"的接口；</li>
-<li>用现有的 <code>locate()</code> 先在<strong>同一帧</strong>上解出场系单应 <code>H_img2field</code>
-   （<code>maze_extract</code> 自己不检测标记，它<strong>要求调用方给 H</strong>）；</li>
-<li>新增一个端点把 <code>extract_maze</code> 的输出转成 PNG + 邻接 JSON 给前端；</li>
-<li>前端把结构图（<code>render_structure()</code> 的白底黑墙图）显示出来。</li>
-</ol>
-<p><strong>注意</strong>：<code>maze_extract.py</code> 是<strong>独立脚本</strong>，<strong>不在</strong> <code>aruco_locator</code> 包里，
-<code>__all__</code> 未导出（上游明确"v1.x 接口保持冻结"）。消费它要单独 <code>import</code> 并把上游根目录
-加进 <code>sys.path</code>；<strong>不得</strong>把它并进包，也不得改它的源码。</p>
-<h3 id="22">2.2 综合运动（推迟）</h3>
-<p>用户已明确"综合的页面不急着完成"。它当前就是原有的<strong>两栏八页</strong>（①场地 ②采集 ③参数
-④发车 ⑤实验 ⑥波形 ⑦调试台 ⑧数据），功能完整、继续可用；
-将来若要按子系统重排，再单独决策。</p>
+<h3 id="21">2.1 视频复盘的未接通项</h3>
+<p>改版二十四把位置数据改成"<strong>一段视频 → Auto Locate 解析 → 轨迹</strong>"这条路，走通了；
+下面这些是<strong>明确没做</strong>的，写清理由，不留"看起来像做了"的空壳：</p>
+<table>
+<thead>
+<tr>
+<th>没做</th>
+<th>为什么</th>
+<th>要做的话</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网页上传视频</td>
+<td><strong>拍板②：不做</strong>。视频动辄几百 MB，走浏览器上传要把整个文件搬进内存/临时目录，而它本来就在这台机器上</td>
+<td>真要做得先想清楚"传上去放哪、谁清理"</td>
+</tr>
+<tr>
+<td>多段视频批量解析</td>
+<td>当前<strong>一次只跑一个任务</strong>（一个子进程、吃满 CPU），排队等前一个结束</td>
+<td>加一层任务队列；<strong>注意</strong>同时跑两个只会都变慢</td>
+</tr>
+<tr>
+<td>轨迹与固件格子叠加</td>
+<td>视频轨迹是<strong>视频坐标系</strong>里的相对位置；要和固件 <code>posX/posY</code> 画在同一张 8×8 图上，必须先有<strong>场地单应</strong>（相机外参）。外参随相机整块删了（<code>arena</code> 段只剩网格几何）</td>
+<td>需要重新实测一次单应，不是"接一下就有了"</td>
+</tr>
+<tr>
+<td>轨迹导出</td>
+<td><code>trajectory.csv</code> 本来就在 <code>records/video/&lt;id&gt;/</code> 里（上游写的），直接拿文件即可；界面上的【导出】没做</td>
+<td>本层只加一个下载端点，但要先定"导哪几列"</td>
+</tr>
+<tr>
+<td>对轴（视频时间 ↔ 会话时间）</td>
+<td><strong>拍板③：识别侧保证时间轴一致，前端不处理</strong>。本层只做<strong>自洽校验</strong>（I38：帧号单调 / 时间戳不倒流 / VFR 只信帧号）</td>
+<td>不打算做。做了就是第二套真相，两边不一致时没人说得清听谁的</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>视频入口只认服务器路径</strong>：<code>video.root</code> 目录里的文件列表 + 允许直接填绝对路径
+（<code>config.yaml</code> 的 <code>video.root</code> / <code>video.out_root</code>）。这条约束写在
+<code>VideoAdapter</code> 的路径检查里 —— <strong>越界路径直接 404</strong>，不是"提示一下"。</p>
+</blockquote>
+<h3 id="22">2.2 综合运动</h3>
+<p>它就是原有的<strong>单栏五页 + 数据</strong>（③参数 ④发车 ⑤实验 ⑥波形 ⑦调试台 ⑧数据），
+功能完整、继续可用。改版二十四删掉了 ①场地 ②采集两页（随相机下线），
+左栏整栏删除后单栏更宽 —— 波形与调试台正好受益。</p>
 <hr />
 <h2 id="3-2026-10-04">3. 与上游能力的对应（2026-10-04 核对）</h2>
 <table>
@@ -218,19 +238,14 @@ li{margin:.28em 0}
 </thead>
 <tbody>
 <tr>
-<td>PhoneCamera <strong>1.15.0</strong></td>
-<td>彩色实时道 <code>POST /api/v1/live/frame</code>，会话级 <code>capture_mode=live</code>（只看不留、不落盘）</td>
-<td><code>camera/start</code> 带 <code>plan.capture_mode=live</code>，画面并入既有 MJPEG</td>
-</tr>
-<tr>
-<td>PhoneCamera（既有）</td>
-<td>监视道 <code>GET /stream/mjpeg</code>（480 宽灰度）</td>
-<td><code>camera/mjpeg</code> 反代（前端拿不到 token）</td>
+<td>~~PhoneCamera~~</td>
+<td>~~彩色实时道 / 监视道 MJPEG~~</td>
+<td><strong>改版二十四整组下线</strong>（本层不再消费这个上游）</td>
 </tr>
 <tr>
 <td>Auto Locate</td>
-<td>迷宫结构生成（<strong>独立脚本</strong> <code>maze_extract.py</code>）</td>
-<td><strong>未接通</strong>，见 §2.1</td>
+<td>会话解析 <code>python -m aruco_locator.session</code>（逐帧 ArUco → <code>trajectory.csv</code> / <code>frames.jsonl</code> / <code>session.json</code>）</td>
+<td><code>VideoAdapter</code> 起子进程跑它、读产物画轨迹；<strong>不重写解析、不改时间轴</strong></td>
 </tr>
 <tr>
 <td>RemoteControl</td>
@@ -268,14 +283,19 @@ li{margin:.28em 0}
 <td><code>mouse/maze/state|history|summary|reset</code>；WS <code>mouse.upevent</code> / <code>mouse.estop</code>；「实验 8」模块</td>
 </tr>
 <tr>
-<td>PhoneCamera（既有能力）</td>
-<td><code>pc/server.py</code>（独立服务，需手动启动/自带 <code>start_service.cmd</code>）</td>
-<td><strong>本层代启</strong>：<code>camera/service/start</code> 按设置里的程序地址起它并等到可答话；配对不再依赖手动启动</td>
+<td>&gt; ⚠️ 上面这张表原来还有两行<strong>一模一样</strong>的 PhoneCamera 代启行（<code>camera/service/start</code>）——</td>
+<td></td>
+<td></td>
 </tr>
 <tr>
-<td>PhoneCamera（既有能力）</td>
-<td><code>pc/server.py</code>（独立服务，需手动启动/自带 <code>start_service.cmd</code>）</td>
-<td><strong>本层代启</strong>：<code>camera/service/start</code> 按设置里的程序地址起它并等到可答话；配对不再依赖手动启动</td>
+<td>&gt; 改版二十四删掉整块代启后，重复行一起清掉（同一件事在一张表里写两遍，</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>&gt; 删的时候最容易漏掉一行）。</td>
+<td></td>
+<td></td>
 </tr>
 </tbody>
 </table>

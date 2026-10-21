@@ -30,8 +30,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     qb = bus.subscribe_bin()
     subs = {"health", "mouse.state", "mouse.text", "mouse.event", "mouse.upevent",
             "mouse.error", "mouse.advice", "mouse.telemetry", "mouse.maze",
-            "camera.event", "camera.frame", "camera.status", "camera.delivery_done",
-            "locate.result", "locate.batch", "session.phase", "log",
+            "session.phase", "log",
             "clock.changed", "mouse.param", "mouse.session"}
     only: Optional[set] = None
 

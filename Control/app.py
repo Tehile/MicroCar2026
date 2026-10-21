@@ -66,10 +66,8 @@ def build_app(cfg, http: aiohttp.ClientSession) -> web.Application:
                             f"http://{cfg.get('server.host')}:{cfg.get('server.port')}")
         if not ctx.mouse.available:
             ctx.bus.log("warn", "鼠模块不可用 —— 波形/参数/标定/调试台会打不开")
-        if not ctx.camera.available:
-            ctx.bus.log("warn", "相机模块不可用 —— 采集页会打不开")
-        if not ctx.locator.available:
-            ctx.bus.log("warn", "定位模块不可用 —— 场地页只有固件位置，没有视觉位置")
+        # ⚠️ 改版二十四：相机与定位两路的启动告警随它们下线（现在只有鼠 + 视频复盘，
+        # 而视频是离线子进程，缺依赖时报错发生在**起解析那一刻**，不在启动期）。
 
     async def _on_cleanup(a: web.Application) -> None:
         await ctx.shutdown()
@@ -89,8 +87,9 @@ async def main(args: argparse.Namespace) -> int:
     if args.print_paths:
         print(f"control      : {cfg.root}")
         print(f"sessions     : {cfg.session_root}")
-        for k in ("remotecontrol_host", "phonecamera_pc", "autolocate", "locator.config"):
-            v = cfg.get(f"paths.{k}") if k != "locator.config" else cfg.get("locator.config")
+        for k in ("remotecontrol_host", "autolocate", "video.root", "video.out_root",
+                  "video.config", "records.maze_root"):
+            v = cfg.get(f"paths.{k}") if k.count(".") == 0 else cfg.get(k)
             if v:
                 print(f"{k:13s}: {v}  {'OK' if Path(str(v)).exists() else '**不存在**'}")
         return 0
@@ -98,7 +97,7 @@ async def main(args: argparse.Namespace) -> int:
     host = args.host or str(cfg.get("server.host"))
     port = int(args.port or cfg.get("server.port"))
     if host not in ("127.0.0.1", "localhost", "::1"):
-        print(f"⚠️ 你把服务绑到了 {host} —— 这个服务能直接控鼠并持有相机凭据，"
+        print(f"⚠️ 你把服务绑到了 {host} —— 这个服务能直接控鼠、能起子进程解析视频，"
               f"暴露到局域网前**必须先补鉴权**。继续请显式确认。", file=sys.stderr)
         if not args.i_know_what_im_doing:
             print("（加 --i-know-what-im-doing 才会真的绑上去）", file=sys.stderr)

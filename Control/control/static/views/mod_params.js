@@ -163,6 +163,11 @@ C.mods.mod_params = (function () {
 
   let chans = [];             // 这条流里**实际有**的通道名（meta 或 WS 消息里带来的）
 
+  /* 4 个 LED 是**布尔状态**，不是"数值 + 单位"的读数行 ⇒ 不进分组表，
+     走上面的独立状态行；「其他通道」兜底也要把它们排除，否则同一事实两处显示
+     （上游 2.13.0 把 led1..4 追加在通道末尾，不排除就会冒出一排 `led1 1`）。 */
+  const LED_KEYS = ['led1', 'led2', 'led3', 'led4'];
+
   function applyChans(list) {
     if (list && list.length) chans = list.slice();
   }
@@ -176,7 +181,9 @@ C.mods.mod_params = (function () {
     const out = CH_GROUPS.map(function (g) {
       return { name: g.name, keys: g.keys.filter(function (r) { return !chans.length || chans.indexOf(r[0]) >= 0; }) };
     }).filter(function (g) { return g.keys.length; });
-    const rest = chans.filter(function (k) { return !known[k]; });
+    const rest = chans.filter(function (k) {
+      return !known[k] && LED_KEYS.indexOf(k) < 0;    // 4 灯走状态行（见 LED_KEYS）
+    });
     if (rest.length) {
       out.push({ name: '其他通道', keys: rest.map(function (k) { return [k, k]; }) });
     }
@@ -273,6 +280,34 @@ C.mods.mod_params = (function () {
           return row(a[0], a[1], rec[a[0]], a[2], a[3]);
         }).join('') + '</div>';
     }).join('');
+  }
+
+  /* 4 个 LED 的状态行（上游 2.13.0 / FW 311）。
+     **三态由后端判定**（`mouse.telemetry.leds`：true / false / null），这里只画 ——
+     "未知"的来由（固件不报 / 通道缺失）在前端是看不见的，也不该在这里重算
+     （铁律 32：一元素一条真相，后端能算别前端攒）。
+     ⚠️ 顶栏那几个 `.lamp` 是**子系统健康灯**（mouse/camera/…），与本处 4 个 LED
+        同名不同物 ⇒ DOM 前缀 `mp-led`、样式用独立的 `.leds`，不复用 `.lamp`。 */
+  function renderLeds() {
+    const box = el.querySelector('#mp-led');
+    if (!box) return;
+    const t = C.state.telemetry || {};
+    const d = t.leds || null;
+    if (!d) { box.innerHTML = ''; return; }      // 老后端没有这个字段 ⇒ 不画空壳
+    let on = 0;
+    const items = LED_KEYS.map(function (k, i) {
+      const v = d[k];
+      const cls = (v === true) ? 'on' : (v === false ? 'off' : 'unk');
+      const txt = (v === true) ? '亮' : (v === false ? '灭' : '未知（固件不报或通道缺失）');
+      if (v === true) on++;
+      return '<b class="' + cls + '" data-led="' + k + '" title="' + txt + '">' +
+        '<i></i>LED' + (i + 1) + '</b>';
+    }).join('');
+    /* 「发车标记」= 4 灯同时亮（固件 2.8.0 起 MAZE RUN 被接受时齐亮 300 ms）。
+       本层 4~6 Hz ⇒ 300 ms 窗口通常只命中 0~2 帧，所以它是个**瞬时**提示，
+       不做弹窗、不记为事件 —— 没看到不等于没发车。 */
+    box.innerHTML = '<span class="hint">LED</span><span class="leds">' + items + '</span>' +
+      (on === 4 ? '<span class="hint">发车标记</span>' : '');
   }
 
   /* 「不动」的下一步点哪。只有一条流 ⇒ 空档无非两种：
@@ -417,7 +452,9 @@ C.mods.mod_params = (function () {
     }
   }
 
-  function renderAll() { renderLive(); renderLag(); renderFault(); renderLink(); renderParamAge(); }
+  function renderAll() {
+    renderLive(); renderLeds(); renderLag(); renderFault(); renderLink(); renderParamAge();
+  }
 
   function mount(host) {
     el = host;
@@ -426,6 +463,7 @@ C.mods.mod_params = (function () {
         <h4>实时读数 <span class="hint" id="mp-fps"></span>
           <span><button class="mini" id="mp-tare">清零 TARE</button></span></h4>
         <div class="hint" id="mp-stream"></div>
+        <div class="row wrap" id="mp-led" style="gap:8px;align-items:center"></div>
         <div class="hint" id="mp-lag"></div>
         <div class="row wrap" id="mp-mode" style="gap:6px;align-items:center"></div>
         <div class="errbox" id="mp-fault"></div>

@@ -12,14 +12,14 @@
 <body>
 
 <!-- 顶栏只放**设备状态**，而且每个状态本身就是入口：点它开对应设备的窗口，
-     在窗口里设参数、连接、看配对码。理由：现场要回答的永远是"这一路现在怎么样"
-     和"要连它该怎么办"这两件事，把后者藏到别处等于每次都要先找一遍。 -->
+     在窗口里设参数、连接。
+     改版二十四：相机与场地定位两路随手机相机下线 ⇒ 四灯变两灯（电脑鼠 / 时钟）。
+     "视频复盘"不是一路设备：它没有"现在通不通"这种状态（离线批处理），
+     所以不进顶栏，只在入口页做分组。 -->
 <header id="top">
   <div class="lights">
     <button class="lamp" id="lamp-mouse" data-dev="mouse" title="电脑鼠 · 连接 / 断开"><i></i><b>电脑鼠</b><em>未连接</em></button>
-    <button class="lamp" id="lamp-camera" data-dev="camera" title="手机相机 · 连接 / 配对"><i></i><b>相机</b><em>—</em></button>
-    <button class="lamp" id="lamp-locator" data-dev="locator" title="场地定位 · 选择 profile"><i></i><b>定位</b><em>—</em></button>
-    <button class="lamp" id="lamp-clock" data-dev="clock" title="时间基 · 偏移 / 标定"><i></i><b>时钟</b><em>未标定</em></button>
+    <button class="lamp" id="lamp-clock" data-dev="clock" title="时间基 · 偏移（手动填写）"><i></i><b>时钟</b><em>未标定</em></button>
   </div>
   <div class="sessline">
     <span id="session-state">●无会话</span>
@@ -33,10 +33,8 @@
 </header>
 
 <!-- 主区 = **入口页 + 模块界面**两级。
-     入口页（#nav）**只做导航**：四个子系统各一组，组内一排模块卡片，不放任何控件。
+     入口页（#nav）**只做导航**：三个分组各一组，组内一排模块卡片，不放任何控件。
      点卡片**单开一个整屏的模块界面**（#mod）做那一个实验，点【← 返回】回入口。
-     为什么分两级：功能控件与控制对象混在同一屏会互相抢注意力；而"有哪些子系统、
-     各自能做什么"又必须一进门就看到 —— 那就把它单独做成一层纯导航。
      段落标题 / 卡片 / 模块**只有一处真相**：app.js 的 SYS_DEF。 -->
 <div id="sys">
   <div id="nav">
@@ -44,13 +42,9 @@
       <div class="sec-head"><b></b></div>
       <div class="mods" id="mods-mouse"></div>
     </section>
-    <section class="nav-sec" data-sys="cam">
+    <section class="nav-sec" data-sys="vid">
       <div class="sec-head"><b></b></div>
-      <div class="mods" id="mods-cam"></div>
-    </section>
-    <section class="nav-sec" data-sys="loc">
-      <div class="sec-head"><b></b></div>
-      <div class="mods" id="mods-loc"></div>
+      <div class="mods" id="mods-vid"></div>
     </section>
     <section class="nav-sec" data-sys="all">
       <div class="sec-head"><b></b></div>
@@ -66,32 +60,20 @@
     </div>
     <div id="mod-body">
       <div class="ws" id="ws-mouse"></div>
-      <div class="ws" id="ws-cam"></div>
-      <div class="ws" id="ws-loc"></div>
+      <div class="ws" id="ws-vid"></div>
       <div class="ws" id="ws-all">
-      <!-- 「综合运动」的界面就是原有的两栏并排 + 底部整合栏（见下）。 -->
+      <!-- 「综合运动」的界面就是原有的单栏五页 + 底部整合栏（见下）。 -->
       <div class="view mod-all" data-mod="@all">
     <div id="body">
-  <!-- 左栏 = 场地 · 相机侧（拍得到什么） -->
-  <section class="col" id="col-cam">
-    <nav class="rail-tabs" id="rail-cam">
-      <span class="rail-name">场地 · 相机</span>
-      <button data-tab="arena" class="on">① 场地</button>
-      <button data-tab="capture">② 采集</button>
-    </nav>
-    <div class="rail-views" data-rail="cam"></div>
-    <div class="ctx" id="ctx-cam"></div>
-  </section>
-
-  <!-- 右栏 = 小车控制侧（车会动的那一套） -->
+  <!-- 单栏 = 小车控制侧（改版二十四：左栏"场地 · 相机"随相机下线） -->
   <section class="col" id="col-mouse">
     <nav class="rail-tabs" id="rail-mouse">
       <span class="rail-name">小车 · 控制</span>
-      <button data-tab="params" class="on">③ 参数</button>
-      <button data-tab="depart">④ 发车</button>
-      <button data-tab="exp">⑤ 实验</button>
-      <button data-tab="scope">⑥ 波形</button>
-      <button data-tab="console">⑦ 调试台</button>
+      <button data-tab="params" class="on">① 参数</button>
+      <button data-tab="depart">② 发车</button>
+      <button data-tab="exp">③ 实验</button>
+      <button data-tab="scope">④ 波形</button>
+      <button data-tab="console">⑤ 调试台</button>
     </nav>
     <div class="quickbar" id="quickbar">
       <span class="qb-name">快捷</span>
@@ -108,17 +90,14 @@
   </section>
     </div><!-- /#body -->
 
-<!-- 底部「整合」栏：**跨子系统共有的产物**才放这里（准备清单、会话、⑧数据）。
-     收纳起来只留一行摘要 —— 平时它挡地方，收工时才需要它。 -->
+<!-- 底部「整合」栏：**跨模块共有的产物**才放这里（准备清单、会话、⑥数据）。
+     收纳起来只留一行摘要 —— 平时它挡地方，收工时才需要它。
+     ⚠️ 改版二十四：「已验帧 / 投递账本」两格是**相机帧**的核对，随相机下线整格删掉。 -->
 <section id="dock" class="off">
   <button id="dock-head">
     <span class="dh-arrow">▸</span>
     <span class="dh-title">整合</span>
     <span id="prep-summary" class="tag">读取中…</span>
-    <span class="sep"></span>
-    <span id="frames-state">已验帧 —</span>
-    <span class="sep"></span>
-    <span id="ledger-state" class="ledger unknown">账本 —</span>
   </button>
   <div id="dock-body">
     <div class="dock-col">
@@ -155,7 +134,7 @@
   <div id="info-log" data-log="1"></div>
 </footer>
 
-<!-- 设备窗口：四个面板共用一层遮罩，点顶栏标签切到对应面板。
+<!-- 设备窗口：两个面板共用一层遮罩，点顶栏标签切到对应面板。
      参数设完就地连接，连上后就地读回状态 —— 关掉窗口也算数（不靠 toast 记忆）。 -->
 <div id="dev-modal" class="modal">
   <div class="modal-box">
@@ -185,71 +164,10 @@
       <div class="kv" id="dm-confirm"></div>
     </div>
 
-    <!-- ── 手机相机 ─────────────────────────────────────────── -->
-    <div class="dev-pane" data-pane="camera">
-      <div class="kv" id="dc-state"></div>
-      <div class="row">
-        <input id="dc-base" placeholder="http://127.0.0.1:8765">
-        <button class="mini" id="dc-base-set">应用地址</button>
-      </div>
-      <div class="row">
-        <button class="mini primary" id="dc-connect">连接</button>
-        <button class="mini" id="dc-refresh">重探</button>
-        <button class="mini" id="dc-offline">离线导入</button>
-      </div>
-      <div class="gatehint" id="dc-hint"></div>
-      <!-- 服务不可达是**故障**（要找原因），不是"还没准备好"（一条待办）——
-           所以它单独占一个 errbox，和上面的 gatehint 分开（两者混用会把提示
-           数成错误）。服务端把可照做的清单写在这段文字的第 2 行起。 -->
-      <div class="errbox" id="dc-fault"></div>
-      <!-- 上游程序：现场不必再手动双击 start_service.cmd。程序路径与"配对时自动启动"
-           都存进 config.yaml（服务端写入时保留注释）。 -->
-      <div class="pane" style="margin-top:8px">
-        <h4>上游程序 <span class="hint" id="dc-bin-hz"></span>
-          <span>
-            <label class="hint"><input type="checkbox" id="dc-autostart"> 配对时自动启动</label>
-            <label class="hint"><input type="checkbox" id="dc-stoponexit"> 收工时停止</label>
-            <button class="mini" id="dc-start">启动上游服务</button>
-            <button class="mini" id="dc-stop">停止</button>
-          </span></h4>
-        <div class="row">
-          <input id="dc-bin" placeholder="留空 = PhoneCamera/pc/server.py">
-          <button class="mini" id="dc-bin-set">保存设置</button>
-        </div>
-        <div class="kv" id="dc-bin-kv"></div>
-        <div class="hint" id="dc-bin-msg"></div>
-      </div>
-      <div class="warnbox">二维码含 token，勿投屏、勿转发；扫描后关闭窗口。</div>
-      <div class="pair-flex">
-        <canvas id="dc-qr" width="0" height="0"></canvas>
-        <div id="dc-pair-info" class="hint">读取配对信息…</div>
-      </div>
-      <div class="warnbox" id="dc-pair-fallback"></div>
-      <div class="row wrap">
-        <button class="mini primary" id="dc-pair-then-connect">手机已扫描 · 确认连接</button>
-        <button class="mini" id="dc-pair-refresh">刷新</button>
-        <button class="mini" id="dc-pair-png">下载 PNG</button>
-        <button class="mini" id="dc-pair-copy">复制网址</button>
-      </div>
-      <div class="hint" id="dc-pair-after"></div>
-    </div>
-
-    <!-- ── 场地定位 ─────────────────────────────────────────── -->
-    <div class="dev-pane" data-pane="locator">
-      <div class="kv" id="dl-state"></div>
-      <div class="row">
-        <span class="hint" style="flex:0 0 76px">profile</span>
-        <select id="dl-profile" style="flex:1"></select>
-        <button class="mini primary" id="dl-apply">应用</button>
-      </div>
-      <div class="gatehint" id="dl-hint"></div>
-    </div>
-
     <!-- ── 时间基 ───────────────────────────────────────────── -->
     <div class="dev-pane" data-pane="clock">
       <div class="kv" id="dk-state"></div>
       <div class="row wrap">
-        <button class="mini primary" id="dk-autofit">自动拟合</button>
         <button class="mini" id="dk-mark">记录同步点</button>
         <button class="mini" id="dk-refresh">刷新</button>
       </div>
@@ -262,8 +180,6 @@
 
 <script src="/static/wsproto.js"></script>
 <script src="/static/views/draw.js"></script>
-<script src="/static/views/arena.js"></script>
-<script src="/static/views/capture.js"></script>
 <script src="/static/views/params.js"></script>
 <script src="/static/views/depart.js"></script>
 <script src="/static/views/exp.js"></script>
@@ -276,9 +192,8 @@
 <script src="/static/views/part_wallmap.js"></script>
 <script src="/static/views/mod_race.js"></script>
 <script src="/static/views/mod_maint.js"></script>
-<script src="/static/views/mod_cam.js"></script>
-<script src="/static/views/mod_locate.js"></script>
-<script src="/static/views/mod_maze.js"></script>
+<script src="/static/views/mod_video.js"></script>
+<script src="/static/views/mod_track.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

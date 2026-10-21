@@ -13,11 +13,10 @@ from typing import Any, Dict
 
 from aiohttp import web
 
-from ..adapters.camera import CameraError
-from ..adapters.locator import LocatorError
 from ..adapters.mouse import MouseError
 from ..config import ConfigError
 from ..ctx import SessionError
+from ..video_io import VideoBusy, VideoError, VideoNotFound
 
 
 class ApiError(Exception):
@@ -41,16 +40,26 @@ def status_of(e: BaseException) -> int:
         return 400            # 请求本身写错了
     if isinstance(e, SessionError):
         # 会话编排失败**从来不是**"请求写错了"，而是"当前状态不具备执行条件"：
-        # 要么已经有一个会话开着，要么某一路（相机/鼠）此刻开不起来。
-        # 归到 400 会让前端把"相机没连"显示成"你参数传错了"，是误导。
+        # 要么已经有一个会话开着，要么鼠那一路此刻开不起来。
+        # 归到 400 会让前端把"鼠标没连"显示成"你参数传错了"，是误导。
         return 409
     if isinstance(e, asyncio.TimeoutError):
         return 504
-    if isinstance(e, (MouseError, CameraError, LocatorError)):
+    # 视频会话（改版二十四）：三种要分开 ——
+    #   产物不存在=404（"这个会话没有"）、已在跑=409（"等它结束"）、
+    #   其余（路径错/依赖缺/产物畸形）=409：都不是"请求语法错了"，
+    #   而是"当前状态不具备执行条件"，归 400 会显示成"你参数写错了"，是误导。
+    if isinstance(e, VideoNotFound):
+        return 404
+    if isinstance(e, VideoBusy):
+        return 409
+    if isinstance(e, VideoError):
+        return 409
+    if isinstance(e, MouseError):
         msg = str(e)
         if "不可用" in msg:
             return 503            # 上游模块不可用 ⇒ 依赖没装好，不是请求错了
-        return 409            # 设备/服务当前不具备执行条件（没连、没开、在忙）
+        return 409            # 设备当前不具备执行条件（没连、在忙）
     return 500
 
 

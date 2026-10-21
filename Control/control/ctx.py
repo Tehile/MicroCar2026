@@ -1,26 +1,28 @@
-"""应用上下文：把配置、时钟、总线、会话库、三个适配器、场地几何装在一起。
+"""应用上下文：把配置、时钟、总线、会话库、适配器、场地几何装在一起。
 
-「一次开始记录」的原子性编排也在这里（设计方案 §5.3）——这是整个整合层最容易
-出错、也最值得单独放一处的地方：**三路必须同生同死**，否则会产出"看着正常、
-其实缺一路"的半个会话。
+**改版二十四**：手机相机整块下线（PhoneCamera / 8765 / hostlink / 在线定位 / 代启），
+位置数据的唯一来路改成**视频会话**（`video` 适配器 + Auto Locate 的 `run_session`）。
+所以这一层现在只管两路：
+
+    · **电脑鼠**（实时链路）—— 会话记录里唯一有"实时数据"的那一路；
+    · **视频复盘**（离线批处理）—— 一段视频 → 轨迹，不进会话、不占实时通道。
+
+「一次开始记录」的原子性编排仍在 `session_open`：现在只有鼠一路，但那条纪律不变
+（**要么整份有效、要么整份不存在**，判据 I5）—— 半份会话比没有会话更糟。
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import __version__
-from .adapters.camera import CameraAdapter, CameraError
-from .adapters.locator import LocatorAdapter, LocatorError
 from .adapters.mouse import MouseAdapter, MouseError
+from .adapters.video import VideoAdapter
 from .arena import Arena, from_config
 from .bus import Bus
 from .clock import Clock, now_iso, now_ms
-from .launcher import ServiceLauncher
 from .maze_rec import MazeRecorder
 from .store import Store, git_info
 
@@ -57,51 +59,33 @@ class Ctx:
         # 记录器的日志钩子：差分失败要**进日志**（否则右栏"悄悄变空"，看的人以为本来就没决策）
         self.maze_rec._log = self.bus.log
         self.mouse.maze_recorder = self.maze_rec
-        self.camera = CameraAdapter(cfg, self.bus, self.store)
-        # 上游相机服务的代启器（用户要求：配对时不必手动启动上游）。
-        # 它与 camera 适配器分工明确：这里只管**进程**，通不通由 camera 探。
-        self.launcher = ServiceLauncher(cfg, self.bus, self.store)
-        # 把主时钟注入相机适配器 —— 它要靠它把帧的**拍摄时刻**（手机 epoch ns）
-        # 换算成 t_pc_ms，而不是拿"帧到达主机的时刻"当时间（两者可能差秒级）。
-        self.camera.clock = self.clock
-        self.locator = LocatorAdapter(cfg, self.bus, self.store)
+        # 视频复盘：位置数据的**唯一来路**。它起子进程跑 Auto Locate 的会话解析，
+        # 本进程只做"起/停/查状态/读产物"——与鼠链路完全解耦（删相机时这一路没改一行）。
+        self.video = VideoAdapter(cfg, self.bus)
         self.started_ms = now_ms()
         self._tasks: List[asyncio.Task] = []
-        #: 最近一次定位结果 / 最近一帧遥测 —— 场地页的 Δpos 读数靠它（不需要前端自己攒）
-        self.last_loc: Optional[dict] = None
+        #: 最近一帧遥测 —— 场地页的 Δ 读数靠它（不需要前端自己攒）
         self.last_telemetry: Dict[str, Any] = {}
-        self.last_annotated: Dict[int, bytes] = {}          # seq -> jpeg（小缓存）
-        # 离线回放也走同一条帧路径 ⇒ 不需要为"离线"写第二套代码
-        self.camera.add_frame_listener(self.locator.submit_frame)
 
     # ------------------------------------------------------------ 后台任务
     async def start_background(self) -> None:
         self.bus.bind_loop(asyncio.get_running_loop())
-        self.camera.start_events(asyncio.get_running_loop())
-        # 相机健康必须由后台线程维护：同步探一次要 ~2 s（本机对"被拒绝"的连接就是这么慢），
-        # `/health` 自己探就必然违反判据 I12。
-        self.camera.start_probe_loop()
-        self.locator.start_online()
         self._tasks.append(asyncio.create_task(self.mouse.sampler_loop(),
                                                name="mouse-sampler"))
-        self._tasks.append(asyncio.create_task(self._delivery_watcher(),
-                                               name="delivery-watcher"))
         self._tasks.append(asyncio.create_task(self._bus_tap(), name="bus-tap"))
 
     async def _bus_tap(self) -> None:
-        """把"最新的两路状态"留在 ctx 里，供场地页的 Δpos / Δθ / Δt 读数直接取用。
+        """把"最新的遥测"留在 ctx 里，供场地页的 Δ 读数直接取用。
 
-        为什么不在前端攒：前端要算 Δpos 就得同时持有"最新定位"与"最新固件位置"
+        为什么不在前端攒：前端要算 Δ 就得同时持有"最新定位"与"最新固件位置"
         并且知道它们是**哪一刻**的 —— 那是时间对齐问题，属于服务端该负责的事。
+        ⚠️ 改版二十四：`locate.result` 那一路随相机下线，这里只剩遥测一路。
         """
         q = self.bus.subscribe()
         try:
             while True:
                 msg = await q.get()
-                t = msg.get("type")
-                if t == "locate.result":
-                    self.last_loc = msg
-                elif t == "mouse.telemetry":
+                if msg.get("type") == "mouse.telemetry":
                     self.last_telemetry = msg
         except asyncio.CancelledError:
             raise
@@ -119,7 +103,7 @@ class Ctx:
                 "data": res.data}
 
     async def shutdown(self) -> None:
-        self.bus.log("info", "正在收尾：停后台任务 → 停相机事件线程 → 关适配器")
+        self.bus.log("info", "正在收尾：停后台任务 → 关适配器")
         for t in self._tasks:
             t.cancel()
         for t in self._tasks:
@@ -128,11 +112,7 @@ class Ctx:
             except (asyncio.CancelledError, Exception):      # noqa: BLE001
                 pass
         self._tasks.clear()
-        self.camera.stop_events()
-        self.camera.stop_probe_loop()
-        self.camera.stop_offline_replay()
-        self.launcher.shutdown()      # 默认只**报告**它还在跑；stop_on_exit=true 才停
-        self.locator.stop_online()
+        self.video.shutdown()         # 只杀**本次会话起的那个子进程**（铁律 25）
         try:
             if self.store.is_open:
                 self.store.rollback()
@@ -140,89 +120,46 @@ class Ctx:
             pass
         self.mouse.close()
 
-    async def _delivery_watcher(self) -> None:
-        """等 `delivery_done` → 自动触发**赛后批量定位**（权威数据那条）。
-
-        为什么必须"等排空"：批量定位要读全量帧，而帧是**分两步落**的
-        （先 `.yuv` 后 `.json`）。早一步开始就会把"还没落完"的帧判成坏帧。
-        """
-        q = self.bus.subscribe()
-        try:
-            while True:
-                msg = await q.get()
-                if msg.get("type") != "camera.delivery_done":
-                    continue
-                if not bool(self.cfg.get("locator.offline.enabled", True)):
-                    continue
-                if not bool(self.cfg.get("locator.offline.auto_run_after_delivery", True)):
-                    continue
-                sid = msg.get("session_id")
-                await asyncio.sleep(0.5)                     # 给最后几帧落盘留一点时间
-                try:
-                    self.trigger_batch(sid)
-                except (CameraError, LocatorError) as e:
-                    self.bus.log("warn", f"自动赛后复算没能启动：{e}", source="locate")
-        except asyncio.CancelledError:
-            raise
-        finally:
-            self.bus.unsubscribe(q)
-
     # ------------------------------------------------------------ 健康 / 能力
     def health(self) -> dict:
         m = self.mouse.health()
-        c = self.camera.health()
-        # 相机健康里附一份**代启器**现状（纯内存 + 一次 poll，零网络、不读日志文件）：
-        # 界面要靠它决定"配对时要不要自动代启"、以及【启动/停止】能不能按。
-        # 显式 deep=False —— `/health` 每 2.5 s 走一次，日志尾巴归 GET /camera/service。
-        c["launcher"] = self.launcher.status(deep=False)
-        loc = self.locator.health()
         cl = self.clock.snapshot()
-        ok_all = bool(m.get("connected")) and bool(c.get("reachable")) and bool(loc.get("ready"))
+        # 视频会话的状态是**纯内存**的（不扫盘、不读文件），可以放心放进 /health。
+        # 但它**不参与** `all_ready`：视频是离线批处理，跟"现在能不能开拍"无关。
+        v = self.video.status()
         return {
             "ok": True,                       # 判据 I2：任何一路挂了，这个端点仍必须 200
-            "all_ready": ok_all,
+            "all_ready": bool(m.get("connected")) and bool(cl.get("calibrated")),
             # 「先连接、再测试」的清单。纯内存计算，**一个网络请求都不发**（判据 I12）。
-            "readiness": self.readiness(m, c, cl),
+            "readiness": self.readiness(m, cl),
             "mouse": m,
-            "camera": c,
-            "locator": loc,
+            "video": v,
             "clock": cl,
             "arena": self.arena.to_dict(),
             "session": (self.store.current.to_dict() if self.store.current else None),
             "host_version": __version__,
             "uptime_s": round((now_ms() - self.started_ms) / 1000.0, 1),
-            "unavailable": [k for k, v in (("mouse", m), ("camera", c), ("locator", loc))
-                            if not (v.get("available"))],
+            "unavailable": [k for k, val in (("mouse", m),) if not val.get("available")],
         }
 
-    def readiness(self, m: Optional[dict] = None, c: Optional[dict] = None,
-                  cl: Optional[dict] = None) -> dict:
+    def readiness(self, m: Optional[dict] = None, cl: Optional[dict] = None) -> dict:
         """「准备清单」—— **先手动连接、再测试** 这条纪律的机器可读版本。**零网络。**
 
-        为什么值得单独算：三路"能不能用"本来是分散在三个 health 里的，
-        而现场真正要回答的是一个**连起来的问题** ——「现在能开拍了吗？不能的话缺哪一步、
-        那一步要动手做什么」。把它一次性算好，界面就不用自己拼，
-        也不会在七个地方各写一遍判断（写岔了就会出现"某页说能跑、某页说不能"）。
+        为什么值得单独算：现场真正要回答的是一个**连起来的问题** ——
+        「现在能开拍了吗？不能的话缺哪一步、那一步要动手做什么」。
+        把它一次性算好，界面就不用自己拼，也不会在几个地方各写一遍判断。
 
         `manual` 是**物理前提**（要动手的），`action` 是**点哪里**。两者分开写，
         因为"插好 USB"和"点连接按钮"是两件事，混成一句就没人知道该先干哪个。
 
-        相机这一项**刻意把"服务可达"和"手机在线"分开判**：服务在跑但手机没连时，
-        采集会得到一个空会话（上游回 `sent_to=0`），此时说"相机准备好了"是错的。
+        ⚠️ 改版二十四：相机与定位两项随相机下线（位置数据改视频会话，**它不拦开拍**：
+        视频解析跟"现在能不能记录"没有关系）。所以清单只剩两条，而 `can_record`
+        变成"**电脑鼠连上了**"—— 这条判据比原来更严格（以前只要有一路就算能记）。
         """
-        # 三个入参是为了让 `/health` 不必把同一份快照算两遍（它自己已经调过了）。
         m = self.mouse.health() if m is None else m
-        c = self.camera.health() if c is None else c
         cl = self.clock.snapshot() if cl is None else cl
-        ph = c.get("phone") or {}
-        offline = bool(c.get("offline"))
-        clients = ph.get("clients")
-        cam_reach = bool(c.get("reachable"))
-        # 手机在线：>0 一定好；==0 一定不好；None（判不了）**不当成不好**
-        # —— 三态纪律，不知道就不能算拦住（否则一次读不到字段就永远开不了拍）。
-        phone_ok = offline or (clients is None) or (isinstance(clients, int) and clients > 0)
-        cam_ok = cam_reach and phone_ok
-
+        v = self.video.status()
+        vst = v.get("state") or "idle"
         items = [
             {
                 "key": "mouse", "name": "电脑鼠", "blocking": True,
@@ -235,41 +172,27 @@ class Ctx:
                 "detail": (m.get("detail") or "").split("\n")[0],
             },
             {
-                "key": "camera", "name": "手机相机", "blocking": True,
-                "ok": cam_ok,
-                # state 一句里**同时说两件事**：服务通不通 + 手机在不在。
-                # 只写"服务可达"会让 ok=False 看起来自相矛盾（正是要避免的误读）。
-                "state": (
-                    "离线：" + str((c.get("offline") or {}).get("session_id")) if offline
-                    else ("服务可达 · 手机已连 %d 个" % clients
-                          if isinstance(clients, int) and clients > 0
-                          else "服务可达 · 手机未连" if cam_reach and clients == 0
-                          else "服务可达 · 手机在线数判不了" if cam_reach and clients is None
-                          else "服务可达" if cam_reach
-                          else "探测中…" if c.get("reachable") is None
-                          else "不可达")),
-                "manual": "手机与电脑接同一个 WiFi；手机 App 打开后扫码配对。"
-                          "（相机服务跑在电脑上，手机只是它的客户端）",
-                "action": "点顶栏【相机】配对",
-                "phone": ph, "clients": clients,
-                "detail": (c.get("detail") or "").split("\n")[0],
-                "sub": (None if offline else
-                        ("手机已连 " + str(clients) + " 个" if isinstance(clients, int) and clients > 0
-                         else "服务可达，手机未连"
-                         if clients == 0 else
-                         "手机在线数：判不了" if cam_reach else "")),
-            },
-            {
                 # 时钟**不拦**开会话：时间偏移没标定只会让跨机对齐全靠 assumed，
-                # 数据照样是有效的（每条记录仍然盖了 PC 墙钟）。标成 blocking=False
-                # 是有意的 —— 把"没标定"升级成"不许开拍"会挡住合法的快速试验。
+                # 数据照样是有效的（每条记录仍然盖了 PC 墙钟）。
                 "key": "clock", "name": "时间基", "blocking": False,
                 "ok": bool(cl.get("calibrated")) and bool((m.get("timesync") or {}).get("armed")),
-                "state": ("手机偏移已标定 ±" + str(cl.get("uncertainty_ms")) + "ms"
-                          if cl.get("calibrated") else "手机偏移未标定"),
-                "manual": "手机与电脑的墙钟偏移要标一次；设备时基在发车时对齐（TimeSync）",
-                "action": "④ 发车 ARM",
+                "state": ("偏移已标定 ±" + str(cl.get("uncertainty_ms")) + "ms"
+                          if cl.get("calibrated") else "偏移未标定（手动填写）"),
+                "manual": "跨机对齐要有一个偏移量；设备时基在发车时对齐（TimeSync）",
+                "action": "点顶栏【时钟】填偏移；② 发车 ARM",
                 "detail": "",
+            },
+            {
+                # 视频是**离线**的：它既不拦开拍，也不需要"连接"。
+                # 放在清单里只为一件事——让人一眼看到"上一次解析成没成"。
+                "key": "video", "name": "视频复盘", "blocking": False,
+                "ok": vst in ("done", "idle"),
+                "state": {"running": "解析中", "done": "上次解析完成",
+                          "failed": "上次解析失败", "cancelled": "上次已取消",
+                          "idle": "还没有解析过"}.get(vst, vst),
+                "manual": "视频放服务器目录（或直接填绝对路径），解析完才产出轨迹",
+                "action": "入口页【视频复盘】→【视频会话】",
+                "detail": (v.get("error") or "").split("\n")[0] if vst == "failed" else "",
             },
         ]
         blockers = [f"{i['name']}：{i['action']}" for i in items
@@ -278,8 +201,8 @@ class Ctx:
         return {
             "items": items,
             "ready": not blockers,
-            # 「能不能开记录」= 至少有一路真的连上了。实测中确实存在"今天只测场地"
-            # 或"今天只调参数"的用法，硬要求三路全齐会把这两种挡掉。
+            # 「能不能开记录」= 有没有**真在出数据**的那一路。现在只剩电脑鼠：
+            # 没有它，会话里就真的一条记录都不会有（以前相机能单独撑起一场空会话）。
             "can_record": bool(connected),
             "blockers": blockers,
             "connected": [i["key"] for i in connected],
@@ -289,8 +212,7 @@ class Ctx:
         return {
             "host_version": __version__,
             "mouse": self.mouse.caps(),
-            "camera": _safe(lambda: self.camera.capabilities()),
-            "locator": self.locator.caps(),
+            "video": self.video.caps(),
             "server": {"host": self.cfg.get("server.host"),
                        "port": self.cfg.get("server.port"),
                        "session_root": str(self.cfg.session_root)},
@@ -310,28 +232,42 @@ class Ctx:
             "control": str(self.cfg.root),
             "sessions": str(self.cfg.session_root),
             "remotecontrol_host": self.cfg.get("paths.remotecontrol_host"),
-            "phonecamera_pc": self.cfg.get("paths.phonecamera_pc"),
             "autolocate": self.cfg.get("paths.autolocate"),
-            "locator_config": self.cfg.get("locator.config"),
+            "video_root": self.cfg.get("video.root"),
+            "video_out_root": self.cfg.get("video.out_root"),
+            "video_config": self.cfg.get("video.config"),
         }
 
     def upstream(self) -> dict:
-        """三个上游的版本 / commit / 工作区是否洁净（§5.4 要求记进 meta）。"""
+        """两个上游的版本 / commit / 工作区是否洁净（§5.4 要求记进 meta）。
+
+        改版二十四：PhoneCamera 整块下线 ⇒ 只剩 RemoteControl 与 Auto Locate。
+        """
         p = self.paths
         rc = git_info(p["remotecontrol_host"])
         al = git_info(p["autolocate"])
-        ph = git_info(p["phonecamera_pc"])
-        try:
-            cam = self.camera.capabilities()
-        except CameraError:
-            cam = {}
         return {
             "remotecontrol": {**rc, "api_version": self.mouse.caps().get("api_version")},
-            "phonecamera": {**ph, "server_version": cam.get("server_version")
-                            or cam.get("version"),
-                            "protocol_version": cam.get("protocol_version")},
-            "autolocate": {**al, "version": self.locator.caps().get("version")},
+            "autolocate": {**al, "version": self._autolocate_version()},
         }
+
+    def _autolocate_version(self) -> Optional[str]:
+        """读 Auto Locate 的版本号（读包内 `__init__.py` 的 `__version__`）。
+
+        为什么不用 import：那会把整套视觉依赖（cv2/numpy）拉进**服务进程**，
+        而我们只用它写一行元数据。读文件失败就回 None（**不编**）。
+        """
+        p = self.cfg.get("paths.autolocate")
+        if not p:
+            return None
+        f = Path(str(p)) / "aruco_locator" / "__init__.py"
+        try:
+            for line in f.read_text(encoding="utf-8").splitlines():
+                if line.startswith("__version__"):
+                    return line.split("=", 1)[1].strip().strip('"\'')
+        except OSError:
+            return None
+        return None
 
     # ------------------------------------------------------------ 会话（原子开关）
     async def session_open(self, session_id: Optional[str] = None,
@@ -350,22 +286,17 @@ class Ctx:
             raise SessionError(
                 "未连接任何设备，会话里不会有数据。先手动连好：\n"
                 + "\n".join("  · " + b for b in rd["blockers"]))
-        rd_warn: List[str] = []
-        for it in rd["items"]:
-            if it["blocking"] and not it["ok"]:
-                rd_warn.append(f"{it['name']}没连上（{it['state']}）：{it['action']}")
-            elif it.get("sub") and it["key"] == "camera" and "手机未连" in str(it.get("sub")):
-                rd_warn.append(str(it["sub"]))
+        rd_warn: List[str] = [f"{it['name']}没连上（{it['state']}）：{it['action']}"
+                              for it in rd["items"] if it["blocking"] and not it["ok"]]
         done: List[str] = []
         snapshot = {
             "clock": self.clock.snapshot(),
             # 固件毫秒时基 → 本机单调秒 的这一段是**上游**的结论（mc.timesync），
-            # 与上面"手机侧跨机偏移"是两回事 —— 分开记，不许合成一个数（见 clock.py）。
+            # 与跨机偏移是两回事 —— 分开记，不许合成一个数（见 clock.py）。
             "device": self.mouse.timesync_snapshot(),
             "mouse_features": dict(getattr(self.mouse, "_features", {}) or {}),
             "arena": self.arena.to_dict(),
-            "locator": {"profile": self.cfg.get("locator.profile"),
-                        "config": self.locator.fingerprint() if self.locator.available else None},
+            "video": self.video.caps(),
             "upstream": self.upstream(),
             "paths": self.paths,
         }
@@ -375,7 +306,7 @@ class Ctx:
                                            "op": "open", "step": "created"})
         self.bus.log("info", f"会话 {sid} 已建目录：{s.path}")
         try:
-            # ① 鼠会话（本地目录，失败代价≈0 ⇒ 放最前，因为它最便宜）
+            # ① 鼠会话（本地目录，失败代价≈0）
             if self.mouse.available:
                 try:
                     path = self.mouse.open_session(f"{sid}/mouse")
@@ -384,79 +315,15 @@ class Ctx:
                     done.append("mouse")
                     self.store.mark("mouse", "session.open", "", f"path={path}")
                 except MouseError as e:
-                    # 鼠没连上不该阻断整场记录：场地/采集/定位都是独立有用的。
                     s.phase["mouse"] = "failed"
                     s.detail["mouse"] = str(e)
-                    self.bus.log("warn", f"鼠会话没开成（不阻断其余两路）：{e}", source="mouse")
+                    self.bus.log("warn", f"鼠会话没开成：{e}", source="mouse")
             else:
                 s.phase["mouse"] = "failed"
                 s.detail["mouse"] = self.mouse.import_error or "模块不可用"
-
-            # ② 手机采集（物理副作用：连拍 + 写盘 ⇒ 放在鼠之后）
-            if self.camera.offline is not None:
-                # 离线模式：不调 start，直接复用已导入的会话 + 回放
-                sid_cam = self.camera.offline.get("session_id")
-                s.phase["camera"] = "open"
-                self.store.set_camera_ref({
-                    "session_id": sid_cam, "data_dir": self.camera.offline.get("root"),
-                    "offline": True, "store": None,
-                    "note": "离线导入的本地会话（没有真实采集，为了演练）"})
-                self.store.mark("camera", "offline_attached", str(sid_cam),
-                                "离线会话导入：不调 hostlink.start()")
-                self.camera.start_offline_replay(sid_cam,
-                                                 rate_hz=float(self.cfg.get(
-                                                     "camera.offline_rate_hz", 30.0)))
-                done.append("camera")
-            elif self.camera.available:
-                try:
-                    res = self.camera.start(
-                        session_id="",
-                        device_serial=str(self.cfg.get("camera.device_serial", "unknown")),
-                        plan=dict(self.cfg.get("camera.default_plan") or {}))
-                    sid_cam = res.get("session_id")
-                    s.phase["camera"] = "open"
-                    if int(res.get("sent_to") or 0) == 0:
-                        self.bus.log("warn",
-                                     "采集 start 已发出但无手机接收（sent_to=0）："
-                                     "手机会话为空。请检查手机 App 是否在线、"
-                                     "配对网址与 token 是否一致", source="camera")
-                    self.store.set_camera_ref({
-                        "session_id": sid_cam, "data_dir": str(self.camera.data_dir() or ""),
-                        "plan": res.get("plan"), "sent_to": res.get("sent_to"),
-                        "store": None})
-                    self.store.mark("camera", "session_started", str(sid_cam),
-                                    json.dumps(res.get("plan") or {}, ensure_ascii=False))
-                    done.append("camera")
-                except CameraError as e:
-                    s.phase["camera"] = "failed"
-                    s.detail["camera"] = str(e)
-                    raise
-            else:
-                s.phase["camera"] = "failed"
-                s.detail["camera"] = self.camera.import_error or "模块不可用"
-
-            # ③ 定位在线段
-            if self.locator.available:
-                self.locator.set_online(True)
-                self.locator.start_online()
-                s.phase["locate"] = "open"
-                done.append("locate")
-                self.store.mark("locate", "pipeline.ready", "",
-                                f"profile={self.cfg.get('locator.profile')} "
-                                f"queue={self.cfg.get('locator.online.queue_size')}")
-            else:
-                s.phase["locate"] = "failed"
-                s.detail["locate"] = self.locator.import_error or "模块不可用"
         except Exception as e:                                # noqa: BLE001
             # ---- 回滚：把已成功的步骤逐个撤掉，然后**删掉会话目录**
             rolled: List[str] = []
-            if "camera" in done:
-                try:
-                    self.camera.stop(s.get("_cam_sid") or "")
-                    rolled.append("camera")
-                except CameraError:
-                    self.bus.log("warn", "回滚时停采集失败 —— 手机侧可能还在录，"
-                                         "请手动在【采集】页点停止", source="camera")
             if "mouse" in done:
                 try:
                     self.mouse.close_session({"rolled_back": True})
@@ -468,7 +335,6 @@ class Ctx:
                     # 用 store 里那个"绝不抛异常"的删除器 —— 回滚路径**不许**把服务搞崩
                     from .store import _rmtree_quiet
                     _rmtree_quiet(mp)
-            self.locator.set_online(False)
             spath = self.store.rollback().path
             # 回滚**必须说实话**：目录真删掉了才说删掉了。
             # `_rmtree_quiet` 按设计吞掉所有异常（不让清理失败把服务搞崩），
@@ -491,54 +357,18 @@ class Ctx:
         out["warnings"] = rd_warn
         return out
 
-    async def session_close(self, wait_delivery_s: float = 25.0,
-                            auto_rerun: bool = True) -> dict:
-        """收一次会话。顺序与开相反：**先停采集 → 等排空 → 再收鼠会话**（§5.3）。"""
+    async def session_close(self) -> dict:
+        """收一次会话。
+
+        改版二十四：相机下线后**没有"等采集排空"这一步**了（那是手机投递的账本），
+        所以不再有 `wait_delivery_s` / `auto_rerun` / 赛后复算。只剩"收鼠会话 + 关账"。
+        """
         s = self.store.current
         if s is None:
             raise SessionError("当前无进行中的会话")
         warning: List[str] = []
 
-        # ① 停采集
-        if s.phase.get("camera") == "open":
-            if self.camera.offline is not None:
-                self.camera.stop_offline_replay()
-                self.store.mark("camera", "offline_stopped", "", "离线回放停止")
-            elif self.camera.available:
-                try:
-                    self.camera.stop(s.camera_ref.get("session_id") if s.camera_ref else "")
-                except CameraError as e:
-                    warning.append(f"停采集失败：{e}")
-            s.phase["camera"] = "closed"
-
-        # ② 等 delivery_done / 排空（超时也要继续，但**必须显式说出来**）
-        if self.camera.offline is None and self.camera.available and s.camera_ref:
-            sid_cam = s.camera_ref.get("session_id") or ""
-            t0 = time.time()
-            while time.time() - t0 < float(wait_delivery_s):
-                try:
-                    led = self.camera.ledger(sid_cam)
-                except CameraError:
-                    break
-                if led.get("state") in ("stopped", "closed") or led.get("complete") is True:
-                    break
-                await asyncio.sleep(0.5)
-            else:
-                warning.append(
-                    f"等待 {wait_delivery_s:.0f} s 未等到采集排空（账本 state 仍非 stopped）："
-                    f"帧可能仍在传输，此时复算会把未落盘的帧判为坏帧。"
-                    f"可稍后手动执行【复算本会话】。")
-            try:
-                led = self.camera.ledger(sid_cam)
-                ref = dict(s.camera_ref or {})
-                ref["store"] = led
-                ref["frames_verified_on_pc"] = led.get("frames_verified_on_pc")
-                s.camera_ref = ref
-                self.store.set_camera_ref(ref)
-            except CameraError as e:
-                warning.append(f"读留存账本失败：{e}")
-
-        # ③ 收鼠会话（它承载 mouse/ 与 locate/，所以必须最后收）
+        # ① 收鼠会话
         if s.phase.get("mouse") == "open":
             try:
                 self.mouse.close_session({"control_session": s.session_id})
@@ -546,69 +376,16 @@ class Ctx:
                 warning.append(f"收鼠会话失败：{e}")
             s.phase["mouse"] = "closed"
 
-        # ④ 行数守恒自检（判据 I6）—— 对不上就当场说，不要等事后翻日志
-        n_tl = self.store.count_rows("camera", "frame_verified")
-        n_led = (s.camera_ref or {}).get("frames_verified_on_pc")
-        if isinstance(n_led, int) and n_tl != n_led:
-            warning.append(
-                f"行数不守恒：timeline.csv 中 frame_verified {n_tl} 行，"
-                f"相机账本报告 PC 校验 {n_led} 帧。差 {abs(n_tl - n_led)} 条，"
-                f"说明有事件未记入时间轴（判据 I6）。")
-        if self.locator.available:
-            st = self.locator.stats()
-            if st.get("dropped"):
-                warning.append(
-                    f"在线定位丢弃 {st['dropped']} 帧（有界队列满时丢最旧，不阻塞事件消费）。"
-                    f"全量数据请用赛后批量。")
-
-        self.locator.set_online(False)
-        s.phase["locate"] = "closed"
         self.store.mark("session", "session.close", s.session_id,
                         "; ".join(warning) if warning else "无条件")
         closed = self.store.close(extra_meta={"warnings": warning} if warning else None)
 
         out: Dict[str, Any] = {"session": closed.to_dict() if closed else None,
                                "warnings": warning}
-        if auto_rerun and closed is not None:
-            try:
-                # ⚠️ out_dir 必须显式传会话的 locate/：此刻 store 已经收掉了，
-                # 不传就会落到 _orphan 里去（那份结果本该属于这个会话）。
-                out["batch"] = self.trigger_batch(
-                    closed.camera_ref.get("session_id") if closed.camera_ref else None,
-                    out_dir=str(closed.locate_dir))
-            except (CameraError, LocatorError) as e:
-                warning.append(f"没启动赛后复算：{e}")
         self.bus.publish("session.phase", {"session_id": s.session_id,
                                            "phase": s.phase, "op": "close",
                                            "warnings": warning})
         return out
-
-    # ------------------------------------------------------------ 赛后批量
-    def trigger_batch(self, camera_session_id: Optional[str],
-                      out_dir: Optional[str] = None) -> dict:
-        """对某个手机会话跑全量复算（权威数据）。
-
-        `out_dir` 必须由调用方在**会话已经收掉之后**显式传入（收会话的流程里我们会
-        把 `closed.locate_dir` 传进来）—— 否则 `store.current` 已经是 None，
-        结果会落到 `_orphan/` 里去，而那份结果**本该属于那个会话**。
-        """
-        if not self.locator.available:
-            raise LocatorError(self.locator.import_error or "定位模块不可用")
-        if not camera_session_id:
-            raise CameraError("没有相机 session_id，不知道该复算哪个会话")
-        root = self.camera.data_dir()
-        if root is None:
-            raise CameraError("拿不到相机 data_dir（相机服务不可用且没有导入离线会话）")
-        src = root / str(camera_session_id)
-        if not (src / "frames").is_dir():
-            raise CameraError(f"本地找不到这个手机会话的帧目录：{src / 'frames'}")
-        if out_dir is None:
-            cur = self.store.current
-            out_dir = str(cur.locate_dir) if cur is not None else None
-        rid = self.locator.start_batch(str(src), out_dir=out_dir)
-        self.store.mark("locate", "batch.start", camera_session_id,
-                        f"run={rid} src={src} out={out_dir}")
-        return {"run_id": rid, "src": str(src), "out": out_dir}
 
     def save_clock(self, offset_ms: Optional[float] = None, uncertainty_ms: Optional[float] = None,
                    source: Optional[str] = None) -> dict:
@@ -630,5 +407,5 @@ class Ctx:
 def _safe(fn) -> Any:
     try:
         return fn()
-    except (CameraError, LocatorError, MouseError) as e:
+    except MouseError as e:
         return {"available": False, "error": str(e)}

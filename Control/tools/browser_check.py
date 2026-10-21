@@ -1,13 +1,13 @@
-"""无头浏览器实测：把七个页面真的渲染出来，抓 JS 异常与坏请求。
+"""无头浏览器实测：把六个视图真的渲染出来，抓 JS 异常与坏请求。
 
     python tools/browser_check.py                 # 默认查 http://127.0.0.1:8770
     python tools/browser_check.py --port 8897
     python tools/browser_check.py --shots .tmp/shots   # 把每页截屏存下来
 
 **为什么要单独有这个脚本**：一遍 `py_compile` 只能证明"Python 语法没错"，
-`curl /` 只能证明"HTML 字节发出去了"。而前端是 **7 个 JS 文件 + Canvas 自绘**，
+`curl /` 只能证明"HTML 字节发出去了"。而前端是**十几个 JS 文件 + Canvas 自绘**，
 一个 `undefined.foo` 就足以让某一页白屏 —— 而它不会在服务端日志里留下任何痕迹。
-判据里 P0 的验收写的是"浏览器能打开并看到三灯"，那就要有一台真的浏览器去看。
+判据里 P0 的验收写的是"浏览器能打开并看到两灯"，那就要有一台真的浏览器去看。
 
 **为什么不用 Playwright**：本机没装，装它要拉一个 ~150 MB 的内核。而 Chrome 本来就有，
 CDP 又是纯 WebSocket —— `aiohttp`（本项目已有依赖）就能当客户端。
@@ -20,7 +20,6 @@ import argparse
 import asyncio
 import base64
 import json
-import os
 import shutil
 import socket
 import subprocess
@@ -35,28 +34,29 @@ sys.path.insert(0, str(ROOT))
 
 from control.store import _rmtree_quiet      # noqa: E402  「绝不抛异常」的删除器
 
-#: 界面的主区是**两级**：**入口页**只做导航（四个子系统各一组，组内是模块卡片），
+#: 界面的主区是**两级**：**入口页**只做导航（三个子系统各一组，组内是模块卡片），
 #: 点卡片**单开一个整屏模块界面**，点【← 返回】回入口。**没有选项卡**，也不开新标签。
-#: 「综合运动」进去后是**两栏 + 一个可收纳底栏**：左栏相机、右栏小车、底栏整合（⑧数据）。
+#: 「综合运动」进去后是**单栏五页 + 一个可收纳底栏**（⑧数据）。
+#: 改版二十四：相机与场地定位两路随手机相机整组下线（位置数据改由「视频复盘」给），
+#: 左栏「场地 · 相机」整栏删除 ⇒ 页签 7 → 5、视图 8 → 6。**唯一真相仍是 app.js 的
+#: `SYS_DEF`**，这里只是它的一份抄本。
 #: 下面这几张表必须与 index.html 的容器/按钮顺序、control/static/app.js 的 RAIL_OF
-#: 一致，并且 `len(TABS) + len(DOCK_VIEWS) == EXPECTED_VIEWS`（= 8，app.js 里那份）。
+#: 一致，并且 `len(TABS) + len(DOCK_VIEWS) == EXPECTED_VIEWS`（= 6，app.js 里那份）。
 #: 三处一起改，少改一处会当场报出来。
 #:
-#: ⚠️ 逐页断言打的是「综合运动」界面里的八页 —— 它们平时在 `display:none` 的
+#: ⚠️ 逐页断言打的是「综合运动」界面里的六页 —— 它们平时在 `display:none` 的
 #: `#ws-all` 里，**必须先 `C.openMod('all','@all')` 打开**（不可见元素的 `innerText`
 #: 是空字符串，不打开的话每条断言都会读到空）。
-SYS_TABS = ["mouse", "cam", "loc", "all"]    # 入口页分组（顺序 = app.js 的 SYS_DEF / index.html）
-TAB_CAM = ["arena", "capture"]
+SYS_TABS = ["mouse", "vid", "all"]           # 入口页分组（顺序 = app.js 的 SYS_DEF / index.html）
 TAB_MOUSE = ["params", "depart", "exp", "scope", "console"]
-TABS = TAB_CAM + TAB_MOUSE                   # 两栏 nav 里的按钮（顺序 = index.html）
+TABS = list(TAB_MOUSE)                       # 单栏 nav 里的按钮（顺序 = index.html）
 DOCK_VIEWS = ["data"]                        # 底部整合栏里的视图（没有按钮，展开即激活）
-RAIL_OF_PY = {t: "cam" for t in TAB_CAM}
-RAIL_OF_PY.update({t: "mouse" for t in TAB_MOUSE})
+RAIL_OF_PY = {t: "mouse" for t in TAB_MOUSE}
 RAIL_OF_PY.update({t: "dock" for t in DOCK_VIEWS})
 
 
 def tab_click_js(tab: str) -> str:
-    """点开某一页 —— 两栏各自有自己的页签，所以要先按归属栏找到那个按钮。
+    """点开某一页 —— 单栏只有一个页签条，按 data-tab 找按钮就行。
     底栏的 ⑧数据 没有按钮（它是"展开就激活"），走 `C.activate()`。"""
     rail = RAIL_OF_PY[tab]
     if rail == "dock":
@@ -68,22 +68,6 @@ def tab_click_js(tab: str) -> str:
 #: 这里检查"那些关键的控件/字段真的在，而且有值"。
 #: 表达式返回 {ok: bool, note: str}；ok=False 会让该页 FAIL。
 PAGE_PROBES = {
-    "arena": ("(()=>{const w=document.querySelector('#a-watermark');"
-              "return {ok: !!w, note: '标定水印=' + (w?w.textContent:'缺失')};})()"),
-    # 采集页：账本里几个数必须**各占一行**（合成一个数现场会选错处置），
-    # 而"没有账本数据"要显示成一句话而不是一张空表。
-    # 相机不可达时**不发请求**是本页的设计（每个端点要干等 2 s），那时只要
-    # 它写明了原因、并给出「重探」按钮，就算合格 —— 空表格才是问题。
-    "capture": ("(()=>{const ov=document.querySelector('#cg-ov');"
-                "const sg=document.querySelector('#cg-status');"
-                "const lg=document.querySelector('#cg-ledger');"
-                "const t=lg?(lg.innerText||'').trim():'';"
-                "const o=ov?(ov.innerText||''):'';"
-                "const gated=o.indexOf('相机服务不可达')>=0;"
-                "const rows=sg?sg.querySelectorAll('b').length:0;"
-                "return {ok: !!ov && !!sg && (!!t || gated || rows>0),"
-                " note:'ov='+(ov?1:0)+' sg='+(sg?1:0)+' gated='+(gated?1:0)"
-                "  +' 状态行='+rows+' 账本='+t.length+'字 环境行=「'+o.slice(0,28)+'」'};})()"),
     # 参数页必须**真的分成组**（上游 `PARAM_GROUPS`：生产标定 / 红外测量 / 电源监控 /
     # 运动控制）。⚠️ 原来断言里有"课程调参"那一组 —— 上游 **2.4.0 已删课程调参整层**，
     # 于是第一支从那时起就永远为假，这条判据一直在靠"未连鼠 ⇒ gated"兜着
@@ -162,8 +146,6 @@ GATE_CHECKS = [
     # 整套删除），门控一个不存在的按钮等于给自己留一条永远绿的空断言。
     ("B14f", "#p-reload", "mouse", "③ 读全部参数"),
     ("B14h", "#k-send", "mouse", "⑦ 发原始命令"),
-    ("B14i", "#cg-start", "camera", "② 采集 start"),
-    ("B14j", "#cg-stop", "camera", "② 采集 stop"),
 ]
 
 def read_health(base: str) -> dict:
@@ -207,181 +189,6 @@ def _synth_recon_doc(with_goals: bool = True) -> dict:
     return doc
 
 
-def _svc_state(base: str) -> dict:
-    """读代启器现状（零副作用）。失败返回空 dict —— 调用方按"不知道"处理。"""
-    try:
-        with urllib.request.urlopen(base + "/api/v1/camera/service", timeout=8) as r:
-            return (json.loads(r.read().decode("utf-8")) or {}).get("data") or {}
-    except Exception:                                         # noqa: BLE001
-        return {}
-
-
-def _port_open(port: int) -> bool:
-    s = socket.socket()
-    s.settimeout(0.4)
-    try:
-        s.connect(("127.0.0.1", port))
-        return True
-    except OSError:
-        return False
-    finally:
-        s.close()
-
-
-def _fake_camera_upstream(port: int = 8765):
-    """起一个**假的上游相机服务**（纯 stdlib），只为一件事：让配对二维码真画一遍。
-
-    为什么必须在检查器里起它：`/camera/pair` 的内容是**整包**来自上游相机服务的
-    （hostlink 只是转发 `/api/v1/pair`）。没有服务时前端只能走"不可达"的降级分支，
-    于是「二维码真的画出来了」这条判据永远验不到 —— 而它恰恰是最容易悄悄坏掉的
-    那类东西（Canvas 尺寸、矩阵行长度、静区，任何一处错了都只是"扫不出来"）。
-
-    监听 `8765`（= config.yaml 里 `camera.base` 的默认地址）⇒ **不需要改任何配置**，
-    也就不会把现场配置改坏。若 8765 上已经有真服务，直接用它（真的更好）。
-
-    返回 `(server | None, 说明)`。
-    """
-    import http.server
-    import threading
-
-    if _port_open(port):
-        return None, f"{port} 上已有相机服务，直接用真的"
-    try:
-        import qrcode                                    # 上游同款，生成真矩阵
-    except Exception:                                    # noqa: BLE001
-        qrcode = None
-
-    url = f"http://127.0.0.1:{port}/?token=FAKE-TOKEN"
-    if qrcode is not None:
-        q = qrcode.QRCode(border=4, box_size=1)           # border=4 就是静区，与上游口径一致
-        q.add_data(url)
-        q.make(fit=True)
-        mtx = q.get_matrix()
-        rows = ["".join("1" if c else "0" for c in row) for row in mtx]
-    else:                                                 # 兜底：只验绘制通路，不冒充真码
-        n = 25
-        rows = ["0" * n] * 4 + [
-            "0" * 4 + "".join("1" if ((x + y) % 3 == 0) else "0" for x in range(n - 8)) + "0" * 4
-            for y in range(n - 8)] + ["0" * n] * 4
-
-    pair_body = {
-        "url": url,
-        "pair_uri": f"mousecam://pair?token=FAKE-TOKEN&host=127.0.0.1&port={port}",
-        "token": "FAKE-TOKEN",
-        "port": port,
-        "hosts": [{"ip": "127.0.0.1", "port": port, "recommended": True,
-                   "adapter": "fake", "virtual": False}],
-        "qr_matrix": {"size": len(rows), "border": 4, "bit": 1, "rows": rows},
-    }
-    caps = {"server_version": "fake-1.0", "protocol_version": 1,
-            "console": {"features": ["pair", "status"]}}
-    status_body = {
-        "ok": True, "state": "idle", "server_version": "fake-1.0",
-        "protocol_version": 1,
-        "device": {"clients": 1, "connected": True, "model": "FakePhone",
-                   "app_version": "0.1-fake", "serial": "FAKE"},
-        "session": None,
-        "store": {"frames_expected": 0, "frames_on_device": 0,
-                  "frames_verified_on_pc": 0, "gaps_on_device": 0,
-                  "upload_gaps": 0, "every_frame": True, "complete": None},
-    }
-    sessions_body = {"sessions": [], "profile_id": "fake", "data_dir": "(fake)",
-                     "ws_clients": 1}
-    # `monitor` 段（判据 B33 要靠它）：上游用它区分"我推没推过画面"。
-    # 做成可切换的，好让判据**两个方向都验**：推过 / 从没推过。
-    mon_holder = {"m": {"subscribers": 0, "panel_subscribers": 0, "thumbs": 3,
-                        "interval_ms": 1000,
-                        "last_thumb": {"seq": 3, "session_id": "fake-sess",
-                                       "bytes": 2048, "lane": "thumb",
-                                       "color": False, "at": "2026-10-04T00:00:00"}}}
-    mon_never = {"subscribers": 0, "panel_subscribers": 0, "thumbs": 0,
-                 "interval_ms": None, "last_thumb": None}
-
-    class _Srv(http.server.ThreadingHTTPServer):
-        daemon_threads = True
-
-        def handle_error(self, request, client_address):
-            # 客户端（Control 的 WS 事件订阅 / MJPEG 代理探针）中途断掉是**常态**，
-            # socketserver 默认会把 traceback 打到检查器屏幕上，把结论淹掉。
-            pass
-
-    class _H(http.server.BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-
-        def log_message(self, *a):                        # 静音，别刷检查器的屏
-            pass
-
-        def _json(self, obj, code=200):
-            b = json.dumps(obj).encode("utf-8")
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(b)))
-            self.end_headers()
-            self.wfile.write(b)
-
-        def _mjpeg(self):
-            """发几帧真 JPEG（boundary 故意用**真上游那个非常规值**）。
-
-            为什么这条要造出来：判据 B32 问的是"浏览器**真的把画面渲染出来了**吗"，
-            而那正是现场报过的问题（手机在发、反代在转、预览窗口空白）。
-            用一个写死的 `boundary=frame` 就永远测不到 —— 必须让假上游用
-            `phonecamera-frame`，与真上游一致。
-            """
-            self.send_response(200)
-            self.send_header(
-                "Content-Type", f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY}")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            try:
-                for i in range(40):              # 够长：浏览器要来得及渲染
-                    head = (f"--{_MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\n"
-                            f"Content-Length: {len(_TINY_JPEG)}\r\nX-Seq: {i}\r\n\r\n"
-                            ).encode("ascii")
-                    self.wfile.write(head + _TINY_JPEG + b"\r\n")
-                    self.wfile.flush()
-                    time.sleep(0.2)
-            except Exception:                    # noqa: BLE001  消费方走了是正常事件
-                pass
-
-        def do_GET(self):
-            p = self.path.split("?")[0]
-            if p == "/api/v1/capabilities":
-                return self._json(caps)
-            if p == "/api/v1/host/status":
-                body = dict(status_body)
-                # `subscribers` 在真上游是"当前有几个 MJPEG 订阅者"，
-                # 这里跟着"有没有人在看"模拟：判据切换 never 时置 1（= 有人在订、上游却不推）。
-                m = dict(mon_holder["m"])
-                m["subscribers"] = 1 if "?s=1" in self.path or m.get("last_thumb") else 1
-                body["monitor"] = m
-                return self._json(body)
-            if p == "/__monitor":
-                mon_holder["m"] = dict(mon_never if "never=1" in self.path
-                                       else {"subscribers": 1, "panel_subscribers": 0,
-                                             "thumbs": 3, "interval_ms": 1000,
-                                             "last_thumb": {"seq": 3, "session_id": "fake",
-                                                            "bytes": 2048, "lane": "thumb",
-                                                            "color": False,
-                                                            "at": "2026-10-04T00:00:00"}})
-                return self._json({"ok": True, "monitor": mon_holder["m"]})
-            if p == "/api/v1/sessions":
-                return self._json(sessions_body)
-            if p == "/api/v1/pair":
-                return self._json(pair_body)
-            if p == "/stream/mjpeg":
-                return self._mjpeg()
-            # 未知路径一律 200 + {}：检查器把 5xx 当硬伤，
-            # 而这里缺哪个端点**不是被测对象的问题**，别让它污染结论。
-            return self._json({"ok": True, "fake": True})
-
-        def do_POST(self):
-            return self._json({"ok": True, "fake": True, "sent_to": 1})
-
-    srv = _Srv(("127.0.0.1", port), _H)
-    threading.Thread(target=srv.serve_forever, daemon=True, name="fake-cam").start()
-    return srv, f"已起假上游相机 127.0.0.1:{port}（{len(rows)}×{len(rows)} 矩阵，供绘制通路验证）"
-
-
 CHROME_CANDIDATES = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -391,14 +198,6 @@ CHROME_CANDIDATES = [
 
 RESULTS: list = []
 
-#: 判据 B32 用的 1×1 真 JPEG，以及**故意的非常规 boundary**（= 真上游 `server.py`
-#: 里的 `MJPEG_BOUNDARY`）。boundary 用非常规值才有意义：反代一旦把它写死成别的
-#: （比如 `frame`），浏览器就**一帧都切不出来** —— 而这正是现场踩过的那个 bug。
-_MJPEG_BOUNDARY = "phonecamera-frame"
-_TINY_JPEG = base64.b64decode(
-    "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a"
-    "HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAA"
-    "AAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==")
 
 #: 只有**未捕获的 JS 异常**才算硬伤。而 `console.error` / 4xx 在"什么都没插"的
 #: 时候是**预期行为** —— 这个工具是给现场用的，它必须能分清"坏了"和"就是没插硬件"，
@@ -598,88 +397,11 @@ async def run(args) -> int:
     except Exception as e:                                    # noqa: BLE001
         record("S0e", "SKIP", f"清理残留连接失败（不影响后续）：{e}")
 
-    # ---------------------------------------------------------------- 假上游相机
-    fake_cam, cam_note = None, "未启用"
-    # `--no-fake-cam` 跑的是**"相机不可达"那条降级路**。而本层的代启功能一旦生效，
-    # 那条路当场就没了（界面会自己去启动上游），而且会在**用户机器上留下一个上游进程**
-    # —— 测试不该有这种副作用（真发生过：跑完 --no-fake-cam，8765 上多了一个 server.py）。
-    # 所以这一轮**先暂停代启**（`/camera/service/pause`，只影响本次运行、不写 config.yaml），
-    # 收尾时恢复。
-    launcher_paused = False
-    stopped_by_us = False            # 为了让降级条件成立，我们停掉了本层代启的上游
-    if not args.fake_cam:
-        try:
-            _post(base, "/api/v1/camera/service/pause", {"on": True})
-            launcher_paused = True
-            record("S0f", "PASS", "本轮已暂停本层代启（降级路不该被自动修好、也不该留下进程）")
-        except Exception as e:                                # noqa: BLE001
-            record("S0f", "SKIP", f"暂停代启失败（降级路可能被自动修好）：{e}")
-        # ⚠️ **只暂停代启还不够**：8765 上可能**已经有服务在跑**（本层先前起的，或别人起的），
-        # 那样"相机不可达"这条路根本走不到 —— 而这一轮的全部意义就是走它。
-        # 不处理的话判据会**假绿**（B16 画出真二维码、B29 走可达分支），
-        # 而报告上看起来"降级路验过了"（真踩过：48 PASS 里没有一条在测降级）。
-        try:
-            cam = read_health(base).get("camera") or {}
-            if cam.get("reachable") is not True:
-                record("S0g", "PASS", "相机不可达 ⇒ 降级条件成立（这一轮测的就是它）")
-            else:
-                svc = _svc_state(base)
-                if svc.get("by_us"):
-                    # 本层代启的 = 我们自己的进程，停掉它是安全的（收尾会起回来）
-                    _post(base, "/api/v1/camera/service/stop", {})
-                    stopped_by_us = True
-                    try:
-                        _post(base, "/api/v1/camera/probe", {})   # 同步重探，别等 4 s 周期
-                    except Exception:                         # noqa: BLE001
-                        pass
-                    time.sleep(0.8)
-                    cam = read_health(base).get("camera") or {}
-                    if cam.get("reachable") is not True:
-                        record("S0g", "PASS",
-                               "已停掉本层代启的上游服务 ⇒ 降级条件成立（收尾会起回来）")
-                    else:
-                        record("S0g", "SKIP",
-                               f"停了本层代启的服务但仍可达（{cam.get('base')}）"
-                               f"⇒ 降级路**本轮没验到**")
-                else:
-                    record("S0g", "SKIP",
-                           f"**降级路本轮没被验到**：{cam.get('base')} 上的服务"
-                           f"不是本层起的，测试不去停它（那是别人的进程）。"
-                           f"想看降级结果，先手动停掉 8765 上的服务再跑 --no-fake-cam")
-        except Exception as e:                                # noqa: BLE001
-            record("S0g", "SKIP", f"检查降级条件失败（不影响其余判据）：{e}")
-    if args.fake_cam:
-        fake_cam, cam_note = _fake_camera_upstream(args.fake_cam_port)
-        if fake_cam is not None:
-            try:   # 让 Control 立刻探一次，而不是等它那个后台探测周期（默认 5 s）
-                urllib.request.urlopen(urllib.request.Request(
-                    base + "/api/v1/camera/probe", method="POST", data=b"{}",
-                    headers={"Content-Type": "application/json"}), timeout=25).read()
-            except Exception:                                 # noqa: BLE001
-                pass
-        record("S0d", "PASS" if fake_cam is not None else "SKIP", f"假上游相机：{cam_note}")
-        # ⚠️ **"8765 上已有服务"不等于"这个服务是我们能用的那个"。**
-        # 真发生过（2026-10-06）：8765 上跑着一个真 `pc/server.py`，但它的 **token 与
-        # `config.yaml` 不符** ⇒ `/camera/pair` 读不到二维码、而端口又是通的。
-        # 于是 B16 与 B29 **两侧分支都落不进去**（既不是"可达"也不是"不可达"），
-        # 报出来是"二维码没画出来 / 不可达时没给下一步"—— 从现象完全看不出根因是 token。
-        # 所以这里先探一次，把根因**当场写进报告**。
-        if fake_cam is None:
-            try:
-                cam0 = read_health(base).get("camera") or {}
-                if cam0.get("reachable") is not True:
-                    d0 = str(cam0.get("detail") or "").splitlines()
-                    extra = ('；' + d0[1].strip()[:90]) if len(d0) > 1 else ''
-                    record("S0e", "INFO",
-                           '8765 上那个服务**不认我们**'
-                           f'（reachable={cam0.get("reachable")}）⇒ B16 / B29 会落到'
-                           '「既非可达、也非不可达」的中间态而红，'
-                           f'**根因在相机侧、不在本轮改动**：'
-                           f'{(d0[0][:110] if d0 else "(没有 detail)")}{extra}')
-                else:
-                    record("S0e", "PASS", "8765 上的服务认我们的 token（可达）⇒ 用它验真数据")
-            except Exception as e:                            # noqa: BLE001
-                record("S0e", "SKIP", f"探测 8765 上的服务失败（不影响其余判据）：{e}")
+    # 改版二十四：这里原来还有一整节「假上游相机」—— 在 8765 上起一个纯 stdlib 的
+    # 假服务，给「配对二维码 / MJPEG 出画面 / 监视道三态」那几条判据造真数据，
+    # 外加 S0d（起假上游）、S0f（暂停代启）、S0g（造出"相机不可达"的降级条件）三条开关。
+    # 相机整路下线后那几条判据全删了，于是**这一节连同它的开关一起删掉** ——
+    # 留着就是"给不存在的判据造数据"，还会在用户机器上多一个监听 8765 的进程。
 
     # ---------------------------------------------------------------- 接模拟器
     sim_proc = None
@@ -773,13 +495,13 @@ async def run(args) -> int:
                            {"width": args.width, "height": args.height,
                             "deviceScaleFactor": 1, "mobile": False})
 
-            head("2. 打开首页（P0 验收：四灯可点 + 两栏 + 八页）")
+            head("2. 打开首页（P0 验收：两灯可点 + 单栏五页 + 数据）")
             await cdp.call("Page.navigate", {"url": base + "/"})
             await asyncio.sleep(args.wait)
             title = await cdp.eval("document.title")
             lamps = await cdp.eval(
                 "Array.from(document.querySelectorAll('.lamp em')).map(e=>e.textContent)")
-            # 顶栏那四个状态标签必须**本身就是入口**（点它开该设备的窗口）：
+            # 顶栏那两个状态标签必须**本身就是入口**（点它开该设备的窗口）：
             # `data-dev` 就是这件事在 DOM 上的证据，少了它标签就只是块画。
             devs = await cdp.eval(
                 "Array.from(document.querySelectorAll('.lamp[data-dev]')).map(b=>b.dataset.dev)")
@@ -789,31 +511,31 @@ async def run(args) -> int:
             views = await cdp.eval(
                 "Array.from(document.querySelectorAll('.rail-views .view')).map(v=>v.dataset.tab)")
             # 只数**有内容、且不在设备窗口里**的故障框：
-            #  · 空盒子不算错误 —— `.errbox` 也可能是常驻的"故障位"（相机窗口的
-            #    `#dc-fault`），服务正常时它就是空的（同 B13 那条纪律：
+            #  · 空盒子不算错误 —— `.errbox` 也可能是常驻的"故障位"（鼠标窗口的
+            #    `#dm-warn`），服务正常时它就是空的（同 B13 那条纪律：
             #    "还没准备好"不许被数成"出错了"）；
-            #  · 设备窗口里的故障框也不属于这一条 —— 它说的是"某一路设备不通"，
-            #    有内容恰恰说明界面在如实报故障，那是由 **B29** 专门判的。
+            #  · 设备窗口里的故障框也不属于这一条 —— 它说的是"那一路设备不通"，
+            #    有内容恰恰说明界面在如实报故障，那是由设备窗口那两条（B19/B21）单独判的。
             #    这条判据问的是"**页面/模块挂载**有没有出错"。
             errboxes = await cdp.eval(
                 "Array.from(document.querySelectorAll('.errbox'))"
                 ".filter(e=>!e.closest('#dev-modal'))"
                 ".map(e=>(e.textContent||'').trim()).filter(t=>t.length)")
-            record("B0", "PASS" if (lamps and len(lamps) == 4
-                                    and devs == ["mouse", "camera", "locator", "clock"]) else "FAIL",
+            record("B0", "PASS" if (lamps and len(lamps) == 2
+                                    and devs == ["mouse", "clock"]) else "FAIL",
                    f"标题「{title}」；顶栏灯 {len(lamps)} 个：{lamps}；"
                    f"其中可点的设备标签 {devs}")
             record("B1", "PASS" if navs == TABS else "FAIL",
-                   f"两栏页签 {len(navs)} 个（左栏 {len(TAB_CAM)} / 右栏 {len(TAB_MOUSE)}）：{navs}")
+                   f"单栏页签 {len(navs)} 个（{len(TAB_MOUSE)} 页）：{navs}")
             record("B2", "PASS" if views == TABS + DOCK_VIEWS else "FAIL",
-                   f"视图容器 {len(views)} 个（两栏 {len(TABS)} + 底栏 {len(DOCK_VIEWS)}），"
+                   f"视图容器 {len(views)} 个（单栏 {len(TABS)} + 底栏 {len(DOCK_VIEWS)}），"
                    f"全部 mount 无异常"
                    + (f"；**有 errbox**：{errboxes}" if errboxes else ""))
             if errboxes:
                 record("B2", "FAIL", f"挂载期出现 errbox：{errboxes}")
 
             # ---- 主区结构：入口页（纯导航）+ 模块界面（整屏）两级 ----
-            # 入口页**只放导航**：四个子系统各一组（类别名称 + 模块卡片），
+            # 入口页**只放导航**：三个子系统各一组（类别名称 + 模块卡片），
             # 不放控件、不放工作区 —— 功能控件与控制对象混在一屏就是"显得乱"的来源。
             head("2b. 入口页（子系统分组 + 模块卡片）")
             sysinfo = await cdp.eval(
@@ -847,17 +569,18 @@ async def run(args) -> int:
             #   · 改版二十接回按键菜单远程化 ⇒ 加第 4 卡「维护与自检」；
             #   · **改版二十三**「无记忆走迷宫」整页下线（新基线只跑比赛跑法）⇒ 回到
             #     **三卡**：①实时状态与参数设定 ②比赛（含地图预览）③维护与自检。
-            #     加/删卡就**必须**同步这一个数字 —— 卡片已经画出来而这里还写 4，
-            #     报的是一条假红（铁律 50①：写死的数字跟着改版走）。
+            #   · **改版二十四**相机/定位下线后入口页是**三组**：小车控制 3 / 视频复盘 2 /
+            #     综合运动 1。加/删卡就**必须**同步这几个数字 —— 卡片已经画出来而这里
+            #     还写着旧数，报的是一条假红（铁律 50①：写死的数字跟着改版走）。
             #   这里写死数字是有意的 —— 卡片由 `SYS_DEF` 渲染，**模块脚本没加载时卡片照样在**，
             #   所以"卡片数对不对"与"模块能否挂上"是两道独立的闸。
-            cards_ok = (sysinfo["mouse"]["cards"] == 3 and sysinfo["cam"]["cards"] == 1
-                        and sysinfo["loc"]["cards"] == 2 and sysinfo["all"]["cards"] == 1)
+            cards_ok = (sysinfo["mouse"]["cards"] == 3 and sysinfo["vid"]["cards"] == 2
+                        and sysinfo["all"]["cards"] == 1)
             b24_ok = sec_ok and cards_ok and not oldnav and shown["nav"] and not shown["mod"]
             record("B24", "PASS" if b24_ok else "FAIL",
                    f"入口页只有导航（无旧选项卡、工作区不在入口页）："
                    f"小车控制 {sysinfo['mouse']['cards']} 卡片 {sysinfo['mouse']['names']}"
-                   f"／相机 {sysinfo['cam']['cards']}／定位 {sysinfo['loc']['cards']}"
+                   f"／视频复盘 {sysinfo['vid']['cards']}"
                    f"／综合运动 {sysinfo['all']['cards']}"
                    if b24_ok
                    else f"**入口页结构不对**：旧选项卡={oldnav} 显示={shown} {sysinfo}")
@@ -904,7 +627,7 @@ async def run(args) -> int:
                    f"点返回 ⇒ 回入口页、URL 清空"
                    if b25_ok else f"**模块界面开合不对**：{drill} / 返回后 {back_ret}")
 
-            # 入口页必须**真排出来了**：四组竖排（top 递增、等宽）、每组有高度、
+            # 入口页必须**真排出来了**：三组竖排（top 递增、等宽）、每组有高度、
             # 卡片有高度、横向不溢出。面板塌成 0 时 B24 仍可能全绿（卡片 DOM 在），
             # 只有几何能看出来 —— 这就是 B26 存在的理由。
             # ⚠️ 刻意**不要求可滚**：入口页只有卡片，一屏放得下才是常态
@@ -923,7 +646,7 @@ async def run(args) -> int:
             card_bad = [s for s in SYS_TABS if not sysinfo[s].get("card0", 0) > 30]
             b26_ok = stacked and same_w and no_ovf and not geo_bad and not card_bad
             record("B26", "PASS" if b26_ok else "FAIL",
-                   f"入口页几何正常：四组竖排 {tops}、等宽 {widths[0]}px、"
+                   f"入口页几何正常：三组竖排 {tops}、等宽 {widths[0]}px、"
                    f"内容 {box['sh']}/{box['ch']}px 无横向溢出；"
                    + "／".join(f"{s} 高 {sysinfo[s].get('h')}"
                                f"（卡片 {sysinfo[s].get('card0')}）" for s in SYS_TABS)
@@ -934,22 +657,24 @@ async def run(args) -> int:
             # 「单开一个新界面」必须**能被地址引用**：带 `#/<子系统>/<模块>` 打开
             # （刷新、贴链接、浏览器后退都算），要落到同一个界面 —— 否则现场说不清
             # "就是这一页"，只能靠嘴描述点哪几个卡片。
-            await cdp.call("Page.navigate", {"url": base + "/#/loc/mod_maze"})
+            # ⚠️ 深链目标要挑**所在子系统不是 mouse** 的那个：`#/mouse/...` 与默认首卡
+            # 同组，即使路由坏了也可能"看起来对了"。用「视频复盘 · 视频会话」。
+            await cdp.call("Page.navigate", {"url": base + "/#/vid/mod_video"})
             await asyncio.sleep(args.wait)
             deep = await cdp.eval(
                 "(()=>{const q=function(s){return document.querySelector(s);};"
-                "const w=q('#ws-loc .view.on');"
+                "const w=q('#ws-vid .view.on');"
                 "return {mod:w?w.dataset.mod:null,"
                 " open:document.getElementById('sys').classList.contains('mod-open'),"
                 " title:(q('#mod-title')||{textContent:''}).textContent,"
                 " hash:location.hash||''};})()")
-            b27_ok = (deep.get("mod") == "mod_maze" and deep.get("open")
-                      and deep.get("title") and deep.get("hash") == "#/loc/mod_maze")
+            b27_ok = (deep.get("mod") == "mod_video" and deep.get("open")
+                      and deep.get("title") and deep.get("hash") == "#/vid/mod_video")
             record("B27", "PASS" if b27_ok else "FAIL",
-                   f"深链 `#/loc/mod_maze` 直接落到「{deep.get('title')}」界面"
+                   f"深链 `#/vid/mod_video` 直接落到「{deep.get('title')}」界面"
                    if b27_ok else f"**深链落不到目标界面**：{deep}")
 
-            # 逐页断言打的是「综合运动」界面里的八页：**先把那个界面打开** ——
+            # 逐页断言打的是「综合运动」界面里的六页：**先把那个界面打开** ——
             # 它在 `#ws-all` 里，入口页模式下是 `display:none`，而不可见元素的
             # `innerText` 是空字符串，不先打开，后面每一条都会读到空。
             allview = await cdp.eval(
@@ -965,7 +690,7 @@ async def run(args) -> int:
                       and allview.get("railViews") == want_views
                       and allview.get("hash") == "#/all/@all")
             record("B28", "PASS" if b28_ok else "FAIL",
-                   f"「综合运动」卡片打开了两栏八页界面（视图容器 {want_views} 个）"
+                   f"「综合运动」卡片打开了单栏五页 + 数据界面（视图容器 {want_views} 个）"
                    if b28_ok else f"**综合运动界面打不开**：{allview}")
 
             # 三个**模块**（上游 1.5.0 组测发送 / 1.5.5 实验 8 状态机 / 2.4.0 比赛页）必须真的挂上并渲染出控件。
@@ -1312,6 +1037,91 @@ async def run(args) -> int:
                    f"缺数据写明原因不瞎画"
                    if b44_ok else
                    f"**地图预览 / 锁死终点不对**：{b44_bad[:4]}")
+
+            # ── B46：设备侧 4 个 LED 的三态显示（改版二十四 / 上游 2.13.0 FW 311） ──
+            # I37 守的是纯函数（`control/leds.py`），这里守**画出来的样子**：
+            #   ① 三态各画对：True=亮（实心发光）、False=灭（空心实线）、None=未知（虚线圈）；
+            #   ② 4 灯齐亮才出「发车标记」；
+            #   ③ **负向**：全 None（对应 fw 310 的预留位）时，**一个"灭"都不许有** ——
+            #      现场看到 4 个灭会去查线路，而真实原因是固件根本没报这 4 位；
+            #   ④ **负向**：`led*` 不许掉进「其他通道」兜底（同一事实两处显示）；
+            #   ⑤ 老后端没有 `leds` 字段 ⇒ 不画空壳（不显示 4 个问号）。
+            b46_bad, b46_got = [], []
+            r46 = await cdp.eval(
+                "(()=>{C.openMod('mouse','mod_params');"
+                "const box=document.getElementById('mp-led');"
+                "if(!box)return null;"
+                "const live=document.getElementById('mp-live');"
+                "const keep=C.state.telemetry;"
+                "const v=C.mods.mod_params;"
+                "function run(leds){"
+                "  C.state.telemetry={unified:{speedL:1}, channels:[], leds:leds,"
+                "    rate:{unified:{}}, bps:0, streaming:false};"
+                "  try{v.onMsg({type:'mouse.telemetry'});}catch(e){}"
+                "  const bs=Array.from(box.querySelectorAll('.leds b'));"
+                "  return {n:bs.length, cls:bs.map(function(b){return b.className;}),"
+                "          txt:box.textContent||''};"
+                "}"
+                "const a=run({led1:true,led2:false,led3:null,led4:false});"
+                "const b=run({led1:true,led2:true,led3:true,led4:true});"
+                "const c=run({led1:null,led2:null,led3:null,led4:null});"
+                "C.state.telemetry={unified:{speedL:1}, channels:[], rate:{unified:{}},"
+                "  bps:0, streaming:false};"
+                "try{v.onMsg({type:'mouse.telemetry'});}catch(e){}"
+                "const empty=box.innerHTML||'';"
+                "C.state.telemetry={unified:{speedL:1,led1:1,led2:0,led3:1,led4:0},"
+                "  channels:['speedL','led1','led2','led3','led4'],"
+                "  leds:{led1:true,led2:false,led3:true,led4:false},"
+                "  rate:{unified:{}}, bps:0, streaming:false};"
+                "try{v.onMsg({type:'mouse.telemetry'});}catch(e){}"
+                "const codes=Array.from(live.querySelectorAll('code'))"
+                "  .map(function(x){return x.textContent||'';});"
+                "C.state.telemetry=keep;"
+                "try{v.onMsg({type:'mouse.telemetry'});}catch(e){}"
+                "return {a:a,b:b,c:c,empty:empty,codes:codes};})()")
+            if r46 is None:
+                b46_bad.append("找不到 #mp-led（4 灯状态行没有落进实时读数面板）")
+            else:
+                a = r46.get("a") or {}
+                if a.get("n") != 4:
+                    b46_bad.append(f"应画 4 个灯，实得 {a.get('n')}")
+                elif a.get("cls") != ["on", "off", "unk", "off"]:
+                    b46_bad.append(f"三态没画对（应 on/off/unk/off）：{a.get('cls')}")
+                else:
+                    b46_got.append("亮/灭/未知各就位")
+                if "发车标记" in (a.get("txt") or ""):
+                    b46_bad.append("只有一组灯亮就写了「发车标记」（应为 4 灯齐亮才算）")
+                b2 = r46.get("b") or {}
+                if (b2.get("cls") or []) != ["on", "on", "on", "on"]:
+                    b46_bad.append(f"全亮应 4 个 on，实得 {b2.get('cls')}")
+                elif "发车标记" not in (b2.get("txt") or ""):
+                    b46_bad.append("4 灯齐亮时没写「发车标记」")
+                else:
+                    b46_got.append("全亮=发车标记")
+                # **负向**：全 None（fw 310 那条路）不许出现一个"灭"
+                c2 = r46.get("c") or {}
+                cls_c = c2.get("cls") or []
+                if "off" in cls_c or "on" in cls_c:
+                    b46_bad.append(f"**全未知时画出了亮/灭**（fw310 的预留位被当成真实电平）：{cls_c}")
+                elif cls_c != ["unk"] * 4:
+                    b46_bad.append(f"全未知应 4 个 unk，实得 {cls_c}")
+                else:
+                    b46_got.append("全未知不冒充灭")
+                if (r46.get("empty") or "").strip():
+                    b46_bad.append(f"老后端（无 leds 字段）画了空壳：{r46.get('empty')[:60]!r}")
+                else:
+                    b46_got.append("缺字段不画空壳")
+                codes = r46.get("codes") or []
+                leaked = [c for c in ("led1", "led2", "led3", "led4") if c in codes]
+                if leaked:
+                    b46_bad.append(f"{leaked} 掉进了「其他通道」（同一事实两处显示）")
+                else:
+                    b46_got.append("led* 不进其他通道")
+            b46_ok = not b46_bad
+            record("B46", "PASS" if b46_ok else "FAIL",
+                   f"4 灯三态状态行：{'；'.join(b46_got)}"
+                   if b46_ok else
+                   f"**4 灯显示不对**：{b46_bad[:4]}")
 
             # ── B36：停止并保存 / 收车 / 复位按钮 + 发车前低电门控（**正反两面**） ──
             # 守的三个动作（改版二十三后都住在比赛卡 —— 记录与发车的生命周期跟过来了）：
@@ -2085,17 +1895,18 @@ async def run(args) -> int:
                 sb = (bar or {}).get("sb") or []
                 lb = (bar or {}).get("lb") or []
                 b39_got.append("来源钮=" + "/".join(sb) + " 级别钮=" + "/".join(lb))
-                for need in ("全部", "电脑鼠", "相机", "场地定位", "本层"):
+                for need in ("全部", "电脑鼠", "视频复盘", "本层"):
                     if need not in sb:
                         b39_bad.append(f"来源筛选缺「{need}」（有 {sb}）")
                 for need in ("全部", "普通", "警告", "错误"):
                     if need not in lb:
                         b39_bad.append(f"级别筛选缺「{need}」（有 {lb}）")
-                # 喂三条：相机+警告 / 鼠+普通（设备文本）/ 本层+普通。
+                # 喂三条：视频+警告 / 鼠+普通（设备文本）/ 本层+普通。
+                # ⚠️ 改版二十四：第三个来源从 `camera` 换成 `video`（`bus.SOURCES` 已改）。
                 await cdp.eval(
                     "(()=>{window.__b39_push=C.pushConsole;"
-                    " C.pushConsole('', 'B39 相机警告样例', {type:'log', level:'warn',"
-                    "  source:'camera', text:'B39 相机警告样例', t_pc_ms:Date.now()});"
+                    " C.pushConsole('', 'B39 视频警告样例', {type:'log', level:'warn',"
+                    "  source:'video', text:'B39 视频警告样例', t_pc_ms:Date.now()});"
                     " C.pushConsole('', '→ B39 鼠文本样例', {type:'mouse.text', level:'info',"
                     "  source:'mouse', direction:'->', line:'B39 鼠文本样例', t_pc_ms:Date.now()});"
                     " C.pushConsole('', 'B39 本层样例', {type:'log', level:'info',"
@@ -2108,36 +1919,35 @@ async def run(args) -> int:
                     "const cnt=(document.getElementById('ib-count')||{}).textContent||'';"
                     "return {n:rows.length, rows:rows.slice(-3), cnt:cnt};})()")
                 b39_got.append("喂后行数=" + str((rows0 or {}).get("n")))
-                flat = "".join((r.get("txt") or "") for r in (rows0 or {}).get("rows") or [])
                 tagged = await cdp.eval(
                     "(()=>{const b=document.getElementById('info-log');"
                     "const all=Array.from((b||{children:[]}).children).map(function(r){return r.textContent;});"
-                    "return {cam:all.some(function(t){return t.indexOf('[相机]')>=0 && t.indexOf('B39 相机警告样例')>=0;}),"
+                    "return {vid:all.some(function(t){return t.indexOf('[视频复盘]')>=0 && t.indexOf('B39 视频警告样例')>=0;}),"
                     " mouse:all.some(function(t){return t.indexOf('[电脑鼠]')>=0 && t.indexOf('B39 鼠文本样例')>=0;}),"
                     " ctl:all.some(function(t){return t.indexOf('[本层]')>=0 && t.indexOf('B39 本层样例')>=0;})};})()")
-                for k, nm in (("cam", "相机"), ("mouse", "电脑鼠"), ("ctl", "本层")):
+                for k, nm in (("vid", "视频复盘"), ("mouse", "电脑鼠"), ("ctl", "本层")):
                     if not (tagged or {}).get(k):
                         b39_bad.append(f"{nm}来源的信息没带来源标签或没显示：{tagged}")
-                # 筛选：只看「相机」⇒ 鼠/本层的样例必须消失，且计数写"显示 1 / 共 N"。
+                # 筛选：只看「视频复盘」⇒ 鼠/本层的样例必须消失，且计数写"显示 1 / 共 N"。
                 await cdp.eval(
                     "(()=>{const bs=Array.from(document.getElementById('ib-src').children);"
-                    "const b=bs.find(function(x){return x.textContent==='相机';});"
+                    "const b=bs.find(function(x){return x.textContent==='视频复盘';});"
                     "if(b)b.click();return true;})()")
                 await asyncio.sleep(0.2)
                 rows1 = await cdp.eval(
                     "(()=>{const b=document.getElementById('info-log');"
                     "const all=Array.from((b||{children:[]}).children).map(function(r){return r.textContent||'';});"
                     "return {n:all.length,"
-                    " cam:all.some(function(t){return t.indexOf('B39 相机警告样例')>=0;}),"
+                    " vid:all.some(function(t){return t.indexOf('B39 视频警告样例')>=0;}),"
                     " other:all.some(function(t){return t.indexOf('B39 鼠文本样例')>=0||t.indexOf('B39 本层样例')>=0;}),"
                     " cnt:(document.getElementById('ib-count')||{}).textContent||''};})()")
-                if not (rows1 or {}).get("cam"):
-                    b39_bad.append(f"筛「相机」后相机样例不见了：{rows1}")
+                if not (rows1 or {}).get("vid"):
+                    b39_bad.append(f"筛「视频复盘」后视频样例不见了：{rows1}")
                 if (rows1 or {}).get("other"):
-                    b39_bad.append(f"筛「相机」后仍看得见别的来源（筛选没生效）：{rows1}")
+                    b39_bad.append(f"筛「视频复盘」后仍看得见别的来源（筛选没生效）：{rows1}")
                 if "显示" not in str((rows1 or {}).get("cnt")) or "/ 共" not in str((rows1 or {}).get("cnt")):
                     b39_bad.append(f"筛选后的计数没写「显示 N / 共 M」：{(rows1 or {}).get('cnt')!r}")
-                b39_got.append("筛相机后计数=" + str((rows1 or {}).get("cnt")))
+                b39_got.append("筛视频后计数=" + str((rows1 or {}).get("cnt")))
                 # 还原：点「全部」；级别筛选同理点一遍（负向：筛「错误」后警告样例也消失）。
                 await cdp.eval(
                     "(()=>{const bs=Array.from(document.getElementById('ib-src').children);"
@@ -2151,7 +1961,7 @@ async def run(args) -> int:
                 rows2 = await cdp.eval(
                     "(()=>{const b=document.getElementById('info-log');"
                     "const all=Array.from((b||{children:[]}).children).map(function(r){return r.textContent||'';});"
-                    "return {warn:all.some(function(t){return t.indexOf('B39 相机警告样例')>=0;}),"
+                    "return {warn:all.some(function(t){return t.indexOf('B39 视频警告样例')>=0;}),"
                     " n:all.length};})()")
                 if (rows2 or {}).get("warn"):
                     b39_bad.append(f"筛「错误」后警告样例还在（级别筛选没生效）：{rows2}")
@@ -2178,16 +1988,16 @@ async def run(args) -> int:
             await cdp.eval("C.openMod('all','@all')")
             await asyncio.sleep(0.3)
 
-            head("3. 逐页切换（两栏各自真的渲染一遍）")
+            head("3. 逐页切换（每一页都真的渲染一遍）")
             for tab in TABS + DOCK_VIEWS:
                 n_err0 = len(await cdp.snapshot_console())
                 rail = RAIL_OF_PY[tab]
                 try:
                     await cdp.eval(tab_click_js(tab))
                     await asyncio.sleep(args.per_tab)
-                    # 视图里的数据是**异步**拉回来的（相机端点尤其慢：探不到服务时
-                    # 每个要干等 ~2 s），固定等 1.5 s 会让断言读到"还没渲染完"的中间态，
-                    # 于是判据随机红 —— 那不是界面错，是**我们没等它**。
+                    # 视图里的数据是**异步**拉回来的（会话表/参数表都要等一趟网络），
+                    # 固定等 1.5 s 会让断言读到"还没渲染完"的中间态，于是判据随机红
+                    # —— 那不是界面错，是**我们没等它**。
                     # 所以这里等到 innerHTML 长度连续两次读数不变（或超时）再断言。
                     last_n = -1
                     for _ in range(12):
@@ -2198,12 +2008,12 @@ async def run(args) -> int:
                             break
                         last_n = n
                         await asyncio.sleep(0.55)
-                    ctx_id = ("ctx-" + rail) if rail in ("cam", "mouse") else "dock-body"
+                    ctx_id = "ctx-mouse" if rail == "mouse" else "dock-body"
                     info = await cdp.eval(
                         "(()=>{const v=document.querySelector('.view[data-tab=\"%s\"]');"
                         "const ctx=document.getElementById('%s');"
                         "const rd=document.getElementById('info-log');"
-                        # 同 B0/B2：空盒子不算，设备窗口里的故障框也不算（它由 B29 判）
+                        # 同 B0/B2：空盒子不算，设备窗口里的故障框也不算（它由 B21 判）
                         "const er=Array.from(document.querySelectorAll('.errbox'))"
                         ".filter(e=>!e.closest('#dev-modal')"
                         "&&(e.textContent||'').trim()).length;"
@@ -2276,7 +2086,7 @@ async def run(args) -> int:
             # 为什么必须单独钉一条：心跳原先写在启动链的**最后**，于是前面任何一步
             # 变慢（实测是 `/caps` 把服务端事件循环占住十几秒），`setInterval` 就永远
             # 装不上 —— 页面**不报任何错**，只是静静地停在启动那一刻：顶栏是旧状态、
-            # 每个视图是空壳。那种情况下逐页断言会各自报红（B.capture / B.depart），
+            # 每个视图是空壳。那种情况下逐页断言会各自报红（B.params / B.depart），
             # 而红灯会把人引到"这一页坏了"，真相却是"整页都死了"。
             # 判据的职责就是能说出这是哪一类。
             up1 = await cdp.eval("((C.state.health||{}).uptime_s)")
@@ -2294,27 +2104,16 @@ async def run(args) -> int:
 
             head("5. 坏请求（JS/CSS 404、5xx 会在这里现形）")
             bad = await cdp.bad_requests()
-            # ⚠️ **5xx 里有一类是本轮的预期**：`--no-fake-cam` 跑的是"相机不可达"，
-            # 此时 `/api/v1/camera/mjpeg` 会如实回 502（反代连不上上游）。
-            # 那不是硬伤 —— 恰恰相反：**静默回一个永远空白的 200 流**才是更坏的行为
-            # （前端连"失败了"都看不出来）。所以这里按**本轮的状态**放行它，并如实计数，
-            # 而不是把 5xx 一律算红（那样会让"如实报错"被惩罚）。
-            cam_now = (read_health(base).get("camera") or {})
-            cam_down = (cam_now.get("reachable") is False
-                        or cam_now.get("available") is False)
-            expected_5xx = [b for b in bad
-                            if cam_down and "/api/v1/camera/" in str(b.get("url") or "")
-                            and str(b.get("kind") or "").startswith("HTTP 5")]
-            rest = [b for b in bad if b not in expected_5xx]
-            hard_bad = [b for b in rest if is_hard_request(b)]
-            soft_bad = [b for b in rest if not is_hard_request(b)]
-            note_extra = (f"；另有 {len(expected_5xx)} 条**预期的** 5xx"
-                          f"（相机不可达 ⇒ 反代如实回 502）" if expected_5xx else "")
+            # 改版二十四：原来有一条"相机不可达 ⇒ `/camera/mjpeg` 回 502 是预期 5xx"
+            # 的放行。相机下线后那个端点不存在了，**不再有任何预期 5xx** —— 5xx 一律
+            # 算硬伤。这条放行若留着，等于给未来的真 5xx 开一个后门。
+            hard_bad = [b for b in bad if is_hard_request(b)]
+            soft_bad = [b for b in bad if not is_hard_request(b)]
             record("B10", "PASS" if not hard_bad else "FAIL",
                    ("无硬伤请求；" + (f"预期内的 4xx {len(soft_bad)} 条（设备没接时正常）"
-                                      if soft_bad else "零失败请求") + note_extra)
+                                      if soft_bad else "零失败请求"))
                    if not hard_bad else
-                   f"**有 {len(hard_bad)} 条**：{hard_bad[:4]}{note_extra}")
+                   f"**有 {len(hard_bad)} 条**：{hard_bad[:4]}")
 
             head("6. 未捕获 JS 异常汇总（`console.error` 不计，那是 C.guard 的正常日志）")
             errs = await cdp.snapshot_console()
@@ -2364,7 +2163,7 @@ async def run(args) -> int:
             # 之所以要有这条自动判据：清理完靠肉眼看很容易漏，而漏下的那几句
             # 恰恰是最显眼的（用户第一眼就会看到）。
             cmt = await cdp.eval(
-                # 扫**界面自己的文字**：顶栏 / 两栏页签 / 快捷条 / 每栏数据条 / 底栏 /
+                # 扫**界面自己的文字**：顶栏 / 单栏页签 / 快捷条 / 数据条 / 底栏 /
                 # 读数 / 当前可见的视图。
                 # **跳过 `[data-log]` 容器**（底部控制台、设备文本流、服务日志）—— 那三处是
                 # 原样落下来的文本流，里面出现任何字符都正常；把它们算进来，这条判据就会被
@@ -2381,7 +2180,7 @@ async def run(args) -> int:
                 "    else if(c.nodeType===1){"
                 "      if(c.hasAttribute('data-log')||c.hasAttribute('data-raw')) return;"
                 "      walk(c,tag);}});};"
-                "const SEL=['#top','#rail-cam','#rail-mouse','#quickbar',"
+                "const SEL=['#top','#rail-mouse','#quickbar',"
                 "'#dock','#info-bar','#info-log','#nav','#mod','.ctx'];"
                 "SEL.forEach(function(s){document.querySelectorAll(s).forEach(function(e){"
                 " walk(e,s);});});"
@@ -2424,7 +2223,7 @@ async def run(args) -> int:
                 "    else if(c.nodeType===1){"
                 "      if(c.hasAttribute('data-log')||c.hasAttribute('data-raw')) return;"
                 "      walk(c);}});};"
-                "document.querySelectorAll('#top,#rail-cam,#rail-mouse,#quickbar,"
+                "document.querySelectorAll('#top,#rail-mouse,#quickbar,"
                 "#dock,#info-bar,#info-log,#nav,#mod,.ctx,.modal-box').forEach(function(e){ walk(e); });"
                 "const lines=(out.join('\\n').split('\\n')||[])"
                 "  .map(function(s){return s.trim();}).filter(function(s){return s.length;});"
@@ -2482,24 +2281,22 @@ async def run(args) -> int:
                 record("B14", "SKIP", f"读 health 失败：{e}")
             if hh:
                 mouse_ok = bool((hh.get("mouse") or {}).get("connected"))
-                cam = hh.get("camera") or {}
-                ph = cam.get("phone") or {}
-                cam_ok = bool(cam.get("offline")) or (
-                    bool(cam.get("reachable")) and ph.get("clients") != 0)
+                # 改版二十四：门控只剩一路（鼠）。原来还有"相机就绪"这条腿 ——
+                # 相机下线后 `GATE_CHECKS` 里已经没有 `need="camera"` 的项了，
+                # 留着这段判断就是"读一个没人写的数"（铁律 32）。
                 for cid, sel, need, label in GATE_CHECKS:
-                    want = not (mouse_ok if need == "mouse" else cam_ok)
+                    want = not mouse_ok
                     got = await cdp.eval(
                         f"(()=>{{const b=document.querySelector('{sel}');"
                         f"return b ? !!b.disabled : null;}})()")
                     ok = (got == want)
                     record(cid, "PASS" if ok else "FAIL",
-                           f"{label}（需要{'鼠' if need == 'mouse' else '相机'}）"
-                           f"：{'已连 ⇒ 可点' if (need == 'mouse' and mouse_ok) or (need == 'camera' and cam_ok) else '未连 ⇒ 应禁用'}"
+                           f"{label}（需要鼠）："
+                           f"{'已连 ⇒ 可点' if mouse_ok else '未连 ⇒ 应禁用'}"
                            f"，实测 disabled={got}，期望 disabled={want}"
                            if ok else
                            f"**{label} 的门控不对**：disabled 实测 {got}、期望 {want}"
-                           f"（{'鼠已连' if mouse_ok else '鼠未连'} / "
-                           f"{'相机就绪' if cam_ok else '相机未就绪'}）")
+                           f"（{'鼠已连' if mouse_ok else '鼠未连'}）")
 
             # 急停**故意不门控** —— 连不上的时候恰恰最可能想按它。这条反例要钉住。
             estop_disabled = await cdp.eval(
@@ -2510,218 +2307,24 @@ async def run(args) -> int:
                    if estop_disabled is False else
                    f"**急停被禁用了**（disabled={estop_disabled}）—— 这会让最需要它的时刻按不下去")
 
-            head("9. 配对二维码（手机连的就是它，现在在顶栏【相机】窗口里）")
-            pair = await cdp.eval(
-                "(()=>{document.querySelector('.lamp[data-dev=\"camera\"]').click();"
-                "return 1;})()")
-            await asyncio.sleep(1.2)
-            pinfo = await cdp.eval(
-                "(()=>{const m=document.getElementById('dev-modal');"
-                "const cv=document.getElementById('dc-qr');"
-                "const inf=document.getElementById('dc-pair-info');"
-                "const fb=document.getElementById('dc-pair-fallback');"
-                "const pane=document.querySelector('.dev-pane[data-pane=\"camera\"]');"
-                "let black=-1;"
-                "if(cv.width>0&&cv.height>0){"
-                "  const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;"
-                "  black=0; for(let i=0;i<d.length;i+=4){ if(d[i]<128) black++; } }"
-                "return {open:m.classList.contains('on'),"
-                " paneOn: !!(pane&&pane.classList.contains('on')),"
-                " w:cv.width, h:cv.height,"
-                " black:black, infolen:(inf.innerText||'').length,"
-                " hasurl:((inf.innerText||'').indexOf('token=')>=0),"
-                " fb:(fb.innerText||'').slice(0,90)};})()")
-            drew = (pinfo.get("w", 0) > 0 and pinfo.get("black", 0) > 50)
-            panel_ok = bool(pinfo.get("open") and pinfo.get("paneOn"))
-            if panel_ok and drew:
-                verdict, note = "PASS", (
-                    f"点顶栏【相机】⇒ 窗口已开、camera 面板在前；Canvas "
-                    f"{pinfo.get('w')}×{pinfo.get('h')}、"
-                    f"黑色模块像素 {pinfo.get('black')} 个（**真画出来了**，不是一张空白画布）；"
-                    f"信息区 {pinfo.get('infolen')} 字、含配对网址={pinfo.get('hasurl')}")
-            elif panel_ok and pinfo.get("fb"):
-                # 没有相机服务时，这里要验的是**降级路径**（窗口说清为什么看不了），
-                # 而不是硬要一张根本画不出来的画布 —— 判不了 ≠ 不通过。
-                verdict, note = "SKIP", f"相机服务不可达，只验证到降级提示：{pinfo.get('fb')}"
-            else:
-                verdict, note = "FAIL", f"**二维码没画出来**：{pinfo}"
-            record("B16", verdict, note)
-            if pinfo.get("fb"):
-                print(f"         降级说明：{pinfo['fb']}")
-
-            # 服务不可达时，这一屏必须**给得出可照做的下一步** —— 而这一步在
-            # `c.detail` 的**第 2 行起**（第 1 行是上游那串 WinError 10061）；
-            # 早先界面只取第 1 行 ⇒ 现场看到一串报错、却不知道要去启动上游服务（真踩过）。
-            # 反过来，服务可达时**不许留着上一次的故障**：陈旧故障比没有故障更误导。
-            # 分支键取 `hasurl`（配对内容里有没有 token）而不是某句文案 ——
-            # "拿到真数据"是结构事实，"写着不可达"是会变的自然语言（纪律 29）。
-            fault = await cdp.eval(
-                "(()=>{const f=document.getElementById('dc-fault');"
-                "const g=function(i){const b=document.getElementById(i);"
-                "return b?!!b.disabled:null;};"
-                "return {txt:f?(f.innerText||'').trim():'MISSING',"
-                " png:g('dc-pair-png'), copy:g('dc-pair-copy'),"
-                " conn:g('dc-pair-then-connect'), refresh:g('dc-pair-refresh')};})()")
-            actions = [ln.strip() for ln in fault["txt"].splitlines()
-                       if ln.strip().startswith("·")]
-            if pinfo.get("hasurl"):
-                b29_ok = (fault["txt"] == "" and fault["png"] is False
-                          and fault["copy"] is False and fault["conn"] is False
-                          and fault["refresh"] is False)
-                record("B29", "PASS" if b29_ok else "FAIL",
-                       "相机服务可达：这一屏不留陈旧故障，配对四个按钮都可用"
-                       if b29_ok else f"**可达时状态不对**：故障框=「{fault['txt'][:60]}」{fault}")
-            else:
-                b29_ok = (len(actions) >= 1 and fault["png"] and fault["copy"]
-                          and fault["conn"] and fault["refresh"] is False)
-                record("B29", "PASS" if b29_ok else "FAIL",
-                       f"相机服务不可达：写出可照做的 {len(actions)} 条、"
-                       f"禁用三个配对按钮（保留【刷新】）"
-                       if b29_ok else f"**不可达时没给出下一步**：{fault}")
-
-            if shots:
-                s = await cdp.call("Page.captureScreenshot", {"format": "png"})
-                (shots / "_cam_modal.png").write_bytes(base64.b64decode(s["data"]))
-
-            # ── B32：**浏览器真的把 MJPEG 画面渲染出来了**（用户报过的那一条） ──
-            # 现场现象：手机在发、服务在转、预览窗口**永远空白**，而服务端日志看不出问题。
-            # 根因是反代把 `Content-Type` 的 boundary 写死了（与上游不一致）⇒
-            # 浏览器按错误的分界切分 ⇒ 一帧也解不出来。
-            # 所以这条判据必须落到**浏览器**上：`naturalWidth > 0` 才算"真的解出了一帧"，
-            # 光看服务端返回 200 是不够的（写错 boundary 时它照样 200、照样在转发字节）。
-            head("7c. 判据 B32：图像回传测试真的出画面（浏览器解出了帧）")
-            cam_up_before = (read_health(base).get("camera") or {}).get("reachable")
-            if fake_cam is None:
-                record("B32", "SKIP",
-                       "本轮用的是**真上游**相机服务（没有假 MJPEG 源）"
-                       "⇒ 画面能不能出来取决于相机会话，判不了")
-            elif cam_up_before is False:
-                record("B32", "SKIP", "相机不可达（这一轮测的是降级路，不测画面）")
-            else:
-                base_before = (read_health(base).get("camera") or {}).get("base")
-                try:
-                    _post(base, "/api/v1/camera/base",
-                          {"base": f"http://127.0.0.1:{args.fake_cam_port}"})
-                    _post(base, "/api/v1/camera/probe", {})
-                    await asyncio.sleep(0.5)
-                    await cdp.eval("C.openMod('cam','mod_cam')")
-                    await asyncio.sleep(0.4)
-                    await cdp.eval(
-                        "(()=>{const b=document.getElementById('mcam-gray');"
-                        "if(b&&!b.disabled)b.click();return 1;})()")
-                    # 上游那条约 1 Hz；假上游 0.2 s 一帧 ⇒ 3 s 足够
-                    await asyncio.sleep(3.0)
-                    mj = await cdp.eval(
-                        "(()=>{const i=document.getElementById('mcam-img');"
-                        "const n=document.getElementById('mcam-ph');"
-                        "if(!i)return {miss:true};"
-                        "return {miss:false, complete:!!i.complete,"
-                        " nw:i.naturalWidth||0, nh:i.naturalHeight||0,"
-                        " vis:getComputedStyle(i).display!=='none',"
-                        " src:(i.getAttribute('src')||'').slice(0,40),"
-                        # 读 `<span>` 的**可见性**才是"提示有没有被清掉"的证据；
-                        # textContent 即使 display:none 也照样有内容（会自欺）。
-                        " noteVis:!!(n&&getComputedStyle(n).display!=='none'),"
-                        " note:n?(n.textContent||'').slice(0,40):''};})()")
-                    if shots:
-                        s = await cdp.call("Page.captureScreenshot", {"format": "png"})
-                        (shots / "mod_cam.png").write_bytes(base64.b64decode(s["data"]))
-                    drew = bool(mj.get("nw", 0) > 0 and mj.get("nh", 0) > 0)
-                    record("B32", "PASS" if drew else "FAIL",
-                           f"点【灰度】⇒ `<img>` 解出画面 {mj.get('nw')}×{mj.get('nh')}"
-                           f"（naturalWidth>0 ⇒ **浏览器真的按 boundary 切出了帧**）、"
-                           f"「等待第一帧」提示已自动隐藏（{mj.get('noteVis')}）"
-                           if drew else
-                           f"**画面没出来**：{mj}\n"
-                           f"      ⇒ 反代的 boundary 与上游不一致时就是这个现象："
-                           f"服务端 200、字节也在转发，浏览器却一帧都切不出来")
-                except Exception as e:                        # noqa: BLE001
-                    record("B32", "FAIL", f"验证画面时抛异常：{type(e).__name__}: {e}")
-                finally:
-                    if base_before:
-                        try:
-                            _post(base, "/api/v1/camera/base", {"base": base_before})
-                            _post(base, "/api/v1/camera/probe", {})
-                        except Exception:                     # noqa: BLE001
-                            pass
-                    try:
-                        await cdp.eval(
-                            "(()=>{const b=document.getElementById('mcam-stop');"
-                            "if(b)b.click();return 1;})()")
-                    except Exception:                         # noqa: BLE001
-                        pass
-                    # ⚠️ **必须切回综合运动台**：上面为了点【灰度】打开了模块界面，
-                    # 而后面 B18/B19/B20/B21 判的是「综合运动台」那两栏 ——
-                    # 不切回去它们会读到 `display:none`（宽度 0），全部假红（踩过）。
-                    try:
-                        await cdp.eval("C.openMod('all','@all')")
-                        await asyncio.sleep(0.4)
-                    except Exception:                         # noqa: BLE001
-                        pass
-
-            # ── B31：上游程序的设置面在窗口里真的画出来了 ──
-            # 用户要求"设置里能填上游程序 + 配对时自动代启"。这一块全是**界面**：
-            # 服务端那半边由 drill 的 I24/I25 判，这里判"用户能不能看到、能不能按"。
-            # 三条：控件在 → 【启动】在不可达时**必须可用**（它就是出路）→
-            # 自动启动开关的勾选状态跟着服务端的设置走（不是一个摆设）。
-            lb = await cdp.eval(
-                "(()=>{const q=function(i){return document.getElementById(i);};"
-                "const box=q('dc-bin-kv');"
-                "const start=q('dc-start'), stop=q('dc-stop'), chk=q('dc-autostart');"
-                "const chkExit=q('dc-stoponexit');"
-                "return {pane:!!document.querySelector('.dev-pane[data-pane=\"camera\"]'),"
-                " hasBox:!!box, hasInput:!!q('dc-bin'), hasSave:!!q('dc-bin-set'),"
-                " hasStart:!!start, hasStop:!!stop, hasChk:!!chk, hasChkExit:!!chkExit,"
-                " txt:box?(box.innerText||'').replace(/\\s+/g,' ').slice(0,180):'',"
-                " startOff:start?start.disabled:null, stopOff:stop?stop.disabled:null,"
-                " chk:chk?chk.checked:null, chkExit:chkExit?chkExit.checked:null,"
-                " enabled:!!((C.state.health||{}).camera||{}).launcher&&"
-                "   ((C.state.health||{}).camera.launcher.enabled===true),"
-                " paused:((C.state.health||{}).camera.launcher||{}).paused===true};})()")
-            present = all(lb.get(k) for k in ("pane", "hasBox", "hasInput", "hasSave",
-                                              "hasStart", "hasStop", "hasChk", "hasChkExit"))
-            # 读数区必须**说得出收工策略** —— 否则"Ctrl+C 之后还剩个上游进程"
-            # 在界面上是个无法解释的现象（用户专门问过这一条）。
-            says = (("程序" in lb.get("txt", "")) and ("端口" in lb.get("txt", ""))
-                    and ("收工" in lb.get("txt", "")))
-            # 【启动】该不该能按，**要看三种情况**，不是"不可达就必须能按"：
-            #   服务已在跑        → 禁用（点了只会回"已在运行"）
-            #   不可达 + 允许代启  → **能用**（这就是它存在的唯一理由）
-            #   不可达 + 已暂停/关掉 → 禁用（代启根本不会动手，能按才是骗人）
-            want_start = ((not pinfo.get("hasurl")) and lb.get("enabled") is True
-                          and lb.get("paused") is False)
-            b31_ok = (present and says and lb.get("startOff") == (not want_start))
-            record("B31", "PASS" if b31_ok else "FAIL",
-                   f"相机窗口有「上游程序」设置：路径输入 + 保存 + 【启动上游服务】"
-                   f"(禁用={lb.get('startOff')}，该按={want_start}) + 【停止】"
-                   f"(禁用={lb.get('stopOff')}) + 开关(自动启动={lb.get('chk')}"
-                   f"／收工停止={lb.get('chkExit')})；读数：{lb.get('txt')[:70]}"
-                   if b31_ok else f"**上游程序设置块不对**：{lb}")
-
-            # 关掉之后画布要清零 —— token 留在屏幕上没有任何好处
-            await cdp.eval("document.getElementById('dev-close').click()")
-            await asyncio.sleep(0.4)
-            closed = await cdp.eval(
-                "(()=>{const m=document.getElementById('dev-modal');"
-                "const cv=document.getElementById('dc-qr');"
-                "return {open:m.classList.contains('on'), w:cv.width};})()")
-            record("B17", "PASS" if (not closed.get("open") and closed.get("w") == 0) else "FAIL",
-                   "已关；画布清空（token 不留在屏幕上）"
-                   if (not closed.get("open") and closed.get("w") == 0)
-                   else f"关掉后仍有残留：{closed}")
-
             head("10. 未连接时开会话必须被当场拦住（前端先解释，服务端也拦）")
             opened = await cdp.eval(
                 "(()=>{const b=document.getElementById('btn-open');"
                 "return {disabled: !!b.disabled, title: b.title || ''};})()")
-            if not mouse_ok and not cam_ok:
+            # ⚠️ `mouse_ok` 只在 `hh` 读成功时才存在 —— 上面两条 SKIP 分支会让它没定义。
+            # 早先这里直接用它，于是"health 两次读不一致"时不是 SKIP 而是 NameError
+            # 把整场跑崩（判据自己成了故障源）。所以先判"知不知道"，再判门控。
+            if not hh:
+                record("B18", "SKIP",
+                       f"health 没读到稳定值 ⇒ 不知道鼠连没连，这条不作数（实测 {opened}）")
+            elif not mouse_ok:
                 record("B18", "PASS" if opened.get("disabled") else "FAIL",
                        f"顶栏【开始记录】已禁用，悬停提示：「{opened.get('title')[:70]}」"
                        if opened.get("disabled") else
                        f"**一路都没连时【开始记录】仍可点**（{opened}）")
             else:
                 record("B18", "PASS" if not opened.get("disabled") else "FAIL",
-                       "已连上至少一路 ⇒ 【开始记录】可点（门控没有误伤）"
+                       "已连上鼠 ⇒ 【开始记录】可点（门控没有误伤）"
                        if not opened.get("disabled") else f"误伤：{opened}")
 
             # ------------------------------------------------------------ 11
@@ -2729,13 +2332,12 @@ async def run(args) -> int:
 
               ① **状态只在顶栏，点标签开窗口设参数连接** —— 所以标签得真的可点，
                  点了得真的切到对应面板（不能"点开都是同一个画面"）。
-              ② **相机控制与小车控制并排、同时可见可操作** —— 所以两栏各自的 active
-                 视图必须同时是 `.on`，而且两栏在几何上真是左右并排（不是叠在一起）。
+              ② **页签与视图一一对应**（改版二十四：单栏后不再有"两栏并排"这件事，
+                 但"点了哪个页签就只有那一页是 `.on`"仍然要钉住）。
             '''
-            head("11. 顶栏设备窗口（点标签打开）+ 两栏同时可见")
+            head("11. 顶栏设备窗口（点标签打开）")
             pane_map = []
-            for kind, title in (("mouse", "电脑鼠"), ("camera", "手机相机"),
-                                ("locator", "场地定位"), ("clock", "时间基")):
+            for kind, title in (("mouse", "电脑鼠"), ("clock", "时间基")):
                 r = await cdp.eval(
                     "(()=>{document.querySelector('.lamp[data-dev=\"%s\"]').click();"
                     "const m=document.getElementById('dev-modal');"
@@ -2752,7 +2354,7 @@ async def run(args) -> int:
                 pane_map.append((kind, title, ok, r))
             bad = [f"{t}（{r}）" for _, t, ok, r in pane_map if not ok]
             record("B19", "PASS" if not bad else "FAIL",
-                   "点四个标签 ⇒ 各自只显示自己的面板、标题正确："
+                   "点两个标签 ⇒ 各自只显示自己的面板、标题正确："
                    + "、".join(f"{t} {r.get('txt')} 字" for _, t, _, r in pane_map)
                    if not bad else f"**面板切换不对**：{bad}")
             if shots:
@@ -2773,105 +2375,33 @@ async def run(args) -> int:
                    f"设备窗口（当前 {mtxt.get('pane')} 面板，{mtxt.get('len')} 字）无说明性标记"
                    if mtxt.get("ok") else f"**设备窗口里残留说明性文本**：{mtxt.get('hit')}")
 
-            # ── B33：**"画面为什么没出来"必须能当场答出来** ──
-            # 现场问得最多的一句是"是上位机的问题还是上游的问题"。上游 `monitor.last_thumb`
-            # 就是那个分界（它到底推没推过画面），所以界面上必须**有这一格**。
-            # 判的是**结构**而不是某句文案：相机窗口的 KV 里要有一行"监视道"，
-            # 且它的文字能落进三类之一（已收到 / 上游未推过 / 未订阅）——
-            # 三类都是"能照做"的，模糊的"等待中"不算。
-            mon_txt = await cdp.eval(
-                "(()=>{const b=document.getElementById('dc-state');"
-                "if(!b)return {miss:true};"
-                # KV 是并排的 `<b>名</b><span>值</span>`，innerText **不换行** ⇒
-                # 取整行再截断会看不到关键词，报告会误导人。所以从"监视道"起截。
-                "const t=b.innerText||'';"
-                "const i=t.indexOf('监视道');"
-                "const line=(i>=0)?t.slice(i, i+40):'';"
-                "return {miss:false, line:line, has:!!line,"
-                " kind: (line.indexOf('已收到')>=0) ? 'pushed'"
-                "   : (line.indexOf('未推过')>=0) ? 'never'"
-                "   : (line.indexOf('未订阅')>=0) ? 'nosub'"
-                "   : (line.indexOf('判不了')>=0) ? 'unknown' : 'none'};})()")
-            # 相机**不可达**时读不到上游 monitor 是应该的（判不了 ≠ 不通过）——
-            # 那时只要求"这一行还在"（界面结构没缺），不要求它给得出结论。
-            cam_up = bool(pinfo.get("hasurl"))
-            b33_ok = (bool(mon_txt.get("has"))
-                      and (mon_txt.get("kind") in ("pushed", "never", "nosub")
-                           if cam_up else True))
-            # 光"有一行字"不够 —— 还得**三种状态都给出可照做的答案**，其中就包括
-            # 现场最常见的那一种（上游一次都没推过画面 ⇒ 该去手机端开预览）。
-            # `C.monLine` 是纯函数，直接拿构造的 health 喂它，不必去凑真数据。
-            mons = await cdp.eval(
-                "(()=>{const f=function(o){try{return (C.monLine(o).text||'');}"
-                "catch(e){return 'ERR:'+e.message;}};"
-                "return {never:f({status:{monitor:{subscribers:1,last_thumb:null}}}),"
-                " pushed:f({status:{monitor:{subscribers:1,last_thumb:{seq:7,bytes:2048}}}}),"
-                " nosub:f({status:{monitor:{subscribers:0,last_thumb:null}}}),"
-                " unknown:f({status:{}})};})()")
-            three_ok = (("未推过" in mons.get("never", ""))
-                        and ("已收到" in mons.get("pushed", "")
-                             and "seq 7" in mons.get("pushed", ""))
-                        and ("未订阅" in mons.get("nosub", ""))
-                        and ("判不了" in mons.get("unknown", "")))
-            # **两个方向都验**：切到"上游从没推过画面"（用户遇到的那种），
-            # 这一格必须变成可照做的那句话 —— 而不是只验"有数据"那一路。
-            never_line = ""
-            if fake_cam is not None:
-                try:
-                    with urllib.request.urlopen(
-                            f"http://127.0.0.1:{args.fake_cam_port}/__monitor?never=1",
-                            timeout=6) as r:
-                        r.read()
-                    _post(base, "/api/v1/camera/probe", {})
-                    await asyncio.sleep(0.6)
-                    await cdp.eval("(()=>{C.refreshHealthNow&&C.refreshHealthNow();"
-                                   "return 1;})()")
-                    await asyncio.sleep(1.2)
-                    never_line = await cdp.eval(
-                        "(()=>{const b=document.getElementById('dc-state');"
-                        "if(!b)return '';const t=b.innerText||'';"
-                        "const i=t.indexOf('监视道');"
-                        "return (i>=0)?t.slice(i, i+40):'';})()")
-                    with urllib.request.urlopen(
-                            f"http://127.0.0.1:{args.fake_cam_port}/__monitor",
-                            timeout=6) as r:
-                        r.read()
-                    _post(base, "/api/v1/camera/probe", {})
-                except Exception as e:                        # noqa: BLE001
-                    never_line = f"ERR:{type(e).__name__}"
-            never_ok = ("未推过" in never_line) if fake_cam is not None else True
-            b33_ok = b33_ok and three_ok and never_ok
-            record("B33", "PASS" if b33_ok else "FAIL",
-                   f"相机窗口写着「{mon_txt.get('line', '').strip()[:60]}」；"
-                   f"四种情况都答得出（没推过/推了/没订阅/读不到）；"
-                   f"切到「上游从没推过」时显示「{never_line.strip()[:60]}」"
-                   if b33_ok else
-                   f"**这一屏答不出「画面为什么没出来」**：行={mon_txt} / 四种={mons} "
-                   f"/ 切到 never 后={never_line!r}（要含「未推过」）")
 
             await cdp.eval("document.getElementById('dev-close').click()")
             await asyncio.sleep(0.3)
 
+            # ── B20：**页签与视图必须一一对应** ──
+            # 改版二十四把左栏「场地 · 相机」整栏删掉了，于是原来"两栏并排"那条判据
+            # 失去了对象。但**它守的东西还在**：点了哪个页签，就只许那一页是 `.on`，
+            # 而且页签高亮必须跟着走。这条与 B1/B2（容器清单）不重复 ——
+            # B1/B2 问"东西在不在"，B20 问"点了之后切没切过去"，后者才是用户的体感。
             two = await cdp.eval(
-                "(()=>{const c=document.querySelector('#col-cam .view.on');"
-                "const m=document.querySelector('#col-mouse .view.on');"
-                "const cb=document.querySelector('#rail-cam button.on');"
+                "(()=>{const m=document.querySelector('#col-mouse .view.on');"
                 "const mb=document.querySelector('#rail-mouse button.on');"
-                "const a=document.getElementById('col-cam').getBoundingClientRect();"
-                "const b=document.getElementById('col-mouse').getBoundingClientRect();"
-                "return {cam:c?c.dataset.tab:null, mouse:m?m.dataset.tab:null,"
-                " camBtn:cb?cb.dataset.tab:null, mouseBtn:mb?mb.dataset.tab:null,"
-                " twoVisible: !!(c&&m)&&c.classList.contains('on')&&m.classList.contains('on'),"
-                " sideBySide: (a.width>200 && b.width>200 && a.right <= b.left + 2),"
-                " w:Math.round(a.width)+'/'+Math.round(b.width)};})()")
-            two_ok = (two.get("twoVisible") and two.get("sideBySide")
-                      and two.get("camBtn") == two.get("cam")
-                      and two.get("mouseBtn") == two.get("mouse"))
+                "const ons=Array.from(document.querySelectorAll('#col-mouse .view.on'))"
+                ".map(function(v){return v.dataset.tab;});"
+                "const a=document.getElementById('col-mouse').getBoundingClientRect();"
+                "return {mouse:m?m.dataset.tab:null, mouseBtn:mb?mb.dataset.tab:null,"
+                " ons:ons, cols:document.querySelectorAll('#body > .col').length,"
+                " camGone: !document.getElementById('col-cam'),"
+                " w:Math.round(a.width)};})()")
+            two_ok = (two.get("mouse") is not None and two.get("ons") == [two.get("mouse")]
+                      and two.get("mouseBtn") == two.get("mouse")
+                      and two.get("cols") == 1 and two.get("camGone") and two.get("w") > 300)
             record("B20", "PASS" if two_ok else "FAIL",
-                   f"两栏同时在屏：左栏「{two.get('cam')}」({two.get('camBtn')}) + "
-                   f"右栏「{two.get('mouse')}」({two.get('mouseBtn')})，"
-                   f"并排宽度 {two.get('w')} px（同时可见、同时可操作）"
-                   if two_ok else f"**两栏没有同时呈现**：{two}")
+                   f"单栏：页签「{two.get('mouseBtn')}」与当前视图「{two.get('mouse')}」"
+                   f"一一对应（同时只有一页 `.on`）、栏宽 {two.get('w')} px、"
+                   f"左栏「场地 · 相机」已下线（{two.get('cols')} 栏）"
+                   if two_ok else f"**页签与视图没对上**：{two}")
 
             # 汇总一下"预期内"的那批，方便判断是不是全是同一类（重复报同一条 = 噪声）
             if soft_bad:
@@ -2886,22 +2416,6 @@ async def run(args) -> int:
         proc.wait(timeout=8)
     except subprocess.TimeoutExpired:
         proc.kill()
-    if launcher_paused:
-        # 复原：暂停只是"这一轮先别代启"，不能带出这一轮
-        try:
-            _post(base, "/api/v1/camera/service/pause", {"on": False})
-        except Exception:                                     # noqa: BLE001
-            pass
-    if stopped_by_us:
-        # 为了跑降级路，我们停掉了**本层代启的**那个上游服务。收尾要把它起回来 ——
-        # 测试不该让"用户原本跑着的服务"少一个（虽然它是我们起的，但用户正用它）。
-        try:
-            _post(base, "/api/v1/camera/service/start", {})
-        except Exception:                                     # noqa: BLE001
-            pass
-    if fake_cam is not None:
-        fake_cam.shutdown()
-        fake_cam.server_close()
     _rmtree_quiet(profile)
     if sim_proc is not None:
         sim_proc.terminate()
@@ -2937,10 +2451,6 @@ def main(argv=None) -> int:
     ap.add_argument("--sim", action="store_true",
                     help="先起上游鼠标模拟器并让服务端连上（页面才有真数据）")
     ap.add_argument("--sim-port", type=int, default=5555)
-    ap.add_argument("--fake-cam", action=argparse.BooleanOptionalAction, default=True,
-                    help="8765 没有真相机服务时，起一个假上游 —— 好让「配对二维码」"
-                         "那条判据真跑一遍（--no-fake-cam 关掉）")
-    ap.add_argument("--fake-cam-port", type=int, default=8765)
     ap.add_argument("--wait", type=float, default=4.0, help="首页打开后等多久（等 WS+首轮 health）")
     ap.add_argument("--per-tab", type=float, default=1.5, help="每页停多久")
     ap.add_argument("--shots", default="")

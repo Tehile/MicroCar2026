@@ -2,8 +2,8 @@
 
 原则：
   · 全部绑 `127.0.0.1`（本机自用）。要开 `0.0.0.0` 必须先补鉴权 —— 不在这里偷偷开。
-  · **token 只在服务端**：前端拿到的相机地址永远是 `/api/v1/camera/mjpeg`，
-    真 token 由本进程在反代时补上。
+  · 上游凭据（如 token）**只在服务端**：前端永远只看本层的端点，拿不到真凭据。
+    （改版二十四：唯一的凭据持有者 PhoneCamera 随相机下线，这条纪律本身不变。）
   · 大数组走 WS 二进制（这里只负责"触发"与"给元信息"）。
 """
 
@@ -20,9 +20,9 @@ from aiohttp import web
 
 from .. import __version__
 from ..clock import anchor_snapshot, mono_to_ms, now_ms
-from ..decode import decode_y
 from ..maze_rec import GOAL_CELLS
 from ..store import new_session_id
+from ..video_io import list_sessions, list_videos
 from .errors import ApiError, body_json, ok
 from .ws import ws_handler
 
@@ -44,7 +44,6 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_post("/api/v1/clock/offset", _clock_offset)
     r.add_post("/api/v1/clock/mark", _clock_mark)
     r.add_post("/api/v1/clock/fit", _clock_fit)
-    r.add_post("/api/v1/clock/autofit", _clock_autofit)
 
     # ---- 鼠
     r.add_get("/api/v1/mouse/ports", _mouse_ports)
@@ -133,45 +132,18 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_post("/api/v1/lesson/suggest", _lesson_suggest)
     r.add_post("/api/v1/lesson/apply", _lesson_apply)
 
-    # ---- 相机
-    r.add_get("/api/v1/camera/status", _cam_status)
-    r.add_get("/api/v1/camera/ledger", _cam_ledger)
-    r.add_get("/api/v1/camera/sessions", _cam_sessions)
-    r.add_get("/api/v1/camera/overview", _cam_overview)
-    r.add_get("/api/v1/camera/pair", _cam_pair)
-    r.add_get("/api/v1/camera/mjpeg", _cam_mjpeg)
-    r.add_get("/api/v1/camera/thumb", _cam_thumb)
-    r.add_get("/api/v1/camera/frames", _cam_frames)
-    r.add_get("/api/v1/camera/offline/sessions", _cam_offline_sessions)
-    r.add_post("/api/v1/camera/start", _cam_start)
-    r.add_post("/api/v1/camera/probe", _cam_probe)
-    r.add_post("/api/v1/camera/connect", _cam_connect)
-    r.add_post("/api/v1/camera/stop", _cam_stop)
-    r.add_post("/api/v1/camera/base", _cam_base)
-    # 上游程序：设置（可存）+ 代启 / 停止（都由人点，后台探测绝不动手）
-    r.add_post("/api/v1/camera/settings", _cam_settings)
-    r.add_get("/api/v1/camera/service", _cam_service_get)
-    r.add_post("/api/v1/camera/service/start", _cam_service_start)
-    r.add_post("/api/v1/camera/service/stop", _cam_service_stop)
-    r.add_post("/api/v1/camera/service/pause", _cam_service_pause)
-    r.add_post("/api/v1/camera/import", _cam_import)
-    r.add_post("/api/v1/camera/exit_offline", _cam_exit_offline)
-
-    # ---- 定位
-    r.add_get("/api/v1/locate/catalog", _loc_catalog)
-    r.add_get("/api/v1/locate/params", _loc_params_get)
-    r.add_post("/api/v1/locate/params", _loc_params_set)
-    r.add_get("/api/v1/locate/profiles", _loc_profiles)
-    r.add_post("/api/v1/locate/profile", _loc_profile)
-    r.add_get("/api/v1/locate/preview", _loc_preview)
-    r.add_get("/api/v1/locate/annotated/{seq}.jpg", _loc_annotated)
-    r.add_get("/api/v1/locate/results", _loc_results)
-    r.add_get("/api/v1/locate/track", _loc_track)
-    r.add_get("/api/v1/locate/runs", _loc_runs)
-    r.add_post("/api/v1/locate/run", _loc_run)
-    r.add_get("/api/v1/locate/run/{rid}", _loc_run_status)
-    r.add_post("/api/v1/locate/run/{rid}/abort", _loc_run_abort)
-    r.add_post("/api/v1/locate/online", _loc_online)
+    # ---- 视频复盘（改版二十四，Auto Locate 会话解析）
+    # 位置数据的**唯一来路**。7 条全部是"起/停/查状态/读产物"：
+    #   · `list`/`sessions`/`session`/`trajectory` 要扫盘读文件 ⇒ executor；
+    #   · `status` **零 IO**（纯内存）—— 它被界面每秒轮询，摸盘就会拖住事件循环。
+    # 没有 `align`：拍板③"前端不处理对轴"，时间轴由识别侧保证，本层只校验（§11.26 §五）。
+    r.add_get("/api/v1/video/list", _video_list)
+    r.add_post("/api/v1/video/run", _video_run)
+    r.add_get("/api/v1/video/status", _video_status)
+    r.add_post("/api/v1/video/cancel", _video_cancel)
+    r.add_get("/api/v1/video/sessions", _video_sessions)
+    r.add_get("/api/v1/video/session/{sid}", _video_session)
+    r.add_get("/api/v1/video/trajectory/{sid}", _video_trajectory)
 
     # ---- 会话 / 数据
     r.add_post("/api/v1/session/open", _session_open)
@@ -182,9 +154,6 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_post("/api/v1/session/note", _session_note)
     r.add_get("/api/v1/session/export", _session_export)
     r.add_get("/api/v1/session/file", _session_file)
-
-    # ---- 场地
-    r.add_get("/api/v1/arena", _arena_get)
 
     r.add_get("/ws", ws_handler)
 
@@ -201,12 +170,11 @@ async def _caps(request: web.Request) -> web.Response:
 
 
 async def _config(request: web.Request) -> web.Response:
-    cfg = request.app["ctx"].cfg
-    raw = cfg.raw()
-    # 凭据不进前端（判据 R10）—— 这里返回的是"有没有配"，不是"配的是什么"
-    if "camera" in raw:
-        raw["camera"]["token"] = "***（服务端持有，前端不显示）" if raw["camera"].get("token") else ""
-    return ok(raw)
+    # 判据 R10：凭据**绝不进前端**。
+    # ⚠️ 改版二十四：唯一的凭据持有者（PhoneCamera 的 `camera.token`）随相机下线，
+    # 现在整份配置里没有任何密文字段 ⇒ 这里不再需要遮蔽。纪律本身不变：
+    # 将来若再加带凭据的段，必须在这里遮蔽成"有没有配"，而不是"配的是什么"。
+    return ok(request.app["ctx"].cfg.raw())
 
 
 async def _paths(request: web.Request) -> web.Response:
@@ -274,30 +242,6 @@ async def _clock_fit(request: web.Request) -> web.Response:
     snap = request.app["ctx"].clock.fit_sync_pulse()
     request.app["ctx"].save_clock()
     return ok(snap)
-
-
-async def _clock_autofit(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    d = await body_json(request)
-    sid = d.get("session_id") or (ctx.camera.offline or {}).get("session_id")
-    frames = ctx.camera.frames_of(str(sid)) if sid else []
-    pairs = []
-    for f in frames:
-        wc = f.get("wall_clock_ns")
-        if not wc:
-            continue
-        try:
-            st = Path(str(f["json"])).stat()
-        except OSError:
-            continue
-        pairs.append((int(st.st_mtime * 1000), float(wc) / 1e6))
-    if len(pairs) < 20:
-        raise ApiError(409,
-                       f"可用帧只有 {len(pairs)} 帧，需 ≥20 且带 wall_clock_ns")
-    snap = ctx.clock.fit_min_latency(pairs)
-    ctx.save_clock()
-    return ok({**snap, "pairs": len(pairs),
-               "caveat": "以文件 mtime 作到达时刻：偏上界，非无偏估计"})
 
 
 def _f(d: dict, k: str) -> Optional[float]:
@@ -1428,580 +1372,84 @@ async def _lesson_apply(request: web.Request) -> web.Response:
         None, lambda: ctx.mouse.lesson_apply(sug, save=bool(d.get("save", False)))))
 
 
-# ================================================================ 相机
+# ================================================================ 视频复盘（改版二十四）
 
-async def _cam_status(request: web.Request) -> web.Response:
+async def _video_list(request: web.Request) -> web.Response:
+    """列 `video.root` 下的视频。扫盘 ⇒ 进 executor（铁律 3）。"""
     ctx = request.app["ctx"]
     loop = asyncio.get_running_loop()
-    return ok(await loop.run_in_executor(None, ctx.camera.status))
+    items = await loop.run_in_executor(None, list_videos, ctx.video.root)
+    return ok({"root": str(ctx.video.root), "videos": items})
 
 
-async def _cam_probe(request: web.Request) -> web.Response:
-    """同步强制探一次相机（配对页/现场排查）。
-
-    为什么要有它：`/health` 为了让判据 I12 成立，只读后台维护的快照，可能落后若干秒。
-    用户按"重探"时他要的是**此刻**的真相，所以这里显式走一次阻塞探测 —— 放在
-    executor 里，不占事件循环。
-    """
+async def _video_sessions(request: web.Request) -> web.Response:
+    """列已有的会话产物（`video.out_root`）。扫盘 ⇒ executor。"""
     ctx = request.app["ctx"]
     loop = asyncio.get_running_loop()
-    return ok(await loop.run_in_executor(None, ctx.camera.probe_now))
+    items = await loop.run_in_executor(None, list_sessions, ctx.video.out_root)
+    return ok({"root": str(ctx.video.out_root), "sessions": items})
 
 
-async def _cam_connect(request: web.Request) -> web.Response:
-    """**用户主动点的「连接相机」**：同步确认 + 回一份"确认单"。
-
-    与 `/camera/probe` 的区别：probe 只回答"通不通"，这里要回答
-    **"连上的是谁、手机在不在"** —— 也就是"手动连接后确认状态"这句话里
-    "确认"两个字对应的东西。`base` 传了就顺手切过去（现场 IP 会变，
-    改地址和连一次本来就是同一个动作的两半）。
-
-    连不上抛 `CameraError` ⇒ 503，附一段可以照着做的排查清单；
-    **绝不返回一个看起来成功的空壳**。
-    """
-    ctx = request.app["ctx"]
-    d = await body_json(request, required=False)
-    base = str((d or {}).get("base") or "").strip() or None
-    loop = asyncio.get_running_loop()
-    return ok(await loop.run_in_executor(None, lambda: ctx.camera.connect(base)))
+async def _video_status(request: web.Request) -> web.Response:
+    """**零 IO**：只读内存里的那一份任务状态（界面每秒轮询它）。"""
+    return ok(request.app["ctx"].video.status())
 
 
-async def _cam_ledger(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    sid = request.query.get("session_id") or ""
-    loop = asyncio.get_running_loop()
-    led = await loop.run_in_executor(None, lambda: ctx.camera.ledger(sid))
-    # 三态原样透出（判据 I11）：complete 为 null 时**必须**能被前端判成"判不了"
-    led["_complete_meaning"] = (
-        {True: "通过", False: "不通过", None: "判不了（App 未宣告应有帧数）"}
-        .get(led.get("complete"), "未知"))
-    return ok(led)
-
-
-async def _cam_sessions(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    loop = asyncio.get_running_loop()
-    return ok(await loop.run_in_executor(None, ctx.camera.sessions))
-
-
-async def _cam_overview(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    loop = asyncio.get_running_loop()
-    return ok(await loop.run_in_executor(None, ctx.camera.overview))
-
-
-async def _cam_pair(request: web.Request) -> web.Response:
-    """⚠️ 响应**含 token**。只在配对页显式请求时返回，且**不写日志**（R10）。"""
-    ctx = request.app["ctx"]
-    loop = asyncio.get_running_loop()
-    data = await loop.run_in_executor(None, ctx.camera.pair)
-    return ok({**data, "_warning": "本响应含 token（等同凭据）：勿投屏、勿外传"})
-
-
-async def _cam_mjpeg(request: web.Request) -> web.StreamResponse:
-    """反向代理 MJPEG。**前端永远看不到 token**；而且这条流只进 `<img>`，
-    绝不参与任何数值路径（R4：看得见 ≠ 算得准）。
-
-    ⚠️ **`Content-Type` 必须原样透传上游的**（含它自己的 `boundary`）。
-    真踩过：这里原先写死 `boundary=frame`，而上游是 `boundary=phonecamera-frame`
-    —— 声明与实际不符，浏览器按 `--frame` 去切分、流里却是 `--phonecamera-frame`，
-    **一帧都切不出来** ⇒ 预览窗口永远空白，而服务端一切正常（手机在发、反代在转发）。
-    boundary 是**上游对它的流说了算**，本层不猜：猜错的代价是一整条链路看着通、却没画面。
-    """
-    ctx = request.app["ctx"]
-    url = ctx.camera.mjpeg_url()
-    if not url:
-        raise ApiError(503, "拿不到 MJPEG 地址 —— 相机服务没在跑，或已在离线模式。"
-                            "离线模式下没有实时画面，请用【数据】页看历史帧。")
-    session = request.app["http"]
-    try:
-        upstream = await session.get(
-            url, timeout=aiohttp.ClientTimeout(total=None, sock_read=30))
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        ctx.bus.log("warn", f"MJPEG 连不上上游：{type(e).__name__}: {e}", source="camera")
-        raise ApiError(502, f"连不上相机服务 {url.split('?')[0]}：{type(e).__name__}") from e
-
-    async with upstream:
-        if upstream.status != 200:
-            raise ApiError(502, f"相机服务回 {upstream.status}："
-                                f"{(await upstream.text())[:200]}")
-        ct = upstream.headers.get("Content-Type") or "multipart/x-mixed-replace"
-        resp = web.StreamResponse(status=200, headers={
-            "Content-Type": ct,
-            # 不缓存：否则中间层会把第一帧缓存住，画面永远冻在第一张（上游同一条理由）
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-        })
-        await resp.prepare(request)
-        try:
-            while True:
-                try:
-                    chunk = await upstream.content.readany()
-                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    # 读**上游**失败 = 真故障，值得记一条
-                    ctx.bus.log("warn", f"MJPEG 上游读取中断：{type(e).__name__}: {e}", source="camera")
-                    break
-                if not chunk:
-                    break
-                try:
-                    await resp.write(chunk)
-                except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError,
-                        *((_CCRE,) if _CCRE else ())) as e:
-                    # 写**浏览器**失败 = 它把这一路关了（切页 / 刷新 / 停止预览）。
-                    # **这是正常事件**，不能记 warn：现场切一次页面就多一条"故障"，
-                    # 真故障会被自己的噪声淹掉（原先就是这行把日志刷成了两条 warn）。
-                    ctx.bus.log("info", f"MJPEG 订阅者断开（{type(e).__name__}）", source="camera")
-                    break
-        except asyncio.CancelledError:
-            raise
-        finally:
-            try:
-                await resp.write_eof()
-            except Exception:                                    # noqa: BLE001
-                pass
-    return resp
-
-
-async def _cam_thumb(request: web.Request) -> web.StreamResponse:
-    ctx = request.app["ctx"]
-    sid = request.query.get("session_id") or ""
-    url = ctx.camera.thumb_url(sid)
-    if not url:
-        raise ApiError(503, "拿不到缩略图地址（相机服务不可用）")
-    session = request.app["http"]
-    async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
-        if r.status != 200:
-            raise ApiError(502, f"相机服务回 {r.status}")
-        return web.Response(body=await r.read(),
-                            content_type=r.headers.get("Content-Type", "image/jpeg"),
-                            headers={"Cache-Control": "no-store"})
-
-
-async def _cam_frames(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    sid = request.query.get("session_id")
-    if not sid and ctx.store.current and ctx.store.current.camera_ref:
-        sid = ctx.store.current.camera_ref.get("session_id")
-    if not sid and ctx.camera.offline:
-        sid = ctx.camera.offline.get("session_id")
-    if not sid:
-        raise ApiError(400, "要给 session_id（或先开一个会话 / 导入一个离线会话）")
-    limit = _int(request, "limit", 0)
-    loop = asyncio.get_running_loop()
-    frames = await loop.run_in_executor(None, lambda: ctx.camera.frames_of(str(sid), limit))
-    return ok({"session_id": sid, "count": len(frames), "frames": frames})
-
-
-async def _cam_offline_sessions(request: web.Request) -> web.Response:
-    """列本地已有的手机会话（无手机时的演练素材 —— 已经有 14 个真实会话）。
-
-    ⚠️ 整段扫盘**必须在线程池里跑**。这不是洁癖：`frames/` 下是成千上万个
-    `frame_*.json`，`glob` + 递归算占用是纯同步的文件系统遍历，而它以前直接跑在
-    aiohttp 的事件循环上 —— 实测线程栈连续两个快照都停在 `pathlib.glob`（≥2 s），
-    期间**整个服务不回答任何请求**（连纯内存的 `/health` 都超时），浏览器那边表现成
-    "页面一直卡在启动中"。同文件里的 `/camera/frames` 本来就是这么做的。
-    """
-    ctx = request.app["ctx"]
-    root = Path(str(ctx.cfg.get("camera.offline_import_root")))
-    if not root.is_dir():
-        return ok({"root": str(root), "sessions": [],
-                   "note": f"目录不存在：{root}"})
-    out = await asyncio.get_running_loop().run_in_executor(
-        None, lambda: _scan_offline_sessions(root))
-    return ok({"root": str(root), "sessions": out, "current": ctx.camera.offline})
-
-
-def _scan_offline_sessions(root: Path) -> List[dict]:
-    """同步扫盘：**只能在事件循环之外调用**（理由见 `_cam_offline_sessions`）。"""
-    out: List[dict] = []
-    for d in sorted(root.iterdir(), reverse=True):
-        if not d.is_dir():
-            continue
-        fdir = d / "frames"
-        n = len(list(fdir.glob("frame_*.json"))) if fdir.is_dir() else 0
-        man = d / "manifest.json"
-        item: Dict[str, Any] = {"session_id": d.name, "frames": n,
-                                "path": str(d), "bytes": _dir_bytes(d)}
-        if man.is_file():
-            try:
-                m = json.loads(man.read_text(encoding="utf-8"))
-                item["state"] = m.get("state")
-                item["profile_id"] = m.get("profile_id")
-                item["device_serial"] = m.get("device_serial")
-            except (OSError, json.JSONDecodeError):
-                pass
-        out.append(item)
-    return out
-
-
-async def _cam_start(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    d = await body_json(request)
-    loop = asyncio.get_running_loop()
-    res = await loop.run_in_executor(None, lambda: ctx.camera.start(
-        session_id=str(d.get("session_id") or ""),
-        device_serial=str(d.get("device_serial") or "unknown"),
-        plan=d.get("plan"), capture_mode=str(d.get("capture_mode") or "")))
-    return ok(res)
-
-
-async def _cam_stop(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    d = await body_json(request)
-    loop = asyncio.get_running_loop()
-    return ok(await loop.run_in_executor(
-        None, lambda: ctx.camera.stop(str(d.get("session_id") or ""))))
-
-
-async def _cam_base(request: web.Request) -> web.Response:
+async def _video_run(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
     d = await body_json(request, required=True)
-    base = str(d.get("base") or "").strip()
-    if not base.startswith("http"):
-        raise ApiError(400, "base 要写成 http://host:port 的形式")
-    ctx.camera.set_base(base, d.get("token"))
-    return ok({"base": ctx.camera.base, "note": "地址已改（本次运行有效；要长期生效用 /camera/settings）"})
 
+    def _opt_f(key: str, label: str) -> Optional[float]:
+        """可选数字。给了就必须是数 —— 空串/None 当"没给"，**不猜 0**。
 
-# ---------------------------------------------------------------- 上游程序的设置与代启
-# 用户要求：配对时若依赖上游服务，应能在设置里给出上游程序，并由本层代启，
-# 不必手动双击 start_service.cmd。
-#
-# ⚠️ 三处分工必须清楚：
-#   `settings`  —— **存**（写回 config.yaml，保留注释）
-#   `service`   —— **看**（零网络、零副作用，纯内存）
-#   `service/start|stop` —— **动手**（只有人能触发；后台探测与 /health 永不调用）
-
-#: 允许在界面上改的 launcher 键 -> (类型, 说明)。类型用来做**入参校验**：
-#: patch 写的是 yaml 文本，写进去一个类型不对的值（比如 bool 写成字符串）
-#: 不会当场报错，只会在下次启动时以奇怪的方式失败。
-_LAUNCH_KEYS = {
-    "script": str, "python": str, "data_dir": str, "token": str,
-    "log": str, "host": str,
-    "enabled": bool, "autostart": bool, "stop_on_exit": bool,
-    "port": int, "max_mbps": float,
-}
-
-
-async def _cam_settings(request: web.Request) -> web.Response:
-    """把相机设置**写回 config.yaml**（保留注释）并当场生效。
-
-    为什么需要它：地址和上游程序都属于"现场会变、且下次还要用"的东西。
-    原先把地址只改在内存里 —— 重启一次就回到旧值，现场会以为"改了没用"。
-    """
-    from ..launcher import yaml_scalar
-    ctx = request.app["ctx"]
-    d = await body_json(request, required=True)
-    render: Dict[str, str] = {}
-    applied: Dict[str, Any] = {}
-
-    base = d.get("base")
-    if base is not None:
-        base = str(base).strip()
-        if not base.startswith("http"):
-            raise ApiError(400, "地址要写成 http://host:port 的形式")
-        render["camera.base"] = yaml_scalar(base)
-        applied["base"] = base
-
-    for k, v in (d.get("launcher") or {}).items():
-        if k not in _LAUNCH_KEYS:
-            raise ApiError(400, f"没有这个设置项：launcher.{k}；可选 {sorted(_LAUNCH_KEYS)}")
-        want = _LAUNCH_KEYS[k]
+        ⚠️ `float("")` 会抛 ValueError，`float("abc")` 也是；两者都要变成
+        能看懂的一句"X 必须是数字（秒）"，而不是 500 里的英文 traceback。
+        """
+        v = d.get(key)
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
         try:
-            if want is bool:
-                if isinstance(v, str):
-                    v = v.strip().lower() in ("1", "true", "yes", "on")
-                v = bool(v)
-            elif want is int:
-                v = int(v)
-            elif want is float:
-                v = float(v)
-            else:
-                v = str(v if v is not None else "")
+            return float(v)
         except (TypeError, ValueError):
-            raise ApiError(400, f"launcher.{k} 的类型不对（要 {want.__name__}）") from None
-        render[f"camera.launcher.{k}"] = yaml_scalar(v)
-        applied[f"launcher.{k}"] = v
+            raise ApiError(400, f"{label} 必须是数字（秒）：{v!r}") from None
 
-    if not render:
-        raise ApiError(400, "没有任何要改的设置（base 或 launcher.*）")
-
-    loop = asyncio.get_running_loop()
-    res = await loop.run_in_executor(None, lambda: ctx.cfg.patch(render))
-    not_found = [k for k, v in res.items() if v != "patched"]
-    if not_found:
-        # 目标行不存在（旧配置没这一段）：整份重写会**丢掉全部注释**，所以只告警不硬来。
-        # 让用户自己去 config.yaml 补上那几行 —— 比我们悄悄抹掉文档便宜得多。
-        ctx.bus.log("warn", f"设置没能写回（config.yaml 里没有这些行）：{not_found}")
-    if "base" in applied:
-        ctx.camera.set_base(str(applied["base"]))
-    ctx.launcher.reload()          # 改完立刻按新参数算（下一次启动就用它）
-    ctx.store.mark("camera", "camera.settings", ",".join(sorted(applied)),
-                   f"written={len(render) - len(not_found)}/{len(render)}")
-    return ok({"applied": applied, "written": render.keys(),
-               "not_written": not_found,
-               "note": ("已写入 config.yaml" if not not_found
-                        else "config.yaml 里缺少对应行，尚未落盘（其余项已生效）")})
-
-
-async def _cam_service_get(request: web.Request) -> web.Response:
-    """代启器现状 + 启动行。**零网络、零副作用** —— 界面刷新随便调。"""
-    ctx = request.app["ctx"]
-    loop = asyncio.get_running_loop()
-    st = await loop.run_in_executor(None, lambda: ctx.launcher.status(deep=True))
-    return ok(st)
-
-
-def _cam_is_up(ctx: Any):
-    """给代启器用的"此刻通不通" —— **必须真探**，不能拿 health 快照。
-
-    快照最多旧 8 s：拿它做闸会在"其实已经起来了"的时候再起一个进程。
-    """
-    def _f() -> bool:
-        try:
-            ctx.camera.capabilities(refresh=True)
-            return True
-        except Exception:                                     # noqa: BLE001
-            return False
-    return _f
-
-
-async def _cam_service_start(request: web.Request) -> web.Response:
-    """代启上游相机服务，并等到它真能答话（或带着日志尾巴如实报失败）。
-
-    这条路由**只由人触发**。后台探测与 `/health` 绝不调它 ——
-    否则一个 2.5 s 刷新的页面会不停拉起进程（最难发现的资源泄漏就是这种）。
-    """
-    ctx = request.app["ctx"]
-    d = await body_json(request)
-    wait_s = float(d.get("wait_s") or 0) or 15.0
-    loop = asyncio.get_running_loop()
-    res = await loop.run_in_executor(
-        None, lambda: ctx.launcher.start(is_up=_cam_is_up(ctx), wait_s=wait_s))
-    ctx.camera.kick_probe()        # 起完立刻重探：别让界面还显示"不可达"（快照可能旧 8 s）
-    if res.get("ok"):
-        return ok(res)
-    # 起不来是**故障**：409 + 可照做的清单（与 camera 侧的故障口径一致）
-    raise ApiError(409, res.get("detail") or res.get("reason") or "代启上游服务失败")
-
-
-async def _cam_service_stop(request: web.Request) -> web.Response:
-    """停掉**本层起的**上游服务。别处启动的不动（没有它的父进程关系，杀错就是断人现场）。"""
-    ctx = request.app["ctx"]
-    loop = asyncio.get_running_loop()
-    res = await loop.run_in_executor(None, ctx.launcher.stop)
-    ctx.camera.kick_probe()
-    if res.get("ok"):
-        return ok(res)
-    raise ApiError(409, res.get("detail") or res.get("reason") or "停止上游服务失败")
-
-
-async def _cam_service_pause(request: web.Request) -> web.Response:
-    """**本次运行内**暂停 / 恢复代启（`{"on": true}`）。不写 config.yaml。
-
-    存在的理由（两条，都不是"为测试开的后门"）：
-      · 现场调试时"我自己管进程"，不想让 Control 插手；
-      · 判据要跑"服务不可达"那条降级路 —— 而代启一旦生效，那条路当场就没了，
-        还会在**用户机器上留下一个上游进程**（真发生过：`--no-fake-cam` 那一轮）。
-
-    与 `camera.launcher.enabled`（配置项，长期）分工：那个是"要不要这个能力"，
-    这个是"这一次先别动手"。
-    """
-    ctx = request.app["ctx"]
-    d = await body_json(request, required=True)
-    if "on" not in d:
-        raise ApiError(400, '要写 {"on": true} 或 {"on": false}')
-    return ok(ctx.launcher.pause(bool(d["on"])))
-
-
-async def _cam_import(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    d = await body_json(request, required=True)
-    sid = str(d.get("session_id") or "")
-    if not sid:
-        raise ApiError(400, "要指定 session_id（见 GET /camera/offline/sessions）")
-    loop = asyncio.get_running_loop()
-    res = await loop.run_in_executor(None, lambda: ctx.camera.import_local_session(
-        sid, root=d.get("root"), rate_hz=float(d.get("rate_hz") or 30.0),
-        replay=bool(d.get("replay", True))))
-    if ctx.store.is_open:
-        ctx.store.set_camera_ref({"session_id": sid, "data_dir": str(ctx.camera.data_dir()),
-                                  "offline": True, "store": None,
-                                  "note": "离线导入"})
-    return ok(res)
-
-
-async def _cam_exit_offline(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    ctx.camera.exit_offline()
-    return ok({"offline": None})
-
-
-def _dir_bytes(p: Path) -> int:
-    """会话目录的占用（**不含 frames/**：交付帧是 GB 级，单列）。
-    用 os.walk 而不是 rglob —— rglob 产出的是 Path，不是 (dirpath, dirnames, files)。"""
-    import os
-    total = 0
-    for dp, _dn, fns in os.walk(p):
-        if Path(dp).name == "frames":
-            _dn[:] = []                     # 就地清空才会真的剪枝
-            continue
-        for fn in fns:
-            try:
-                total += (Path(dp) / fn).stat().st_size
-            except OSError:
-                pass
-    return total
-
-
-# ================================================================ 定位
-
-async def _loc_catalog(request: web.Request) -> web.Response:
-    return ok(request.app["ctx"].locator.catalog())
-
-
-async def _loc_params_get(request: web.Request) -> web.Response:
-    return ok(request.app["ctx"].locator.params())
-
-
-async def _loc_params_set(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    d = await body_json(request, required=True)
-    params = d.get("params") if "params" in d else d
-    return ok(ctx.locator.set_params(params))
-
-
-async def _loc_profiles(request: web.Request) -> web.Response:
-    return ok(request.app["ctx"].locator.profiles())
-
-
-async def _loc_profile(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    d = await body_json(request, required=True)
-    name = str(d.get("name") or "")
-    if not name:
-        raise ApiError(400, "要给 name（见 GET /locate/profiles）")
-    return ok(ctx.locator.set_profile(name))
-
-
-async def _loc_preview(request: web.Request) -> web.Response:
-    """对**单帧**实时试解 —— 调参时改一个值马上看这一帧的结果。
-
-    这是把"调参"从"跑一遍全量再对比"变成"改一下看一眼"的关键，
-    否则每次试参数都要等几分钟。
-    """
-    ctx = request.app["ctx"]
-    path = _resolve_frame(ctx, request)
-    seq = _int(request, "seq", 0)
-    loop = asyncio.get_running_loop()
-    res = await loop.run_in_executor(None, lambda: ctx.locator.submit_path(path, seq=seq))
-    annotated = bool(request.query.get("annotate", "1") not in ("0", "false", ""))
-    if annotated:
-        try:
-            jpg, _ = await loop.run_in_executor(None, lambda: ctx.locator.annotate_file(path, seq))
-            ctx.last_annotated[seq] = jpg
-            if len(ctx.last_annotated) > 40:
-                ctx.last_annotated.pop(next(iter(ctx.last_annotated)))
-        except Exception as e:                               # noqa: BLE001
-            res["_annotate_error"] = f"{type(e).__name__}: {e}"
-    res["_has_annotated"] = annotated
-    return ok(res)
-
-
-async def _loc_annotated(request: web.Request) -> web.Response:
-    """叠加图（定位器自己画的角标记框 / 场地四边形 / 0 号位姿）。"""
-    ctx = request.app["ctx"]
-    seq = int(request.match_info["seq"])
-    cached = ctx.last_annotated.get(seq)
-    if cached is None:
-        path = _resolve_frame(ctx, request, seq=seq)
-        loop = asyncio.get_running_loop()
-        cached, _ = await loop.run_in_executor(None, lambda: ctx.locator.annotate_file(path, seq))
-        ctx.last_annotated[seq] = cached
-    return web.Response(body=cached, content_type="image/jpeg",
-                        headers={"Cache-Control": "no-store"})
-
-
-def _resolve_frame(ctx: Any, request: web.Request, seq: Optional[int] = None) -> Path:
-    sid = request.query.get("session_id") or (ctx.camera.offline or {}).get("session_id")
-    if not sid and ctx.store.current and ctx.store.current.camera_ref:
-        sid = ctx.store.current.camera_ref.get("session_id")
-    if not sid:
-        raise ApiError(400, "不知道是哪个会话 —— 给 session_id（或先导入一个离线会话）")
-    frames = ctx.camera.frames_of(str(sid))
-    if not frames:
-        raise ApiError(404, f"会话 {sid} 里一帧都没有（或 data_dir 解析不到）")
-    want = seq if seq is not None else _int(request, "seq", frames[0]["seq"])
-    for f in frames:
-        if int(f["seq"]) == int(want):
-            return Path(f["path"])
-    raise ApiError(404, f"会话 {sid} 里没有 seq={want} 这一帧"
-                        f"（该会话共 {len(frames)} 帧）")
-
-
-async def _loc_results(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    return ok(ctx.locator.results(limit=_int(request, "limit", 200),
-                                  offset=_int(request, "offset", 0)))
-
-
-async def _loc_track(request: web.Request) -> web.Response:
-    """轨迹点数组。量小就直接 JSON；要全量请让前端订阅 WS 的 `locate.track`。"""
-    ctx = request.app["ctx"]
-    pts = ctx.locator.track()
-    if len(pts) > 20000:
-        import numpy as np
-        arr = np.asarray([[p["t_pc_ms"] or 0, p["x"] or 0, p["y"] or 0,
-                           p["theta_deg"] or 0, 1 if p["valid"] else 0] for p in pts],
-                         dtype="<f4")
-        ctx.bus.publish_bin({"type": "locate.track", "shape": list(arr.shape),
-                             "columns": ["t_pc_ms", "x", "y", "theta_deg", "valid"],
-                             "n": len(pts)}, arr.tobytes())
-        return ok({"count": len(pts), "pushed": "ws:locate.track",
-                   "note": "点数超过 2 万，改走二进制帧"})
-    return ok({"count": len(pts), "points": pts})
-
-
-async def _loc_runs(request: web.Request) -> web.Response:
-    return ok(request.app["ctx"].locator.runs())
-
-
-async def _loc_run(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    d = await body_json(request)
-    sid = d.get("session_id") or ((ctx.store.current.camera_ref or {}).get("session_id")
-                                  if ctx.store.current and ctx.store.current.camera_ref else None)
-    if d.get("src"):
-        src = str(d["src"])
+    stride = d.get("stride")
+    if stride in (None, ""):
+        stride = None
     else:
-        root = ctx.camera.data_dir()
-        if root is None or not sid:
-            raise ApiError(400, "给 session_id，或用 src 直接指定帧目录")
-        src = str(Path(root) / str(sid))
-        if not (Path(src) / "frames").is_dir():
-            raise ApiError(404, f"本地没有这个会话的帧目录：{src}/frames")
-    rid = ctx.locator.start_batch(src, out_dir=d.get("out_dir"),
-                                  limit=int(d.get("limit") or 0))
-    ctx.store.mark("locate", "batch.start", str(sid or src), f"run={rid}")
-    return ok({"run_id": rid, "src": src})
+        try:
+            stride = max(1, int(stride))
+        except (TypeError, ValueError):
+            raise ApiError(400, f"stride 必须是整数：{stride!r}") from None
+
+    job = ctx.video.run(
+        str(d.get("source") or ""),
+        start_s=_opt_f("start_s", "start_s"),
+        end_s=_opt_f("end_s", "end_s"),
+        stride=stride,
+        maze=(None if d.get("maze") is None else bool(d.get("maze"))),
+    )
+    return ok(job)
 
 
-async def _loc_run_status(request: web.Request) -> web.Response:
-    return ok(request.app["ctx"].locator.run_status(request.match_info["rid"]))
+async def _video_cancel(request: web.Request) -> web.Response:
+    return ok(request.app["ctx"].video.cancel())
 
 
-async def _loc_run_abort(request: web.Request) -> web.Response:
-    return ok(request.app["ctx"].locator.abort_run(request.match_info["rid"]))
-
-
-async def _loc_online(request: web.Request) -> web.Response:
+async def _video_session(request: web.Request) -> web.Response:
+    """读 `session.json` 摘要（含时间轴自洽校验）。读文件 ⇒ executor。"""
     ctx = request.app["ctx"]
-    d = await body_json(request)
-    on = bool(d.get("on", True))
-    ctx.locator.set_online(on)
-    if on:
-        ctx.locator.start_online()
-    return ok({"online": on, "stats": ctx.locator.stats()})
+    sid = request.match_info["sid"]
+    loop = asyncio.get_running_loop()
+    return ok(await loop.run_in_executor(None, ctx.video.session, sid))
+
+
+async def _video_trajectory(request: web.Request) -> web.Response:
+    """读 `trajectory.csv` → 轨迹点（抽样上限 2000）。读文件 ⇒ executor。"""
+    ctx = request.app["ctx"]
+    sid = request.match_info["sid"]
+    loop = asyncio.get_running_loop()
+    return ok(await loop.run_in_executor(None, ctx.video.trajectory, sid))
 
 
 # ================================================================ 会话
@@ -2015,10 +1463,11 @@ async def _session_open(request: web.Request) -> web.Response:
 
 async def _session_close(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
-    d = await body_json(request)
-    return ok(await ctx.session_close(
-        wait_delivery_s=float(d.get("wait_delivery_s") or 25.0),
-        auto_rerun=bool(d.get("auto_rerun", True))))
+    # 改版二十四：`wait_delivery_s` / `auto_rerun` 已随相机下线。
+    # 仍然**收下并忽略**这两个键（旧脚本/旧判据会带），而不是 400 ——
+    # 报 400 会让人以为是"参数写错了"，其实是"这条能力已经不存在了"。
+    await body_json(request)
+    return ok(await ctx.session_close())
 
 
 async def _session_get(request: web.Request) -> web.Response:
@@ -2073,33 +1522,7 @@ async def _session_file(request: web.Request) -> web.Response:
         raise ApiError(404, f"没有这个导出文件：{name}")
     return web.FileResponse(p)
 
+# ⚠️ 改版二十四：`GET /api/v1/arena` 已删。它读的是 `ctx.last_loc`（在线定位的最新结果，
+# 随相机下线）与固件位置做 Δ 对比 —— 两路里有一路已经不存在，这个端点的语义就没了。
+# `ctx.arena` 本身留着：8×8 场地的几何仍是**画轨迹的背景网格**（`/health`、`/caps` 里那份）。
 
-# ================================================================ 场地
-
-async def _arena_get(request: web.Request) -> web.Response:
-    ctx = request.app["ctx"]
-    loc = ctx.last_loc or {}
-    fw = None
-    mc = ctx.mouse.mc
-    if mc is not None and mc.is_connected:
-        try:
-            fw = mc.maze.position()
-        except Exception:                                    # noqa: BLE001
-            fw = None
-    delta = None
-    if fw and loc.get("valid") and loc.get("x") is not None:
-        dx, dy, d = ctx.arena.residual_cells((int(fw[0]), int(fw[1])),
-                                             (float(loc["x"]), float(loc["y"])))
-        t_fw = ctx.last_telemetry.get("t_pc_ms")
-        t_vis = loc.get("_t_pc_ms") or loc.get("t_pc_ms")
-        delta = {"dx_cells": round(dx, 3), "dy_cells": round(dy, 3),
-                 "rms_cells": round(d, 3),
-                 "dtheta_deg": None, "dt_ms": (int(t_vis) - int(t_fw))
-                 if (t_vis and t_fw) else None,
-                 "note": "Δpos 随速度系统性变大"}
-        if loc.get("theta_deg") is not None and fw[2] is not None:
-            delta["dtheta_deg"] = round(float(loc["theta_deg"]) - float(fw[2]), 2)
-    return ok({"arena": ctx.arena.to_dict(), "grid_lines": [
-        [[a[0], a[1]], [b[0], b[1]]] for a, b in ctx.arena.grid_lines()],
-        "fw_position": fw, "vis": loc or None, "delta": delta,
-        "clock": ctx.clock.snapshot()})

@@ -89,9 +89,10 @@ def main(argv=None) -> int:
 
     # ---------------------------------------------------------- 3 上游路径
     head("3. 上游仓库路径")
+    # ⚠️ 改版二十四：`PhoneCamera/pc` 整行删除（手机相机下线）。
+    # 这里只放**上游仓库**；视频素材/产物目录不是仓库，单独在下面第 3b 节看。
     paths = {
         "RemoteControl/host": cfg.get("paths.remotecontrol_host"),
-        "PhoneCamera/pc": cfg.get("paths.phonecamera_pc"),
         "Auto Locate": cfg.get("paths.autolocate"),
     }
     for name, p in paths.items():
@@ -103,13 +104,12 @@ def main(argv=None) -> int:
 
     # ---------------------------------------------------------- 4 上游可导入
     head("4. 上游可 import（**只 import，不改它们**）")
-    # 上游是三个**平级目录**，不是包 —— 必须把它们各自加进 sys.path
+    # 上游是**平级目录**，不是包 —— 必须把它们各自加进 sys.path
     # （整合层里这件事由 control/adapters/__init__.ensure_path 统一负责）
     from control.adapters import ensure_path
     for p in paths.values():
         ensure_path(str(p or ""))
-    for mod, label in (("host.api", "鼠 host.api"), ("hostlink", "相机 hostlink"),
-                       ("aruco_locator", "定位 aruco_locator")):
+    for mod, label in (("host.api", "鼠 host.api"), ("aruco_locator", "视频 aruco_locator")):
         try:
             m = importlib.import_module(mod)
             v = getattr(m, "__version__", None) or getattr(m, "API_VERSION", None) or ""
@@ -129,7 +129,7 @@ def main(argv=None) -> int:
         ok("没有 GUI 框架被导入（Web 版不需要它们）")
 
     # ---------------------------------------------------------- 6 I9：上游不许脏
-    head("6. 判据 I9：三个上游仓库的工作区必须干净")
+    head("6. 判据 I9：上游仓库的工作区必须干净")
     for name, p in paths.items():
         if not (p and Path(str(p)).is_dir()):
             continue
@@ -145,7 +145,10 @@ def main(argv=None) -> int:
             warn(f"{name} 不是一个 git 仓库（记录 commit 的能力会缺失）")
             continue
         try:
-            out = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+            # ⚠️ `-- .` 不可省：上游各目录其实是**同一个仓库**的子目录（单仓库 + 上游子目录）。
+            # 不加 pathspec 时报的是整个仓库的改动 —— 包括 Control 自己正在改的文件，
+            # 于是"上游脏了"这条警告会一直亮着、指错方向。
+            out = subprocess.run(["git", "-C", str(Path(str(p))), "status", "--porcelain", "--", "."],
                                  capture_output=True, text=True, timeout=10).stdout.strip()
             if out:
                 n = len(out.splitlines())
@@ -177,29 +180,48 @@ def main(argv=None) -> int:
     except Exception as e:                                   # noqa: BLE001
         warn(f"串口枚举失败：{type(e).__name__}: {e}")
 
-    # ---------------------------------------------------------- 8 相机服务
+    # ---------------------------------------------------------- 8 视频复盘
     if not args.quick:
-        head("8. 相机服务（独立进程，默认 8765）")
-        try:
-            from control.adapters.camera import CameraAdapter
-            from control.bus import Bus
-            from control.store import Store
-            bus = Bus()
-            cam = CameraAdapter(cfg, bus, Store(cfg.session_root))
-            if not cam.available:
-                warn(f"hostlink 不可用：{cam.import_error}")
-            else:
-                try:
-                    caps = cam.capabilities()
-                    ok(f"相机服务可达：{cam.base}  版本 {caps.get('server_version') or caps.get('version')}")
-                    print(f"         注意：这台服务只允许 loopback 读（/host/、/stream/）——"
-                          f"Control 与它同机，所以没问题。")
-                except Exception as e:                       # noqa: BLE001
-                    warn(f"相机服务不可达：{str(e).splitlines()[0]}",
-                         "启动 PhoneCamera/pc/start_service.cmd。"
-                         "**没有手机也能继续**：去【采集】页用「离线会话导入」把已有会话接进来。")
-        except Exception as e:                               # noqa: BLE001
-            warn(f"相机自检跳过：{type(e).__name__}: {e}")
+        head("8. 视频复盘（离线：视频文件 → Auto Locate 会话解析）")
+        # 三条都要查，理由是它们各自会让"点开始解析"直接失败，而且失败信息都在子进程里：
+        #   ① 素材目录：不存在 ⇒ 界面上选不到视频（但手填绝对路径仍可用 ⇒ WARN 不是 FAIL）；
+        #   ② 上游配置：**必须给**。`python -m aruco_locator.session` 不收 `--config`，
+        #      缺了它 720p 的 scales/内参全部不生效 ⇒ 一堆无效帧，看起来像"这个视频不行"；
+        #   ③ 上游会话模块：`aruco_locator/session.py` 在不在（**只看文件，不 import** ——
+        #      import 会把 cv2 拉进这个自检进程，而 preflight 本身不该依赖视觉栈）。
+        vroot = cfg.get("video.root")
+        vcfg = cfg.get("video.config")
+        vout = cfg.get("video.out_root")
+        if vroot and Path(str(vroot)).is_dir():
+            n_vid = len([q for q in Path(str(vroot)).iterdir()
+                         if q.is_file() and q.suffix.lower() in (".mp4", ".mov", ".mkv", ".avi")])
+            ok(f"素材目录 {vroot}（{n_vid} 个视频）")
+        else:
+            warn(f"素材目录不存在：{vroot}",
+                 "建一个空目录即可（界面里也能直接手填视频的绝对路径）："
+                 f"mkdir \"{vroot}\"")
+        if vcfg and Path(str(vcfg)).is_file():
+            ok(f"上游配置 {vcfg}")
+        else:
+            fail(f"上游配置不存在：{vcfg}",
+                 "config.yaml 的 video.config 必须指向 Auto Locate/config.yaml。"
+                 "缺了它 720p 的检测尺度/内参全部不生效 ⇒ 全是无效帧。")
+        al = cfg.get("paths.autolocate")
+        sess = Path(str(al or "")) / "aruco_locator" / "session.py"
+        if sess.is_file():
+            ok(f"上游会话模块在：{sess.name}（不 import，只看文件）")
+        else:
+            fail(f"上游会话模块缺失：{sess}",
+                 "Auto Locate 没有 run_session 就没法解析视频。检查 paths.autolocate。")
+        if vout:
+            try:
+                Path(str(vout)).mkdir(parents=True, exist_ok=True)
+                pr = Path(str(vout)) / ".preflight_write_test"
+                pr.write_text("x", encoding="utf-8")
+                pr.unlink()
+                ok(f"产物根可写：{vout}")
+            except OSError as e:
+                fail(f"产物根不可写：{vout}（{e}）", "解析出来的会话会落不下去。")
 
     # ---------------------------------------------------------- 9 可写性
     head("9. 会话根目录可写")
@@ -327,6 +349,15 @@ def main(argv=None) -> int:
         "地图预览迁入比赛卡",                 #   （二十三②：唯一还有独立价值的中栏那张图搬家）
         "终点位置锁死",                       #   （二十三③：GOAL_CELLS 常量，不从帧读 goalX/goalY）
         "I36",                              #   （完整性 drop_seen 退化为本机 seq_lost 差量）
+        # 2026-10-21 改版（二十四）：手机摄像头整块下线 + 视频复盘 + 上游 2.13.0 四灯。
+        # 布局与模块清单**又变了**（页签 7→5、视图 8→6、三卡 → 三组 3/2/1），
+        # 锚点取"新版形态"的四条拍板与两条自省（判据账、工具瘦身）：
+        "整组删掉",                          #   （拍板①：相机与两张调试卡一起下线，不留"读产物"页）
+        "视频入口只认服务器路径",             #   （拍板②：video.root 列表 + 绝对路径，不做网页上传）
+        "对轴归识别侧",                       #   （拍板③：撤销人工指帧与 aligned.json，本层只做自洽校验）
+        "4 灯先放在实时状态卡",               #   （拍板④：led1..led4 进状态行，不进读数表）
+        "判据的账要平",                       #   （删六条相机判据 + I25/I26，必须同时说清增改）
+        "验收工具也要跟着瘦",                 #   （不给已删除的功能留空壳判据 —— 留着只会一直 SKIP）
         "此后所有任务不得改变这里的方向",       # 显式约束
     ]
     try:
@@ -382,7 +413,8 @@ def _report() -> int:
     print("\n  下一步：python app.py  然后打开 http://127.0.0.1:8770")
     print("  没有硬件也能验证全部功能：")
     print("    · 鼠 → 先起 RemoteControl/host/sim/mouse_sim.py，连 tcp://127.0.0.1:5555")
-    print("    · 相机 → 【采集】页「离线会话导入」，用已有那 14 个真实会话")
+    print("    · 视频 → 把一个 mp4 丢进 video/，再进【视频复盘】→【视频会话】点开始解析")
+    print("      （没有视频也能验界面：那一页会把\"目录里没有视频\"如实写出来）")
     return 0
 
 

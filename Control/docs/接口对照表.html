@@ -80,10 +80,10 @@ li{margin:.28em 0}
 <li><a href="#1c-250-a-130-250">1c. 参数（2.5.0 起四组 / 单写入通道，模块 A，上游 1.3.0 → 2.5.0）</a></li>
 <li><a href="#1d-a-200">1d. 统一帧遥测与迷宫状态机（模块 A，上游 2.0.0）</a></li>
 <li><a href="#1e-a-120-130">1e. 电机实验 / 课程调参实验（模块 A，上游 1.2.0 / 1.3.0）</a></li>
-<li><a href="#2-b">2. 相机（模块 B）</a></li>
-<li><a href="#3-c">3. 定位（模块 C）</a></li>
+<li><a href="#2-c">2. 视频复盘（模块 C，改版二十四新增）</a></li>
+<li><a href="#3">3. 定位（改版二十四整节删除）</a></li>
 <li><a href="#4">4. 统一会话 / 时间轴</a></li>
-<li><a href="#5-flip-configyaml">5. 场地（改版十七：标定端点已删除，flip 值改 config.yaml 静态配置）</a></li>
+<li><a href="#5">5. 场地（改版二十四：整节删除）</a></li>
 <li><a href="#6-websocket">6. WebSocket</a></li>
 <li><a href="#7">7. 明确不映射到上游的端点（本层自研）</a></li>
 <li><a href="#8">8. 校验</a></li>
@@ -97,8 +97,8 @@ li{margin:.28em 0}
 <h1 id="control-control">Control 接口对照表（Control 端点 ↔ 上游方法）</h1>
 <blockquote>
 <p>这份表的存在意义只有一个：<strong>防漂移</strong>。</p>
-<p>上游三个仓库各有自己的取证体系，我们不碰它们的源码（判据 I9）。代价是：上游哪天把
-<code>HostLink.ledger()</code> 改名了，Control 会在运行时才炸，而且只在现场那一页才炸。
+<p>上游两个仓库各有自己的取证体系，我们不碰它们的源码（判据 I9）。代价是：上游哪天把
+<code>ArucoLocator.run_session()</code> 改名了，Control 会在运行时才炸，而且只在现场那一页才炸。
 所以这里把「每个端点是靠哪个上游方法撑起来的」写成一张<strong>能被机器读</strong>的表，
 并用 <code>python tools/check_iface_table.py</code> 一条命令同时校验三件事：</p>
 <ol>
@@ -124,17 +124,16 @@ li{margin:.28em 0}
 <td><code>../RemoteControl/host</code>（包名 <code>host</code>）</td>
 </tr>
 <tr>
-<td>B</td>
-<td><code>PhoneCamera</code></td>
-<td><code>../PhoneCamera/pc</code>（模块 <code>hostlink</code>）</td>
-</tr>
-<tr>
 <td>C</td>
 <td><code>Auto Locate</code></td>
 <td><code>../Auto Locate</code>（模块 <code>aruco_locator</code>）</td>
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p>⚠️ 改版二十四：原表里的 <strong>B = <code>PhoneCamera</code>（模块 <code>hostlink</code>）整行删除</strong> ——
+手机相机下线，本层不再 import 它，也就不该再替它的符号守存在性。</p>
+</blockquote>
 <p>「上游调用」列里的名字是<strong>可机读</strong>的：<code>类.方法</code> 或模块级函数名。
 <code>—</code> 表示这一步是 Control 自己的逻辑（读缓存、编会话目录、做统计），不经过上游。</p>
 <hr />
@@ -151,14 +150,14 @@ li{margin:.28em 0}
 <tbody>
 <tr>
 <td><code>GET /api/v1/health</code></td>
-<td>A B C</td>
-<td><code>MouseClient.is_connected</code>、<code>HostLink.status</code>、<code>ArucoLocator.locate</code></td>
-<td>三者都<strong>只读快照</strong>，不发网络（判据 I12）</td>
+<td>A</td>
+<td><code>MouseClient.is_connected</code></td>
+<td><strong>只读快照</strong>，不发网络（判据 I12）。视频那一路是纯内存状态（<code>VideoAdapter.status()</code>），不碰上游</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/caps</code></td>
-<td>A B C</td>
-<td><code>StreamAPI.on/off/is_on</code>、<code>StreamAPI.stats</code>、<code>StreamAPI.anchor</code>、<code>TelemetryAPI.channels</code>、<code>TelemetryAPI.hz</code>、<code>UNIFIED_HZ</code>、<code>CalibAPI.MENU_ITEMS</code>、<code>CalibAPI.IRCAP_STEPS</code>、<code>HostLink.capabilities</code>、<code>describe_profiles</code></td>
+<td>A</td>
+<td><code>StreamAPI.on/off/is_on</code>、<code>StreamAPI.stats</code>、<code>StreamAPI.anchor</code>、<code>TelemetryAPI.channels</code>、<code>TelemetryAPI.hz</code>、<code>UNIFIED_HZ</code>、<code>CalibAPI.MENU_ITEMS</code>、<code>CalibAPI.IRCAP_STEPS</code></td>
 <td>两个是 <code>@staticmethod</code>，不连也能答。<strong>故意不含"候选连接目标"与"参数当前值"</strong> —— 那两个要现场枚举串口 / 逐条回读设备（同步慢调用，会冻住事件循环），端口列表归 <code>GET /api/v1/mouse/ports</code>（走线程池、由人点【刷新】）</td>
 </tr>
 <tr>
@@ -171,13 +170,13 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/paths</code></td>
 <td>—</td>
 <td>—</td>
-<td>三个上游路径 + 是否存在</td>
+<td>上游路径 + 视频三路径 + 是否存在</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/upstream</code></td>
 <td>—</td>
 <td>—</td>
-<td>三个仓库的版本 / git HEAD / 工作区是否干净</td>
+<td><strong>两个</strong>仓库（RemoteControl / Auto Locate）的版本 / git HEAD / 工作区是否干净</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/logs/tail</code></td>
@@ -208,12 +207,6 @@ li{margin:.28em 0}
 <td>—</td>
 <td>—</td>
 <td>L1 <code>sync_pulse</code> 拟合（&lt;3 样本拒绝）</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/clock/autofit</code></td>
-<td>B</td>
-<td><code>HostLink.ledger</code></td>
-<td>L2 最小延迟法，取 ledger 的往返时延低分位</td>
 </tr>
 </tbody>
 </table>
@@ -769,7 +762,9 @@ li{margin:.28em 0}
 </tr>
 </tbody>
 </table>
-<h2 id="2-b">2. 相机（模块 B）</h2>
+<h2 id="2-c">2. 视频复盘（模块 C，改版二十四新增）</h2>
+<p>位置数据的<strong>唯一来路</strong>：一段视频 → 上游 <code>run_session()</code> → <code>session.json</code> + <code>trajectory.csv</code>。
+本层只做"起/停/查状态/读产物"，<strong>不碰视觉</strong>（不 import cv2，不解析一帧像素）。</p>
 <table>
 <thead>
 <tr>
@@ -781,242 +776,62 @@ li{margin:.28em 0}
 </thead>
 <tbody>
 <tr>
-<td><code>GET /api/v1/camera/status</code></td>
-<td>B</td>
-<td><code>HostLink.status</code></td>
-<td><strong>同步</strong>探测，走 executor</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/camera/probe</code></td>
-<td>B</td>
-<td><code>HostLink.status</code></td>
-<td>强制重探一次（配对/排查用）。<code>/health</code> 只读快照，要真相就按这个</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/camera/connect</code></td>
-<td>B</td>
-<td><code>HostLink.status</code> + <code>HostLink.sessions</code></td>
-<td>用户点【连接】时走这条：<strong>同步</strong>探一次并回一份确认单（可达/服务版本/手机在线数）。与 <code>probe</code> 的分工：probe 答"通不通"，这条答"连上的是谁、手机在不在"</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/ledger</code></td>
-<td>B</td>
-<td><code>HostLink.ledger</code></td>
-<td>留存账本；<code>complete</code> 三态，null 必须能判成"判不了"（判据 I11）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/sessions</code></td>
-<td>B</td>
-<td><code>HostLink.sessions</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/overview</code></td>
-<td>B</td>
-<td><code>HostLink.overview</code></td>
-<td>取权威 <code>data_dir</code>（不猜路径）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/pair</code></td>
-<td>B</td>
-<td><code>HostLink.pair</code></td>
-<td>⚠️ 响应<strong>含 token</strong>：只在显式请求时返回、<strong>不写日志</strong>（R10）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/mjpeg</code></td>
-<td>B</td>
-<td><code>HostLink.mjpeg_url</code></td>
-<td>服务端反代，浏览器拿到的 URL 里<strong>没有 token</strong>。<strong>只监视不测量</strong></td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/thumb</code></td>
-<td>B</td>
-<td><code>HostLink.thumb_url</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/frames</code></td>
-<td>B</td>
-<td><code>HostLink.overview</code></td>
-<td>列出某会话的交付帧（走 <code>data_dir()</code>，10 s 缓存）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/camera/offline/sessions</code></td>
+<td><code>GET /api/v1/video/list</code></td>
 <td>—</td>
 <td>—</td>
-<td>列本地已有会话（<code>camera.offline_import_root</code>）</td>
+<td>列 <code>video.root</code> 里的视频（走 executor 扫盘）。<strong>零子进程</strong></td>
 </tr>
 <tr>
-<td><code>POST /api/v1/camera/start</code></td>
-<td>B</td>
-<td><code>HostLink.start</code></td>
-<td><code>plan.interval_ms≠0</code> 是语义变化，前端必须提示</td>
+<td><code>POST /api/v1/video/run</code></td>
+<td>C</td>
+<td><code>run_session</code>（经 <code>tools/video_session.py</code> 薄壳子进程）</td>
+<td>起一次解析。<strong>已在跑 ⇒ 409 <code>VideoBusy</code></strong>，不排队、不抢</td>
 </tr>
 <tr>
-<td><code>POST /api/v1/camera/stop</code></td>
-<td>B</td>
-<td><code>HostLink.stop</code></td>
-<td></td>
+<td><code>GET /api/v1/video/status</code></td>
+<td>—</td>
+<td>—</td>
+<td>纯内存状态（idle/running/done/failed/cancelled + 已用秒数）。<strong>零 IO</strong>，可以放进心跳</td>
 </tr>
 <tr>
-<td><code>POST /api/v1/camera/base</code></td>
+<td><code>POST /api/v1/video/cancel</code></td>
 <td>—</td>
 <td>—</td>
-<td>改服务地址（现场 IP 会变）；改完作废旧快照</td>
+<td>只 kill <strong>本次起的</strong>那个子进程（铁律 25）；killed 后状态是 <code>cancelled</code> 不是 <code>failed</code></td>
 </tr>
 <tr>
-<td><code>POST /api/v1/camera/settings</code></td>
+<td><code>GET /api/v1/video/sessions</code></td>
 <td>—</td>
 <td>—</td>
-<td><strong>写回 config.yaml</strong>（外科式改写，保住注释）：地址 + 上游程序；改完当场生效</td>
+<td>列 <code>video.out_root</code> 下的会话（含有效/总帧数）</td>
 </tr>
 <tr>
-<td><code>GET /api/v1/camera/service</code></td>
+<td><code>GET /api/v1/video/session/{sid}</code></td>
 <td>—</td>
 <td>—</td>
-<td>代启器现状 + 启动行（<strong>token 用占位符</strong>）。<strong>零网络、零副作用</strong></td>
+<td>读 <code>session.json</code>（<strong>权威</strong>）+ 时间轴自洽校验（I38）</td>
 </tr>
 <tr>
-<td><code>POST /api/v1/camera/service/start</code></td>
+<td><code>GET /api/v1/video/trajectory/{sid}</code></td>
 <td>—</td>
 <td>—</td>
-<td><strong>代启</strong>上游 <code>pc/server.py</code> 并等到真能答话（失败带日志尾巴）。<strong>只由人触发</strong></td>
-</tr>
-<tr>
-<td><code>POST /api/v1/camera/service/stop</code></td>
-<td>—</td>
-<td>—</td>
-<td>停掉<strong>本层起的</strong>那个上游进程（别处启动的不动）</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/camera/service/pause</code></td>
-<td>—</td>
-<td>—</td>
-<td><strong>本次运行内</strong>暂停/恢复代启（不写配置）——给"我自己管进程"与判据的降级路用</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/camera/import</code></td>
-<td>—</td>
-<td>—</td>
-<td>离线导入本地会话，接进同一条事件路径</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/camera/exit_offline</code></td>
-<td>—</td>
-<td>—</td>
-<td>退出离线，回去探真服务</td>
-</tr>
-<tr>
-<td>WS <code>camera.event</code></td>
-<td>B</td>
-<td><code>HostLink.events</code></td>
-<td>含 <code>_reconnected</code> → 主动作废快照并重探（判据 I14）</td>
+<td>读 <code>trajectory.csv</code> 逐帧明细（超 2000 点等间隔抽样，保留末行并标 <code>sampled</code>）</td>
 </tr>
 </tbody>
 </table>
-<h2 id="3-c">3. 定位（模块 C）</h2>
-<table>
-<thead>
-<tr>
-<th>Control 端点</th>
-<th>上游</th>
-<th>上游调用</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>GET /api/v1/locate/catalog</code></td>
-<td>C</td>
-<td><code>parameter_catalog</code></td>
-<td>参数目录（在线段可热改的那部分）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/params</code></td>
-<td>C</td>
-<td><code>flatten_config</code></td>
-<td>拍平后的当前参数</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/locate/params</code></td>
-<td>C</td>
-<td><code>apply_params</code></td>
-<td>键名必须是 catalog 里的点号路径或叶子简写</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/profiles</code></td>
-<td>C</td>
-<td><code>describe_profiles</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>POST /api/v1/locate/profile</code></td>
-<td>C</td>
-<td><code>apply_profile</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/preview</code></td>
-<td>C</td>
-<td><code>create_locator</code>、<code>ArucoLocator.locate</code>、<code>ArucoLocator.annotate</code></td>
-<td>单帧试算 + 叠加图。<strong>权威数据来自赛后批量，不是这里</strong></td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/annotated/{seq}.jpg</code></td>
-<td>C</td>
-<td><code>ArucoLocator.annotate</code></td>
-<td>叠加图（有缓存，最多留 40 张）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/results</code></td>
-<td>—</td>
-<td>—</td>
-<td>读 <code>results.jsonl</code>（权威结果）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/track</code></td>
-<td>—</td>
-<td>—</td>
-<td>轨迹数组，走二进制帧</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/runs</code></td>
-<td>—</td>
-<td>—</td>
-<td>批量任务列表</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/locate/run</code></td>
-<td>C</td>
-<td><code>create_locator</code></td>
-<td>起赛后批量（<strong>有 src 去重</strong>）</td>
-</tr>
-<tr>
-<td><code>GET /api/v1/locate/run/{rid}</code></td>
-<td>—</td>
-<td>—</td>
-<td>单任务进度</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/locate/run/{rid}/abort</code></td>
-<td>—</td>
-<td>—</td>
-<td>中止</td>
-</tr>
-<tr>
-<td><code>POST /api/v1/locate/online</code></td>
-<td>C</td>
-<td><code>create_locator</code></td>
-<td>开关在线段（有界队列，满则丢最旧）</td>
-</tr>
-<tr>
-<td>（定位在线/离线段内部）</td>
-<td>C</td>
-<td><code>ArucoLocator.locate</code>、<code>ArucoLocator.annotate</code>、<code>create_locator</code></td>
-<td>单实例单线程（<code>_proc_lock</code>）</td>
-</tr>
-</tbody>
-</table>
+<blockquote>
+<p><strong>为什么有一个薄壳 <code>tools/video_session.py</code></strong>：上游 CLI <code>python -m aruco_locator.session</code>
+<strong>不收 <code>--config</code></strong>，直接跑会拿内置默认值 —— 720p 必需的 <code>detection.scales</code>、内参、
+视差全部不生效，结果是一堆无效帧，然后被误判成"这个视频不行"。
+薄壳负责把 <code>video.config</code> 转成 <code>run_session(config=...)</code>，并打印一行 JSON 摘要。</p>
+<p><strong>为什么起子进程而不是进程内调用</strong>：① 可 kill（长任务要能停）；② 崩溃隔离
+（上游视觉栈炸了不该把服务带走）；③ 日志可分（<code>run.log</code> 落在会话目录里，
+失败时把末 8 行按 utf-8/gbk 两段解码端出来）。</p>
+</blockquote>
+<h2 id="3">3. 定位（<strong>改版二十四整节删除</strong>）</h2>
+<p>在线定位、赛后批量、轨迹叠加图、参数目录 —— 全部随手机相机下线。
+位置数据改由上面的「视频复盘」给；视觉侧的参数/标定归上游 <code>Auto Locate/config.yaml</code>，
+本层不再代它管一份（那会是两份真相）。</p>
 <h2 id="4">4. 统一会话 / 时间轴</h2>
 <table>
 <thead>
@@ -1030,15 +845,15 @@ li{margin:.28em 0}
 <tbody>
 <tr>
 <td><code>POST /api/v1/session/open</code></td>
-<td>A B C</td>
-<td><code>SessionAPI.open</code>、<code>HostLink.start</code>、<code>create_locator</code></td>
-<td><strong>三路同开，任一步失败全回滚</strong>（判据 I5）</td>
+<td>A</td>
+<td><code>SessionAPI.open</code></td>
+<td><strong>任一必需步骤失败 ⇒ 整份回滚</strong>（判据 I5）。门控只拦电脑鼠（它连不上就没有任何实时数据可记）</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/session/close</code></td>
-<td>A B</td>
-<td><code>SessionAPI.close</code>、<code>HostLink.stop</code></td>
-<td>收会话 + 等投递 + 自动触发赛后批量</td>
+<td>A</td>
+<td><code>SessionAPI.close</code></td>
+<td>收会话 + 写 meta（没有"等采集排空"这一步了：那是手机投递的账本）</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/session</code></td>
@@ -1068,7 +883,7 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/session/export</code></td>
 <td>—</td>
 <td>—</td>
-<td>导出为 zip / csv</td>
+<td>导出为 zip / csv（<strong>jsonl 随定位下线删掉</strong>）</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/session/file</code></td>
@@ -1078,28 +893,14 @@ li{margin:.28em 0}
 </tr>
 </tbody>
 </table>
-<h2 id="5-flip-configyaml">5. 场地（<strong>改版十七：标定端点已删除</strong>，flip 值改 <code>config.yaml</code> 静态配置）</h2>
-<table>
-<thead>
-<tr>
-<th>Control 端点</th>
-<th>上游</th>
-<th>上游调用</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>GET /api/v1/arena</code></td>
-<td>A</td>
-<td><code>MazeAPI.position</code></td>
-<td>归一化场地 + 固件当前位置 + 最近一次定位 + Δpos 残差</td>
-</tr>
-</tbody>
-</table>
+<h2 id="5">5. 场地（<strong>改版二十四：整节删除</strong>）</h2>
 <blockquote>
-<p>已删除：<code>POST /api/v1/arena/observations</code>、<code>GET /api/v1/arena/observations</code>、
-<code>POST /api/v1/arena/solve</code>、<code>POST /api/v1/arena/calibrate</code>（自动标定整块下线）。</p>
+<p>曾有的场地端点（归一化场地 + 固件位置 + 在线视觉位置 + Δpos 残差）已删：它要"在线
+视觉位置"那一路，而那一路上一层已经不存在了。更早删掉的还有标定四端点
+（<code>/arena/observations</code>、<code>/arena/solve</code>、<code>/arena/calibrate</code>）。</p>
+<p><code>arena</code> 段配置还在，但只剩几何（<code>grid</code> / <code>pitch_mm</code> / <code>field_mm</code>）——唯一用途是画轨迹
+的背景网格（<code>/health.arena</code>）。相机外参四项（<code>fw_to_arena</code> / <code>calibrated</code> /
+<code>nadir_xy</code> / <code>camera_height_mm</code>）随相机一起删了。</p>
 </blockquote>
 <h2 id="6-websocket">6. WebSocket</h2>
 <table>
@@ -1113,7 +914,7 @@ li{margin:.28em 0}
 <tbody>
 <tr>
 <td><code>GET /ws</code></td>
-<td>A B C</td>
+<td>A</td>
 <td>JSON 通道（≤64 KiB）+ 二进制帧 <code>[4B uint32 header_len][JSON header][Float32Array]</code>（判据 I10）</td>
 </tr>
 </tbody>
@@ -1139,19 +940,15 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td><code>session/*</code></td>
-<td>把三路合成<strong>一个</strong>会话目录是整合层的核心职责</td>
+<td>把多路产物收进<strong>一个</strong>会话目录、一条时间线，是整合层的核心职责</td>
 </tr>
 <tr>
-<td><code>arena/*</code></td>
-<td>场地归一化坐标系（原点左下、按角标记内顶点归一化）是整合层与 Auto Locate 之间的契约</td>
+<td><code>arena</code>（只在 <code>health.arena</code>）</td>
+<td>8×8 场地的<strong>画图几何</strong>；坐标换算的契约现在归上游 Auto Locate 的配置</td>
 </tr>
 <tr>
-<td><code>locate/results</code>、<code>locate/track</code>、<code>locate/runs</code></td>
-<td>读的是本层落盘的权威产物，不是上游 API</td>
-</tr>
-<tr>
-<td><code>camera/offline/*</code>、<code>camera/import</code>、<code>camera/base</code></td>
-<td>无手机演练与现场改 IP 都需要，上游不提供</td>
+<td><code>video/*</code></td>
+<td>子进程生命周期、产物读取、时间轴自洽校验都是本层的编排职责；上游只负责给一份 session.json</td>
 </tr>
 </tbody>
 </table>

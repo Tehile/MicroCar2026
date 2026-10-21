@@ -1,10 +1,9 @@
-"""统一事件总线：三源 → 一个 WS 广播 + 一个二进制通道。
+"""统一事件总线：多源 → 一个 WS 广播 + 一个二进制通道。
 
 线程模型（§7.3）：
     · 鼠侧事件来自 MouseClient 的调度线程 / 读取线程
-    · 相机侧事件来自我们自己的专用线程（hostlink 是同步阻塞实现）
-    · 定位结果来自 ThreadPoolExecutor 的 worker
-    ⇒ 三个都是"非 asyncio 线程"，所以 `publish()` 必须**线程安全**：
+    · 视频会话的状态来自 `VideoAdapter._watch()` 自己的等待线程
+    · 二者都是"非 asyncio 线程"，所以 `publish()` 必须**线程安全**：
       统一走 `loop.call_soon_threadsafe`，绝不在别的线程里直接碰 asyncio.Queue。
 
 二进制通道（§6.2）与 JSON 通道分开：**payload > 64 KB 必须走二进制**（判据 I10）。
@@ -24,8 +23,10 @@ from typing import Any, Deque, Dict, Iterable, List, Optional, Set, Tuple
 JSON_PAYLOAD_LIMIT = 64 * 1024
 
 #: 日志来源（**唯一真相**）—— 前端底栏按它分类，不许在别处另写一份。
-#: 顺序 = 界面上显示的先后（与子系统顺序一致：鼠 / 相机 / 定位 / 本层）。
-SOURCES = ("mouse", "camera", "locate", "control")
+#: 顺序 = 界面上显示的先后（与子系统顺序一致：鼠 / 视频复盘 / 本层）。
+#: ⚠️ 改版二十四：`camera` / `locate` 两个来源随手机相机下线 —— 留着的话前端会多出
+#: 两个**永远筛不出内容**的死选项，那比没有更让人困惑（前端 SRC_DEF 已同步）。
+SOURCES = ("mouse", "video", "control")
 _SOURCES = set(SOURCES)
 
 
@@ -64,14 +65,13 @@ class Bus:
         """写一条服务日志（进环形缓冲，并可被前端拉取）。同时广播为 `log` 事件。
 
         `source`：这条信息**是从哪来的** —— 前端底栏按它分类（见 `SOURCES`）。
-        取值只能是四个之一：
+        取值只能是三个之一：
           · `"mouse"`   电脑鼠（RemoteControl，含那条串口/TCP 链路）
-          · `"camera"`  相机（PhoneCamera，含 8765 上的服务与手机上行）
-          · `"locate"`  场地定位（Auto Locate）
+          · `"video"`   视频复盘（Auto Locate 会话解析，含子进程的起停与报错）
           · `"control"` 本层（整合层自己的调度、配置、会话、收尾）
-        默认 `"control"`：**本层自己的调度信息**是多数（其余三类都发生在
+        默认 `"control"`：**本层自己的调度信息**是多数（其余两类都发生在
         "取上游一个值"的地方，那些地方要**显式**声明来源）。
-        ⚠️ 不许在这里猜来源（比如按文案里有"相机"就归相机）——
+        ⚠️ 不许在这里猜来源（比如按文案里有"视频"就归视频）——
         猜错会让现场"照着分类去找"时找错地方；不确定就归 `control` 并如实写清。
         """
         src = source if source in _SOURCES else "control"

@@ -1,29 +1,30 @@
 """无硬件端到端演练 + 可测判据验收。
 
-    python tools/drill.py                # 起一个临时服务，跑完整条链路，逐条判 I1~I14
+    python tools/drill.py                # 起一个临时服务，跑完整条链路，逐条判自动判据
+    python tools/drill.py --sim          # 额外起上游鼠标模拟器，跑需要活链路的那些
     python tools/drill.py --port 8899
     python tools/drill.py --keep         # 跑完不删临时会话（自己进去看产物）
 
 它做的事：
-    ① 用 tools/make_synth_frames.py 造一批**有真值**的合成场地帧（两种 stride 变体）
-    ② 起 Control 服务 → 导入离线会话 → 开统一会话 → 回放 → 收会话 → 赛后批量
-    ③ 逐条检查判据，并把结果与产物路径打出来
+    ① 起 Control 服务
+    ② 逐条判：健康/缓存/窄门控/时序/回滚/时间轴守恒/4 灯三态/视频产物与时间轴 …
+       （需要活链路的走 `--sim`，没有就 SKIP —— **不假装通过**）
+    ③ 把结果与产物路径打出来
 
-**为什么要有这个脚本**：上游三个模块各自都有自己的取证体系，本层如果只靠"我手动点过一遍"，
+**为什么要有这个脚本**：上游两个模块各自都有自己的取证体系，本层如果只靠"我手动点过一遍"，
 下次谁改了适配器都不会有人发现。判据要做成能一条命令重跑的，否则它们只是文档里的一段话。
+
+⚠️ 改版二十四：手机相机整块下线，本文件里关于它的取证（假相机服务、代启、MJPEG 反代、
+合成帧 + stride 切行、离线导入 + 赛后批量、定位精度）连同被测对象一起删了。
+删掉的地方都留了一段注释说明"测的是什么、为什么没有对象了、守的东西现在钉在哪"。
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
-import http.client
 import json
-import math
 import os
 import re
-import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -172,105 +173,36 @@ def _session_dirs() -> set:
     return {p.name for p in root.glob("2026-*")} if root.is_dir() else set()
 
 
-#: 1×1 的最小合法 JPEG —— 用来做"能不能真切出一帧"的判据。
-#: 必须是**真的** JPEG（以 `\xff\xd8` 起、`\xff\xd9` 止），否则"切出来了"这件事
-#: 只能在字节层面假装成立。硬编码比现生成稳（不依赖 PIL，也不会哪天变得不一样）。
-_TINY_JPEG = base64.b64decode(
-    "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a"
-    "HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAA"
-    "AAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==")
+#: 本层消费的两个上游目录（相对本工程根）。判据 I9 用。
+#: 改版二十四：PhoneCamera 不再被消费（相机整块下线）⇒ 从这份清单里去掉。
+UPSTREAMS = ("RemoteControl", "Auto Locate")
 
 
-def _fake_camera(port: int):
-    """起一个**假相机服务**：status 正常答、`control/start` 故意回 500、
-    `stream/mjpeg` 发几帧真 JPEG。
+def _upstream_dirty() -> dict:
+    """两个上游目录**各自范围内**的 git status 行集合（`-- .` 限定）。
 
-    为什么要造它：判据 I5 要验的是"**中途**失败要回滚干净"，而"一路都没连"
-    现在会被**前置门控**在更早一步拦住（那是 I18）。所以必须构造一个
-    「门控认为相机就绪、但真正开会话时那一路上炸掉」的场景。
-
-    顺带它也证明了**门控与回滚是两道独立的闸** —— 只做一道都会漏：
-    门控拦的是"什么都没连就开"，回滚兜的是"连了但中途炸了"。
-
-    不去起真的 PhoneCamera 服务再想办法让它报错（它没有"故意失败"的开关，
-    而且真要让它 start 失败就得造一台假手机），用几十行标准库搭个最小替身最直接。
-
-    **`/stream/mjpeg` 用的是非常规 boundary**（故意等于真上游的
-    `phonecamera-frame`）：判据 I26 要抓的正是"反代把 boundary 写死成别的值"——
-    boundary 一旦对不上，浏览器就**一帧都切不出来**（预览空白，而服务端一切正常）。
-    用默认值或常见的 `frame` 就抓不到了。
+    ⚠️ `-- .` 不可省：这两个目录**都不是独立仓库**（单仓库 + 上游子目录），
+    不加 pathspec 时 `git status` 报的是整个仓库 —— 于是"上游脏了"常常是
+    "我刚改了 Control"，这条判据就成了永远红、且指错方向的噪音。
     """
-    import http.server
-    import threading
+    out = {}
+    for name in UPSTREAMS:
+        p = ROOT.parent / name
+        if not p.is_dir():
+            out[name] = None                              # 不在 ⇒ 判不了，别当成"干净"
+            continue
+        r = subprocess.run(["git", "-C", str(p), "status", "--porcelain", "--", "."],
+                           capture_output=True, text=True)
+        out[name] = set(r.stdout.splitlines())
+    return out
 
-    boundary = "phonecamera-frame"        # 与真上游一致（`server.py::MJPEG_BOUNDARY`）
 
-    class _H(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *a):                      # 别往 stderr 刷
-            pass
-
-        def _send(self, code: int, obj: dict) -> None:
-            body = json.dumps(obj).encode("utf-8")
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def _mjpeg(self) -> None:
-            """连发 5 帧就收工（够切成帧，又不会把测试挂住）。"""
-            self.send_response(200)
-            self.send_header("Content-Type",
-                             f"multipart/x-mixed-replace; boundary={boundary}")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            try:
-                for i in range(5):
-                    head = (f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
-                            f"Content-Length: {len(_TINY_JPEG)}\r\nX-Seq: {i}\r\n\r\n"
-                            ).encode("ascii")
-                    self.wfile.write(head + _TINY_JPEG + b"\r\n")
-                    self.wfile.flush()
-                    time.sleep(0.05)
-            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                pass                                # 消费方走了是正常事件
-
-        def do_GET(self):                               # noqa: N802
-            p = self.path.split("?")[0]
-            if p == "/api/v1/host/status":
-                # `device.clients=1` 是为了让 readiness 认为"手机已连" ⇒ 门控放行。
-                self._send(200, {
-                    "ok": True, "server_version": "fake-1.0.0", "protocol_version": 1,
-                    "device": {"connected": True, "clients": 1, "model": "FAKE-PHONE",
-                               "serial": "fake", "app_version": "0.0-fake"},
-                    "capture": {"state": "idle", "session_id": None,
-                                "frames_verified": 0, "delivery": "stream"},
-                    "gate": {"status": "incomplete", "checked": False, "hard_fail": [],
-                             "note": "假服务：判不了（不是通过）"},
-                })
-            elif p == "/api/v1/capabilities":
-                self._send(200, {"ok": True, "server": "fake",
-                                 "server_version": "fake-1.0.0", "protocol_version": 1})
-            elif p == "/api/v1/sessions":
-                self._send(200, {"sessions": [], "ws_clients": 1, "profile_id": "fake"})
-            elif p == "/stream/mjpeg":
-                self._mjpeg()
-            else:
-                self._send(404, {"ok": False, "error": "假服务没有这个端点"})
-
-        def do_POST(self):                              # noqa: N802
-            p = self.path.split("?")[0]
-            if p == "/api/v1/control/start":
-                self._send(500, {"ok": False,
-                                 "error": "假相机故意失败（用来触发 I5 的回滚路径）"})
-            else:
-                self._send(404, {"ok": False, "error": "假服务没有这个端点"})
-
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), _H)
-    srv.fake_mjpeg_boundary = boundary       # 判据 I26 要拿它当"上游声明的真相"
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    return srv
-
+# ⚠️ 改版二十四删掉的取证装置（不要把这段历史一起删）：
+# `_TINY_JPEG` + `_fake_camera()` 曾在这里造一个"status 正常答、control/start 故意 500、
+# `/stream/mjpeg` 发几帧真 JPEG"的假 PhoneCamera，用来给判据 I5（开会话中途失败要回滚）
+# 和 I26（MJPEG 反代的 boundary 必须与上游一致）制造着力点。
+# 手机相机整块下线后这两条判据**没有被测对象**了，装置也就一起删了 ——
+# 把"给已删除功能准备的假上游"留在验收工具里，下一次改动会以为它还该被用。
 
 def _start_sim(port: int):
     """起上游鼠标模拟器（`host.sim.mouse_sim`）。起不来返回 None。
@@ -1238,391 +1170,30 @@ def _timeline_tsrc_check() -> tuple:
     return (not bad), note + ("" if not bad else f"；**{len(bad)} 行没标或标错**")
 
 
-def _free_port() -> int:
-    """要一个**当前空闲**的端口（起临时上游用，别碰 8765 —— 那儿可能跑着真服务）。"""
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = int(s.getsockname()[1])
-    s.close()
-    return p
-
-
-def _port_busy(port: int) -> bool:
-    s = socket.socket()
-    try:
-        s.bind(("127.0.0.1", int(port)))
-        return False
-    except OSError:
-        return True
-    finally:
-        s.close()
-
-
-class _LogOnly:
-    """给 ServiceLauncher 的最小替身：它只调 `log` 与 `mark`。"""
-    def log(self, *a, **k):        # noqa: D102
-        pass
-    def mark(self, *a, **k):       # noqa: D102
-        pass
-
-
-def _launcher_sections(base: str, tmp: Path) -> None:
-    """I24 / I25 —— 上游相机程序的**设置面**与**代启**。
-
-    用户要求："配对时如果需要依赖上游提供的服务，则应当支持在设置中设置上游程序地址，
-    在配对时自动启动调用而不需要手动启动上游服务"。
-
-    这两条要守住的三件事，各自都有反例：
-      · **设置要存得住**（改完下次还在；且不许把 config.yaml 的注释抹掉）；
-      · **代启只能由人触发**（`/health` 每 2.5 s 走一次，它要是会拉起进程，
-        一个开着的页面就会不停起进程 —— 这类"看着在工作，其实在制造垃圾"最难发现）；
-      · **幂等**（已经可达就不起；本层起的还在跑就不重复起）。
-    """
-    import json as _json
-    import shutil as _shutil
-
-    from control import config as C
-    from control.launcher import ServiceLauncher
-
-    # ---------------------------------------------------------------- I24
-    head("2c. 判据 I24：上游相机程序的设置面（零副作用、存得住、不泄凭据）")
-    g, c, _ = api(base, "/api/v1/camera/service")
-    s = (g.get("data") or {}) if c == 200 else {}
-    disp = " ".join(s.get("argv_display") or [])
-    token = ""
-    try:
-        raw = _json.dumps(api(base, "/api/v1/config")[0], ensure_ascii=False)
-    except Exception:                                         # noqa: BLE001
-        raw = ""
-    token = ""
-    import re as _re
-    m = _re.search(r"camera\.launcher[\s\S]{0,400}", raw)
-    # 凭据不外泄：启动行里必须是占位符；整个响应里不许出现真 token 串
-    tok_leak = bool(token) and token in _json.dumps(s, ensure_ascii=False)
-    spec_ok = bool(c == 200 and s.get("script_ok") and s.get("port")
-                   and s.get("can_start") and not s.get("running")
-                   and "••••" in disp and not tok_leak)
-    # /health 连打三次**不许**拉起进程（这是本判据最要紧的一条）
-    before = (s.get("pid"), s.get("running"))
-    for _ in range(3):
-        api(base, "/api/v1/health", timeout=10)
-    g2, _, _ = api(base, "/api/v1/camera/service")
-    s2 = g2.get("data") or {}
-    no_spawn = (s2.get("pid"), s2.get("running")) == before == (None, False)
-
-    # 设置要**存得住**：在**临时副本**上改嵌套键 —— 不碰真 config.yaml。
-    probe = tmp / "config_probe.yaml"
-    _shutil.copyfile(ROOT / "config.yaml", probe)
-    cfg = C.load(probe)
-    before_lines = probe.read_text(encoding="utf-8").splitlines()
-    r1 = cfg.patch({"camera.launcher.autostart": "false",
-                    "camera.launcher.script": '"../PhoneCamera/pc/server.py"',
-                    "arena.fw_to_arena.y_flip": "false"})
-    after_lines = probe.read_text(encoding="utf-8").splitlines()
-    try:
-        reloaded = _yaml_load(probe)
-        auto = reloaded["camera"]["launcher"]["autostart"]
-        script = reloaded["camera"]["launcher"]["script"]
-        yflip = reloaded["arena"]["fw_to_arena"]["y_flip"]
-    except Exception as e:                                    # noqa: BLE001
-        reloaded, auto, script, yflip = None, None, None, None
-        print(f"      重载失败：{type(e).__name__}: {e}")
-
-    def _indent(lines_: list, key: str) -> int:
-        for ln in lines_:
-            if ln.strip().startswith(key + ":"):
-                return len(ln) - len(ln.lstrip())
-        return -1
-
-    indent_ok = all(_indent(before_lines, k) == _indent(after_lines, k) >= 0
-                    for k in ("autostart", "script", "y_flip"))
-    notes_kept = all("#" in ln for ln in after_lines
-                     if ln.strip().startswith(("autostart:", "script:", "y_flip:")))
-    persist_ok = (all(v == "patched" for v in r1.values()) and reloaded is not None
-                  and auto is False and script == "../PhoneCamera/pc/server.py"
-                  and yflip is False and indent_ok and notes_kept)
-    probe.unlink()
-
-    i24_ok = spec_ok and no_spawn and persist_ok
-    record("I24", "PASS" if i24_ok else "FAIL",
-           f"设置面就绪：程序 {Path(str(s.get('script_abs') or '')).name} 存在、端口 "
-           f"{s.get('port')}、启动行用占位符（无凭据外泄）；/health 连打 3 次"
-           f"**没有代启进程**；设置能写回（嵌套键缩进不变 {indent_ok}、注释保留 "
-           f"{notes_kept}、重载得动、值生效 autostart={auto}）"
-           if i24_ok else
-           f"**设置面有问题**：HTTP {c} spec={s}\n"
-           f"      未代启={no_spawn}（pid/running {before}→{(s2.get('pid'), s2.get('running'))}）"
-           f"；写回={r1} 重载={reloaded is not None} 缩进={indent_ok} 注释={notes_kept}"
-           f"；auto={auto} script={script} y_flip={yflip}")
-
-    # ---------------------------------------------------------------- I25
-    head("2d. 判据 I25：代启上游服务 → 真能配对（不占 8765、不碰真配置）")
-    # 全部在**进程内**做：临时配置副本 + 空闲端口 + 真上游 `pc/server.py`。
-    # 这样既不污染现场的 config.yaml，也不会和"用户自己起的那个 8765 服务"打架。
-    port = _free_port()
-    probe2 = tmp / "config_launch.yaml"
-    _shutil.copyfile(ROOT / "config.yaml", probe2)
-    cfg2 = C.load(probe2)
-    # ⚠️ 副本放在 `.tmp/drill/` 下 ⇒ **相对路径会按那个目录解析**（`../PhoneCamera/pc`
-    # 变成 `.tmp/PhoneCamera/pc`，于是"找不到上游程序"）。所以路径类配置一律
-    # 从**真配置**里取绝对路径覆盖回来 —— 只改与本次探测有关的项。
-    real = C.load()
-    for k in ("remotecontrol_host", "phonecamera_pc", "autolocate"):
-        v = real.get(f"paths.{k}")
-        if v:
-            cfg2.update(f"paths.{k}", str(v), save=False)
-    work = tmp / "camprobe"
-    work.mkdir(exist_ok=True)
-    cfg2.update("camera.base", f"http://127.0.0.1:{port}", save=False)
-    cfg2.update("camera.launcher.port", port, save=False)
-    cfg2.update("camera.launcher.data_dir", str(work / "data"), save=False)
-    cfg2.update("camera.launcher.log", str(work / "serv.log"), save=False)
-    cfg2.update("camera.launcher.max_mbps", 5.0, save=False)
-    lz = ServiceLauncher(cfg2, _LogOnly(), _LogOnly())
-
-    pc_dir = str(cfg2.get("paths.phonecamera_pc") or "")
-    if pc_dir and pc_dir not in sys.path:
-        sys.path.insert(0, pc_dir)
-    up = {"n": 0}
-
-    def _is_up() -> bool:
-        """此刻通不通 —— 与 `routes.py::_cam_is_up` 同构（**真探**，不是读快照）。
-
-        ⚠️ `HostLink(base, token, timeout=…)` 的 **token 是必需的位置参数**：
-        漏了它抛的是 `TypeError`，而这里 `except Exception` 会把它吞成"还没起来"——
-        表现是"白等 25 s 然后报没起来"，而真凶完全看不见（真踩过）。
-        """
-        up["n"] += 1
-        try:
-            import hostlink
-            hostlink.HostLink(f"http://127.0.0.1:{port}",
-                              str(cfg2.get("camera.token") or ""), timeout=3.0).capabilities()
-            return True
-        except Exception:                                     # noqa: BLE001
-            return False
-
-    qr_rows, st1, st2, stopped, released = 0, {}, {}, None, False
-    log_file = work / "serv.log"
-    # ⚠️ **必须在"最坏的环境"里跑**。本层要挡的正是"父进程是 GBK locale，子进程继承过去
-    # 就在打印自己的 banner 时崩掉"（真机踩过：上游 `server.py` 的 `▶ (U+25B6)` 在 GBK 下
-    # `UnicodeEncodeError`，进程 exit 1、服务根本没起来）。而开发机上常常自带
-    # `PYTHONUTF8=1` —— 在那样的环境里跑这条判据**永远绿**，等于没验。
-    # 所以这里临时把父环境改成 GBK 风格（跑完恢复）：launcher **覆盖**子进程环境这一件事
-    # 才算真的被验到。
-    saved_env = {k: os.environ.get(k) for k in
-                 ("PYTHONUTF8", "PYTHONIOENCODING", "LANG", "LC_ALL")}
-    for k in ("PYTHONUTF8", "LANG", "LC_ALL"):
-        os.environ.pop(k, None)
-    os.environ["PYTHONIOENCODING"] = "gbk"
-    env_note = "父环境已临时改为 GBK（模拟真机默认）"
-    spec1 = lz.status(deep=True)
-    try:
-        st1 = lz.start(is_up=_is_up, wait_s=25.0)
-        if st1.get("ok"):
-            try:
-                import hostlink
-                h = hostlink.HostLink(f"http://127.0.0.1:{port}",
-                                      str(cfg2.get("camera.token") or ""), timeout=6.0)
-                pr = h.pair()
-                qr_rows = len(((pr.get("qr_matrix") or {}).get("rows")) or [])
-            except Exception as e:                            # noqa: BLE001
-                print(f"      配对读取失败：{type(e).__name__}: {e}")
-            st2 = lz.start(is_up=_is_up, wait_s=10.0)         # 幂等：不许起第二个
-        # ---- 收工策略：默认**保留**（手机还连着它），显式要求才停。
-        # 这是用户明确问过的一条（"Ctrl+C 收尾后上游服务到底关没关"），
-        # 所以要有断言 —— 而且默认那条必须**真的检查进程还活着**，不能只看返回值。
-        keep = lz.shutdown()                                  # stop_on_exit=false（默认）
-        kept_alive = bool(lz._proc is not None and lz._proc.poll() is None)
-        stopped = lz.shutdown(stop=True)                      # 显式要求才停
-        time.sleep(0.6)
-        released = not _port_busy(port)
-    finally:
-        for k, v in saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        try:
-            lz.stop()
-        except Exception:                                     # noqa: BLE001
-            pass
-        try:
-            probe2.unlink()
-        except OSError:
-            pass
-
-    # 子进程环境的**结构断言**：我们保证了什么，要看得见（否则这条保护会被人无意删掉）
-    env_ok = all((spec1.get("child_env") or {}).get(k) == v
-                 for k, v in (("PYTHONIOENCODING", "utf-8"), ("PYTHONUTF8", "1"),
-                              ("PYTHONUNBUFFERED", "1")))
-    raw_log = b""
-    try:
-        raw_log = log_file.read_bytes()
-    except OSError:
-        pass
-    try:
-        raw_log.decode("utf-8")
-        log_utf8 = True
-    except UnicodeDecodeError:
-        log_utf8 = False
-    no_tb = b"Traceback" not in raw_log
-
-    exit_ok = (keep.get("stopped") is False and keep.get("by_setting") is False
-               and kept_alive and bool(stopped.get("stopped")))
-    i25_ok = (bool(st1.get("ok")) and st1.get("started") and qr_rows > 0
-              and st2.get("started") is False
-              and bool(stopped and stopped.get("stopped")) and released
-              and env_ok and log_utf8 and no_tb and exit_ok)
-
-    # ---- I25 的**负向**面：把编码保护打掉 ⇒ 必须起不来，而且失败原因正是编码那件事。
-    # 为什么值得再花几秒跑一次：`PYTHONIOENCODING=utf-8` 那三行是"看不见的保护"，
-    # 谁顺手删掉都不会有任何症状（在我的机器上永远绿）—— 只有"打掉它就红"才是真的守着。
-    # 断言要**认到具体原因**（带 `UnicodeEncodeError`）：光看"失败了"会放过"因为别的原因失败"。
-    neg_port = _free_port()
-    cfg2.update("camera.base", f"http://127.0.0.1:{neg_port}", save=False)
-    cfg2.update("camera.launcher.port", neg_port, save=False)
-    cfg2.update("camera.launcher.log", str(work / "neg.log"), save=False)
-    lz.reload()
-    import control.launcher as _L
-    saved_child_env = dict(_L._CHILD_ENV)
-    _L._CHILD_ENV.clear()
-    for k in ("PYTHONUTF8", "LANG", "LC_ALL"):
-        os.environ.pop(k, None)
-    os.environ["PYTHONIOENCODING"] = "gbk"
-    neg = {}
-    try:
-        try:
-            (work / "neg.log").write_bytes(b"")
-        except OSError:
-            pass
-        neg = lz.start(is_up=lambda: False, wait_s=8.0)
-    finally:
-        _L._CHILD_ENV.update(saved_child_env)
-        for k, v in saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        try:
-            lz.stop()
-        except Exception:                                     # noqa: BLE001
-            pass
-    neg_detail = str(neg.get("detail") or "")
-    neg_ok = (neg.get("ok") is False) and ("UnicodeEncodeError" in neg_detail)
-    i25_ok = i25_ok and neg_ok
-
-    record("I25", "PASS" if i25_ok else "FAIL",
-           f"代启成功：PID {st1.get('pid')} · 端口 {port} · {st1.get('waited_ms')} ms 就绪；"
-           f"当场读到二维码矩阵 {qr_rows} 行 ⇒ **配对不再需要手动启动上游**；"
-           f"再点一次不起第二个（{st2.get('reason')}）。"
-           f"（{env_note}）子进程环境={spec1.get('child_env')}、日志严格 UTF-8={log_utf8}、"
-           f"无 Traceback={no_tb}；负向：打掉编码保护后**如期失败**且报的是 "
-           f"UnicodeEncodeError（{neg_ok}）。**收尾策略**：默认收工 {keep.get('stopped')} "
-           f"（进程仍活着={kept_alive} ⇒ 手机不断线）、显式要求时已停（PID {stopped.get('pid')}）"
-           f"且端口已释放（{released}）"
-           if i25_ok else
-           f"**代启链路不通**：start={st1} / 二次={st2} / 收工={keep} 仍活={kept_alive} "
-           f"/ stop={stopped} / 端口释放={released} / 二维码 {qr_rows} 行 / env_ok={env_ok} "
-           f"/ 日志UTF-8={log_utf8} / 无异常={no_tb} / 负向={neg_ok}（{neg.get('reason')}）\n"
-           f"      日志尾：{(raw_log[-400:] or b'').decode('utf-8', 'replace')}")
-
-
-def _mjpeg_relay_section(base: str, args, tmp: Path) -> None:
-    """I26 —— MJPEG 反代**真的能切出一帧**（这是"看得见画面"的唯一判据）。
-
-    真踩过的那次故障长这样：手机在发、反代在转发、服务端日志只有两条"反代中断"，
-    而**预览窗口永远空白**。根因是反代把 `Content-Type` 写死成
-    `multipart/x-mixed-replace; boundary=frame`，而上游声明的是
-    `boundary=phonecamera-frame` —— 声明与实际不符，浏览器按 `--frame` 去切分、
-    流里却是 `--phonecamera-frame`，**一帧都切不出来**。
-
-    所以这条判据**不能只比 header**（那只是"我们抄对了字符串"），必须
-    **按反代自己声明的 boundary 去切，并真的拿到一帧完整 JPEG**（`FFD8` 起 `FFD9` 止）。
-    上游是**假相机**、boundary 故意用非常规值 —— 写死任何一种常见值的实现都会红。
-    """
-    import threading
-
-    head("2e. 判据 I26：MJPEG 反代的 boundary 必须与上游一致，且能真切出帧")
-    orig_base = ((api(base, "/api/v1/health")[0].get("data") or {})
-                 .get("camera") or {}).get("base") or ""
-    fake = _fake_camera(args.fake_cam_port)
-    want_boundary = fake.fake_mjpeg_boundary
-    ct = ""
-    frames = 0
-    jpeg_ok = False
-    err = ""
-    try:
-        api(base, "/api/v1/camera/base", "POST",
-            {"base": f"http://127.0.0.1:{args.fake_cam_port}"})
-        api(base, "/api/v1/camera/probe", "POST", {})
-        # 读反代：**用标准库直接连**，拿到 header 后按声明的 boundary 切帧。
-        conn = http.client.HTTPConnection("127.0.0.1", args.port, timeout=10)
-        conn.request("GET", "/api/v1/camera/mjpeg")
-        r = conn.getresponse()
-        ct = r.getheader("Content-Type") or ""
-        # 只取我们声明的那一段（假上游发 5 帧就收工，不会挂住）
-        raw = r.read()
-        conn.close()
-        declared = ""
-        for part in ct.split(";"):
-            if part.strip().lower().startswith("boundary="):
-                declared = part.split("=", 1)[1].strip().strip('"')
-        if declared:
-            # 只认"我们声明的那个"分界 —— 声明错了这里就是 0 帧
-            marker = f"--{declared}".encode()
-            chunks = raw.split(marker)
-            for ch in chunks[1:]:
-                body = ch.split(b"\r\n\r\n", 1)
-                if len(body) < 2:
-                    continue
-                jpg = body[1].rstrip(b"\r\n")
-                if jpg.startswith(b"\xff\xd8") and jpg.endswith(b"\xff\xd9"):
-                    frames += 1
-            jpeg_ok = frames > 0
-    except Exception as e:                                    # noqa: BLE001
-        err = f"{type(e).__name__}: {e}"
-    finally:
-        try:
-            fake.shutdown()
-            fake.server_close()
-        except Exception:                                     # noqa: BLE001
-            pass
-
-    declared_ok = want_boundary in ct               # boundary 必须是**上游声明的那个**
-    i26_ok = declared_ok and jpeg_ok
-    record("I26", "PASS" if i26_ok else "FAIL",
-           f"反代声明 `{ct}`（与上游的 boundary 一致）；按**它自己声明的 boundary** "
-           f"切出 {frames} 帧完整 JPEG（FFD8…FFD9）⇒ 能看见画面"
-           if i26_ok else
-           f"**MJPEG 反代拿不出画面**：\n"
-           f"      我们声明 : {ct or '（没拿到）'}\n"
-           f"      上游声明 : boundary={want_boundary}\n"
-           f"      切出帧数 : {frames}（要 >0）{('  异常：' + err) if err else ''}\n"
-           f"      ⇒ boundary 对不上的话，浏览器会**一帧都切不出来**（预览空白，"
-           f"而服务端一切正常）")
-    if orig_base:
-        try:
-            api(base, "/api/v1/camera/base", "POST", {"base": orig_base})
-        except Exception:                                     # noqa: BLE001
-            pass
-
-
-def _yaml_load(path: Path):
-    import yaml
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+# ⚠️ 改版二十四删掉的三大块取证（连同它们的全部辅助函数）：
+#
+#   `_launcher_sections()`  —— I24（上游相机程序的设置面：零副作用 / 存得住 / 不泄凭据）
+#                           —— I25（代启上游服务 → 真能配对，含"编码保护打掉必须起不来"的负向）
+#   `_mjpeg_relay_section()` —— I26（MJPEG 反代的 boundary 必须与上游声明一致）
+#   `_free_port()` / `_port_busy()` / `_yaml_load()` / `_LogOnly` —— 只为上面两节服务
+#
+# 一起删的理由是**它们测的东西已经不存在了**：相机适配器、代启器（`launcher.py`）、
+# MJPEG 反代、8765 上的上游服务，全随改版二十四下线。留着"跑起来必红"的判据，
+# 只会让下一次改动学会忽略红色。
+# 其中两件事**仍然要守，只是换了着力点**：
+#   · I24 守的"改嵌套键不许写坏 config.yaml" ⇒ 现改在 `video.out_root` 上（见第 2c 节）；
+#   · I25 守的"不许留下看不见的进程" ⇒ 现在只有视频子进程，钉在 `VideoAdapter.shutdown()`
+#     只杀自己起的那一个（本文件 I39 与 `video.py` 的实现注释里各留了一笔）。
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8899)
-    ap.add_argument("--frames", type=int, default=8)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--sim", action="store_true",
                     help="起上游鼠标模拟器，额外验 I15~I17 / I22~I23（时间同步 / 参数分组 / 丢帧 / 统一帧单流 / 迷宫状态机 / 记录往返 / 收车与复位）。"
                          "不加就 SKIP —— 那几条需要一条活链路。")
     ap.add_argument("--sim-port", type=int, default=5556)
-    ap.add_argument("--fake-cam-port", type=int, default=8797,
-                    help="I5 用的假相机服务端口（status 正常答、start 故意 500）")
     args = ap.parse_args(argv)
 
     # 被管道接住时 stdout 是块缓冲的 —— 那样"跑到哪一节"就完全看不见，
@@ -1637,22 +1208,16 @@ def main(argv=None) -> int:
     if tmp.exists() and not args.keep:
         _rmtree_quiet(tmp)
 
-    print("=" * 78)
-    print("Control 端到端演练（无鼠 / 无手机 / 无场地）")
-    print("=" * 78)
+    # 判据 I9 的**基线**：在干任何事之前先给上游拍一张"脏在哪"。
+    # 为什么必须有基线：上游（尤其 Auto Locate）本身就是正在开发的东西，工作区里
+    # 常有一堆未提交改动 —— 那些不是本层写的，把它们算成"本层弄脏了上游"就是一条
+    # 永远红的假警报（真发生过：42 条上游自己的改动让 I9 连红）。
+    # I9 真正要守的只有一件事：**跑完这一轮，上游没有比开跑前多出任何改动**。
+    up_before = _upstream_dirty()
 
-    # ---------------------------------------------------------------- 0 造素材
-    head("0. 造合成素材（有真值）")
-    for sid, pad in ((("SYNTH-TEST_0001"), 0), (("SYNTH-PAD_0001"), 16)):
-        rc = subprocess.run([sys.executable, str(ROOT / "tools" / "make_synth_frames.py"),
-                             "--out", str(tmp / "camera"), "--session-id", sid,
-                             "--frames", str(args.frames), "--pad", str(pad)],
-                            capture_output=True, text=True)
-        if rc.returncode != 0:
-            print(rc.stdout, rc.stderr)
-            record("S0", "FAIL", f"合成素材生成失败（{sid}）")
-            return 1
-    record("S0", "PASS", f"合成了两个会话：无填充 + 行填充 16B（用于验 I13）")
+    print("=" * 78)
+    print("Control 端到端演练（无鼠 / 无视频素材 / 无场地）")
+    print("=" * 78)
 
     # ---------------------------------------------------------------- 1 起服务
     head("1. 起服务")
@@ -1680,12 +1245,16 @@ def main(argv=None) -> int:
         head("2. 判据 I2 / I12：健康端点在子系统全挂时仍可用、且不阻塞")
         h, code, dt = api(base, "/api/v1/health")
         hh = h.get("data", {})
-        details_ok = all(bool((hh.get(k) or {}).get("detail") is not None)
-                         for k in ("mouse", "camera", "locator"))
+        # 改版二十四：只剩两路（电脑鼠 + 视频复盘）。视频那一路是**离线**的，
+        # 它的"detail 可读"= status() 里带着 state（哪怕 state 是 idle），
+        # 而不是"有没有 error" —— 从没解析过不该算故障。
+        mo = hh.get("mouse") or {}
+        vd = hh.get("video") or {}
+        details_ok = (mo.get("detail") is not None) and (vd.get("state") is not None)
         record("I2", "PASS" if (code == 200 and details_ok) else "FAIL",
-               f"HTTP {code}；三路都有可读 detail；相机当前 "
-               f"{'可达' if (hh.get('camera') or {}).get('reachable') else '不可达'}"
-               f"（不可达时也返回 200 并说清了原因）")
+               f"HTTP {code}；鼠标 detail 可读（当前"
+               f"{'已连接' if mo.get('connected') else ('未连接' if mo.get('available') else '模块缺失')}）、"
+               f"视频状态可读（state={vd.get('state')}）；两路都没连/没跑时也返回 200 并说清了原因")
         record("I12", "PASS" if dt < 1.0 else "FAIL", f"/health 耗时 {dt*1000:.0f} ms（< 1 s）")
 
         # ------------------------------------------------------------ I20 / I21
@@ -1714,11 +1283,59 @@ def main(argv=None) -> int:
                f"**有资源不可达或被漏引**：{'、'.join(bad) if bad else '一个都没解析到'}"
                f"（少一个脚本 = 某一页静默变空）")
 
-        # ------------------------------------------------------------ I24 / I25
-        _launcher_sections(base, tmp)
+        # ------------------------------------------------------------ I24（改版二十四重钉）
+        # 原来这条钉的是 `camera.launcher.autostart`（两级嵌套）——那次真的把 4 空格
+        # 写成 8 空格，config.yaml 下一次就 ParserError，服务起不来。
+        # 相机下线后**这个键没了，但那一类错还在**：`patch()` 里 `head` 没 strip
+        # 就会把缩进写两遍。现在拿 `video.out_root`（一级嵌套）继续钉同一件事 ——
+        # 一级嵌套同样会现形（同一 mapping 里一行缩进多 2 格 ⇒ 结构变了）。
+        head("2c. 判据 I24：改嵌套键不许写坏 config.yaml（缩进不许翻倍、注释要留、要能重新 load）")
+        i24_bad, i24_got = [], []
+        probe = tmp / "i24_config.yaml"
+        try:
+            from control.config import load as _cfg_load
+            probe.parent.mkdir(parents=True, exist_ok=True)
+            probe.write_text((ROOT / "config.yaml").read_text(encoding="utf-8"),
+                             encoding="utf-8")
 
-        # ------------------------------------------------------------ I26
-        _mjpeg_relay_section(base, args, tmp)
+            def _indent_of(text: str, key: str) -> int:
+                for ln in text.splitlines():
+                    if ln.strip().startswith(key + ":"):
+                        return len(ln) - len(ln.lstrip(" "))
+                return -1
+
+            ind0 = _indent_of(probe.read_text(encoding="utf-8"), "out_root")
+            cfg2 = _cfg_load(probe)
+            res = cfg2.patch({"video.out_root": '"records/video_i24"'})
+            txt = probe.read_text(encoding="utf-8")
+            ind1 = _indent_of(txt, "out_root")
+            if res.get("video.out_root") != "patched":
+                i24_bad.append(f"patch 没认到目标行：{res}")
+            elif ind0 < 0 or ind1 != ind0:
+                i24_bad.append(f"缩进被改写：{ind0} → {ind1} 空格（写坏 yaml 的典型形态）")
+            else:
+                i24_got.append(f"缩进不变（{ind1} 空格）")
+            try:
+                cfg3 = _cfg_load(probe)
+                got = cfg3.get("video.out_root")
+                if str(got).replace("\\", "/").endswith("records/video_i24"):
+                    i24_got.append("值生效且能重新 load")
+                else:
+                    i24_bad.append(f"改完读回来的不是新值：{got!r}")
+            except Exception as e:                            # noqa: BLE001
+                i24_bad.append(f"改完 load 不起来了：{type(e).__name__}: {e}")
+            # 注释必须还在（config.yaml 里那些"为什么是这个值"是最值钱的东西）
+            if "# out_root: 会话产物根" in txt:
+                i24_got.append("注释保住")
+            else:
+                i24_bad.append("注释被写没了（整份 safe_dump 的老毛病）")
+        except Exception as e:                                # noqa: BLE001
+            i24_bad.append(f"跑 I24 时抛异常：{type(e).__name__}: {e}")
+        finally:
+            _rmtree_quiet(probe)
+        record("I24", "PASS" if not i24_bad else "FAIL",
+               f"在临时副本上改 `video.out_root`：{'；'.join(i24_got)}"
+               if not i24_bad else f"**配置改写不安全**：{i24_bad[:3]}")
 
         # ------------------------------------------------------------ I1
         head("3. 判据 I1：不许引入 GUI 框架")
@@ -1762,7 +1379,10 @@ def main(argv=None) -> int:
         dirs1 = _session_dirs()
         emsg = ((r.get("error") or {}).get("message") or "")
         # 拦住还不够，得**说清怎么做**：消息里要出现"手动连好"和那份清单。
-        says_what = ("手动连好" in emsg) and ("顶栏" in emsg) and emsg.count("·") >= 2
+        # ⚠️ 改版二十四：拦住的那一路从两条降到**一条**（只有电脑鼠拦记录），
+        # 所以清单行的个数从 2 变 1 —— 这里钉的是"清单非空且带对勾分隔"，
+        # 不是某个具体条数（条数会随准备清单增减而变，钉死它只会让判据假红）。
+        says_what = ("手动连好" in emsg) and ("顶栏" in emsg) and emsg.count("·") >= 1
         # 目录集合必须**一个都没变** —— "拦住了但留了个空壳"不叫拦住。
         same = (dirs0 == dirs1)
         record("I18", "PASS" if (c == 409 and says_what and same) else "FAIL",
@@ -1773,7 +1393,7 @@ def main(argv=None) -> int:
                if (c == 409 and says_what and same)
                else f"HTTP {c}；说清了怎么做={says_what}；目录 {sorted(dirs0)}→{sorted(dirs1)}；"
                     f"消息：{emsg[:200]}")
-        # I19 是 I18 的**反例**，但要有东西连着才成立 ⇒ 放在第 9 节（导入离线相机之后）判。
+        # I19 是 I18 的**反例**，但要有东西连着才成立 ⇒ 放在第 9 节（连上鼠之后）判。
 
         # ------------------------------------------------------------ I10（编码层）
         head("5. 判据 I10：大数组必须能走二进制帧")
@@ -1792,226 +1412,272 @@ def main(argv=None) -> int:
                f"帧编解码往返一致；JSON 载荷上限 {64} KiB（超过必须走二进制）"
                if "ROUNDTRIP OK" in rc.stdout else rc.stderr[-300:])
 
-        # ------------------------------------------------------------ I13
-        head("6. 判据 I13：帧解码必须按 stride 切行（含反例）")
-        code_txt = (
-            "import sys, numpy as np\n"
-            "sys.path.insert(0, r'%s')\n"
-            "from pathlib import Path\n"
-            "from control.decode import decode_y\n"
-            "bad=[]; tested=0; counter=0\n"
-            "for sess in ('SYNTH-TEST_0001','SYNTH-PAD_0001'):\n"
-            "    for jp in sorted((Path(r'%s')/sess/'frames').glob('frame_*.json')):\n"
-            "        g,meta=decode_y(jp, need_bgr=False)\n"
-            "        raw=np.fromfile(str(meta.path),np.uint8)\n"
-            "        manual=raw[:meta.height*meta.y_stride].reshape(meta.height,meta.y_stride)[:,:meta.width]\n"
-            "        naive=raw[:meta.height*meta.width].reshape(meta.height,meta.width)\n"
-            "        tested+=1\n"
-            "        if not np.array_equal(g,manual): bad.append(('mismatch',str(jp)))\n"
-            "        if meta.padded and np.array_equal(g,naive): counter+=1\n"
-            "print('TESTED',tested,'BAD',len(bad),'PAD_FRAMES_MATCHING_NAIVE',counter)\n"
-            % (ROOT, tmp / "camera"))
-        rc = subprocess.run([sys.executable, "-c", code_txt], cwd=str(ROOT),
-                            capture_output=True, text=True, encoding="utf-8", errors="replace")
-        out = rc.stdout.strip()
-        ok = "BAD 0" in out and "PAD_FRAMES_MATCHING_NAIVE 0" in out
-        record("I13", "PASS" if ok else "FAIL",
-               f"{out} ⇒ 两条路径逐像素相同，且硬编码 reshape(H,W) 在填充帧上确实出错"
-               f"（反例成立 ⇒ 这条判据有区分度）" if ok else out + rc.stderr[-200:])
-
-        # ------------------------------------------------------------ I14
-        head("7. 判据 I14：收到 _reconnected 必须主动重对齐状态")
-        # ⚠️ 测试必须跑在**真在跑的事件循环里**：`bus.publish` 是按契约走的
-        # （见 control/bus.py `_safe_put`）—— 循环没在跑就**直接丢弃**，这是有意的，
-        # 免得服务还没起来就攒一堆没人看的消息。所以上一版"在主线程直接调
-        # _handle_event 然后看队列"永远看到空列表，那是测试写错了，不是代码错了。
-        code_txt = (
-            "import asyncio, sys\n"
-            "sys.path.insert(0, r'%s')\n"
-            "from control.config import bootstrap\n"
-            "from control.bus import Bus\n"
-            "from control.store import Store\n"
-            "from control.adapters.camera import CameraAdapter\n"
-            "\n"
-            "async def main():\n"
-            "    cfg = bootstrap()\n"
-            "    bus = Bus(); bus.bind_loop(asyncio.get_running_loop())\n"
-            "    cam = CameraAdapter(cfg, bus, Store(cfg.session_root))\n"
-            "    q = bus.subscribe()\n"
-            "    t0 = __import__('time').time()\n"
-            "    cam._handle_event({'type': '_reconnected', 'tries': 1})\n"
-            "    dt = __import__('time').time() - t0\n"
-            "    await asyncio.sleep(0.2)\n"
-            "    seen = []\n"
-            "    while not q.empty(): seen.append(q.get_nowait())\n"
-            "    types = [m.get('type') for m in seen]\n"
-            "    recon = [m for m in seen\n"
-            "             if m.get('type') == 'camera.status' and m.get('reconnected')]\n"
-            "    print('TYPES', types, 'RECON', len(recon), 'BLOCK_MS', int(dt*1000))\n"
-            "\n"
-            "asyncio.run(main())\n" % ROOT)
-        rc = subprocess.run([sys.executable, "-c", code_txt], cwd=str(ROOT),
-                            capture_output=True, text=True, encoding="utf-8", errors="replace")
-        out = rc.stdout.strip()
-        # 两个条件：① 确实发了重对齐事件；② 没把事件线程按在 HTTP 上（本机一次失败探测 2 s）。
-        blk = 99999
-        if "BLOCK_MS" in out:
-            try:
-                blk = int(out.split("BLOCK_MS")[1].split()[0])
-            except Exception:                                  # noqa: BLE001
-                pass
-        ok = "RECON 1" in out and blk < 500
-        record("I14", "PASS" if ok else "FAIL",
-               f"{out} ⇒ _reconnected 立刻发出 camera.status(reconnected=True)，"
-               f"且**不再**在事件线程里做阻塞 status()（{blk} ms）"
-               if ok else (out + rc.stderr)[-300:])
+        # ⚠️ 改版二十四删掉两条判据（连同它们的取证装置）：
+        #   I13「帧解码必须按 stride 切行（含反例）」—— 被测的 `control/decode.py`
+        #       随相机下线一起删了；它守的"不许硬编码 reshape(H,W)"是**YUV 平面解码**
+        #       的问题，现在视频解码在 Auto Locate 里，本层不再碰一帧原始字节；
+        #   I14「收到 _reconnected 必须主动重对齐状态」—— 被测的 `CameraAdapter`
+        #       也不在了（那条重连语义属于 hostlink 的长连接，本层已无长连接）。
+        # 两条都不是"暂时不跑"，是**没有对象**了：留着 SKIP 会让人以为还能补测。
 
         # ------------------------------------------------------------ I5 原子性
         head("8. 判据 I5：开会话失败必须回滚，不留半个会话目录")
-        # ⚠️ 这里比上一版麻烦了一点，值得记下来：
-        # 加了前置门控（I18）之后，"相机不可达就直接开会话"已经**在更早一步被拦住**，
-        # 根本走不到回滚那段代码 —— I5 于是失去了着力点（它当时确实变红了）。
-        # 所以现在必须构造"**门控放行、中途才炸**"的场景：假相机 status 正常答
-        # （readiness 认为相机就绪 ⇒ 放行），而 control/start 回 500（那一路上炸掉）。
-        # 这也顺带证明门控与回滚是**两道独立的闸**：门控拦"什么都没连就开"，
-        # 回滚兜"连了但中途炸了"，谁都替不了谁。
-        dirs0 = _session_dirs()
-        orig_base = ((api(base, "/api/v1/health")[0].get("data") or {})
-                     .get("camera") or {}).get("base") or ""
-        fake = _fake_camera(args.fake_cam_port)
-        try:
-            api(base, "/api/v1/camera/base", "POST",
-                {"base": f"http://127.0.0.1:{args.fake_cam_port}"})
-            api(base, "/api/v1/camera/probe", "POST", {})
-            hh2, _, _ = api(base, "/api/v1/health")
-            rd2 = (hh2.get("data") or {}).get("readiness") or {}
-            cam_item = next((i for i in rd2.get("items", []) if i.get("key") == "camera"), {})
-            passed_gate = bool(rd2.get("can_record"))
-            r, c, _ = api(base, "/api/v1/session/open", "POST", {})
-            dirs1 = _session_dirs()
-            msg = ((r.get("error") or {}).get("message") or "")
-            # 三重：门控放行了（说明测的是回滚那条路）、中途真失败了、**目录集合没变**
-            ok = (passed_gate and c == 409 and dirs0 == dirs1 and "回滚" in msg)
-            record("I5", "PASS" if ok else "FAIL",
-                   f"假相机（status 正常 ⇒ 门控放行，camera 项「{cam_item.get('state')}」；"
-                   f"start 故意 500）⇒ 开会话中途失败：HTTP {c}，"
-                   f"目录集合{'未变 ⇒ 没留半个会话' if dirs0 == dirs1 else str(sorted(dirs1))}"
-                   f"，消息里写明了回滚到哪一步"
-                   if ok else
-                   f"门控放行={passed_gate}（camera 项「{cam_item.get('state')}」）；"
-                   f"HTTP {c}；目录 {sorted(dirs0)}→{sorted(dirs1)}；{msg[:220]}")
-        finally:
-            fake.shutdown()
-            if orig_base:
-                api(base, "/api/v1/camera/base", "POST", {"base": orig_base})
-            api(base, "/api/v1/camera/probe", "POST", {})
+        # ⚠️ 改版二十四：这条**换了着力点，但一句都没软化**。
+        # 原来的构造面是"假相机 status 正常（门控放行）、control/start 回 500（中途炸）"——
+        # 相机下线后没有"第二路"可以在中途炸了，只剩鼠一路。
+        # 但 I5 要守的是**编排代码的回滚段**（`ctx.session_open` 里的 except + rollback +
+        # `_rmtree_quiet`），那段代码还在、还叫得动 ⇒ 用**注入**造两个场景，进程内直测：
+        #   ① 意外异常（不是 MouseError）：必须抛 SessionError、**目录集合一个不变**、
+        #      消息里写清"回滚到哪一步 + 目录删没删"；
+        #   ② MouseError：鼠侧会话开不出来属于"那一路失败"，整场会话不许假装成功 ——
+        #      `phase.mouse` 必须是 `failed`，且 `detail.mouse` 记着原因（能被界面上报出来）。
+        # 为什么不 HTTP 造：服务端没有"故意失败"的开关，而为了这个去改生产代码是倒过来的。
+        code_txt = (
+            "import asyncio, json, shutil, sys\n"
+            "sys.path.insert(0, r'%s')\n"
+            "from control.config import bootstrap\n"
+            "from control.ctx import Ctx, SessionError\n"
+            "from control.adapters.mouse import MouseError\n"
+            "\n"
+            "cfg = bootstrap()\n"
+            "root = cfg.session_root\n"
+            "before = sorted(p.name for p in root.glob('20*') if p.is_dir())\n"
+            # ⚠️ `before` **必须一起回传**：判据那侧要拿它比对"目录集合有没有变"。
+            # 早先漏了这一行 ⇒ `i5.get('before')` 永远是 None ⇒ 两条比对全部失真，
+            # 报出来的是"留下了半个会话目录 + 一长串历史目录名"，看着像真故障。
+            "out = {'before': before}\n"
+            "\n"
+            "def fresh():\n"
+            "    c = Ctx(cfg)\n"
+            "    # 让门控放行（判据要走到编排段，不能被前置门控挡在门外）\n"
+            "    c.mouse.health = lambda: {'available': True, 'connected': True,\n"
+            "                              'port': 'INJECTED', 'detail': ''}\n"
+            "    return c\n"
+            "\n"
+            "c1 = fresh()\n"
+            "c1.mouse.open_session = lambda name: (_ for _ in ()).throw(\n"
+            "    RuntimeError('人为意外失败（验回滚）'))\n"
+            "try:\n"
+            "    asyncio.run(c1.session_open(notes=['i5-a']))\n"
+            "    out['a_raised'] = False\n"
+            "except SessionError as e:\n"
+            "    out['a_raised'] = True\n"
+            "    out['a_msg'] = str(e)\n"
+            "out['a_dirs'] = sorted(p.name for p in root.glob('20*') if p.is_dir())\n"
+            "\n"
+            "c2 = fresh()\n"
+            "c2.mouse.open_session = lambda name: (_ for _ in ()).throw(\n"
+            "    MouseError('人为鼠侧失败'))\n"
+            "try:\n"
+            "    d = asyncio.run(c2.session_open(notes=['i5-b']))\n"
+            "    out['b'] = {'phase': d.get('phase'), 'detail': d.get('detail')}\n"
+            "except SessionError as e:\n"
+            "    out['b'] = {'raised': str(e)}\n"
+            "c2.store.rollback()\n"
+            "for p in root.glob('20*'):\n"
+            "    if p.is_dir() and p.name not in before:\n"
+            "        shutil.rmtree(p, ignore_errors=True)\n"
+            "out['b_dirs'] = sorted(p.name for p in root.glob('20*') if p.is_dir())\n"
+            "print('RES ' + json.dumps(out, ensure_ascii=False, default=str))\n"
+            % ROOT)
+        rc = subprocess.run([sys.executable, "-c", code_txt], cwd=str(ROOT),
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        i5 = None
+        if "RES " in rc.stdout:
+            try:
+                i5 = json.loads(rc.stdout.split("RES ", 1)[1].strip())
+            except Exception:                                  # noqa: BLE001
+                i5 = None
+        i5_bad = []
+        if not i5:
+            i5_bad.append(f"注入脚本没跑通：{(rc.stdout + rc.stderr)[-300:]}")
+        else:
+            if not i5.get("a_raised"):
+                i5_bad.append("意外异常没有变成 SessionError（会话可能被当成开成功）")
+            msg = str(i5.get("a_msg") or "")
+            if "回滚" not in msg:
+                i5_bad.append("失败消息没说回滚到哪一步")
+            if "目录" not in msg:
+                i5_bad.append("失败消息没交代会话目录删没删")
+            if i5.get("a_dirs") != i5.get("before"):
+                i5_bad.append(f"留下了半个会话目录：{i5.get('a_dirs')}")
+            b = i5.get("b") or {}
+            if (b.get("phase") or {}).get("mouse") != "failed":
+                i5_bad.append(f"鼠侧开失败时 phase.mouse 不是 failed：{b.get('phase')}")
+            if "人为鼠侧失败" not in str((b.get("detail") or {}).get("mouse") or ""):
+                i5_bad.append(f"没把失败原因记进 detail：{b.get('detail')}")
+            if i5.get("b_dirs") != i5.get("before"):
+                i5_bad.append(f"清场后目录集合没恢复：{i5.get('b_dirs')}")
+        record("I5", "PASS" if not i5_bad else "FAIL",
+               f"注入意外异常 ⇒ SessionError（消息含回滚与目录交代）、目录集合"
+               f"{'未变' if i5 and i5.get('a_dirs') == i5.get('before') else '变了'}；"
+               f"注入 MouseError ⇒ 会话不假装成功：phase.mouse="
+               f"{(i5 or {}).get('b', {}).get('phase', {}).get('mouse') if i5 else '?'}、"
+               f"detail 记着原因"
+               if not i5_bad else f"**回滚/失败语义不对**：{i5_bad[:4]}")
 
         # ------------------------------------------------------------ 正路
-        head("9. 正路：导入离线会话 → 开会话 → 回放 → 收会话 → 赛后批量")
-        api(base, "/api/v1/camera/import", "POST",
-            {"session_id": "SYNTH-TEST_0001", "root": str(tmp / "camera"), "replay": False})
-        r, c, _ = api(base, "/api/v1/session/open", "POST", {"notes": ["drill"]})
-        sid = (r.get("data") or {}).get("session_id")
-        if not sid:
-            record("S2", "FAIL", f"开会话失败：{c} {json.dumps(r, ensure_ascii=False)[:300]}")
-            return 1
-        record("S2", "PASS", f"会话 {sid} 三路同开：{(r['data']).get('phase')}")
-        # I19（I18 的反例）：只连了"相机（离线）"这一路时必须放行 ——
-        # 否则"今天只想测场地"这种用法会被门控误伤。但放行的同时**必须说清**
-        # 另一路是空的，否则收会话翻数据时才发现少了一半。
-        ow = (r["data"]).get("warnings") or []
-        says_mouse = any("电脑鼠" in str(w) for w in ow)
-        record("I19", "PASS" if (r and says_mouse) else "FAIL",
-               f"只连了相机这一路 ⇒ 会话照开（没误伤「只测场地」的用法）；"
-               f"开会话时给 {len(ow)} 条提醒，点出鼠那一路是空的"
-               f"：{str(ow)[:130]}"
-               if says_mouse else
-               f"只连一路时**没有提醒另一路是空的**：{ow}")
-        time.sleep(2.5)
-        st, _, _ = api(base, "/api/v1/session")
-        cnt = ((st.get("data") or {}).get("session") or {}).get("counts") or {}
-        record("S3", "PASS" if cnt.get("camera_frames_verified") == args.frames else "FAIL",
-               f"回放 {cnt.get('camera_frames_verified')}/{args.frames} 帧，"
-               f"在线定位有效 {cnt.get('locate_valid')} 无效 {cnt.get('locate_invalid')}")
-
-        r, c, _ = api(base, "/api/v1/session/close", "POST", {"wait_delivery_s": 5})
-        warns = (r.get("data") or {}).get("warnings") or []
-        batch = (r.get("data") or {}).get("batch") or {}
-        record("S4", "PASS" if not warns else "FAIL",
-               f"收会话告警 {len(warns)} 条" + (f"：{warns}" if warns else "（含行数守恒自检 I6）"))
-        time.sleep(3.0)
-        runs, _, _ = api(base, "/api/v1/locate/runs")
-        rl = runs.get("data") or []
-        done = [x for x in rl if x["state"] == "done"]
-        digest = [(x["id"], x["state"], f"{x['done']}/{x['total']}", x["valid"], x["invalid"])
-                  for x in rl]
-        record("S5", "PASS" if done else "FAIL",
-               f"赛后批量任务 (id, state, 进度, 有效, 无效)：{digest}")
-
-        # ------------------------------------------------------------ I7
-        head("10. 判据 I7：结果行数 == 交付帧数，且无效帧也留档")
-        sess_dir = ROOT / "sessions" / sid
-        jl = sess_dir / "locate" / "results.jsonl"
-        rows = [json.loads(l) for l in jl.read_text(encoding="utf-8").splitlines() if l.strip()] \
-            if jl.is_file() else []
-        n_frames = len(list((tmp / "camera" / "SYNTH-TEST_0001" / "frames").glob("frame_*.json")))
-        record("I7", "PASS" if len(rows) == n_frames else "FAIL",
-               f"results.jsonl {len(rows)} 行 == 交付帧 {n_frames} 帧；"
-               f"无效 {sum(1 for x in rows if not x.get('valid'))} 行（也留档，带 reason）")
+        head("9. 正路：连上电脑鼠 → 开会话 → 收会话 → 验产物")
+        # ⚠️ 改版二十四：原来的正路是"导入离线相机会话 → 回放 → 收会话 → 赛后批量"。
+        # 相机、离线导入、在线定位、赛后批量全下线 ⇒ 正路只剩**鼠这一条**：
+        # 连上（模拟器）→ 开会话 → 让它真跑一会儿 → 收会话 → 拿目录对着查。
+        # 没有 --sim 就没有活链路 ⇒ 这几条如实 SKIP，不假装通过。
+        sess_dir = None
+        sid = None
+        if not args.sim:
+            for cid, why in (("S2", "开会话/收会话的整条正路"),
+                             ("I19", "不拦记录的项不许把记录拦住"),
+                             ("S3", "会话里真的落了时间轴行"),
+                             ("S4", "收会话不许带告警"),
+                             ("I4", "时间轴每行都有 t_pc_ms"),
+                             ("I6", "时间轴行数守恒")):
+                record(cid, "SKIP", f"{why} —— 加 --sim 才验（需要一条活链路）")
+        else:
+            sim9 = _start_sim(args.sim_port)
+            if sim9 is None:
+                for cid in ("S2", "I19", "S3", "S4", "I4", "I6"):
+                    record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 判不了")
+            else:
+                try:
+                    api(base, "/api/v1/mouse/disconnect", "POST", {})
+                    time.sleep(0.3)
+                    rc_, cc_, _ = api(base, "/api/v1/mouse/connect", "POST",
+                                      {"target": f"tcp://127.0.0.1:{args.sim_port}"},
+                                      timeout=25)
+                    if cc_ != 200:
+                        for cid in ("S2", "I19", "S3", "S4", "I4", "I6"):
+                            record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（HTTP {cc_}）")
+                    else:
+                        hh9, _, _ = api(base, "/api/v1/health")
+                        rd9 = (hh9.get("data") or {}).get("readiness") or {}
+                        r9, c9, _ = api(base, "/api/v1/session/open", "POST",
+                                        {"notes": ["drill"]})
+                        sid = (r9.get("data") or {}).get("session_id")
+                        if not sid:
+                            for cid in ("S2", "I19", "S3", "S4"):
+                                record(cid, "FAIL",
+                                       f"开会话失败：HTTP {c9} "
+                                       f"{json.dumps(r9, ensure_ascii=False)[:200]}")
+                        else:
+                            record("S2", "PASS",
+                                   f"会话 {sid} 已开，phase={(r9['data']).get('phase')}")
+                            # I19（I18 的反例）：**只连电脑鼠就够开记录**。
+                            # 现在只有它一路拦记录（时钟/视频都不拦），所以这条要守的是
+                            # "非阻塞项即使没就绪，也不许把记录拦住" —— 否则"今天只想
+                            # 调参数、时间基先不标定"这种合法用法会被误伤。
+                            nonblock = [it for it in rd9.get("items", [])
+                                        if not it.get("blocking")]
+                            nb_not_ok = [it.get("key") for it in nonblock
+                                         if not it.get("ok")]
+                            i19_ok = bool(rd9.get("can_record")) and bool(sid)
+                            record("I19", "PASS" if i19_ok else "FAIL",
+                                   f"只连了电脑鼠（can_record={rd9.get('can_record')}）"
+                                   f"⇒ 会话照开；清单里 {len(nonblock)} 项不拦记录，"
+                                   f"其中此刻未就绪的有 {nb_not_ok or '（无）'}"
+                                   f" —— 未就绪也不阻止记录（不误伤「先不标时间基」）"
+                                   if i19_ok else
+                                   f"只连一路就没放行：can_record={rd9.get('can_record')}、"
+                                   f"sid={sid}")
+                            # 让它真的过几拍：时间轴要有行，读数是**跑出来的**不是编的
+                            time.sleep(2.5)
+                            st9, _, _ = api(base, "/api/v1/session")
+                            cnt = ((st9.get("data") or {}).get("session") or {}).get("counts") or {}
+                            n_tl = int(cnt.get("timeline_rows") or 0)
+                            record("S3", "PASS" if n_tl > 0 else "FAIL",
+                                   f"2.5 s 内时间轴落了 {n_tl} 行（counts.timeline_rows）"
+                                   if n_tl > 0 else
+                                   f"时间轴一行都没有（counts={cnt}）⇒ 记录链路没通")
+                            r9c, c9c, _ = api(base, "/api/v1/session/close", "POST", {})
+                            warns9 = (r9c.get("data") or {}).get("warnings") or []
+                            record("S4", "PASS" if (c9c == 200 and not warns9) else "FAIL",
+                                   f"收会话 HTTP {c9c}，告警 {len(warns9)} 条"
+                                   + (f"：{warns9}" if warns9 else "（干净收尾）"))
+                            sess_dir = ROOT / "sessions" / str(sid)
+                finally:
+                    _stop_sim(sim9)
+                    api(base, "/api/v1/mouse/disconnect", "POST", {})
 
         # ------------------------------------------------------------ I4 / I6
-        head("11. 判据 I4 / I6：时间轴每行有 t_pc_ms；meta 记时钟；行数守恒")
-        import csv
-        tl = list(csv.DictReader(open(sess_dir / "timeline.csv", encoding="utf-8-sig")))
-        miss = [x for x in tl if not x.get("t_pc_ms")]
-        meta = json.loads((sess_dir / "meta.json").read_text(encoding="utf-8"))
-        clk = meta.get("clock") or {}
-        record("I4", "PASS" if (not miss and clk.get("offset_ms") is not None and clk.get("source"))
-               else "FAIL",
-               f"{len(tl)} 行时间轴，缺 t_pc_ms 的 {len(miss)} 行；"
-               f"meta.clock = offset {clk.get('offset_ms')}ms / source={clk.get('source')} / ±{clk.get('uncertainty_ms')}ms")
-        cam = json.loads((sess_dir / "camera.json").read_text(encoding="utf-8"))
-        led_n = (cam.get("store") or {}).get("frames_verified_on_pc")
-        n_tl = sum(1 for x in tl if x["source"] == "camera" and x["kind"] == "frame_verified")
-        if led_n is None:
-            record("I6", "SKIP", f"离线导入没有真实留存账本（store=null），无法比对；"
-                                 f"时间轴里 frame_verified 有 {n_tl} 行（= 交付帧数，自行对照）")
+        head("10. 判据 I4 / I6：时间轴每行有 t_pc_ms；meta 记时钟；行数守恒")
+        if sess_dir is None or not (sess_dir / "timeline.csv").is_file():
+            for cid in ("I4", "I6"):
+                record(cid, "SKIP", "没有可查的会话（正路没跑成：需要 --sim）")
         else:
-            record("I6", "PASS" if n_tl == led_n else "FAIL",
-                   f"timeline 的 frame_verified {n_tl} 行 == 账本 frames_verified_on_pc {led_n}")
+            import csv
+            tl = list(csv.DictReader(open(sess_dir / "timeline.csv", encoding="utf-8-sig")))
+            miss = [x for x in tl if not x.get("t_pc_ms")]
+            meta = json.loads((sess_dir / "meta.json").read_text(encoding="utf-8"))
+            clk = meta.get("clock") or {}
+            record("I4", "PASS" if (not miss and clk.get("offset_ms") is not None
+                                    and clk.get("source")) else "FAIL",
+                   f"{len(tl)} 行时间轴，缺 t_pc_ms 的 {len(miss)} 行；"
+                   f"meta.clock = offset {clk.get('offset_ms')}ms / "
+                   f"source={clk.get('source')} / ±{clk.get('uncertainty_ms')}ms")
+            # ✅ I6（改版二十四重钉）：原来是"timeline 的 frame_verified 行数 == 相机账本
+            #    frames_verified_on_pc"——相机账本没了。**守恒这件事本身还在**：
+            #    一场会话在 timeline 里只能有 **1 行 open + 1 行 close**（多一行 = 重复记账、
+            #    少一行 = 收了没记），且 counts.timeline_rows 必须等于文件里的真实行数
+            #    （那是内存计数器，跟文件对不上就说明有行丢了/写重了）。
+            # ⚠️ 行的**来源**别猜：`ctx.session_open` 里 open 那行是
+            #    `store.mark("mouse", "session.open", ...)`（它是"鼠会话开成了"这件事），
+            #    close 那行才是 `source="session"`。第一版把 open 也记成 `source="session"`，
+            #    于是永远读到 0 行、报一条假红（铁律 50①：判据得跟真代码同源）。
+            n_open = sum(1 for x in tl if x.get("kind") == "session.open")
+            n_open_m = sum(1 for x in tl
+                           if x.get("source") == "mouse" and x.get("kind") == "session.open")
+            n_close = sum(1 for x in tl
+                          if x.get("source") == "session" and x.get("kind") == "session.close")
+            cnt_meta = (meta.get("counts") or {}).get("timeline_rows")
+            i6_bad = []
+            if n_open != 1:
+                i6_bad.append(f"session.open {n_open} 行（应为 1）")
+            if n_open_m != 1:
+                i6_bad.append(f"来源=鼠的那行 session.open 是 {n_open_m} 行（应为 1）")
+            if n_close != 1:
+                i6_bad.append(f"session.close {n_close} 行（应为 1）")
+            if cnt_meta is not None and int(cnt_meta) != len(tl):
+                i6_bad.append(f"counts.timeline_rows={cnt_meta} ≠ 文件 {len(tl)} 行")
+            record("I6", "PASS" if not i6_bad else "FAIL",
+                   f"时间轴守恒：open {n_open} 行（来源=鼠）/ close {n_close} 行，"
+                   f"内存计数 {cnt_meta} == 文件 {len(tl)} 行"
+                   if not i6_bad else f"**记账不守恒**：{i6_bad}")
 
         # ------------------------------------------------------------ I9
-        head("12. 判据 I9：跑完之后三个上游仓库仍然干净")
-        dirty = []
-        for name, p in (("RemoteControl", ROOT.parent / "RemoteControl"),
-                        ("PhoneCamera", ROOT.parent / "PhoneCamera"),
-                        ("Auto Locate", ROOT.parent / "Auto Locate")):
-            out = subprocess.run(["git", "-C", str(p), "status", "--porcelain"],
-                                 capture_output=True, text=True).stdout.strip()
-            if out:
-                dirty.append((name, len(out.splitlines())))
-        record("I9", "PASS" if not dirty else "FAIL",
-               "三个上游仓库 git status 全空（只消费，没写过一个字节）"
-               if not dirty else f"**有仓库变脏**：{dirty}")
-
-        # ------------------------------------------------------------ 定位精度
-        head("13. 定位精度：与合成真值对比（这一条不是判据，是「链路真的通了」的证据）")
-        gt = json.loads((tmp / "camera" / "SYNTH-TEST_0001" / "ground_truth.json")
-                        .read_text(encoding="utf-8"))["frames"]
-        by_seq = {int(x.get("_seq")): x for x in rows}
-        errs, dths = [], []
-        for f in gt:
-            got = by_seq.get(int(f["seq"]))
-            if not got or not got.get("valid"):
+        head("12. 判据 I9：跑完之后两个上游依然没被本层改过")
+        # 改版二十四：PhoneCamera 不再是被消费的上游（相机整块下线）⇒ 从清单里去掉。
+        # 这条判据的意思是"本层只消费、不改上游源码"，与本层删掉了哪些上游无关。
+        #
+        # ⚠️ 判的是**增量**而不是"全空"：上游本身就是正在开发的东西（Auto Locate 里
+        # 常有几十条未提交的源码改动），要求"全空"等于要求先去提交别人的工作 ——
+        # 那不是本层能管的事，只会变成一条永远红、且指错方向的假警报（真发生过）。
+        # 所以：开跑前拍一张（`up_before`），收尾再拍一张，只问"**多出来什么**"。
+        up_after = _upstream_dirty()
+        dirty, pre_n, missing = [], [], []
+        for name in UPSTREAMS:
+            a, b = up_after.get(name), up_before.get(name)
+            if a is None:
+                missing.append(name)
                 continue
-            errs.append(math.hypot(got["x"] - f["x"], got["y"] - f["y"]))
-            dths.append(abs(((got["theta_deg"] - f["theta_deg"] + 180) % 360) - 180))
-        if errs:
-            record("INFO", "INFO",
-                   f"位置误差 均值 {sum(errs)/len(errs)*1440:.2f} mm / 最大 {max(errs)*1440:.2f} mm"
-                   f"（按 1440 mm 场地折算）；角度 均值 {sum(dths)/len(dths):.3f}° / 最大 {max(dths):.3f}°")
-        else:
-            record("INFO", "FAIL", "没有可比对的有效结果")
+            pre_n.append(f"{name} {len(b or ())} 条")
+            new = sorted(a - (b or set()))
+            if new:
+                # 「脏了几条」不够，得说出**脏在哪** —— 只报个数等于让人自己去翻整个目录；
+                # 但只给前 3 条，别把结论淹掉。
+                dirty.append(f"{name} 新增 {len(new)} 条："
+                             f"{' | '.join(x.strip() for x in new[:3])}")
+        verdict9 = "FAIL" if dirty else ("SKIP" if missing else "PASS")
+        record("I9", verdict9,
+               f"跑完这一轮两个上游**没有新增改动**（开跑前已有的未提交改动："
+               f"{'、'.join(pre_n) or '无'} —— 那是上游自己的活，不算本层写的）"
+               if not dirty else f"**本层把上游写脏了**：{dirty}")
+        if missing:
+            print(f"         判不了：{missing} 不在本工程旁边")
+
+        # ⚠️ 改版二十四删掉的一节：「13. 定位精度：与合成真值对比」。
+        # 它拿合成帧的 ground_truth 与在线定位结果比毫米级误差 —— 合成帧生成器
+        # （`tools/make_synth_frames.py`）、在线定位、真值文件全随相机下线。
+        # 位置精度现在该由 **Auto Locate 自己的评估**回答（它有自己的合成自检），
+        # 本层只负责把轨迹画出来 ⇒ 不再在这里重复一套精度取证。
 
         # ------------------------------------------------------------ I29（纯函数，无需设备）
         # 上游 2.2.1 新增的发车前**低电硬闸**（`registry._precheck_maze_run` + `LAUNCH_MIN_MV`）。
@@ -2255,6 +1921,236 @@ def main(argv=None) -> int:
                if i36_ok else
                f"**完整性差量不对**：{i36_bad[:4]}")
 
+        # ---- I37：4 灯三态（改版二十四 / 上游 2.13.0 FW 311）
+        # 守的是**"未知不是灭"**：FW 310 及以下状态B1 的 bit2–5 是预留恒 0，
+        # 读到的 0 只说明固件不报。判据全在纯函数 `control/leds.py` 上，不需要设备。
+        #   ① 正常：fw 311 + 通道在 ⇒ 1→True / 0→False（真的解出两种）；
+        #   ② 负向：fw 310 / fw 未知 / 通道不在清单 ⇒ **None**，一个 False 都不许有；
+        #   ③ 类型异常：`"1"` 这种字符串不许猜成 True（上游换类型要有人知道）。
+        head("13f. 判据 I37：4 灯三态（未知 ≠ 灭 / fw<311 不判）")
+        i37_bad, i37_got = [], []
+        try:
+            from control.leds import led_states, LED_KEYS
+
+            ch_all = list(LED_KEYS)
+            rec_mix = {"led1": 1, "led2": 0, "led3": 1, "led4": 0}
+
+            got = led_states(rec_mix, ch_all, "311")
+            if got != {"led1": True, "led2": False, "led3": True, "led4": False}:
+                i37_bad.append(f"fw311 正常解应 1/0/1/0，实得 {got}")
+            else:
+                i37_got.append("1/0 解出亮灭")
+
+            got = led_states(rec_mix, ch_all, 310)
+            if any(v is not None for v in got.values()):
+                i37_bad.append(f"**fw310 把预留位读成了真实电平**：{got}")
+            else:
+                i37_got.append("fw310 全未知")
+
+            got = led_states(rec_mix, ch_all, None)
+            if any(v is not None for v in got.values()):
+                i37_bad.append(f"fw 未知时应全 None，实得 {got}")
+            else:
+                i37_got.append("fw 未知不判")
+
+            got = led_states(rec_mix, ["mazeTask", "posX"], 311)
+            if any(v is not None for v in got.values()):
+                i37_bad.append(f"通道不在清单里时应全 None，实得 {got}")
+            else:
+                i37_got.append("缺通道全未知")
+
+            got = led_states({"led1": 1}, None, 311)
+            if not (got["led1"] is True and got.get("led2") is None):
+                i37_bad.append(f"单键帧应只判存在的那个，实得 {got}")
+            else:
+                i37_got.append("缺键只判存在的")
+
+            # 负向：字符串不是解码器的合法输出，不许猜成 True（三态纪律）
+            got = led_states({"led1": "1", "led2": "0"}, ch_all, 311)
+            if got["led1"] is not None or got["led2"] is not None:
+                i37_bad.append(f"字符串值不许猜成布尔，实得 {got}")
+            else:
+                i37_got.append("类型异常不猜")
+        except Exception as e:                                    # noqa: BLE001
+            i37_bad.append(f"跑 I37 时抛异常：{type(e).__name__}: {e}")
+        i37_ok = not i37_bad
+        record("I37", "PASS" if i37_ok else "FAIL",
+               f"4 灯三态：{'；'.join(i37_got)}"
+               if i37_ok else
+               f"**4 灯三态不对**：{i37_bad[:4]}")
+
+        # ---- I38：时间轴自洽校验（改版二十四，拍板③"识别侧保证一致、前端不处理对轴"）
+        # 本层不再做人工对轴，但仍然要**验**这条轴：拿一条自相矛盾的轴去画"12.34 s"
+        # 比不画更坏（看起来和真的一样准）。判据全在纯函数 `video_io.timebase_check` 上。
+        #   ① 正常数据 ⇒ ok=True、trust="seconds"（**不许误报**）；
+        #   ② 三种坏法各自判出，且 issues 里**指名**是哪一条（不是笼统"异常"）；
+        #   ③ VFR ⇒ trust="frames"（只信帧号），即使没别的毛病；
+        #   ④ 空轨迹 ⇒ no_rows，不许 ok=True。
+        head("13g. 判据 I38：时间轴自洽（坏法指名 / VFR 只信帧号）")
+        i38_bad, i38_got = [], []
+        try:
+            from control.video_io import timebase_check
+
+            def _mk(n=100, fps=30.0, stride=1):
+                return [{"frame": k * stride, "t_video_s": (k * stride) / fps,
+                         "valid": True, "x": 0.5, "y": 0.5} for k in range(n)]
+
+            good = _mk()
+            tb = timebase_check(good, {"fps_declared": 30.0, "frames": 100}, stride=1)
+            if not (tb["ok"] and tb["trust"] == "seconds" and not tb["issues"]):
+                i38_bad.append(f"正常数据被判坏了：{tb}")
+            else:
+                i38_got.append("正常不误报")
+
+            rows = _mk()
+            rows[50]["frame"] = rows[49]["frame"]        # 帧号不递增
+            tb = timebase_check(rows, {"fps_declared": 30.0})
+            if "frame_gap" not in [i["code"] for i in tb["issues"]]:
+                i38_bad.append(f"帧号断裂没判出：{tb['issues']}")
+            else:
+                i38_got.append("帧号断裂")
+
+            rows = _mk()
+            rows[60]["t_video_s"] = rows[59]["t_video_s"] - 0.1   # 时间戳回退
+            tb = timebase_check(rows, {"fps_declared": 30.0})
+            if "ts_backwards" not in [i["code"] for i in tb["issues"]]:
+                i38_bad.append(f"时间戳回退没判出：{tb['issues']}")
+            else:
+                i38_got.append("时间戳回退")
+
+            tb = timebase_check(_mk(), {"fps_declared": 30.0, "frames": 200})
+            if "n_frames_mismatch" not in [i["code"] for i in tb["issues"]]:
+                i38_bad.append(f"元数据帧数不符没判出：{tb['issues']}")
+            else:
+                i38_got.append("元数据不符")
+
+            tb = timebase_check(_mk(), {"fps_declared": 30.0, "frames": 100,
+                                       "vfr_suspected": True})
+            if tb["trust"] != "frames":
+                i38_bad.append(f"VFR 仍宣称精确秒（trust={tb['trust']}）")
+            else:
+                i38_got.append("VFR 只信帧号")
+
+            tb = timebase_check([], {"fps_declared": 30.0})
+            if tb["ok"] or "no_rows" not in [i["code"] for i in tb["issues"]]:
+                i38_bad.append(f"空轨迹被当成正常：{tb}")
+            else:
+                i38_got.append("空轨迹不合规")
+        except Exception as e:                                    # noqa: BLE001
+            i38_bad.append(f"跑 I38 时抛异常：{type(e).__name__}: {e}")
+        i38_ok = not i38_bad
+        record("I38", "PASS" if i38_ok else "FAIL",
+               f"时间轴自洽：{'；'.join(i38_got)}"
+               if i38_ok else
+               f"**时间轴校验不对**：{i38_bad[:4]}")
+
+        # ---- I39：会话产物读取（改版二十四）
+        # 守的是"缺列/畸形要明确报错，不静默出 0 点"：一张空轨迹图看起来像"车没动"，
+        # 而真实原因往往是产物格式变了 —— 这是最贵的那种静默错。
+        head("13h. 判据 I39：视频会话产物读取（缺列/畸形不静默出 0 点）")
+        i39_bad, i39_got = [], []
+        try:
+            import csv as _csv
+            import json as _json
+            import tempfile
+            from control.video_io import (VideoError, VideoNotFound, read_session,
+                                          read_trajectory)
+
+            _HDR = ("frame,t_video_s,t_rel_s,valid,x,y,theta_deg,dir_x,dir_y,"
+                    "rms_field,origin_id,corner_ids,flags,reason").split(",")
+
+            def _mk_case(*, sj=True, csv_text=None, header=None):
+                d = Path(tempfile.mkdtemp(prefix="v_i39_"))
+                if sj:
+                    (d / "session.json").write_text(
+                        _json.dumps({"video": {"fps_declared": 30.0, "frames": 3},
+                                     "frames": {"n_total": 3, "n_valid": 2},
+                                     "flags": []}), encoding="utf-8")
+                if csv_text is not None:
+                    (d / "trajectory.csv").write_text(csv_text, encoding="utf-8-sig")
+                elif header is not None:
+                    import io
+                    buf = io.StringIO()
+                    w = _csv.writer(buf)
+                    w.writerow(header)
+                    (d / "trajectory.csv").write_text(buf.getvalue(), encoding="utf-8")
+                return d
+
+            rows_txt = ("frame,t_video_s,t_rel_s,valid,x,y,theta_deg,dir_x,dir_y,rms_field,"
+                        "origin_id,corner_ids,flags,reason\r\n"
+                        "0,0.0,0.0,True,0.12,0.34,90,0,1,0.8,1,1;2;3;4,,\r\n"
+                        "1,0.0333,0.0333,False,,,,,,,,,no_target\r\n"
+                        "2,0.0667,0.0667,True,0.13,0.35,91,0,1,0.7,1,1;2;3;4,,\r\n")
+            d0 = _mk_case(csv_text=rows_txt)
+            try:
+                sj0 = read_session(d0)
+                tj0 = read_trajectory(d0)
+                if sj0.get("video", {}).get("frames") != 3:
+                    i39_bad.append(f"session.json 没读对：{sj0}")
+                if not (tj0["n_total"] == 3 and tj0["rows"][0]["frame"] == 0
+                        and tj0["rows"][0]["valid"] is True
+                        and abs(tj0["rows"][0]["x"] - 0.12) < 1e-9
+                        and tj0["rows"][1]["valid"] is False):
+                    i39_bad.append(f"轨迹解析不对：n={tj0['n_total']} 首行={tj0['rows'][:2]}")
+                else:
+                    i39_got.append("正常产物可读")
+            finally:
+                _rmtree_quiet(d0)
+
+            d1 = _mk_case(sj=False, csv_text=rows_txt)
+            try:
+                try:
+                    read_session(d1)
+                    i39_bad.append("缺 session.json 时没报错（会静默当成空会话）")
+                except VideoNotFound:
+                    i39_got.append("缺 session.json 报 404 类错")
+            finally:
+                _rmtree_quiet(d1)
+
+            d2 = _mk_case(sj=True)
+            try:
+                try:
+                    read_trajectory(d2)
+                    i39_bad.append("缺 trajectory.csv 时没报错")
+                except VideoNotFound:
+                    i39_got.append("缺 trajectory.csv 报错")
+            finally:
+                _rmtree_quiet(d2)
+
+            # 缺列：把 x 列去掉 ⇒ 必须说"缺列"，不许照样读成 0 点
+            hdr_miss = [c for c in _HDR if c != "x"]
+            d3 = _mk_case(sj=True, header=hdr_miss)
+            try:
+                try:
+                    read_trajectory(d3)
+                    i39_bad.append("缺 x 列没报错（会画出一堆无坐标点）")
+                except VideoError as e:
+                    if "缺列" not in str(e):
+                        i39_bad.append(f"缺列报错没说清缺什么：{e}")
+                    else:
+                        i39_got.append("缺列指名")
+            finally:
+                _rmtree_quiet(d3)
+
+            # 有行但帧号全空 ⇒ 不许静默 0 点
+            d4 = _mk_case(sj=True, csv_text=(
+                "frame,t_video_s,valid,x,y\r\n,,,,,\r\n,,,,,\r\n"))
+            try:
+                try:
+                    tj = read_trajectory(d4)
+                    i39_bad.append(f"帧号全空却返回了 {tj['n_total']} 点（静默出 0 点）")
+                except VideoError:
+                    i39_got.append("帧号全空报错")
+            finally:
+                _rmtree_quiet(d4)
+        except Exception as e:                                    # noqa: BLE001
+            i39_bad.append(f"跑 I39 时抛异常：{type(e).__name__}: {e}")
+        i39_ok = not i39_bad
+        record("I39", "PASS" if i39_ok else "FAIL",
+               f"会话产物读取：{'；'.join(i39_got)}"
+               if i39_ok else
+               f"**产物读取不对**：{i39_bad[:4]}")
+
         # ------------------------------------------------------------ I15~I17
         # 这三条是**上游 1.2/1.3/1.4 更新**带来的新失败模式，需要一条活链路才能判。
         head("14b. 判据 I15 / I16 / I17：跟上游更新（需要模拟器）")
@@ -2280,18 +2176,24 @@ def main(argv=None) -> int:
 
         # ------------------------------------------------------------ 需要硬件的
         head("15. 需要现场硬件才能判的（这里如实标出，不假装通过）")
-        record("I11", "SKIP", f"半自动：complete=null 时前端渲染为「判不了」。"
-                              f"服务端已在 /camera/ledger 里给出 _complete_meaning，"
-                              f"但需要一台真的手机才能造出 null 的账本")
+        # ⚠️ 改版二十四：原来这里挂的是 I11（相机账本 `complete=null` 的三态渲染，
+        # 需要一台真手机）—— 相机没了，那条判据的被测对象也没了。
+        # 现在"必须真有东西"的只剩视频解析这**一整条外链**：
+        record("V1", "SKIP", "真实视频 → Auto Locate 解析的**端到端**：需要一段真视频 + "
+                              "上游视觉依赖（cv2/numpy）齐全。本文件只验**产物读取与三态逻辑**"
+                              "（I38/I39）+ 子进程的起停路径；解析质量归上游自己的评估")
         record("I3*", "INFO", "串口占用已实测；但'先关 run_host.py'那句提示要真开着 GUI 才会走到")
-        record("I12*", "INFO", f"{HW_ONLY}：一次 5 MB 慢投递下 /health 仍 < 1 s（需要真采集）")
+        record("I12*", "INFO", f"{HW_ONLY}：真机 250 Hz 满流下 /health 仍 < 1 s（需要真设备）")
 
         # ------------------------------------------------------------ 产物
         head("产物")
-        print(f"  会话目录：{sess_dir}")
-        for f in sorted(sess_dir.rglob("*")):
-            if f.is_file():
-                print(f"    {f.relative_to(sess_dir)}  ({f.stat().st_size} B)")
+        if sess_dir is None or not Path(sess_dir).is_dir():
+            print("  （没有会话目录：正路需要 --sim 才跑得起来）")
+        else:
+            print(f"  会话目录：{sess_dir}")
+            for f in sorted(Path(sess_dir).rglob("*")):
+                if f.is_file():
+                    print(f"    {f.relative_to(Path(sess_dir))}  ({f.stat().st_size} B)")
         print(f"\n  日志尾：")
         log, _, _ = api(base, "/api/v1/logs/tail?n=12")
         for m in (log.get("data") or []):

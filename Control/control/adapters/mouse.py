@@ -126,6 +126,9 @@ from dataclasses import asdict, is_dataclass
 
 from ..bus import Bus, f32_2d
 from ..clock import mono_to_ms, now_ms
+# 4 灯三态（改版二十四 / 上游 2.13.0）：判定只在这一处（铁律 32）——
+# 前端拿到的是 True/False/**None**，"未知不是灭"这件事由这里保证。
+from ..leds import led_states
 # 墙图重建（实验 8 的中栏"重构示意"）。复用**同一个类**：实时从环形缓冲重建、
 # 复盘从记录文件重放 —— 两边走同一套方向转换，才不会"实时看到的图与复盘的不一样"。
 from ..maze_rec import MazeWallMap
@@ -2317,9 +2320,18 @@ class MouseAdapter:
             # `keep=64` 是有意的：全部标量键是 52 个，裁到 40/48 会把派生键悄悄砍掉，
             # 前端那个字段就永远是 `—`（`_small` 的注释里有详细说明）。
             rec = mc.telemetry.latest() or {}
+            # 4 灯三态（上游 2.13.0 / FW 311）。`device` 是 PING 回话的 dict 拷贝，
+            # 这里每拍读一次只为拿 `fw`：它决定"这 4 位到底在报、还是预留恒 0"。
+            # ⚠️ 取不到 fw 就**不判**（led_states 会给 None），绝不拿 0 顶上：
+            #    旧固件上那 4 位恒 0，判成"灭"会让人去查线路。
+            try:
+                _fw = (getattr(mc, "device", None) or {}).get("fw")
+            except Exception:                                # noqa: BLE001
+                _fw = None
             self.bus.publish("mouse.telemetry", {
                 "unified": _small(rec, 64),
                 "channels": list(self._unified_channels or []),
+                "leds": led_states(rec, self._unified_channels, _fw),
                 "rate": self._rate_snapshot(mc),
                 "bps": mc.telemetry.bytes_per_second(),
                 "streaming": mc.telemetry.is_streaming(),

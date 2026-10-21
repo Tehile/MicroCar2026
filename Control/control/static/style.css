@@ -57,6 +57,18 @@ a{color:var(--acc)}
 .lamp em{color:var(--dim);font-style:normal;font-family:var(--mono);font-size:11px}
 .lamp.gated em{color:var(--warn)}
 .sessline{display:flex;gap:10px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--dim)}
+/* 设备侧 4 个 LED（上游 2.13.0，实时状态卡的状态行）。
+   **不复用 .lamp**：那是顶栏的子系统健康灯（可点、有 hover），改它会把两件事一起改。
+   三态靠形状也能分：亮=实心发光，灭=空心实线，未知=空心虚线（未知长得就不像"灭"）。 */
+.leds{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px}
+.leds b{display:inline-flex;align-items:center;gap:5px;font-weight:400;color:var(--dim)}
+.leds i{width:9px;height:9px;border-radius:50%;display:inline-block;flex:0 0 auto;
+  border:1px solid var(--dim2);background:transparent}
+.leds b.on{color:var(--fg)}
+.leds b.on i{background:var(--ok);border-color:var(--ok);box-shadow:0 0 6px var(--ok)}
+.leds b.off i{background:transparent;border-color:var(--dim2)}
+.leds b.unk{color:var(--warn)}
+.leds b.unk i{border-style:dashed}
 .sep{width:1px;height:14px;background:var(--line);display:inline-block}
 .actions{margin-left:auto;display:flex;gap:6px;align-items:center}
 .ledger.unknown{color:var(--warn)}
@@ -115,9 +127,11 @@ a{color:var(--acc)}
 
 /* ---------- 两栏：左相机 / 右小车（「综合运动」界面内部布局） ----------
    它在模块界面里撑满剩余高度，底部压一条可收纳的整合栏。 */
-#body{display:grid;grid-template-columns:1fr 1fr;min-height:0;flex:1}
+/* 改版二十四：左栏（场地·相机）随相机下线 ⇒ **单栏**。
+   写 1fr 而不是删掉 grid：`.col` 的 flex 布局与 `#body` 的高度链都靠这一层。 */
+#body{display:grid;grid-template-columns:1fr;min-height:0;flex:1}
 .col{display:flex;flex-direction:column;min-width:0;min-height:0}
-#col-cam{border-right:1px solid var(--line)}
+.col + .col{border-left:1px solid var(--line)}   /* 将来若再加一栏，分隔线自动出现 */
 .rail-tabs{display:flex;align-items:center;gap:3px;padding:5px 8px;
   background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
 .rail-name{font-size:9.5px;letter-spacing:.06em;color:var(--dim);opacity:.75;
@@ -188,7 +202,7 @@ a{color:var(--acc)}
 }
 /* 一栏放不下并排两块面板时改单列，而不是硬挤到看不清数字。 */
 @media (max-width:1500px){
-  #col-cam .grid2,#col-mouse .grid2{grid-template-columns:1fr}
+  #col-mouse .grid2{grid-template-columns:1fr}
 }
 
 /* ---------- 模态（设备窗口） ---------- */
