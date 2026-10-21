@@ -1,0 +1,43 @@
+{
+  "port": "COM7",
+  "ts": "2026-10-22 00:18:27",
+  "pass": 0,
+  "fail": 1,
+  "ack_retries": [
+    [
+      "PING",
+      "TIMEOUT (retry 1)",
+      0
+    ],
+    [
+      "PING",
+      "TIMEOUT (retry 2)",
+      1
+    ],
+    [
+      "PING",
+      "TIMEOUT (retry 3)",
+      2
+    ],
+    [
+      "PING",
+      "TIMEOUT (retry 4)",
+      3
+    ],
+    [
+      "PING",
+      "TIMEOUT (retry 5)",
+      4
+    ],
+    [
+      "RATE OFF",
+      "TIMEOUT (retry 1)",
+      0
+    ],
+    [
+      "RATE OFF",
+      "TIMEOUT (retry 2)",
+      1
+    ]
+  ]
+}
