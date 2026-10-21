@@ -1122,7 +1122,12 @@ def main() -> int:
             print("  ⚠ 一次标记帧都没收到: 固件没打标记(旧固件?) ⇒ 判据已退回 ACK/间隙")
         # 上面只打"最关键"的一屏; RTT 阶梯/ms8 直方图/批起点间隔/模型不符/ACK 提前量等
         # 诊断明细仍在 *_summary.txt 里, 不再刷屏。
-        print("  MCU 丢帧字节 末值 %s   增量累计 %s" % (fl.drop(), drop_acc))
+        # v9(30 B 载荷)起帧内没有 dropCnt ⇒ `fl.drop()` 恒 None。不要把 None 当"链路没问题"打印,
+        # 明确写成 N/A, 并把健康度的替代口径指出来(主机侧 seq_lost / bad_crc / gap)。
+        _d = fl.drop()
+        _dtxt = ("N/A(v9 帧内已删 dropCnt —— 改看主机 seq_lost/bad_crc)"
+                 if _d is None else "%s   增量累计 %s" % (_d, drop_acc))
+        print("  MCU 丢帧字节 %s" % _dtxt)
         print("=" * 82)
 
         with open(out_csv.replace(".csv", "_summary.txt"), "w", encoding="utf-8") as f:
@@ -1160,7 +1165,7 @@ def main() -> int:
             if ack_lead:
                 f.write("ACK 提前量 均值: %.2f ms\nACK 提前量 σ: %.2f ms\n"
                         % (st_(ack_lead)[0], st_(ack_lead)[1]))
-            f.write("MCU 丢帧字节末值: %s\nMCU 丢帧增量: %s\n" % (fl.drop(), drop_acc))
+            f.write("MCU 丢帧字节: %s\n" % _dtxt)
         print("数据: %s (+_periods.csv/_frames.csv/_summary.txt)"
               % out_csv)
 

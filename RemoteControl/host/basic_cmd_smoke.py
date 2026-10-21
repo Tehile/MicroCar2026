@@ -218,12 +218,12 @@ def selftest() -> int:
 
     # --- 2) 上行正则吃下固件真实格式 ---
     # 固件 link.c:2499-2509  PONG <proto> <fw> <mazetype> <txbuf> <rst>
-    pong = parse_pong(["PONG 8 300 16 1024 POR"])
+    pong = parse_pong(["PONG 9 310 16 1024 POR"])
     check("解析 PONG(固件 link.c:2499 拼装)",
-          pong == {"proto": 8, "fw": 300, "mazetype": 16,
+          pong == {"proto": 9, "fw": 310, "mazetype": 16,
                    "txbuf": 1024, "rst": "POR"}, str(pong))
     check("PONG 复位原因认 SW/PIN/IWDG/POR",
-          all(parse_pong(["PONG 8 300 16 1024 %s" % r])["rst"] == r
+          all(parse_pong(["PONG 9 310 16 1024 %s" % r])["rst"] == r
               for r in ("SW", "PIN", "IWDG", "POR")), "4/4")
 
     # 固件 link.c:2079/2104/2126  ACK <seq> <status>[ <a> <b> <c>]
@@ -284,7 +284,7 @@ def selftest() -> int:
     miss = need - set(rec.keys())
     check("decode_unified 含全部关键字段", not miss,
           "共 %d 字段, 缺 %s" % (len(rec), sorted(miss) or "无"))
-    check("UNIFIED_LEN = 49 字节", UNIFIED_LEN == 49, str(UNIFIED_LEN))
+    check("UNIFIED_LEN = 30 字节(v9)", UNIFIED_LEN == 30, str(UNIFIED_LEN))
 
     # --- 6) CRC 错误注入报文本身可构造(错误注入只走 raw(), 不经 build()) ---
     body = b"GET TRACKL #9001"
@@ -344,8 +344,8 @@ def main() -> int:
             return 1
         print("       固件: PONG %d %d %d %d %s" % (
             pong["proto"], pong["fw"], pong["mazetype"], pong["txbuf"], pong["rst"]))
-        check("proto = 8", pong["proto"] == 8, "proto=%d" % pong["proto"])
-        check("fw = 300 (远程档)", pong["fw"] == 300, "fw=%d" % pong["fw"])
+        check("proto = 9", pong["proto"] == 9, "proto=%d" % pong["proto"])
+        check("fw = 310 (远程档, v9)", pong["fw"] == 310, "fw=%d" % pong["fw"])
         check("mazetype = 16", pong["mazetype"] == 16, "mazetype=%d" % pong["mazetype"])
         check("rst = POR/SW/PIN/IWDG", pong["rst"] in ("POR", "SW", "PIN", "IWDG"),
               "rst=%s" % pong["rst"])
@@ -371,7 +371,7 @@ def main() -> int:
             print("       稳态 RTT 平均 %.0f ms / 最大 %.0f ms (仅记录, 不判定)"
                   % (avg, max(rtts)))
         # 字段完整性: talk() 返回的 frames 是 **payload 字节列表**, 字段名要靠
-        # decode_unified() 解出(camelCase)。UNIFIED_LEN = 49 字节。
+        # decode_unified() 解出(camelCase)。UNIFIED_LEN = 30 字节(v9)。
         if fr0:
             check("统一帧 payload 长度 = %d" % UNIFIED_LEN,
                   len(fr0[0]) == UNIFIED_LEN, "实际 %d 字节" % len(fr0[0]))

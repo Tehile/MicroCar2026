@@ -99,7 +99,7 @@ class StatusPanel(QWidget):
         self.f_speedL = _Field("左轮速度", "cm/s")
         self.f_speedR = _Field("右轮速度", "cm/s")
         self.f_angle = _Field("陀螺航向", "deg")
-        self.f_err = _Field("pidErr", "")
+        self.f_err = _Field("冲刺", "")   # v9: pidErr 已出帧, 该位改显示冲刺态(spurtFlag/档位/去返)
         for f in (self.f_speedL, self.f_speedR, self.f_angle, self.f_err):
             self.c_speed.add(f)
 
@@ -153,13 +153,12 @@ class StatusPanel(QWidget):
         ang = float(f.get("gyroAngle", 0))
         self.f_angle.set(f"{ang:+7.1f}")
 
-        err = f.get("pidErr", 0)
-        try:
-            errf = float(err)
-        except (TypeError, ValueError):
-            errf = 0.0
-        self.f_err.set(f"{errf:+7.1f}",
-                       C_OK if abs(errf) < 3 else (C_WARN if abs(errf) < 10 else C_BAD))
+        # v9: pidErr 不再上线。这一行改显示冲刺态(是否已启动 / 档位名 / 去返方向)。
+        if f.get("spurtFlag"):
+            sp = str(f.get("spurtModeName") or "-")
+            self.f_err.set("%s %s" % (sp, "返" if f.get("goOrBack") else "去"), C_WARN)
+        else:
+            self.f_err.set("未启动", C_OK)
 
         task = int(f.get("motionTask", 0))
         self.f_task.set(MOTION_TASK_NAMES.get(task, str(task)))

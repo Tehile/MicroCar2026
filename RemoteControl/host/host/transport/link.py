@@ -392,9 +392,10 @@ class Link:
         return s
 
     # v2.0 起固件**自时钟发送**: 无 Hz 上限, 帧率由链路能力决定。
-    # 理论上限 = 115200-8-N-1 = 11520 B/s; 一帧 57 B → 额定 ≈202 Hz / ≈11501 B/s。
+    # 理论上限 = 115200-8-N-1 = 11520 B/s; v9 一帧 38 B(30 载荷 + 8 开销)
+    # → 额定 ≈303 Hz / ≈11514 B/s(v8 是 57 B / ≈202 Hz)。
     _THEORETICAL_BPS = 11520.0
-    _FRAME_BYTES = FRAME_OVERHEAD + UNIFIED_LEN  # 57
+    _FRAME_BYTES = FRAME_OVERHEAD + UNIFIED_LEN  # 38 (v9)
 
     def self_check(self) -> Dict[str, object]:
         """链路自检(仅**诊断**, 不再给出"降级速率"建议)。

@@ -80,13 +80,17 @@ _orig_decoder = _orig.decoder
 
 
 def _decoder_with_extras(payload: bytes) -> dict:
-    """在 registry 解码器之上补一个 `mcuDrop`(固件 TX 环累计丢帧低 8 位, offset 44)。
+    """在 registry 解码器之上补一个 `mcuDrop`(固件 TX 环累计丢帧低 8 位, **旧布局** offset 44)。
 
     ⚠️ v2.6 起**不再**补 `fpsBroadcast`: 统一帧尾部的 2 B 目标帧率是实验期字段,
-    已随 AIMD 一起删除, 载荷恒定 49 B —— 那两字节不存在。
+    已随 AIMD 一起删除 —— 那两字节不存在。
+    ⚠️ **v9(30 B 载荷)起帧内没有丢帧计数了**(`dropCnt` 被删, 见 docs/通信协议v9-统一帧重排方案.md §6)。
+    于是本函数在 v9 板上**不会**产出 `mcuDrop`, 逐帧 drop 记为 -1(= 不可用), `fl.drop()` 回 None。
+    这是**预期行为**, 不是链路异常: 健康度改看主机侧 `seq_lost` / `bad_crc`(事件流)与
+    `gap` 统计; 若日后固件把 `linkDrop` 挂到 `PING`/`GET ALL` 上, 再从这里补一条低频读取。
     """
     d = _orig_decoder(payload)
-    if len(payload) > 44:
+    if len(payload) >= 45:                  # 仅 v8(49 B)布局有 offset 44
         d["mcuDrop"] = payload[44]          # u8: 固件 TX 环满累计丢帧低 8 位
     return d
 
