@@ -19,9 +19,11 @@ S2 单帧语义   连续 8 次 TELEM: 载荷必须**正好 30 B**。烧了 v8 �
                codec 会拿 49 B 的前 30 B 去解, **不报错只出垃圾**, 所以必须量长度;
                再验 29 通道齐全、`frontNear == wallFront & !frontFar`、`frontFar ⊆ wallFront`、
                位域宽度(garbage 会越界)。
-S3 容量阶梯   (可选) 子进程跑既有**事件触发式**拉取器 `link_pull_evt.py`, N=4/6/8 各 20 s,
+S3 容量阶梯   (可选) 子进程跑既有**事件触发式**拉取器 `link_pull_evt.py`, 默认 N=4/5 各 20 s,
                看交付率 / 实收 Hz, 得到 v9 的**新容量点**。v8 时代被 57 B/帧的经验值
                `--max-hz 13.3` 卡住, 38 B/帧理论上限 303 Hz ⇒ 这里显式把闸放宽再测。
+               **实测(N=4 13.1 Hz / N=5 17.0 Hz 均 20 s 存活, 交付率 1.000; N=6 20.3 Hz
+               但 17 s 后整条链路死透, 须拔电重启模块)** ⇒ 默认阶梯止于 5, N>=6 要显式指定。
 S4 收尾       `RATE OFF` 后 1.2 s 内不得再有统一帧(在途 <=1 属正常), 再取一帧确认
                `estop_lock` / `emerg` 均为 False —— 证明拉取能干净停住、不留残流。
 
@@ -268,12 +270,27 @@ def stage1_ping(lk, parse_pong, parse_ack) -> dict | None:
     print("\n[S1] PING —— 链路指纹(判烧错档/旧固件的唯一入口)")
     frames, lines, rtt = lk.talk("PING", timeout=3.0)
     pong = parse_pong(lines)
+    # ---- 首包重试(最多 3 次) ----
+    # 现场实测: 刚打开串口后的**第一包**偶发只剩尾部 ACK、前 30 B 的 PONG 整行丢失。
+    # 这不是固件问题 —— PONG 与 ACK 走同一个 TX 环与同一次 DMA: 环满只会丢**尾部**
+    # 字节(先丢 ACK), 不可能只丢前面的 PONG。判据也该反过来用: 只丢前段 = 主机侧
+    # USB/CH340 首包截断; 只看到 ACK 而没 PONG 时重发即可(60 次连测 0 复现)。
+    tries = 1
+    while pong is None and tries < 3:
+        print("      第 %d 次: %s ⇒ 重试" % (
+            tries, "只有 ACK 无 PONG(首包被 USB 截断)" if parse_ack(lines) else "全静默"))
+        time.sleep(0.35)
+        frames, lines, rtt = lk.talk("PING", timeout=1.5)
+        pong = parse_pong(lines)
+        tries += 1
     if pong is None:
         print("      收 %d 行, 无 PONG. 三种全静默按此顺序排: "
               "①USART1 NVIC 未使能 ②上电陀螺标定未完成(车不静止) ③透传模块被灌死(须断电)"
               % len(lines))
-        check("PING 有 PONG 回应", False, "超时")
+        check("PING 有 PONG 回应", False, "3 次均超时")
         return None
+    if tries > 1:
+        print("      (第 %d 次才拿到 PONG —— 首包截断, 已自动重试)" % tries)
     print("       PONG %d %d %d %d %s   RTT=%.0f ms" % (
         pong["proto"], pong["fw"], pong["mazetype"], pong["txbuf"], pong["rst"], rtt))
     ok = check("proto = %d (v9)" % EXPECT_PROTO, pong["proto"] == EXPECT_PROTO,
@@ -633,7 +650,11 @@ def main() -> int:
     ap.add_argument("port", nargs="?", default=None, help="串口, 如 COM7")
     ap.add_argument("--selftest", action="store_true", help="离线自检(不接串口)")
     ap.add_argument("--no-ladder", action="store_true", help="跳过 S3 容量阶梯")
-    ap.add_argument("--ladder", default="4,6,8", help="N 阶梯, 逗号分隔(默认 4,6,8)")
+    # 默认 4,5 —— 实测 N=5 是安全顶(17.0 Hz, 20 s 存活);
+    # N=6 能跑到 20.3 Hz 但 17 s 后链路整条死透(连 ACK 都没有, 须拔电重启模块),
+    # 所以默认阶梯不碰它, 要冲顶必须显式 `--ladder 4,6`。
+    ap.add_argument("--ladder", default="4,5",
+                    help="N 阶梯, 逗号分隔(默认 4,5 安全档; N>=6 实测会灌死透传模块, 须断电)")
     ap.add_argument("--ladder-sec", type=float, default=20.0, help="每档时长(s)")
     ap.add_argument("--hz-cap", type=float, default=40.0,
                     help="传给拉取器的 --max-hz(默认 40, 放开 v8 的 13.3 硬闸)")
