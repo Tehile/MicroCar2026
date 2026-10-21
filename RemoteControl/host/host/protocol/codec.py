@@ -91,11 +91,14 @@ UNIFIED_CHANNELS: List[str] = [
     "posX", "posY",
     # 冲刺上下文
     "spurtMode", "spurtTestFlag", "goaheadnum",
+    # v9.1(fw 311): 4 个 LED 的亮灭 —— 追加在末尾是硬要求, 否则 RingBuffer 历史数据错列
+    "led1", "led2", "led3", "led4",
 ]
-#: v9 起 30 B 载荷展平成 29 个通道(pos 拆两项、四个位打包字节装 12 个字段)。
+#: v9 起 30 B 载荷展平成 29 个通道(pos 拆两项、四个位打包字节装 12 个字段);
+#: v9.1 把状态B1 的预留位用掉 4 个上报 LED => **33 个通道**, 帧长仍 30 B。
 #: `frontNear` 是**派生量**(= wallFront & !frontFar), 由 decode 现算, 不占列。
 #: 改动打包要同步这个数与 U_* 偏移。
-assert len(UNIFIED_CHANNELS) == 29, len(UNIFIED_CHANNELS)
+assert len(UNIFIED_CHANNELS) == 33, len(UNIFIED_CHANNELS)
 
 #: 统一帧的**额定上限**帧率(Hz) —— 38B/帧 ÷ 11.52 KB/s ≈ 303 Hz(v9: 30B 载荷)。
 #: ⚠️ v2.1 起遥测是**拉取式**的, 实际帧率由链路能力与请求窗口决定(真机实测这条
@@ -147,6 +150,13 @@ FRONT_NAMES: Dict[int, str] = {0: "无墙", 1: "近端(贴脸)", 2: "远端(提�
 STATE_A_OBJECT = 0x20       # mazeState.objectGoToFlag(回坐标中)
 STATE_B1_SPURTFLAG = 0x01   # taskSt.spurtFlag
 STATE_B1_GOBACK = 0x02      # taskSt.goOrBack(去/回)
+# v9.1(fw 311): bit2-5 = 4 个 LED 的**真实亮灭**(1=亮), 占掉原预留 6 位中的低 4 位。
+# 固件是"读 GPIO ODR 再取反"(板子低电平点亮), 所以这四位反映引脚上真实电平,
+# 而不是"代码以为的亮灭" —— 远程档有 6 个写点, 其中至少 3 处绕过 ledon() 直写引脚。
+STATE_B1_LED1 = 0x04        # LED1 = PA8
+STATE_B1_LED2 = 0x08        # LED2 = PC9
+STATE_B1_LED3 = 0x10        # LED3 = PC8
+STATE_B1_LED4 = 0x20        # LED4 = PC7
 SP_TEST = 0x08              # mazeState.spurtTestFlag
 SP_GOAHEAD_SHIFT = 4        # goaheadnum 左移位数
 SP_GOAHEAD_MASK = 0xF0
@@ -342,7 +352,7 @@ def pack_frame(ftype: int, payload: bytes, seq: int = 0) -> bytes:
 # ---------------------------------------------------------------- 载荷解码
 
 def decode_unified(p: bytes) -> dict:
-    """统一帧(45B) -> **扁平 dict**。
+    """统一帧(30B, v9) -> **扁平 dict**。
 
     位打包字段在这里**直接展开**成独立键(dir / mazeTask / wallLeft / ...),
     所以上层(ring / monitor / analyze)看到的是平铺字段, 不需要知道打包细节。
@@ -398,6 +408,11 @@ def decode_unified(p: bytes) -> dict:
         "spurtMode": sp & 0x07,
         "spurtTestFlag": (sp >> 3) & 0x01,
         "goaheadnum": (sp >> 4) & 0x0F,
+        # -- 状态B1 的 LED 亮灭(v9.1): 1 = 亮 --
+        "led1": (sb1 >> 2) & 0x01,
+        "led2": (sb1 >> 3) & 0x01,
+        "led3": (sb1 >> 4) & 0x01,
+        "led4": (sb1 >> 5) & 0x01,
     }
     # 派生量(纯复算, 不占带宽)
     # v9: frontNear 不再上线 —— 由 wallFront & !frontFar 唯一确定(两者互斥且穷尽)
@@ -453,7 +468,11 @@ def pack_unified(d: dict) -> bytes:
                       | ((g("objectGoToFlag") & 0x01) << 5))
     out[U_STATE_B0] = g("motionTask") & 0x7F
     out[U_STATE_B1] = ((g("spurtFlag") & 0x01)
-                       | ((g("goOrBack") & 0x01) << 1))
+                       | ((g("goOrBack") & 0x01) << 1)
+                       | ((g("led1") & 0x01) << 2)   # v9.1
+                       | ((g("led2") & 0x01) << 3)
+                       | ((g("led3") & 0x01) << 4)
+                       | ((g("led4") & 0x01) << 5))
     # v9: 前墙只写 far; frontNear 若显式给了而 far 没给, 反向补 far=0 的语义
     front_far = g("frontFar") & 0x01
     out[U_STATE_C] = ((g("wallLeft") & 0x01)

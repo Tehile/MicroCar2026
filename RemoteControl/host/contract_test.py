@@ -182,12 +182,25 @@ def _test_enum_tables_vs_firmware() -> None:
         ("STATE_A_OBJECT", "LINK_A_OBJECT"),
         ("STATE_B1_SPURTFLAG", "LINK_B1_SPURTFLAG"),
         ("STATE_B1_GOBACK", "LINK_B1_GOBACK"),
+        # v9.1(fw 311): 状态B1 的 bit2-5 上报 4 个 LED 亮灭
+        ("STATE_B1_LED1", "LINK_B1_LED1"),
+        ("STATE_B1_LED2", "LINK_B1_LED2"),
+        ("STATE_B1_LED3", "LINK_B1_LED3"),
+        ("STATE_B1_LED4", "LINK_B1_LED4"),
         ("SP_TEST", "LINK_SP_TEST"),
         ("SP_GOAHEAD_SHIFT", "LINK_SP_GOAHEAD_SHIFT"),
     )
     bad = [f"{hn}: 主机 {getattr(_c, hn)} != 固件 {_macro(fwn)}"
            for hn, fwn in bit_pairs if _macro(fwn) != getattr(_c, hn)]
     check(f"状态位宏 {len(bit_pairs)} 项与固件一致", not bad, " | ".join(bad))
+
+    # v9.1: 4 个 LED 位必须落在 B1 的预留区(bit2-5), 且与 spurtFlag/goOrBack 不重叠 ——
+    # 重叠不会报错, 只会让"灯亮"和"冲刺中"在帧里互相覆盖, 属于最难查的一类漂移。
+    led_bits = [_c.STATE_B1_LED1, _c.STATE_B1_LED2, _c.STATE_B1_LED3, _c.STATE_B1_LED4]
+    occ = _c.STATE_B1_SPURTFLAG | _c.STATE_B1_GOBACK
+    check("状态B1 的 4 个 LED 位 = 0x04/0x08/0x10/0x20 且不压 spurtFlag/goOrBack",
+          led_bits == [0x04, 0x08, 0x10, 0x20] and not any(b & occ for b in led_bits),
+          "led=%s 占用位=%#04x" % (["%#04x" % b for b in led_bits], occ))
 
     # ---- 冲刺档位 60..63(两代含义相同, 来源不同: 旧 spurt.h 的 SpurtSpeed_t;
     #      新 utility.h 的 LOW_90/LOW/MEDIUM/HIGH) ----
@@ -1108,6 +1121,8 @@ def _payload_unified() -> bytes:
         "posX": 3, "posY": 4,
         # ---- 冲刺上下文 ----
         "spurtMode": 3, "spurtTestFlag": 1, "goaheadnum": 5,
+        # ---- 状态B1 的 LED 亮灭(v9.1): 取交替值, 让往返断言真的走到这 4 个位 ----
+        "led1": 1, "led2": 0, "led3": 1, "led4": 1,
     })
     return pack_unified(d)
 

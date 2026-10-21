@@ -34,7 +34,7 @@
                      帧布局不兼容 ⇒ 协议号 8→9, fw 300→310。
 """
 
-__version__ = "2.12.0"
+__version__ = "2.13.0"
 PROTO_VER = 9
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)

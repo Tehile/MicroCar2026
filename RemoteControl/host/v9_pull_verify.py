@@ -14,10 +14,10 @@ S0 离线一致性  上位机 codec 常量 vs **固件源码** `REMOTE/link.h`(�
                `LINK_U_*` 偏移 / 8 个 flags 位 / 状态C 墙位), 加
                `pack_unified` <-> `decode_unified` 往返与派生量恒等式; 并报告待烧
                `USER/Remote/TEST.hex` 的 sha256 与 mtime(判断"烧的是不是这份源码编的")。
-S1 PING 指纹   proto=9 / fw=310 / mazetype=16 —— **判"烧错档 / 烧旧固件"的唯一入口**。
+S1 PING 指纹   proto=9 / fw=311 / mazetype=16 —— **判"烧错档 / 烧旧固件"的唯一入口**。
 S2 单帧语义   连续 8 次 TELEM: 载荷必须**正好 30 B**。烧了 v8 固件时这里才会暴露 ——
                codec 会拿 49 B 的前 30 B 去解, **不报错只出垃圾**, 所以必须量长度;
-               再验 29 通道齐全、`frontNear == wallFront & !frontFar`、`frontFar ⊆ wallFront`、
+               再验 33 通道齐全、`frontNear == wallFront & !frontFar`、`frontFar ⊆ wallFront`、
                位域宽度(garbage 会越界)。
 S3 容量阶梯   (可选) 子进程跑既有**事件触发式**拉取器 `link_pull_evt.py`, 默认 N=4/5 各 20 s,
                看交付率 / 实收 Hz, 得到 v9 的**新容量点**。v8 时代被 57 B/帧的经验值
@@ -70,7 +70,7 @@ from host import fwprofile  # noqa: E402
 #: 板上应当报的指纹。固件源码里读到的是 v9 期望值, 这里再钉一遍是为了让"源码被谁改错了"
 #: 也能在 S0 就暴露(否则 S0 会拿错源码当正确答案去比对 codec)。
 EXPECT_PROTO = 9
-EXPECT_FW = 310
+EXPECT_FW = 311
 EXPECT_MAZETYPE = 16
 
 #: v8(57 B/帧)时代的实测容量点, 只用于 S3 的对比话术。
@@ -112,6 +112,9 @@ FLAG_NAMES = ("FREEMODE", "SLEEP", "EMERG", "PULLF1", "IR_SWITCH",
 #: 状态C 的墙位 —— `codec.STATE_C_*` <-> 固件 `LINK_C_*`。
 C_NAMES = ("WALL_LEFT", "WALL_FRONT", "WALL_RIGHT", "FRONT_FAR", "FRONT_BOTH")
 
+#: 状态B1 的位 —— `codec.STATE_B1_*` <-> 固件 `LINK_B1_*`(v9.1 起含 4 个 LED 位)。
+B1_NAMES = ("SPURTFLAG", "GOBACK", "LED1", "LED2", "LED3", "LED4")
+
 
 def _sample_dicts(n: int = 120):
     """构造覆盖位域边界的扁平帧字典(pack 的输入)。"""
@@ -144,6 +147,9 @@ def _sample_dicts(n: int = 120):
             "objectGoToFlag": rnd.randint(0, 1),
             "motionTask": f["task"],
             "spurtFlag": f["spurt"] & 0x01, "goOrBack": (f["spurt"] >> 1) & 0x01,
+            # v9.1: 4 个 LED 位(取 spurt 样本的高位, 覆盖全 0/全 1/交替)
+            "led1": (f["spurt"] >> 2) & 0x01, "led2": (f["spurt"] >> 3) & 0x01,
+            "led3": (f["spurt"] >> 4) & 0x01, "led4": (f["spurt"] >> 5) & 0x01,
             "wallLeft": f["wall"] & 0x01, "wallFront": (f["wall"] >> 1) & 0x01,
             "wallRight": (f["wall"] >> 2) & 0x01, "frontFar": f["front_far"],
             "frontBoth": (f["wall"] >> 4) & 0x01,
@@ -197,9 +203,22 @@ def stage0_offline() -> bool:
             bad.append("%s 固件=%s codec=%s" % (n, got, want))
     check("状态C 墙位 5 位一致", not bad, "; ".join(bad) or "0 差异")
 
+    # ---- 状态B1: spurtFlag / goOrBack / 4 个 LED 位 ----
+    bad = []
+    for n in B1_NAMES:
+        got = fwprofile.link_macro("LINK_B1_" + n)
+        want = getattr(codec, "STATE_B1_" + n)
+        if got != want:
+            bad.append("%s 固件=%s codec=%s" % (n, got, want))
+    check("状态B1 位 %d 项一致(含 4 个 LED 位)" % len(B1_NAMES), not bad,
+          "; ".join(bad) or "0 差异")
+
     # ---- 通道表 ----
-    check("UNIFIED_CHANNELS = 29 项(v9)", len(codec.UNIFIED_CHANNELS) == 29,
+    check("UNIFIED_CHANNELS = 33 项(v9.1: 29 + 4 个 LED)", len(codec.UNIFIED_CHANNELS) == 33,
           str(len(codec.UNIFIED_CHANNELS)))
+    check("LED 通道追加在通道表末尾(否则 RingBuffer 历史数据错列)",
+          list(codec.UNIFIED_CHANNELS[-4:]) == ["led1", "led2", "led3", "led4"],
+          str(list(codec.UNIFIED_CHANNELS[-4:])))
 
     # ---- 往返: pack -> decode 必须回到原值 ----
     diffs = []
@@ -347,7 +366,10 @@ def stage2_frames(lk) -> bool:
     check("每帧载荷长度 = 30 B (v9)", all(n == 30 for n in lens),
           "实测 %s" % sorted(set(lens)))
     miss = set(codec.UNIFIED_CHANNELS) - set(recs[0])
-    check("29 个通道全部解出", not miss, "缺 %s" % (sorted(miss) or "无"))
+    check("33 个通道全部解出", not miss, "缺 %s" % (sorted(miss) or "无"))
+    check("4 个 LED 通道都在(值域 0/1)",
+          all(recs[0].get("led%d" % i, -1) in (0, 1) for i in (1, 2, 3, 4)),
+          "led=%s" % [recs[0].get("led%d" % i) for i in (1, 2, 3, 4)])
 
     # 硬语义(取第一帧 + 抽样后几帧)
     f0 = recs[0]

@@ -71,7 +71,8 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.12.0"  # v2.12.0: PROTO 9 / 统一帧 49→30 B(v9 帧重排), 详见 docs/通信协议v9-统一帧重排方案.md; 比赛档 hex 不变
+API_VERSION = "2.13.0"  # v2.13.0: PROTO 9 / FW 311 —— 状态B1 的 bit2-5 上报 4 个 LED
+                         #   亮灭 => UNIFIED_CHANNELS 29→33(帧长仍 30 B), 详见 docs/LED状态上报-B1位分配方案.md
 
 
 # ---------------------------------------------------------------- 命令表

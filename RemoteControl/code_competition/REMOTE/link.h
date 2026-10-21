@@ -67,14 +67,19 @@
                           *        critL/R、left45/right45、frontNear; 状态B 拆 B0/B1(9bit),
                           *        前墙远近并入状态C, 冲刺档位与 goaheadnum 合并为"冲刺上下文"。
                           *        帧布局不兼容 => 进位。详见 docs/通信协议v9-统一帧重排方案.md。 */
-#define LINK_FW_VER 310  /* 3.10 —— 宿主实现同 3.00(迷宫 16x16 / 单体 main / 参数宿主),
-                          *        叠加 PROTO 9 帧重排。host 按 proto 判帧长与位布局,
+#define LINK_FW_VER 311  /* 3.11 —— 宿主实现同 3.00(迷宫 16x16 / 单体 main / 参数宿主),
+                          *        叠加 PROTO 9 帧重排 + 状态B1 的 bit2-5 上报 4 个 LED
+                          *        亮灭(帧长/PROTO 不变)。host 按 proto 判帧长与位布局,
                           *        按 fw 选名表与 sim 迷宫尺寸(见 host/host/fwprofile.py)。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(新工程基线 hex sha256 68ad6be2...)。 */
 #endif
 /* 历史版本记录:
+ *  311 = v9.1: 状态B1 的 bit2-5 上报 **4 个 LED 的真实亮灭**(1=亮)。数据源是
+ *        GPIO ODR 反相(板子低电平点亮), 反映引脚上真实电平而非影子变量;
+ *        帧长仍 30 B、PROTO 仍 9, 只是把 6 个预留位用掉 4 个 => 只升 FW。
+ *        LED1=PA8 LED2=PC9 LED3=PC8 LED4=PC7, 见 HARDWARE/LED/led.h。
  *  310 = v9: **统一帧 30 B**(PROTO 9) —— 见 LINK_PROTO_VER 的说明。删除项都属
  *        "静态规划结果"(fastwayCount/90)、"本地健康计数"(dropCnt)或"可推导量"
  *        (frontNear = wallFront & !frontFar); 动态状态一位未丢。
@@ -198,7 +203,8 @@
  *            bit2-4 mazeTask(0=WAIT 1=START 2=SEARCH 3=SPURT 4=SPURT45 5=SPURT90 6=END)
  *            bit5   objectGoToFlag            bit6-7 预留              */
 /*  24 状态B0: bit0-6 motionTask(0..107, 见 core.h)   bit7 预留        */
-/*  25 状态B1: bit0 spurtFlag  bit1 goOrBack  bit2-7 预留              */
+/*  25 状态B1: bit0 spurtFlag  bit1 goOrBack
+ *            bit2-5 led1..led4(1=亮, v9.1)  bit6-7 预留                   */
 /*  26 状态C : bit0 wallLeft  bit1 wallFront  bit2 wallRight
  *            bit3 frontFar(1=远墙档 / 0=近墙档)  bit4 frontBoth  bit5-7 预留
  *            ※ frontFar 仅 wallFront=1 时有意义; frontNear 由上位机按
@@ -230,6 +236,15 @@
 /* 状态B1 的冲刺控制布尔(偏移 25) */
 #define LINK_B1_SPURTFLAG 0x01 /* taskSt.spurtFlag */
 #define LINK_B1_GOBACK 0x02    /* taskSt.goOrBack(去/回) */
+/* 状态B1 的 LED 亮灭位(偏移 25 bit2-5, v9.1) —— 1=点亮, 0=熄灭。
+ * 数据源是 GPIO ODR 反相(板子低电平点亮), 报出去的是"引脚上真实电平",
+ * 而不是"代码以为的亮灭": 远程档有 6 个写点, 其中至少 3 处绕过 ledon() 直写引脚,
+ * 用影子变量必然有一处漏记。引脚见 HARDWARE/LED/led.h(LED1=PA8 LED2=PC9
+ * LED3=PC8 LED4=PC7), 与 Led_Init 的输出配置一致。 */
+#define LINK_B1_LED1 0x04      /* LED1 = PA8, 1=亮 */
+#define LINK_B1_LED2 0x08      /* LED2 = PC9 */
+#define LINK_B1_LED3 0x10      /* LED3 = PC8 */
+#define LINK_B1_LED4 0x20      /* LED4 = PC7 */
 /* 冲刺上下文(偏移 29) */
 #define LINK_UB_SPURTMODE_W 3
 #define LINK_UB_SPURTMODE_MAX 4 /* 见 spurt.h SpurtSpeed_t(60..63 -> 1..4) */

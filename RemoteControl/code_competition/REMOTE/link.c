@@ -1237,6 +1237,18 @@ static void link_SendUnified(void)
 	sb0 = (u8)((u8)motionCtrl.task & 0x7Fu);
 	sb1 = (u8)((taskSt.spurtFlag ? LINK_B1_SPURTFLAG : 0u)
 	           | (taskSt.goOrBack ? LINK_B1_GOBACK : 0u));
+#ifdef MOUSE_REMOTE
+	/* v9.1: 状态B1 的 bit2-5 = 4 个 LED 的**真实亮灭**(1=亮)。
+	 * 直接读 GPIO ODR 再取反 —— 板子低电平点亮(见 led.h 的 LED1..LED4 与 ledon/ledoff),
+	 * 这样报出去的是**引脚上真实发生的电平**, 而不是"代码以为的亮灭": 远程档现有 6 个
+	 * 写点(发车标记 / 基准灯闪烁 / 标记窗口保持 / LP_LedMark / ledon-ledoff / adc 全灭初值),
+	 * 其中至少 3 处绕过 ledon() 直写引脚, 用影子变量必然有一处漏记。
+	 * ※ 必须门控: link_SendUnified 两档共用, 不门控会改比赛档产物(hex 基线会变)。 */
+	sb1 |= (u8)(((u8)(~(GPIOA->ODR >> 8) & 0x01u) << 2)    /* LED1 = PA8 */
+	          | ((u8)(~(GPIOC->ODR >> 9) & 0x01u) << 3)    /* LED2 = PC9 */
+	          | ((u8)(~(GPIOC->ODR >> 8) & 0x01u) << 4)    /* LED3 = PC8 */
+	          | ((u8)(~(GPIOC->ODR >> 7) & 0x01u) << 5));  /* LED4 = PC7 */
+#endif
 	sc = (u8)((wallSns.left ? LINK_C_WALL_LEFT : 0u)
 	          | (wallSns.front ? LINK_C_WALL_FRONT : 0u)
 	          | (wallSns.right ? LINK_C_WALL_RIGHT : 0u)
