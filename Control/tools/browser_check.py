@@ -1,4 +1,33 @@
-"""无头浏览器实测：把六个视图真的渲染出来，抓 JS 异常与坏请求。
+"""⛔ **已停用（2026-10-22，改版二十五）—— 保留文件，不要删。**
+
+**为什么停用**：前端被一次外部提交（`18c180a`）整体重设计成「左轨导航 + 九个页面」，
+旧前端（`app.js` / `wsproto.js` / `views/mod_*.js` 共 14 文件）全部删除。
+本文件 47 条判据钉在**旧 DOM** 与**旧全局对象**上：
+
+* DOM：`#nav-sys` / `#rail-mouse` / `#wm-kv` / `#dev-modal` / `#col-mouse` / `.view.on` /
+  `#readouts` / `#info-bar` …… **一个都不存在了**；
+* 全局：`C.state` / `C.mods` / `C.parts` / `C.openMod` / `C.pushConsole` / `C.needMouse` /
+  `C.api` …… 新前端是 `C.S` / `C.VIEWS` / `C.act`，**签名也变了**
+  （`toast(kind,title,body)`、`draw.maze(cv, {N,v,h,visited,goal})`）。
+
+**跑它会发生什么**：约 25 条直接红；另几条**假绿**（目标消失但判据仍成立 —— 例如
+B10"点了按钮要发出请求"，在前端零网络请求时**恒 PASS**）。⇒ **别把红当成"产品坏了"。**
+加 `--force` 才真的跑。
+
+**为什么保留而不删**：它记录了"界面确实消费了后端数据"这件事**当初是怎么取证的**
+（CDP 直连、注入探针、逐页截图、坏请求计数）。删了，重写时就没人知道该验什么。
+
+**恢复条件**：按设计方案 §11.27 的 P5 重写。重写时判据的落点要换 —— 旧判据验
+"界面把后端数据显示对了"，接线后要验"**接缝真的接上了**"（点【发车】必须发出
+`POST /mouse/maze/launch` 且 `mouse.maze` 回来；视频源填不存在的路径必须显示中文 404
+而不是空列表），且**必须带一条负向判据**：断开后端时界面要显示"未连接/未知"，
+不许留旧值或假装正常。
+
+停用期间**后端**仍由 `preflight.py` / `drill.py` / `check_iface_table.py` 三套守着。
+
+---
+
+## 停用前的说明（存档）
 
     python tools/browser_check.py                 # 默认查 http://127.0.0.1:8770
     python tools/browser_check.py --port 8897
@@ -2456,13 +2485,33 @@ def main(argv=None) -> int:
     ap.add_argument("--shots", default="")
     ap.add_argument("--width", type=int, default=1680)
     ap.add_argument("--height", type=int, default=1000)
+    ap.add_argument("--force", action="store_true",
+                    help="⛔ 已停用：加这个才真的跑（只为重写时对照旧判据，结果不当验收）")
     args = ap.parse_args(argv)
+    if not args.force:
+        # 停用闸。为什么是**硬闸**而不是"文件头写一句"：
+        # 谁直接敲 `python tools/browser_check.py` 时看不到 docstring，只会看到 25 条红，
+        # 然后去查串口/后端 —— 查一辈子也查不出来，因为坏的是判据的落点，不是产品。
+        print("=" * 74)
+        print("⛔ browser_check.py 已停用（2026-10-22，改版二十五）")
+        print("=" * 74)
+        print("原因：前端整体重设计成「左轨 + 九页面」，本文件的 47 条判据钉在旧 DOM")
+        print("      （#nav-sys / #rail-mouse / #wm-kv / #col-mouse …）与旧全局")
+        print("      （C.mods / C.parts / C.openMod …）上，它们一个都不存在了。")
+        print()
+        print("现在跑会发生什么：约 25 条直接红，另几条**假绿**（目标没了、判据仍成立）。")
+        print("      ⇒ **别把红当成产品坏了。**")
+        print()
+        print("后端仍然有守：drill.py（39 条）/ check_iface_table.py / preflight.py。")
+        print("重写要求见设计方案 §11.27 的 P5。真要对照旧判据：加 --force。")
+        return 3
     try:
         sys.stdout.reconfigure(line_buffering=True)
     except Exception:                                         # noqa: BLE001
         pass
     print("=" * 74)
     print("Control 前端无头实测（CDP 直连，不依赖 Playwright）")
+    print("⚠️  已停用状态下强制运行：结果**不作为验收**，只供重写时对照")
     print("=" * 74)
     return asyncio.run(run(args))
 

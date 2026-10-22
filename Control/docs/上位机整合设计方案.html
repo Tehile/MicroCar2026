@@ -164,7 +164,7 @@ li{margin:.28em 0}
 <li><a href="#1124-210-212-v9">11.24 跟上游 2.10 ~ 2.12（协议 v9 帧重排）（改版二十二）</a></li>
 <li><a href="#1125">11.25 下线「无记忆走迷宫」+ 地图预览迁入比赛 + 终点锁死（改版二十三）</a></li>
 <li><a href="#1126-auto-locate-2130">11.26 改版二十四·设计稿：手机摄像头下线 + 视频复盘（Auto Locate 视频会话）+ 上游 2.13.0 四灯</a></li>
-<li><a href="#1127">11.27 改版二十五·前端重设计移植方案（状态：方案已出，未实施）</a></li>
+<li><a href="#1127">11.27 改版二十五·前端重设计移植方案（状态：部分落地）</a></li>
 <li><a href="#1128-n">11.28 改版二十六·批式 N 落地（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
@@ -6903,10 +6903,15 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <li>4 灯在 <strong>fw 310 真机</strong>上读出来是不是 <code>None</code>（而不是"4 个灭"）：需要一台没升级的老固件。§12.2 的 B46/I37 已经用注入帧把三态判死了，但"真的老固件送上来什么"只能到现场看（与 §11.8 同类，如实标注）。</li>
 </ul>
 <hr />
-<h3 id="1127">11.27 改版二十五·前端重设计移植方案（状态：方案已出，未实施）</h3>
+<h3 id="1127">11.27 改版二十五·前端重设计移植方案（状态：<strong>部分落地</strong>）</h3>
 <blockquote>
-<p>状态：<strong>方案已出，代码一行未改。</strong> 本节写的是"新前端接真数据要动什么、谁动、怎么验"。
-下面每个结论都带 <code>文件:行号</code>，是<strong>实测与读码</strong>得来的，不是推测。</p>
+<p>状态：<strong>P0（文档对齐）/ P1（工具止血）/ P3（批式 N）已落地，P2/P4/P5 未做。</strong>
+本节写的是"新前端接真数据要动什么、谁动、怎么验"，下面每个结论都带 <code>文件:行号</code>，
+是<strong>实测与读码</strong>得来的，不是推测。</p>
+<p><strong>现行布局（改版二十五起）</strong>：<strong>左轨 + 九页面</strong>（<code>#/overview</code> <code>#/live</code> <code>#/params</code>
+<code>#/race</code> <code>#/maint</code> <code>#/video</code> <code>#/track</code> <code>#/data</code> <code>#/replay</code>），单页 hash 路由。
+总纲里"入口页只做导航 / 单开一个整屏模块 / 不设选项卡"那套描述<strong>属于改版一到二十四的形态</strong>，
+作为<strong>史实</strong>保留（锚点也留着，删了就是篡改历史），但<strong>不再约束现状</strong>。</p>
 </blockquote>
 <h4 id="_79">一、现状：三句话</h4>
 <table>
@@ -7221,16 +7226,16 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 </thead>
 <tbody>
 <tr>
-<td><strong>P0</strong></td>
-<td>文档对齐：① README §3 页表与入口页图（6 视图 → <strong>9 页</strong>）、<code>:48-52</code> 首屏落点、§4 逐步、§6 逐页流程、§7 故障表、<code>:594</code> 那条已失效的"47 PASS"；② <code>未实现功能.md</code> 5 处；③ <code>接口对照表.md</code> 说明列 8 处 + 补新端点；④ <strong>preflight 锚点</strong>：保留旧布局那 5 条作为史实，<strong>补一条</strong>"改版二十五起布局为左轨 + 九页面"；⑤ 本节转"已落地"</td>
+<td><strong>P0</strong> ✅</td>
+<td>文档对齐：① README §3 页表与结构图（6 视图 → <strong>9 页</strong>）、§2 无硬件验证、§4 逐步、§6 实测表与 B 系列标注、§7 故障表、§8 纪律 5/7；② <code>未实现功能.md</code> 按九页重写完成度表 + §2.2 换成"记录与回放缺的两块"；③ <code>接口对照表.md</code> 说明列去旧界面行为 + 补 <code>stream/batch</code>；④ <strong>preflight 锚点</strong>：保留旧布局那 5 条作为史实，<strong>补一条</strong>"现行布局（改版二十五起）"；⑤ 本节状态改「部分落地」</td>
 <td>本层</td>
-<td><code>preflight</code> 全绿</td>
+<td><code>preflight</code> 21/2/0 绿</td>
 </tr>
 <tr>
-<td><strong>P1</strong></td>
-<td><strong>工具止血</strong>：① <code>drill.py</code> I20 重钉 —— 探一个<strong>真实存在</strong>的新资源（<code>/static/assets/lib.js</code>），别探已删文件；② <code>browser_check.py</code> <strong>验收工具停用</strong>：文件头写明停用日期、原因（前端为纯原型，47 条判据全部无对象）、恢复条件（接线完成），<strong>不删文件</strong>（留证据）</td>
+<td><strong>P1</strong> ✅</td>
+<td><strong>工具止血</strong>：① <code>drill.py</code> I20 重钉 —— 探 <code>/static/assets/lib.js</code>（原来探的 <code>wsproto.js</code> 已删 ⇒ 恒红且文案误导）；② <code>browser_check.py</code> <strong>停用并加硬闸</strong>：文件头写停用说明 + <code>main()</code> 里无 <code>--force</code> 就打印原因并 <strong>exit 3</strong>，<strong>不删文件</strong>（留取证方式）</td>
 <td>本层</td>
-<td><code>drill --sim</code> 恢复全绿</td>
+<td><code>drill --sim</code> 39/0/1</td>
 </tr>
 <tr>
 <td><strong>P2</strong></td>

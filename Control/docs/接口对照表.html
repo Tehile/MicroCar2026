@@ -507,7 +507,7 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/mouse/maze/summary</code></td>
 <td>A</td>
 <td><code>MazeAPI.summary</code>、<code>MazeAPI.explain</code></td>
-<td>汇总 + 人话版（<code>explain</code> 是上游原文，前端按 <code>data-raw</code> 端出）</td>
+<td>汇总 + 人话版（<code>explain</code> 是上游原文，界面<strong>原样显示、不改写</strong>）</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/mouse/maze/reset</code></td>
@@ -555,7 +555,7 @@ li{margin:.28em 0}
 <td><code>POST /api/v1/mouse/maze/decisions/clear</code></td>
 <td>A</td>
 <td>—（<strong>零上游调用</strong>：清本层记录器的常驻环）</td>
-<td><strong>清空决策历程</strong>（右栏那条线上的【清空】按钮）。让记录器<strong>开一个新纪元</strong>（清常驻决策环 + 事件环 + 换差分器），而不是只抹前端 DOM —— 前端每 1 s 全量重拉，只抹 DOM 会"清完又回来"。<strong>不影响正在记录的那一段</strong>（只清显示环）。与发车那条路（<code>start()</code> 的 <code>_reset_epoch</code>）的区别：那条<strong>带 stash</strong>（发车失败要能放回），这条<strong>不带</strong></td>
+<td><strong>清空决策历程</strong>（界面上那条线旁的【清空】按钮）。让记录器<strong>开一个新纪元</strong>（清常驻决策环 + 事件环 + 换差分器），而不是只抹界面 DOM —— 界面会周期性重拉，<strong>只抹 DOM 的话"清完又回来"</strong>。<strong>不影响正在记录的那一段</strong>（只清显示环）。与发车那条路（<code>start()</code> 的 <code>_reset_epoch</code>）的区别：那条<strong>带 stash</strong>（发车失败要能放回），这条<strong>不带</strong></td>
 </tr>
 <tr>
 <td><code>GET /api/v1/mouse/maze/record/live</code></td>

@@ -74,10 +74,10 @@ li{margin:.28em 0}
     <div class="toc">
 <ul>
 <li><a href="#_1">未实现功能清单</a><ul>
-<li><a href="#1">1. 完成度</a></li>
+<li><a href="#1">1. 完成度（按页面）</a></li>
 <li><a href="#2">2. 未接通项</a><ul>
 <li><a href="#21">2.1 视频复盘的未接通项</a></li>
-<li><a href="#22">2.2 综合运动</a></li>
+<li><a href="#22">2.2 记录与回放：后端缺的两块</a></li>
 </ul>
 </li>
 <li><a href="#3-2026-10-04">3. 与上游能力的对应（2026-10-04 核对）</a></li>
@@ -90,76 +90,111 @@ li{margin:.28em 0}
   <main>
 <h1 id="_1">未实现功能清单</h1>
 <blockquote>
-<p>界面已经按<strong>子系统 → 模块</strong>重排（见 <code>上位机整合设计方案.md</code> 的「总纲（冻结）」）。
-这篇记录<strong>已列进界面、但子系统侧还没接通</strong>的部分：它们的模块卡片上写着「未实现 · 见文档」，
-点开是一页说明。</p>
+<p><strong>改版二十五起界面换成「左轨导航 + 九个页面」</strong>（<code>#/overview</code> <code>#/live</code> <code>#/params</code>
+<code>#/race</code> <code>#/maint</code> <code>#/video</code> <code>#/track</code> <code>#/data</code> <code>#/replay</code>），旧的两级「子系统 → 模块卡」
+与「未实现 · 见文档」卡片机制<strong>都没有了</strong>（那张卡是 <code>SYS_DEF</code> 渲染的，<code>SYS_DEF</code> 已删）。</p>
+<p>这篇因此改成<strong>按页面记"接没接上后端"</strong>：前端目前是<strong>纯前端原型</strong>（零网络请求），
+所以九个页面绝大多数写的是「原型 · 未接线」，只有一处例外。
+接线方案与逐页契约差异见 <code>上位机整合设计方案.md</code> §11.27。</p>
 <p>原则：<strong>不在整合层伪造上游没有的能力</strong>。缺的是上游事实，就如实写"缺什么"。</p>
 </blockquote>
 <hr />
-<h2 id="1">1. 完成度</h2>
+<h2 id="1">1. 完成度（按页面）</h2>
 <table>
 <thead>
 <tr>
-<th>子系统</th>
-<th>模块</th>
+<th>页面</th>
 <th>状态</th>
 <th>后端</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>小车控制</td>
-<td>实时参数</td>
-<td><strong>可用</strong></td>
-<td><code>GET/POST /api/v1/mouse/params/grouped</code>、<code>POST /api/v1/mouse/tare</code>（38 项 / 四组，SAVE 按钮按数据里的页号现生成）；<strong>实时读数</strong> = 统一帧 <strong>39 通道</strong>（运动与姿态 / 里程与位置 / 迷宫判定 / 四路红外 / 电源 / 链路），随 WS <code>mouse.telemetry</code> 刷新；码表来自 <code>GET /api/v1/mouse/meas/meta</code>（零设备访问）。⚠️ 本模块<strong>已并入原「分组测量」</strong>（上游 2.0.0 删了 <code>SNAP</code>/<code>SCOPE</code>，两者读的东西成了同一条流）</td>
+<td><code>#/overview</code> 总览</td>
+<td>原型 · 未接线</td>
+<td><code>GET /api/v1/health</code> 的 <code>readiness.items</code>（<code>key/name/blocking/ok/state/action</code>）<strong>字段已完全对上</strong>，接上就能用</td>
 </tr>
 <tr>
-<td>小车控制</td>
-<td>运动控制</td>
-<td><strong>可用</strong></td>
-<td><code>POST /api/v1/mouse/move</code>（kind = <code>run</code> / <code>rotate</code> / <code>forward</code> / <code>backward</code>）</td>
+<td><code>#/live</code> 实时状态</td>
+<td><strong>部分接通</strong>：只有「每批帧数 N」</td>
+<td><code>POST /api/v1/mouse/stream/batch</code>（改版二十六）；其余（帧率、4 灯、通道卡）读 WS <code>mouse.telemetry</code> 的 <code>rate</code> / <code>leds</code> / <code>unified</code>，<strong>尚未接</strong></td>
 </tr>
 <tr>
-<td>小车控制</td>
-<td>校准例程</td>
+<td><code>#/params</code> 参数设定</td>
+<td>原型 · 未接线</td>
+<td><code>GET/POST /api/v1/mouse/params/grouped</code>（<strong>41 项 / 四组</strong>，SAVE 页号随数据返回）+ <code>POST …/params/save_group</code>；⚠️ 后端返回是<strong>按组名/项名索引的字典</strong>，与前端要的数组结构不同，接线要转换</td>
+</tr>
+<tr>
+<td><code>#/race</code> 比赛</td>
+<td>原型 · 未接线</td>
+<td><code>POST /api/v1/timesync/maze_run</code>（含"先开记录再发车"）、<code>POST …/mouse/maze/stop</code>、<code>POST …/mouse/rescue</code>、<code>GET …/mouse/launch_precheck</code>、<code>GET …/mouse/maze/reconstruct</code></td>
+</tr>
+<tr>
+<td><code>#/maint</code> 维护自检</td>
+<td>原型 · 未接线</td>
+<td><code>POST /api/v1/mouse/maint/{item}</code>（六个 CAL 项）；擦除类不带 <code>confirm</code> ⇒ <strong>409 <code>need_confirm</code></strong>，与前端的两阶段确认天然吻合</td>
+</tr>
+<tr>
+<td><code>#/video</code> 视频会话</td>
+<td>原型 · 未接线</td>
+<td>七个 <code>/api/v1/video/*</code> 全在；解析由上游 <code>python -m aruco_locator.session</code> 子进程做，本层只转交配置并读产物</td>
+</tr>
+<tr>
+<td><code>#/track</code> 轨迹</td>
+<td>原型 · 未接线</td>
+<td><code>GET /api/v1/video/trajectory/{sid}</code>（只读 <code>trajectory.csv</code>，带时间轴自洽 <code>timebase</code>）；⚠️ 前端要的 <code>rows/sampled/timebase{ok,vfr,fps,n_rows,trust}</code> 与后端<strong>逐字段一致</strong></td>
+</tr>
+<tr>
+<td><code>#/data</code> 比赛记录</td>
+<td>原型 · 未接线</td>
+<td><strong>后端不够</strong>：<code>GET …/mouse/maze/records</code> 只回 <code>{name,size,mtime_ms}</code>，前端要的 9 列（<code>start/dur/frames/launch/launchAt/video/ledger/gap</code>）与「关联视频会话」<strong>都还没有</strong></td>
+</tr>
+<tr>
+<td><code>#/replay</code> 回放</td>
+<td>原型 · 未接线</td>
+<td><strong>后端不够</strong>：迷宫快照与状态有源（记录里的 <code>wall</code> + <code>t_ms</code> + <code>frames</code>），但<strong>「41 参数发车前快照」记录里没有</strong> ⇒ 要新增采集</td>
+</tr>
+</tbody>
+</table>
+<p><strong>已下线的东西</strong>（保留行以便查历史）：</p>
+<table>
+<thead>
+<tr>
+<th>原页面</th>
+<th>状态</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>相机 · 图像回传测试</td>
+<td><strong>已下线</strong>（改版二十四）</td>
+<td>PhoneCamera / 8765 / MJPEG / 配对 / 代启全没了；要画面就拍一段视频走「视频复盘」</td>
+</tr>
+<tr>
+<td>定位 · 定位测试 / 迷宫结构解析</td>
+<td><strong>已下线</strong>（改版二十四）</td>
+<td>在线定位整块下线，位置改由离线视频给。<strong>算法没丢</strong>：<code>aruco_locator</code> 仍在，只是不再逐帧驱动</td>
+</tr>
+<tr>
+<td>小车控制 · 校准例程</td>
 <td><strong>已删除</strong>（改版十七）</td>
-<td>——（自动标定整块下线，flip 值改 <code>config.yaml</code> 静态配置）</td>
+<td>自动标定整块下线，flip 值改 <code>config.yaml</code> 静态配置</td>
 </tr>
 <tr>
-<td>小车控制</td>
 <td>实验 8 · 无记忆走迷宫</td>
 <td><strong>界面已下线</strong>（改版二十三）</td>
-<td>「无记忆走迷宫」卡<strong>整页下线</strong>（<code>mod_maze8.js</code> 已删，新基线只跑比赛跑法）；<strong>地图预览迁入「比赛」卡</strong>（<code>C.parts.wallmap</code>：<code>GET …/maze/reconstruct</code> + 终点锁死四格 <code>goal_cells</code>）。<strong>后端能力全保留</strong>：<code>GET …/maze/reconstruct｜state｜history｜summary</code>、<code>POST …/maze/reset</code>、<code>GET/POST …/maze/record/*</code>、<code>GET …/maze/decisions*</code>、<code>GET …/maze</code>（固件墙图对账）—— 脚本/逃生舱仍可用。⚠️ 2.0.0 删了 <code>maze/events</code> 与 <code>maze/snap</code>：<strong>迁移序列改由主机差分相邻帧</strong>取得</td>
+<td>新基线只跑比赛跑法；<strong>后端能力全保留</strong>：<code>GET …/maze/reconstruct｜state｜history｜summary</code>、<code>POST …/maze/reset</code>、<code>GET/POST …/maze/record/*</code>、<code>GET …/maze/decisions*</code>、<code>GET …/maze</code>（固件墙图对账）—— 脚本/逃生舱仍可用</td>
 </tr>
 <tr>
-<td>视频复盘</td>
-<td>视频会话</td>
-<td><strong>可用</strong></td>
-<td><code>GET/POST /api/v1/video/*</code>（列表 / 开始解析 / 进度 / 取消 / 退出）；解析由上游 <code>python -m aruco_locator.session</code> 子进程做，本层只转交配置并读产物</td>
+<td>综合运动台（单栏五页 + 数据）</td>
+<td><strong>已消失</strong>（改版二十五）</td>
+<td>那五页（参数 / 发车 / 实验 / 波形 / 调试台）被九页结构取代。⚠️ <strong>电机实验台与波形页没有对应新页面</strong>，属于"能力在后端、界面没了"</td>
 </tr>
 <tr>
-<td>视频复盘</td>
-<td>轨迹</td>
-<td><strong>可用</strong></td>
-<td><code>GET /api/v1/video/session/{id}/track</code>（只读 <code>trajectory.csv</code> + <code>frames.jsonl</code>），带时间轴自洽状态（I38）</td>
-</tr>
-<tr>
-<td>相机</td>
-<td>图像回传测试（灰度 / 彩色）</td>
-<td><strong>已下线</strong>（改版二十四）</td>
-<td>——（相机整组下线：PhoneCamera / 8765 / MJPEG / 配对 / 代启都没了。要画面就拍一段视频走「视频复盘」）</td>
-</tr>
-<tr>
-<td>定位</td>
-<td>定位测试 · 迷宫结构解析</td>
-<td><strong>已下线</strong>（改版二十四）</td>
-<td>——（在线定位整块下线；位置改由离线视频给。<strong>算法没丢</strong>：<code>aruco_locator</code> 仍在，只是不再逐帧驱动）</td>
-</tr>
-<tr>
-<td>综合运动</td>
-<td>全部</td>
-<td><strong>可用</strong></td>
-<td>单栏五页 + 数据（改版二十四：①场地 ②采集两页随相机下线，左栏整栏删除）</td>
+<td>电机实验 / 台面算参</td>
+<td><strong>无对应页面</strong></td>
+<td>后端 <code>POST /api/v1/lab/*</code> 五条仍在（<code>lab.status/run/log/estop/resume</code>），只是新前端没画。要用走脚本或逃生舱</td>
 </tr>
 </tbody>
 </table>
@@ -222,10 +257,34 @@ li{margin:.28em 0}
 （<code>config.yaml</code> 的 <code>video.root</code> / <code>video.out_root</code>）。这条约束写在
 <code>VideoAdapter</code> 的路径检查里 —— <strong>越界路径直接 404</strong>，不是"提示一下"。</p>
 </blockquote>
-<h3 id="22">2.2 综合运动</h3>
-<p>它就是原有的<strong>单栏五页 + 数据</strong>（③参数 ④发车 ⑤实验 ⑥波形 ⑦调试台 ⑧数据），
-功能完整、继续可用。改版二十四删掉了 ①场地 ②采集两页（随相机下线），
-左栏整栏删除后单栏更宽 —— 波形与调试台正好受益。</p>
+<h3 id="22">2.2 记录与回放：后端缺的两块</h3>
+<p>改版二十五的新界面把「比赛记录」和「回放」做成了独立两页，<strong>后端承接不上</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>缺什么</th>
+<th>现状</th>
+<th>要做的话</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>记录表 9 列</td>
+<td><code>GET …/mouse/maze/records</code> 只回 <code>{name, size, mtime_ms}</code>。而 <code>dur / frames / launch / ledger / gap</code> <strong>其实都在记录文件里</strong>（<code>duration_ms</code> / <code>integrity.frames</code> / <code>start_ms</code> / <code>integrity.seq_lost_delta</code> / <code>integrity.evq_seen</code>），只是没被列出来</td>
+<td>加一个记录摘要端点：扫盘走 executor，把这几项提出来；<strong>派生值后端算</strong>，别让前端顺手攒</td>
+</tr>
+<tr>
+<td>视频会话关联</td>
+<td><strong>完全没有</strong>。前端要"这条记录 ↔ 哪个视频会话"，还要能改、能解除</td>
+<td>关联写进 <code>sessions/&lt;sid&gt;/meta.json</code> 的 <code>video_sid</code>（不另建库）；空值用 <code>null</code> 不用 <code>""</code></td>
+</tr>
+<tr>
+<td>41 参数发车前快照</td>
+<td>记录文件顶层 19 个键里<strong>没有</strong> <code>param*</code>（实测）</td>
+<td>这是<strong>新增采集</strong>：发车时把参数冻一次进记录。⚠️ 老记录没有 ⇒ 只能显示「未记录」，<strong>不许拿当前参数冒充</strong></td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="3-2026-10-04">3. 与上游能力的对应（2026-10-04 核对）</h2>
 <table>
@@ -259,7 +318,7 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td>RemoteControl <strong>2.0.0</strong>（<strong>取代</strong> 1.5.0 的 <code>mc.snap</code> + <code>SCOPE</code>）</td>
-<td><strong>统一帧</strong> <code>TYPE_UNIFIED</code>（53 B / <strong>39 个扁平通道</strong>：四路红外 ADC+mm 双传、电池 mV、里程 mm、完整迷宫状态机、<code>ms8</code> 时间锚）</td>
+<td><strong>统一帧</strong> <code>TYPE_UNIFIED</code>（v9 起 <strong>30 B / 33 个扁平通道</strong> = 29 + <code>led1..led4</code>：四路红外 ADC+mm 双传、电池 mV、里程 mm、完整迷宫状态机、<code>ms8</code> 时间锚、4 灯状态）</td>
 <td><code>mouse/meas/meta</code>（通道清单 + 迷宫码表，<strong>零设备访问</strong>）、WS <code>mouse.telemetry</code>；旧 <code>mouse/snap</code>、<code>mouse/scope/*</code> <strong>已删（404）</strong></td>
 </tr>
 <tr>
