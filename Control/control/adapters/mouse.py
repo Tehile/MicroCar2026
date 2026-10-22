@@ -804,7 +804,9 @@ class MouseAdapter:
             **每收到一帧就 emit 一次**，与有没有人看无关。
 
             ⚠️ 这里跑在**上游调度线程**上 ⇒ 只允许纯计算与内存写：
-            `rec_time_ms()` 读的是本地锚与帧里的 `ms8`（不发命令、不阻塞），是安全的。
+            记录器只用帧里的 `ms8` 推进设备时基（查表 + 整数运算，不发命令、不阻塞），
+            是安全的。**不再在这里算 timesync**（改版三十五）：那个值实测只有秒级，
+            白占调度线程的时间。
 
             ⚠️ **异常只吞一次**（第一次记 warn，之后静默）。为什么不是"永远静默"：
             这里曾踩过一个**完全无声**的坑 —— 记录器的 `feed()` 参数名从 `t_ms` 改成
@@ -823,15 +825,12 @@ class MouseAdapter:
             # 它要在没记录的时候也把帧差分成决策 —— 否则右栏在"发车之前 / 收尾之后"
             # 会是空的，而那两段时间用户恰恰在看（"停车后数据仍保持实时"）。
             # "记不记盘"由记录器自己判（`feed()` 里 `if r is None: return`）。
-            t_dev_ms = None
-            if rec.recording:
-                # "帧发生时刻"只有落盘才用得上（另存一列 `t_dev_ms`）；没记就不白算。
-                try:
-                    t_dev_ms = self.rec_time_ms(frame)
-                except Exception:                             # noqa: BLE001
-                    t_dev_ms = None
+            # `rec.feed(frame)`：**不再传 `t_dev_ms`**（改版三十五）。
+            # 那个值当年是"帧发生时刻"，实测只有整秒分辨率且同批相同（§11.36 研判），
+            # 现在时间轴由记录器自己用帧里的 `ms8` 解回绕（`_frame_time_ms`）——
+            # 更快（不调 timesync 拟合）且**逐帧唯一**。多算一遍只是白占调度线程。
             try:
-                rec.feed(frame, t_dev_ms=t_dev_ms)
+                rec.feed(frame)
             except Exception as e:                            # noqa: BLE001
                 if not self._rec_feed_failed:
                     self._rec_feed_failed = True

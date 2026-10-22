@@ -602,6 +602,21 @@ class MazeRecorder:
         self._dec = MazeDecisions(codes)
         self._dec_ring: List[Dict[str, Any]] = []
         self._dec_t0: Optional[int] = None
+        # ---- **设备时基**（改版三十五）：主时间轴的唯一来路。
+        # 为什么不能用到达时刻：批式拉取一次回 n 帧，主机在同一个循环里几十微秒
+        # 处理完 ⇒ 这 n 帧拿到**同一个毫秒**。实测 147 帧的记录里 43 组撞戳
+        # （`1帧×59 / 2帧×41 / 3帧×2`），所以"每帧时间戳不同"根本不成立。
+        # 而固件每帧都盖了 `ms8`（设备毫秒低 8 位），差 100 ms —— 信息一直在。
+        # `_dev_abs` 是解回绕后的设备毫秒累计（相对本段第一帧），`_dev_wall0` 是
+        # 把它投影到墙钟的基准（第一帧的真实到达时刻）。
+        self._dev_last8: Optional[int] = None
+        self._dev_abs: int = 0
+        self._dev_wall0: int = 0
+        self._rx_last: int = 0
+        #: 这一段的帧时刻**从哪来**：`"dev"` = 设备时基（唯一、毫秒级）；
+        #: `"rx"` = 退回到达时刻（设备没给 `ms8` 或时钟复位）。落盘进 `integrity`。
+        self._t_src: str = "dev"
+        self._t_src_mixed: bool = False
         #: 常驻环零点的**语义**：`"launch"` = 发车那一刻（`start()` 设过零点）；
         #: `"rx"` = 只是开始收到帧（还没发过车）。界面据此说"发车后 x s"还是
         #: "从收帧起 x s" —— **两个数都不假，但含义不同**，不写清楚会让人以为跑了 25 分钟。
@@ -770,6 +785,8 @@ class MazeRecorder:
                         "note": "已经在记录中"}
             self._maps.clear()
             self.start_ms = int(time.time() * 1000)
+            # 新一跑 ⇒ 设备时基重新锚（上一段的累计毫秒不跨段沿用）
+            self._reset_dev_clock()
             # 常驻决策环/事件环：**清空**并换一个全新的差分器 —— 见 `_reset_epoch`
             # 的 docstring（只挪零点不清环会让上一段的决策以**负时间**残留在界面上，
             # 而回放那份是单段的 ⇒ 两条来路看起来"完全不一样"）。
@@ -807,25 +824,111 @@ class MazeRecorder:
 
     # ------------------------------------------------------------ 喂
 
+    def _frame_time_ms(self, rec: Dict[str, Any], rx_ms: int) -> int:
+        """这一帧的**时刻**（墙钟毫秒），优先用**设备时基**。
+
+        ## 为什么不能用到达时刻（改版三十五，实测踩过）
+
+        批式拉取一次回 n 帧，主机在同一个循环里几十微秒处理完 ⇒ 这 n 帧拿到
+        **同一个毫秒**。实测 147 帧的记录里 **43 组撞戳**（组大小 `1帧×59 /
+        2帧×41 / 3帧×2`），而同戳那两帧的 `ms8` 差**正好 100 ms**（固件 10 Hz 正常）
+        ⇒ 差的不是"时钟粒度"，是"同一批一次处理"。撞戳的后果都藏在逐帧视角里：
+        回放时刻显示重叠、决策事件同刻、`Δt` 为 0。
+
+        ## 做法：`ms8`（设备毫秒低 8 位）+ 解回绕，再投影到墙钟
+
+        `ms8` 每帧都有（统一帧第 0 个通道），差 100 ms ⇒ 信息一直在，只是没被用。
+        `ms8` 只有低 8 位（256 ms 一个模），所以按"距上次的**增量**"推进累计值：
+        `delta = (ms8 - last8) & 0xFF`，再和**到达间隔**对照补整圈
+        （间隔 879 ms 时 `delta` 只走了 111，差的那几圈按 `round(gap/256)` 补）。
+
+        ⚠️ 同批两帧的 `rx_ms` 相同、`delta` 不同 ⇒ 得到**不同**时刻，这正是要的。
+        ⚠️ 设备复位（ms8 归零导致累计值倒退）⇒ 以该帧到达时刻重新锚，并如实记
+           `t_source="rx"`（那一小段退回到达时基），**不假装还是设备时基**。
+        """
+        ms8 = rec.get("ms8") if isinstance(rec, dict) else None
+        if ms8 is None:
+            self._mark_src("rx")
+            return rx_ms
+        try:
+            m = int(ms8) & 0xFF
+        except (TypeError, ValueError):
+            self._mark_src("rx")
+            return rx_ms
+
+        if self._dev_last8 is None:
+            # 本段第一帧：设备累计从 0 起，投影基准就是它的到达时刻
+            self._dev_last8 = m
+            self._dev_abs = 0
+            self._dev_wall0 = rx_ms
+            self._rx_last = rx_ms
+            self._mark_src("dev")
+            return rx_ms
+
+        delta = (m - self._dev_last8) & 0xFF
+        gap = max(0, rx_ms - self._rx_last)
+        if gap > 256:
+            # 一个模周期以上 ⇒ 中间可能丢了几圈，按到达间隔就近补整圈
+            k = int(round((gap - delta) / 256.0))
+            if k > 0:
+                delta += 256 * k
+        cand = self._dev_abs + delta
+        if cand < self._dev_abs:
+            # 设备时钟倒退 ⇒ 复位过。以本帧到达时刻重新锚，并**如实降级**
+            self._dev_abs = 0
+            self._dev_wall0 = rx_ms
+            self._dev_last8 = m
+            self._rx_last = rx_ms
+            self._mark_src("rx")
+            if self._log:
+                self._log("warn", "设备时基倒退（疑似复位）⇒ 这一段退回用到达时刻")
+            return rx_ms
+        self._dev_abs = cand
+        self._dev_last8 = m
+        self._rx_last = rx_ms
+        self._mark_src("dev")
+        return self._dev_wall0 + cand
+
+    def _mark_src(self, src: str) -> None:
+        """记下这一段的时间来源；**混用**要留痕（不然读者分不清哪几帧是哪种时基）。"""
+        if src != self._t_src:
+            self._t_src = src
+            self._t_src_mixed = True
+
+    def _reset_dev_clock(self) -> None:
+        """新一跑（`start()`）把设备时基重新锚 —— 上一段的累计值不跨段沿用。"""
+        self._dev_last8 = None
+        self._dev_abs = 0
+        self._dev_wall0 = 0
+        self._rx_last = 0
+        self._t_src = "dev"
+        self._t_src_mixed = False
+
     def feed(self, rec: Dict[str, Any], t_dev_ms: Optional[int] = None) -> None:
         """吃一帧。**由上游调度线程调用** ⇒ 只做最小动作（append + 两个判据），不落盘、不动 IO。
 
-        ## 时间轴用**到达时刻**，不用"帧发生时刻"
+        ## 时间轴：**设备时基**（改版三十五），到达时刻另存一列
 
-        这是个容易反着做的地方，所以写清楚：`STOPPED` 事件与任务迁移**只能**在
-        到达时才被知道（没法回溯），所以它们天然是"到达时基"。
-        如果帧用"帧发生时刻"（靠 timesync 锚算）、事件用到达时刻，同一份文件里就
-        **混了两种时基** —— 复盘时"事件插在帧序列的哪一帧"会系统性偏移
-        （偏移量正好是链路时延，几百 ms，看起来却像"状态机反应慢"）。
+        以前这里写的是"统一用到达时刻"，理由是 `STOPPED` 事件与任务迁移只能
+        在到达时才知道。那个理由本身没错，但它带来一个**更坏**的后果：
+        批式一次回 n 帧 ⇒ n 帧同一个毫秒，而 `Δt=0` 会让逐帧视角全线失真。
 
-        ⇒ 统一用到达时刻。需要设备时基时**不会丢**：帧里本来就有 `ms8`（通道列），
-        而"帧发生时刻"另存一列 `t_dev_ms`（**独立列，不参与排序**）。
+        ⇒ 现在两件事分开：
+        * **时刻**（`t_ms`）= `_frame_time_ms()`：设备 `ms8` 解回绕后投影到墙钟，
+          毫秒唯一、单调，**同批的不同帧有不同的值**；
+        * **到达时刻**另存 `rx_t_ms`：链路时延、抖动这类分析用它。
 
-        `t_dev_ms` 给定时会记进 `dev_t` 列，用于"链路时延到底多大"这类分析。
+        决策差分与事件仍用同一个"时刻"（这样"事件插在第几帧"不会偏移），
+        它们跟着 `t_ms` 一起变成设备时基 —— **两份时间轴不再混**。
+
+        `t_dev_ms` 参数已废弃（保留形参是为了不让老调用方抛错）：它当年想干这件事，
+        但实测给出来的是"整 1000 ms 步进、同批相同"的值（见 §11.36 的研判），
+        不能用；现在这一列不再落盘。
         """
         if not isinstance(rec, dict) or not rec:
             return
-        now_ms = int(time.time() * 1000)
+        rx_ms = int(time.time() * 1000)          # **到达**时刻（真实，留作 rx_t_ms）
+        now_ms = self._frame_time_ms(rec, rx_ms)  # **帧的**时刻（设备时基，主时间轴）
         # ---- ① **常驻**决策差分：**不管在不在记录**都跑（右栏在收尾之后仍要有内容）。
         #     环零点在**本纪元的第一次 feed** 时钉住：
         #       · 没发过车 ⇒ 就是"开始收到帧"（`rx`）；
@@ -867,8 +970,13 @@ class MazeRecorder:
                 # 第一帧**才是**这条时间轴的零点 —— 不是"点发车那一刻"。
                 # 两者差着"发车命令往返 + 第一帧到达"（真机加起来能到 1 s 以上），
                 # 用后者会让时间轴开头凭空多出一段空白。
-                self.start_ms = now_ms
-            frames.append((now_ms, rec, (None if t_dev_ms is None else int(t_dev_ms))))
+                # ⚠️ 用**到达**时刻（`rx_ms`）而不是设备投影值：`start_ms` 要跟
+                #    `end_ms`（真实 `time.time()`）相减算 `duration_ms`，
+                #    混进"设备与主机之间的常数偏移"会让时长差出几百毫秒。
+                self.start_ms = rx_ms
+            # 元组第 3 列从"设备时刻"改成**到达时刻**（改版三十五）：
+            # 主列已经是设备时基了，这一列留给链路分析（`rx_t_ms`）。
+            frames.append((now_ms, rec, rx_ms))
             # ---- 完整性：EVQ 要**如实记**（不是告警，是"这段数据完不完整"）。
             # ⚠️ 丢帧**不在这里逐帧读**：设备侧的 `dropCnt` v9 已删（召回也没落地），
             #    改在收尾时按**本机** `seq_lost` 差量算 —— 语义与不自己比 seq 的
@@ -1139,7 +1247,11 @@ class MazeRecorder:
             # 文件里的 `channels`**，不能假设一个固定顺序。
             channels = sorted(k for k in frames[0][1].keys()
                               if not k.startswith("_")) if frames else []
+        # `t0` 是**设备时基**的零点（第一帧的时刻），`t0_rx` 是**真实到达**的零点。
+        # 两套零点各有用途：`t_ms` 相对前者（逐帧唯一、毫秒级），
+        # `rx_t_ms` 相对后者（链路分析），`duration_ms` 用后者（与 `end_ms` 同源）。
         t0 = frames[0][0] if frames else int(time.time() * 1000)
+        t0_rx = (frames[0][2] if frames else t0)
         end_ms = int(end_at if end_at is not None else time.time() * 1000)
         self.start_ms = t0          # 让 `_timeline` 与帧序列**减同一个零点**
 
@@ -1181,18 +1293,21 @@ class MazeRecorder:
         doc: Dict[str, Any] = {
             "format": FORMAT,
             "created_ms": end_ms,
-            "start_ms": t0,
+            "start_ms": t0_rx,
             "end_ms": end_ms,
-            "duration_ms": end_ms - t0,
+            "duration_ms": end_ms - t0_rx,
             "why": r.get("why"),
             "end_why": why,
             "auto_end": r.get("auto_end"),
             "mazetype": _i(mazetype, 7),
             "channels": channels,
-            # 帧：`t_ms` 是**相对起点的到达毫秒**（整数，省一大截空间），
-            # `frames[i]` 是按 `channels` 排的值。
-            # 用列表而不是字典：一帧 39 个键名重复写几千次，文件会大好几倍。
+            # 帧：`t_ms` 是**设备时基**上的相对毫秒（改版三十五）。
+            # 它**逐帧唯一**（同一批收到的两帧也差 100 ms），因为值来自固件的 `ms8`
+            # 而不是"主机处理那一刻" —— 后者会让 n 帧挤进同一个毫秒。
             "t_ms": [int(t - t0) for t, _r, _d in frames],
+            # 到达时刻（相对第一帧的真实到达）。链路时延/抖动看这一列；
+            # **不要**拿它当帧时刻 —— 一批一次收 n 帧时它是重复的。
+            "rx_t_ms": [int(d - t0_rx) for _t, _r, d in frames],
             "frames": [[self._num(_r.get(c)) for c in channels] for _t, _r, _d in frames],
             "changes": r["changes"],
             "events": r["events"],
@@ -1225,25 +1340,18 @@ class MazeRecorder:
             # 快照**不是**一份完成的记录：`end_why` 与 `duration_ms` 都还是"到目前为止"。
             # 标出来，免得前端把它当成"已经收尾的一段"（比如据此显示"已停止"）。
             doc["live"] = True
-        # `t_dev_ms`：**帧发生时刻**（靠 timesync 锚算），只作附加列、**不参与排序**。
+        # `t_dev_ms` 这一列**不再写**（改版三十五）。
+        # 它当年想干的就是"帧发生时刻"，但实测给出来的是"整 1000 ms 步进、
+        # 同批相同"的值 —— 一列"看着像真值、其实只有秒级"的数据比没有更坏
+        # （读的人会拿它当逐帧时刻用）。现在这件事由 `t_ms` 本体承担（设备 `ms8`），
+        # 到达时刻在 `rx_t_ms`。老记录里还留着 `t_dev_ms`，读的时候忽略即可。
         #
-        # ⚠️ 两道门都得过才写这一列：
-        #   ① **每一帧都算得出** —— 部分有部分没有的列，读的人不知道该信哪一半；
-        #   ② **量级合理** —— 它是"墙钟毫秒"，与到达时刻同一量级。如果锚错/失锁，
-        #      `frame_time()` 会返回一个荒谬的数（探针里就造出过差 55 年的值）。
-        #      这种列**宁可没有**：它一进文件，读的人会当成真的（"这一帧怎么发得这么早"），
-        #      而真相只是"那次锚没对上"。⇒ 不合理就整列不写，并在 `integrity` 里留一句。
-        dev_ok = False
-        if frames and all(d is not None for _t, _r, d in frames):
-            # 允许 [-30 s, +5 s]：设备时基与主机墙钟之间本来就有个未知常数偏移
-            # （min-delay 估计只能消掉"最小单程延迟"那部分），但绝不该差到分钟以上。
-            lo = min(t for t, _r, _d in frames) - 30_000
-            hi = max(t for t, _r, _d in frames) + 5_000
-            dev_ok = all(lo <= d <= hi for _t, _r, d in frames)
-        if dev_ok:
-            doc["t_dev_ms"] = [int(d - t0) for _t, _r, d in frames]
-        elif frames:
-            doc["integrity"]["dev_t_implausible"] = True
+        # 时间来源要**如实标**：`dev` = 设备时基（唯一、毫秒级）；
+        # `rx` = 有一段退回到了到达时刻（设备没给 ms8 / 时钟复位过）——
+        # 那一段的 `t_ms` 会重新出现重复，读的人有权知道为什么。
+        doc["integrity"]["t_source"] = self._t_src
+        if self._t_src_mixed:
+            doc["integrity"]["t_src_mixed"] = True
         fm = firmware_map or r.get("firmware_map")
         if fm:
             doc["firmware_map"] = fm

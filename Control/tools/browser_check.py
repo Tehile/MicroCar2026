@@ -45,6 +45,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -282,8 +283,13 @@ async def run(args) -> int:
         head("1. 起无头浏览器")
         browser = find_browser()
         port = free_port()
-        profile = ROOT / ".tmp" / f"bcheck-{int(time.time())}"
-        profile.mkdir(parents=True, exist_ok=True)
+        # ⚠️ Chrome profile **不能建在项目里**（`.tmp/bcheck-*`）。
+        #    一个 profile 约 283 个文件 / 5 MB，而这个脚本每次跑都新建一个；
+        #    实测堆到 **32 个 / 1 万文件 / 262 MB** 之后，`rm -rf .tmp/*`
+        #    在 Git Bash 上要 **4 分钟以上**（小文件单次开销大），
+        #    于是"清理临时文件"这件事本身变成了一个超时源。
+        #    改放系统临时目录：不污染仓库，系统磁盘清理也会收。
+        profile = Path(tempfile.mkdtemp(prefix="bcheck-"))
         proc = subprocess.Popen(
             [browser, "--headless=new", f"--remote-debugging-port={port}",
              f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
@@ -886,11 +892,12 @@ async def run(args) -> int:
             except subprocess.TimeoutExpired:
                 proc.kill()
         if profile is not None:
-            # ⚠️ **不在退出路径上删 Chrome profile**：它有几十到几百 MB，
-            #    Windows 上删一个带杀软扫描的目录实测能拖 30 s+（超时报的
-            #    "卡在主区文案"其实是卡在这里）。它是系统临时目录下的东西，
-            #    交给系统清；项目目录里不留产物才是真正要守的那条。
-            pass
+            # 删掉**这一次**的 profile（在系统临时目录里，约 283 个文件 / 5 MB，
+            # 实测 1~2 s，不会拖退出）。以前这里写的是 `pass` —— 于是 profile
+            # 只增不减，堆到 32 个 / 1 万文件之后，"清理 .tmp"反而成了超时源
+            # （Git Bash 的 rm 处理 1 万个小文件要 4 分钟）。
+            # 教训：省一次 1 秒的删除，换来一个 4 分钟的删除，账是反的。
+            _rmtree_quiet(profile)
         if sim_proc is not None:
             sim_proc.terminate()
             try:

@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -138,15 +139,26 @@ def wait_up(base: str, timeout: float = 60.0) -> bool:
 
     ⚠️ 探测超时不能给 2 s：本机对**被拒绝**的连接要 ~2 s 才返回，给 2 s 会让每次
     探测都恰好卡在边界上，于是"服务明明起来了"也会被判成超时。给 5 s 留余量。
+
+    ⚠️ 失败时**必须报出最后一次异常**。只写"服务没起来"的话，三种完全不同的
+    故障长得一模一样：端口被第三方占（服务自己根本没绑上）、服务绑上了但
+    `127.0.0.1` 连不通、以及**被代理接管**（`urlopen` 走了系统代理，回 403/407）。
+    实测为了一个"S1 失败"排查了两轮，最后发现是端口被别人占着。
     """
     t0 = time.time()
+    last = "(一次都没探到)"
     while time.time() - t0 < timeout:
         try:
             with urllib.request.urlopen(base + "/api/v1/health", timeout=5) as r:
                 if r.status == 200:
                     return True
-        except Exception:                                     # noqa: BLE001
-            time.sleep(0.4)
+                last = f"HTTP {r.status}"
+        except Exception as e:                                # noqa: BLE001
+            last = f"{type(e).__name__}: {e}"
+        time.sleep(0.4)
+    print(f"    [wait_up] {timeout:.0f}s 内没通：{base}/api/v1/health")
+    print(f"              最后一次异常：{last}")
+    print(f"              查端口占用：netstat -ano | findstr :{base.rsplit(':', 1)[-1]}")
     return False
 
 
@@ -1501,6 +1513,35 @@ def main(argv=None) -> int:
     except Exception:                                         # noqa: BLE001
         pass
 
+    # ⚠️ **端口可能被别人占着**，而"服务起不来"的报错会把人引向完全错误的方向。
+    #    实测：8899 被小米电脑管家的 `MiPCAudio.exe`（音频共享）占着，
+    #    drill 报的却是"S1: 服务 60 s 内没起来" —— 于是去查 app.py、查代码、
+    #    查了半天，真凶是一个音频服务。⇒ 起服务前先试绑一次，被占就换端口并说清。
+    def _port_free(p: int) -> bool:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            # ⚠️ 两处都不能省：
+            #   · 绑 **0.0.0.0**（不是 127.0.0.1）—— app.py 绑的是全网卡，
+            #     占端口的第三方程序多半也绑 0.0.0.0；只试 127.0.0.1 会漏判。
+            #   · **不要 SO_REUSEADDR** —— Windows 上它允许"抢占式复用"，
+            #     端口明明被监听也返回成功 ⇒ 判定恒为"空闲"，等于没做检查。
+            s.bind(("0.0.0.0", p))
+            return True
+        except OSError:
+            return False
+        finally:
+            s.close()
+
+    if not _port_free(args.port):
+        _old = args.port
+        for _p in range(_old + 1, _old + 30):
+            if _port_free(_p):
+                args.port = _p
+                break
+        print(f"\n[warn] 端口 {_old} 被别的程序占着（不是本层的服务）⇒ 改用 {args.port}。"
+              f"\n       查是谁占的：netstat -ano | findstr :{_old}，再用 tasklist 看那个 PID。"
+              f"\n       （实测过一次：占 8899 的是小米电脑管家的 MiPCAudio.exe。）")
+
     base = f"http://127.0.0.1:{args.port}"
     tmp = ROOT / ".tmp" / "drill"
     if tmp.exists() and not args.keep:
@@ -1547,6 +1588,56 @@ def main(argv=None) -> int:
                   " ⇒ **远墙被当成近墙画了**：图上少一格距离（照图判断会撞）"))
     except Exception as e:                                    # noqa: BLE001
         record("I46", "FAIL", f"墙图单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---------------------------------------------------------------- 0b 设备时基
+    head("0b. 帧时刻：同批收到的两帧，时刻必须不同（纯内存）")
+    # 这条是改版三十五的核心。**故意的负向**：同一毫秒「收到」两帧、
+    # 而固件的 `ms8` 差 100（10 Hz 正常采样）—— 这正是实测的现场
+    # （147 帧里 43 组撞戳）。修好之后这两帧的 `t_ms` 必须差 100，不是一个 0。
+    try:
+        from control.maze_rec import MazeRecorder
+        _tmpdir = Path(".tmp")
+        _tmpdir.mkdir(exist_ok=True)
+        _chs = ["ms8", "posX", "posY", "dir", "wallLeft", "wallFront", "wallRight"]
+        mr = MazeRecorder(root=_tmpdir, get_channels=lambda: list(_chs))
+        mr.start(why="drill-clock")
+        # ⚠️ 变量名**不能叫 `base`** —— 外层 `run()` 里 `base` 是服务 URL，
+        #    这里一覆盖，后面的 `wait_up(base)` 拿到一个 dict，
+        #    报的是"服务 60 s 内没起来"（真凶是变量遮蔽，排查了两轮）。
+        frame0 = {"posX": 0, "posY": 0, "dir": 0, "wallLeft": 0, "wallFront": 0, "wallRight": 0}
+        # 第 1 帧锚时基；第 2、3 帧模拟"同一批"：ms8 各差 100，但我们**立刻连着喂**
+        # （主机侧到达时刻几乎相同，正是批式拉取的样子）。
+        mr.feed(dict(frame0, ms8=52))
+        mr.feed(dict(frame0, ms8=152))
+        mr.feed(dict(frame0, ms8=252))
+        time.sleep(0.25)
+        mr.feed(dict(frame0, ms8=96))        # 256 回绕（252 → 96 是 +100）
+        out = mr.stop(why="manual")
+        doc = json.loads(Path(out["path"]).read_text(encoding="utf-8"))
+        tt = doc.get("t_ms") or []
+        rx = doc.get("rx_t_ms") or []
+        dup_t = len(tt) - len(set(tt))
+        # 时刻必须严格递增，且第 2、3 帧各差 100（设备确实每 100 ms 采一帧）
+        inc = all(tt[i + 1] > tt[i] for i in range(len(tt) - 1))
+        step_ok = (len(tt) >= 4 and tt[1] - tt[0] == 100 and tt[2] - tt[1] == 100
+                   and tt[3] - tt[2] == 100)
+        # 对照：**到达**时刻在同一批里应当是相同的（这正是不能用它的原因）
+        rx_dup = len(rx) - len(set(rx))
+        src = (doc.get("integrity") or {}).get("t_source")
+        i47_ok = bool(dup_t == 0 and inc and step_ok and src == "dev")
+        record("I47", "PASS" if i47_ok else "FAIL",
+               f"t_ms={tt}（重复 {dup_t} 个、严格递增={inc}、逐帧 100 ms={step_ok}）；"
+               f"rx_t_ms={rx}（同批重复 {rx_dup} 个 —— 这就是旧实现撞戳的来路）；"
+               f"integrity.t_source={src!r}"
+               + ("" if i47_ok else
+                  " ⇒ **时间轴还在用到达时刻**：同批的几帧会挤进同一个毫秒，"
+                  "回放时刻重叠、Δt=0"))
+        try:
+            Path(out["path"]).unlink()
+        except OSError:
+            pass
+    except Exception as e:                                    # noqa: BLE001
+        record("I47", "FAIL", f"时刻单测没跑起来：{type(e).__name__}: {e}")
 
     # ---------------------------------------------------------------- 1 起服务
     head("1. 起服务")

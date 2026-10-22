@@ -174,10 +174,11 @@ li{margin:.28em 0}
 <li><a href="#1134">11.34 改版三十二·真机四连修（状态：已落地）</a></li>
 <li><a href="#1135">11.35 改版三十三·真机跑起来之后才暴露的五个静默错（状态：已落地）</a></li>
 <li><a href="#1136">11.36 改版三十四·地图对齐固件坐标 + 清空 + 远近墙 + 测试提速（状态：已落地）</a></li>
+<li><a href="#1137">11.37 改版三十五·记录的主时间轴改成设备时基（每帧唯一）（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
-<li><a href="#12">12. 明确不做 / 未决项</a><ul>
+<li><a href="#12_1">12. 明确不做 / 未决项</a><ul>
 <li><a href="#121">12.1 明确不做</a></li>
 <li><a href="#122">12.2 未决项（需要现场或用户确认）</a></li>
 </ul>
@@ -729,6 +730,15 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
   ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
   <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
+<p><strong>改版记录 2026-10-22（三十五）</strong>：<strong>记录的主时间轴改用设备时基</strong>（每帧唯一）。
+· 现场发现"1-2 帧的时刻一样"，一查是<strong>结构性</strong>的：<code>t_ms</code> 记的是"主机处理时刻"
+  （<code>int(time.time()*1000)</code> 每帧现取），批式一次回 2~3 帧 ⇒ 同批挤进同一毫秒。
+  147 帧的记录里 <strong>43 组撞戳</strong>（组大小 <code>1帧×59 / 2帧×41 / 3帧×2</code>）。
+· 而固件每帧都盖了 <code>ms8</code>（设备毫秒低 8 位），同戳那两帧差<strong>正好 100 ms</strong> ——
+  信息一直在，只是没被当时间轴用。
+· 改成：<code>t_ms</code> = <code>ms8</code> 解回绕后投影到墙钟（<strong>逐帧唯一、毫秒级</strong>）；
+  到达时刻另存 <code>rx_t_ms</code>（链路分析用）。<code>t_dev_ms</code> 那一列<strong>删掉</strong>（实测只有整秒）。
+细节见 §11.37。</p>
 <p><strong>改版记录 2026-10-22（三十四）</strong>：地图显示对齐固件坐标 + 可清空 + 能分清远近墙；
 并把测试从"5 分钟干等"整成"30 秒出结论"。
 · <strong>原点在左下角、y 向上</strong>：<code>draw.maze</code> 的 <code>Y(y)=pad+(N-y)*s</code>（收的是<strong>格线</strong>坐标）。
@@ -8738,6 +8748,150 @@ frontNear = wallFront &amp;&amp; !frontFar                               /* 贴�
 </tbody>
 </table>
 <hr />
+<h3 id="1137">11.37 改版三十五·记录的主时间轴改成设备时基（每帧唯一）（状态：<strong>已落地</strong>）</h3>
+<h4 id="12">一、现场：1~2 帧的时刻一样</h4>
+<p>两条记录（88 帧 / 147 帧）里，<code>t_ms</code> 分别有 18 / 43 组相邻同戳，其中一组是 3 帧。
+组大小分布是 <strong><code>1帧×59 / 2帧×41 / 3帧×2</code></strong> —— 也就是 43 次"一次收到 2 帧"。</p>
+<h4 id="_123">二、不是时钟粒度，是"同一批一次处理"</h4>
+<p>同戳那两帧的 <code>ms8</code>（设备毫秒低 8 位）差<strong>正好 100 ms</strong>（含 256 回绕）：
+<code>152→252</code>、<code>164→8</code>、<code>90→190</code>。固件 10 Hz 采样完全正常。</p>
+<p>100 ms 远大于 Windows 上 <code>time.time()</code> 的 ~15.6 ms 粒度 ⇒ <strong>只可能是同一批</strong>：</p>
+<pre><code class="language-python"># maze_rec.feed()（改版三十四及以前）
+now_ms = int(time.time() * 1000)      # 每帧现取
+</code></pre>
+<p>批式拉取一次回 n 帧，主机在同一个循环里几十微秒处理完 ⇒ 这几帧拿到同一个毫秒。</p>
+<h4 id="ms8">三、信息一直在：<code>ms8</code> 能还原</h4>
+<p>拿记录里的 <code>ms8</code> 做同余还原（256 ms 模 + 就近选解）：</p>
+<pre><code>到达 t_ms : 0, 156, 156, 528, 694, 694, 810, 978, 1132, 2034 ...
+ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
+还原设备ms: 0, 100, 200, 524, 624, 724, 825, 925, 1025, 1973 ...
+</code></pre>
+<p><strong>45 组同戳全部拆开，间隔正好 100 ms</strong>（<code>-156</code> / <code>356</code> 那几处是真实丢帧）。</p>
+<h4 id="t_ms">四、改法：<code>t_ms</code> 用设备时基，到达时刻另存</h4>
+<p>新增 <code>MazeRecorder._frame_time_ms(rec, rx_ms)</code>：</p>
+<table>
+<thead>
+<tr>
+<th>步</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>累计</td>
+<td><code>delta = (ms8 - last8) &amp; 0xFF</code>，<code>_dev_abs += delta</code>（256 ms 一个模）</td>
+</tr>
+<tr>
+<td>补圈</td>
+<td>到达间隔 &gt; 256 ms 时按 <code>round((gap - delta)/256)</code> 补整圈（跨批时不至于少算几圈）</td>
+</tr>
+<tr>
+<td>投影</td>
+<td><code>t = _dev_wall0 + _dev_abs</code>（<code>_dev_wall0</code> = 第一帧的真实到达时刻）</td>
+</tr>
+<tr>
+<td>复位</td>
+<td>累计值倒退 ⇒ 以该帧到达时刻重新锚，并记 <code>t_source="rx"</code>（<strong>如实降级</strong>）</td>
+</tr>
+<tr>
+<td>归零</td>
+<td><code>start()</code> 调 <code>_reset_dev_clock()</code>：新一跑不沿用上一段的累计值</td>
+</tr>
+</tbody>
+</table>
+<p>落盘：</p>
+<table>
+<thead>
+<tr>
+<th>列</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>t_ms</code></td>
+<td><strong>设备时基</strong>的相对毫秒（逐帧唯一）。回放、<code>decisions</code>、<code>changes</code> 都用它</td>
+</tr>
+<tr>
+<td><code>rx_t_ms</code></td>
+<td><strong>到达</strong>时刻的相对毫秒。链路时延/抖动看这里；<strong>不要</strong>拿它当帧时刻</td>
+</tr>
+<tr>
+<td>~~<code>t_dev_ms</code>~~</td>
+<td><strong>删掉</strong>。它当年就想干这件事，但实测只有"整 1000 ms 步进、同批相同"</td>
+</tr>
+<tr>
+<td><code>integrity.t_source</code></td>
+<td><code>dev</code> / <code>rx</code>；混用过还会给 <code>t_src_mixed</code></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <code>duration_ms</code> / <code>start_ms</code> 仍用<strong>到达</strong>时刻（与 <code>end_ms</code> 同源）：混进"设备与主机
+之间的常数偏移"会让时长差出几百毫秒。</p>
+<p>⚠️ 决策差分与事件<strong>跟着 <code>t_ms</code> 一起</strong>换成设备时基 —— 两份时间轴不能混，
+否则"事件插在帧序列的哪一帧"会系统性偏移（偏移量正好是链路时延）。</p>
+<h4 id="_124">五、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>验什么</th>
+<th>为什么必须这样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I47</strong></td>
+<td>4 帧（ms8 = 52/152/252/96，其中 252→96 是回绕）⇒ <code>t_ms</code> 必须 <code>[0,100,200,300]</code>、<strong>零重复</strong>、严格递增；同时 <code>rx_t_ms</code> <strong>有重复</strong>（证明旧实现确实会撞戳）；<code>t_source=="dev"</code></td>
+<td>只验"能读出来"会把旧实现放过；必须<strong>同时</strong>看到"设备列唯一 + 到达列重复"，才有对照</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_125">六、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>I47（纯内存）</td>
+<td><code>t_ms=[0,100,200,300]</code>、重复 0、<code>rx_t_ms=[0,2,2,252]</code>（重复 1）、<code>t_source=dev</code></td>
+</tr>
+<tr>
+<td>真实记录（123 帧 / 45 帧两条）</td>
+<td><code>t_ms</code> 重复 <strong>0</strong>；<code>rx_t_ms</code> 重复 1；<code>t_dev_ms</code> 列已消失</td>
+</tr>
+<tr>
+<td>回放（V13）</td>
+<td>样本非空、<code>N=16</code>、墨迹 8792、无报错</td>
+</tr>
+<tr>
+<td><code>drill --sim</code></td>
+<td>47 PASS / 0 FAIL / 1 SKIP</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_126">七、顺手修的两个测试工具坑（都是"报错指向错误方向"）</h4>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>改法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>S1: 服务 60 s 内没起来</code></td>
+<td>① 8899 被<strong>小米电脑管家的 <code>MiPCAudio.exe</code></strong> 占着；② 我在 I47 里把测试帧字典命名为 <code>base</code>，<strong>遮蔽了外层的 URL 变量</strong> ⇒ <code>wait_up</code> 拿到一个 dict</td>
+<td>起服务前试绑端口（<strong>绑 <code>0.0.0.0</code> 且不用 <code>SO_REUSEADDR</code></strong> —— Windows 上它会把"已占用"误判为可用），被占就换端口并说清；<code>wait_up</code> 失败时打印<strong>最后一次异常</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>
 <thead>
@@ -8762,7 +8916,7 @@ frontNear = wallFront &amp;&amp; !frontFar                               /* 贴�
 </tbody>
 </table>
 <hr />
-<h2 id="12">12. 明确不做 / 未决项</h2>
+<h2 id="12_1">12. 明确不做 / 未决项</h2>
 <h3 id="121">12.1 明确不做</h3>
 <table>
 <thead>
