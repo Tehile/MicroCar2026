@@ -269,7 +269,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -292,10 +292,20 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
+
+    # ⚠️ 改版三十一：连上**不再自动拉取**（`auto_stream: false`），而下面这几条
+    #    （I16 读参数、I15 看记录样本、I17 看丢帧计数）都**需要链路在跑**：
+    #    停流时上游 `GET ALL` 会 3 s 超时 ⇒ 参数表空，看起来像"固件没参数"。
+    #    所以这里显式开流，并把档设回停等（n=1）—— 与"页面按需拉取"不矛盾，
+    #    这一段本来就是"跟上游更新"的联调段。
+    api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 1, "t_ms": 100})
+    _rs0, _cs0, _ = api(base, "/api/v1/mouse/stream", "POST", {"on": True})
+    record("S6b", "PASS" if _cs0 == 200 and (_rs0.get("data") or {}).get("on") else "FAIL",
+           f"联调段显式开流（n=1 停等）⇒ HTTP {_cs0}、on={( _rs0.get('data') or {}).get('on')}")
 
     # ---- I16：参数分组必须与**上游 PARAM_GROUPS / PARAM_META 现算一致**（**不写死组数/项数**
     #          —— 2.4.0 是 24 项三组、2.5.0 起 41 项四组（+「运动控制」id 39–55，仅远程档
@@ -922,6 +932,83 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"{rp_detail}；参数派生量：SPEEDL={sl.get('value')} 应等于 TRACKL/100="
            f"{(float(tl['value']) / 100.0) if tl.get('value') is not None else None}"
            f"、只读={sl.get('readable') is False}、groups_meta 合计与 count 一致={meta_ok}")
+
+    # ⑦e 按需拉取（改版三十一）—— **六段，正反都有**
+    #     ① 连上后**不该**自动拉（`auto_stream: false`）；
+    #     ② 关着的时候改 N 要能改、且如实说"还没生效"（`effective=false`）；
+    #     ③ 再开流必须**按新档开**（`applied_n`，不是先按 1 开再改）；
+    #     ④ 人工停（不带 auto）照停 —— 那是排障手段；
+    #     ⑤ 记录中"自动停"要被**扣留**（否则切个页面就把这一跑的遥测砍了）；
+    #     ⑥ 没有记录、车也不跑时，自动停要真停（不许一律扣留）。
+    def _stream(on=None, auto=None):
+        body = {}
+        if on is not None:
+            body["on"] = on
+        if auto is not None:
+            body["auto"] = auto
+        r, c, _ = api(base, "/api/v1/mouse/stream", "POST", body)
+        return (r.get("data") or {}), c
+
+    def _stream_on() -> bool:
+        _h, c_h, _ = api(base, "/api/v1/health")
+        if c_h != 200:
+            return False
+        return bool((( _h.get("data") or {}).get("mouse") or {}).get("stream_on"))
+
+    _rs, _cs, _ = api(base, "/api/v1/session")
+    sess_now = ((_rs.get("data") or {}).get("session")) if _cs == 200 else None
+    if sess_now:
+        # 有会话开着就别在这里收（那是别人的状态）；⑤⑥ 两段记为判不了
+        pass
+    d_off, c_off = _stream(False)
+    first_off = (c_off == 200 and d_off.get("on") is False and not _stream_on())
+    d_n, c_n, _ = api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 3, "t_ms": 100})
+    n_off = d_n.get("data") or {}
+    n_ok = (c_n == 200 and n_off.get("n") == 3 and n_off.get("effective") is False
+            and str(n_off.get("mode")) in ("off", "stopwait", "telem"))
+    d_on, c_on = _stream(True)
+    on_ok = (c_on == 200 and d_on.get("on") is True and d_on.get("applied_n") == 3
+             and _stream_on())
+    caps_on, _c_caps, _ = api(base, "/api/v1/caps")
+    kind_on = ((caps_on.get("data") or {}).get("mouse") or {}).get("pull") or {}
+    pace_ok = (kind_on.get("kind") == "pace" and kind_on.get("n") == 3)
+    d_manual, c_manual = _stream(False)
+    manual_ok = (c_manual == 200 and d_manual.get("on") is False
+                 and not d_manual.get("kept") and not _stream_on())
+    # ⑤ 记录中自动停 ⇒ 扣留
+    rec_kept = None
+    d_k: dict = {}
+    if not sess_now:
+        _, cs_o, _ = api(base, "/api/v1/session/open", "POST", {})
+        if cs_o == 200:
+            _stream(True)                       # 开记录本身会兜底开流，这里显式再开一次
+            d_k, c_k = _stream(False, auto=True)
+            rec_kept = (c_k == 200 and d_k.get("kept") is True
+                        and d_k.get("reason") == "recording" and _stream_on())
+            api(base, "/api/v1/session/close", "POST", {})
+    # ⑥ 无条件自动停（此时没有会话）
+    if sess_now:
+        idle_ok = None
+    else:
+        _stream(True)
+        d_i, c_i = _stream(False, auto=True)
+        idle_ok = (c_i == 200 and d_i.get("on") is False
+                   and not d_i.get("kept") and not _stream_on())
+    # 收尾：别把环境留在批式/开流状态
+    _stream(False)
+    api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 1, "t_ms": 100})
+
+    i43_ok = first_off and n_ok and on_ok and pace_ok and manual_ok and idle_ok is not False
+    if rec_kept is not None:
+        i43_ok = i43_ok and rec_kept
+    record("I43", "PASS" if i43_ok else "FAIL",
+           f"按需拉取：停流={first_off}、关流改 n=3（effective=False）={n_ok}、"
+           f"带档开流 applied_n={d_on.get('applied_n')} on={d_on.get('on')}={on_ok}、"
+           f"caps.pull={kind_on.get('kind')}/n={kind_on.get('n')}={pace_ok}；"
+           f"人工停={manual_ok}；"
+           f"记录中自动停被扣留={rec_kept}（reason={d_k.get('reason')}）；"
+           f"空闲时自动停真停={idle_ok}"
+           + ("" if i43_ok else " ⇒ **要么没按 N 开流，要么把'自动停'当成了'人工停'**"))
 
 
 
@@ -2321,7 +2408,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

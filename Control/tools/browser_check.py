@@ -445,34 +445,64 @@ async def run(args) -> int:
                            f"（假'已连接'比不显示更坏）")
 
                 # ---------------- V6 接缝（核心）
-                head("8. 接缝：每批帧数 N 的请求真的发出去了")
+                head("8. 接缝：改 N 之后拉取真的按新档开起来了")
+                # 改版三十一之后的正确姿势（前端也是这么做的）：
+                #   **结束拉取 → 改 N → 开始拉取**。
+                # 为什么不能只改 N：拉取中 N 是禁用的，而且开流由后端带档（pace(n)），
+                # 光改 N 不开流 = 界面上写着 n=3、设备一帧都不发。
                 if not ui.get("live"):
                     record("V6", "SKIP",
                            "前端没进真数据模式（LIVE.on=false）⇒ 接缝无从验起")
+                elif not api_mouse.get("connected"):
+                    # 没设备时 `stream/batch` 与 `stream` 都会 409，验不出"开流有没有用上新档"
+                    record("V6", "SKIP",
+                           "没连电脑鼠 ⇒ 开流这一步必然 409，判不了接缝")
                 else:
+                    await cdp.eval("window.C.go('live')")
+                    await asyncio.sleep(0.8)
+                    # ① 先停（不管当前开没开，停一次都是幂等的）
+                    await cdp.eval(
+                        "(()=>{const b=document.getElementById('lv-pull-off');"
+                        "if(b&&!b.disabled) b.click();})()")
+                    await asyncio.sleep(1.2)
                     await cdp.eval("window.__calls.length=0")
+                    # ② 改 N=3 再点【开始拉取】
                     await cdp.eval(
                         "(()=>{const i=document.getElementById('lv-n');"
-                        "if(i){i.value='3';}"
-                        "const b=document.getElementById('lv-n-apply');if(b){b.click();}})()")
-                    await asyncio.sleep(1.5)
+                        "if(i){i.disabled=false;i.value='3';}"
+                        "const b=document.getElementById('lv-pull-on');if(b){b.disabled=false;b.click();}})()")
+                    await asyncio.sleep(2.5)
                     calls = await cdp.eval("window.__calls||[]") or []
-                    hit = [c for c in calls
-                           if str(c.get("u", "")).endswith("/api/v1/mouse/stream/batch")]
+                    hits_b = [c for c in calls
+                              if str(c.get("u", "")).endswith("/api/v1/mouse/stream/batch")]
+                    hits_on = [c for c in calls
+                               if str(c.get("u", "")).endswith("/api/v1/mouse/stream")]
                     body_ok = False
-                    if hit:
+                    if hits_b:
                         try:
-                            body_ok = int(json.loads(hit[-1].get("b") or "{}").get("n")) == 3
+                            body_ok = int(json.loads(hits_b[-1].get("b") or "{}").get("n")) == 3
                         except Exception:                     # noqa: BLE001
                             body_ok = False
-                    pull = await cdp.eval("window.C.S.pullN")
-                    record("V6", "PASS" if (hit and body_ok and pull == 3) else "FAIL",
-                           f"点【应用】n=3 ⇒ 抓到 {len(hit)} 条 `POST /mouse/stream/batch`、"
-                           f"body.n 正确={body_ok}、界面 S.pullN={pull}" if hit else
-                           f"**点了【应用】但请求没发出去**（这一轮别的请求 "
-                           f"{[c.get('u') for c in calls][:4]}）—— 界面会显示成功，网络里什么都没有")
-                    # 还原成 1：别把环境留在批式档
+                    st6 = await cdp.eval(
+                        "(()=>{const S=window.C.S;"
+                        "return {n:S.pullN, pulling:S.pulling};})()") or {}
+                    # 后端到底开没开，也核一遍（"界面说开了"不算）
+                    hh6 = read_health(base).get("mouse") or {}
+                    stream_on = hh6.get("stream_on")
+                    ok6 = (bool(hits_b) and body_ok and bool(hits_on)
+                           and st6.get("n") == 3 and st6.get("pulling") is True
+                           and stream_on is True)
+                    record("V6", "PASS" if ok6 else "FAIL",
+                           f"结束→改 n=3→开始：抓到 {len(hits_b)} 条 `stream/batch`"
+                           f"（body.n 对={body_ok}）+ {len(hits_on)} 条 `stream`；"
+                           f"界面 n={st6.get('n')} pulling={st6.get('pulling')}；"
+                           f"后端 stream_on={stream_on}"
+                           + ("" if ok6 else
+                              " ⇒ **界面说开了但请求没发/后端没开**，"
+                              "或者改 N 之后开流没用上新档（设备按 n=1 发、界面写 3）"))
+                    # 还原：停掉，别把环境留在批式档
                     try:
+                        _req(base + "/api/v1/mouse/stream", {"on": False}, timeout=20)
                         _req(base + "/api/v1/mouse/stream/batch", {"n": 1}, timeout=20)
                     except Exception:                         # noqa: BLE001
                         pass
@@ -616,6 +646,36 @@ async def run(args) -> int:
                            + ("" if ok10 else
                               " ⇒ **按钮只改了本地状态、没真连**（现场表现就是「提示已连接、"
                               "1 秒后断开」），或者连不上时还敢说已连接"))
+
+                # ---------------- V11 按页开关拉取（改版三十一）
+                head("11b. 切页开关拉取：不看的页面不该占链路")
+                # 拉取是唯一持续占链路的动作（停等 1 条/往返、批式 10 Hz）。
+                # 这里验两件事：**切到不需要帧的页面要停**、**切回要拉的页面要开**。
+                # 需要活链路才验得出来（没设备时 `syncPull` 直接跳过）。
+                if not (ui.get("live") and api_mouse.get("connected")):
+                    record("V11", "SKIP", "没连设备（或没进真数据模式）⇒ 按页开关无从验起")
+                else:
+                    await cdp.eval("window.C.go('live')")
+                    await asyncio.sleep(1.5)
+                    on_live = bool((read_health(base).get("mouse") or {}).get("stream_on"))
+                    await cdp.eval("window.C.go('data')")          # 只读盘，不需要帧
+                    await asyncio.sleep(1.6)
+                    off_data = bool((read_health(base).get("mouse") or {}).get("stream_on"))
+                    await cdp.eval("window.C.go('params')")        # 参数表要 GET ALL，必须拉
+                    await asyncio.sleep(2.0)
+                    on_params = bool((read_health(base).get("mouse") or {}).get("stream_on"))
+                    pcount = await cdp.eval(
+                        "(()=>((window.C.S.params||[]).reduce((a,g)=>a+g.items.length,0)))()")
+                    ok11 = on_live and (not off_data) and on_params and (pcount == 41)
+                    await cdp.eval("window.C.go('live')")          # 收尾回到要拉的页面
+                    await asyncio.sleep(1.2)
+                    record("V11", "PASS" if ok11 else "FAIL",
+                           f"进 live ⇒ 拉={on_live}；切 data ⇒ 拉={off_data}"
+                           f"（应为 False）；切 params ⇒ 拉={on_params}"
+                           f"（参数 {pcount} 项）"
+                           + ("" if ok11 else
+                              " ⇒ **切走了还在拉（白占链路），或者该拉的页面没开"
+                              "（参数表就会是 0 组）**"))
 
                 # ---------------- V8 界面文案纪律
                 head("12. 主区文案：不放机制说明")

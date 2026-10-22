@@ -331,6 +331,22 @@ class Ctx:
         try:
             # ① 鼠会话（本地目录，失败代价≈0）
             if self.mouse.available:
+                # ⚠️ **开记录必须先有帧**（改版三十一）：拉取改成"页面按需"之后，
+                #    连上时可能是关着的。这里兜底开一次 —— 记录是"要落数据"的动作，
+                #    不能靠"用户正好停在实时状态页"这种巧合。
+                #    失败不阻断开会话（宁可记一个空会话，也要让现场看到报错）。
+                try:
+                    if not self.mouse.stream_on:
+                        r = self.mouse.set_stream(True)
+                        self.bus.log("info", "开记录顺带打开拉取（之前是关的）"
+                                             f"· n={r.get('n')}"
+                                             + ("（批式）" if r.get("applied_n") else "（停等）"),
+                                     source="mouse")
+                        self.store.mark("mouse", "stream.auto_on", "",
+                                        f"why=session_open n={r.get('n')}")
+                except Exception as e:                        # noqa: BLE001
+                    self.bus.log("warn", f"开记录时没能打开拉取：{type(e).__name__}: {e}",
+                                 source="mouse")
                 try:
                     path = self.mouse.open_session(f"{sid}/mouse")
                     s.mouse_path = path

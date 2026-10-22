@@ -278,8 +278,8 @@ li{margin:.28em 0}
 <tr>
 <td><code>POST /api/v1/mouse/stream</code></td>
 <td>A</td>
-<td><code>StreamAPI.on</code>、<code>StreamAPI.off</code>、<code>StreamAPI.toggle</code>、<code>StreamAPI.is_on</code>、<code>StreamAPI.stats</code>、<code>TelemetryAPI.hz</code></td>
-<td><strong>2.1.0 起语义是「启停本机拉取器」</strong>（不再是"命令固件开流"）。<strong>只接受 <code>{"on": true|false}</code></strong>；速率形态走 <code>/mouse/stream/mode</code> ⇒ 带 <code>hz</code> 一律 <strong>400</strong>（帧率由<strong>链路往返</strong>决定：1/RTT）。应答里 <code>hz</code> 是<strong>实测值</strong>，另给 <code>pull</code>（拉取器状态：<code>mode:"stop-and-wait"</code> / <code>inflight</code> / <code>done</code> / <code>lost</code> / <code>hz</code>）。⚠️ <code>off()</code> 会<strong>立刻丢弃在途请求</strong> —— 这是让蓝牙透传模块缓冲排空的唯一手段</td>
+<td><code>StreamAPI.on</code>、<code>StreamAPI.off</code>、<code>StreamAPI.toggle</code>、<code>StreamAPI.pace</code>、<code>StreamAPI.is_on</code>、<code>StreamAPI.stats</code>、<code>TelemetryAPI.hz</code></td>
+<td><strong>2.1.0 起语义是「启停本机拉取器」</strong>（不再是"命令固件开流"）。<strong>只接受 <code>{"on": true|false}</code></strong>；速率形态走 <code>/mouse/stream/mode</code> ⇒ 带 <code>hz</code> 一律 <strong>400</strong>（帧率由<strong>链路往返</strong>决定：1/RTT）。应答里 <code>hz</code> 是<strong>实测值</strong>，另给 <code>pull</code>（拉取器状态：<code>mode</code> / <code>inflight</code> / <code>done</code> / <code>lost</code> / <code>hz</code>）。⚠️ <code>off()</code> 会<strong>立刻丢弃在途请求</strong> —— 这是让蓝牙透传模块缓冲排空的唯一手段。<strong>改版三十一补</strong>：① 开流<strong>带档</strong>（<code>n≥2</code> 直接 <code>pace(n,100ms)</code>，回 <code>applied_n</code>；不是先 <code>on()</code> 再 <code>tune</code> —— <code>on()</code> 会把 n 归 1）；② 可选 <code>{"auto":true}</code> 表示"页面切走顺带停"，此时<strong>记录中 / 车在跑会扣留</strong>并回 <code>{kept:true,reason:"recording"\|"racing"}</code>；人工停（不带 <code>auto</code>）照停</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/mouse/stream/batch</code></td>
@@ -440,7 +440,7 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/mouse/params/grouped</code></td>
 <td>A</td>
 <td><code>ParamsAPI.get_all</code>、<code>ParamsAPI.meta</code>、<code>ParamsAPI.get_raw</code></td>
-<td>按「生产标定 / 红外测量 / 电源监控 / 运动控制」<strong>四组</strong>返回（2.5.0 起共 41 项；组名逐项取自上游 <code>PARAM_GROUPS</code>，不写死），并带 <code>flash_page</code> / <code>write_via</code> / <code>desc</code>；老板子上仍会回老组名。<strong>改版二十九补</strong>：① 每项 <code>derived</code> / <code>derived_from</code> / <code>derived_div</code>（<code>SPEEDL/SPEEDR = TRACKL/TRACKR ÷ 100</code>，值由<strong>本层算</strong>、<code>readable=false</code>——让界面自己除就会出现"改了 TRACKL、SPEEDL 还是旧值"）；② 顶层 <code>groups_meta</code>（每组的 <code>count</code> / <code>id_min</code> / <code>id_max</code> / <code>flash_page</code> / <code>write_via</code> / <code>n_derived</code>），省得界面从条目里现攒</td>
+<td>按「生产标定 / 红外测量 / 电源监控 / 运动控制」<strong>四组</strong>返回（2.5.0 起共 41 项；组名逐项取自上游 <code>PARAM_GROUPS</code>，不写死），并带 <code>flash_page</code> / <code>write_via</code> / <code>desc</code>；老板子上仍会回老组名。<strong>改版二十九补</strong>：① 每项 <code>derived</code> / <code>derived_from</code> / <code>derived_div</code>（<code>SPEEDL/SPEEDR = TRACKL/TRACKR ÷ 100</code>，值由<strong>本层算</strong>、<code>readable=false</code>——让界面自己除就会出现"改了 TRACKL、SPEEDL 还是旧值"）；② 顶层 <code>groups_meta</code>（每组的 <code>count</code> / <code>id_min</code> / <code>id_max</code> / <code>flash_page</code> / <code>write_via</code> / <code>n_derived</code>），省得界面从条目里现攒。⚠️ <strong>改版三十一</strong>：<code>refresh=True</code>（默认）<strong>要求拉取器在跑</strong> —— 停流时上游 <code>GET ALL</code> 会 3 s 超时（只回 38/41 项），所以这里直接 <strong>409 并说明原因</strong>，<strong>不返回空表</strong>（空表会被当成"固件没有参数"）。<code>?refresh=0</code> 只读本地快照，不受此限</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/mouse/params/grouped</code></td>

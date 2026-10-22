@@ -390,15 +390,32 @@ async def _mouse_stream(request: web.Request) -> web.Response:
                             "/api/v1/mouse/stream/mode（{\"mode\":\"pace\"} 为批式，"
                             "{\"mode\":\"stopwait\"} 为停等）；"
                             "帧率由链路往返决定，不能任意指定。")
-    if "on" in d:
-        r = await loop.run_in_executor(None, lambda: mc.stream.toggle(bool(d["on"])))
+    # `auto=True` = "页面切走顺带停"。这时**正在跑车就扣留**（见 `pull_hold_reason`）；
+    # 人工点【结束拉取】不带 auto，照停 —— 那是排障手段（`off()` 会丢弃在途请求，
+    # 是排空蓝牙缓冲的唯一办法），不能替用户判断"能不能停"。
+    auto = bool(d.get("auto"))
+    want = bool(d["on"]) if "on" in d else (not mc.stream.is_on)
+    # ⚠️ **记录中不许自动停**：切页把拉取关掉 = 这一跑的遥测被砍，
+    #    而现场事后只会觉得"记录怎么是空的"。记录状态只有 ctx 知道，
+    #    跑车状态由适配器看任务机 —— 两处各管一件，都在后端，界面不用判断。
+    if auto and not want and ctx.store.current is not None:
+        r = {"ok": True, "on": True, "kept": True, "reason": "recording",
+             "n": None, "applied_n": None}
     else:
-        r = await loop.run_in_executor(None, mc.stream.toggle, not mc.stream.is_on)
-    ctx.store.mark("mouse", "mouse.stream", "", f"on={mc.stream.is_on} ok={r.ok}")
+        r = await loop.run_in_executor(None, lambda: ctx.mouse.set_stream(want, auto=auto))
+    ctx.store.mark("mouse", "mouse.stream", "", json.dumps(
+        {"on": want, "auto": auto, **{k: r.get(k) for k in ("on", "kept", "reason")}},
+        ensure_ascii=False))
     # `hz` 回的是**实测**帧率（上游 2.1 起 `telemetry.hz()` 已按到达间隔实算）；
     # 同时把拉取器自己的状态一并端出去（在途数 / 模式 / 丢了几条）——
     # 真机排障时"在途恒 1"是判断停等有没有被破坏的直接证据。
-    return ok({"result": _res(r), "on": bool(mc.stream.is_on),
+    return ok({"result": {"ok": r.get("ok"), "status": r.get("status")},
+               "on": bool(mc.stream.is_on),
+               # `kept=True` = **要停但没停**（车在跑）。必须回出去，否则界面
+               # 会显示"已结束"而设备还在发帧 —— 又是"界面说一套、设备做一套"。
+               "kept": bool(r.get("kept")), "reason": r.get("reason"),
+               # `applied_n` = 这次开流**真的**带下去的档（None = 按停等起的）
+               "n": r.get("n"), "applied_n": r.get("applied_n"),
                "hz": mc.telemetry.hz(),
                "pull": _pull_stats(mc)})
 

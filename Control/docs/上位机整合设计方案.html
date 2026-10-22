@@ -170,6 +170,7 @@ li{margin:.28em 0}
 <li><a href="#1130-p4-p5">11.30 改版二十八·P4 接线 + P5 判据重写（状态：已落地）</a></li>
 <li><a href="#1131">11.31 改版二十九·最后四页接真数据（状态：已落地）</a></li>
 <li><a href="#1132-1">11.32 改版三十·「提示已连接、1 秒后断开」（状态：已修）</a></li>
+<li><a href="#1133">11.33 改版三十一·按页拉取（省链路）+ 开流带档（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -725,6 +726,18 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
   ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
   <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
+<p><strong>改版记录 2026-10-22（三十一）</strong>：<strong>拉取改成"按页开门"</strong>（省链路），并且开流要带档。
+· 前端实时状态页加了【开始拉取】/【结束拉取】，规则是"<strong>结束 → 改 N → 开始</strong>"。
+  后端跟着改三处：<code>/mouse/stream</code> 收 <code>auto</code> 并把档 N 一起带下去；停流时改 N 仍有效
+  （只是 <code>effective=false</code>，如实说"还没到设备"）；<strong>自动停会被扣留</strong>（车在跑/记录中）。
+· <code>auto_stream: false</code>：连上<strong>不再自动拉</strong>。进「总览 / 实时状态 / 参数设定 / 比赛 /
+  维护自检」才开，进记录/视频/轨迹/回放就停 —— 那几页一帧都不需要。
+· <strong>一个实测出来的意外</strong>：停流时上游 <code>GET ALL</code> 会 3 s 超时（只回 38/41 项），
+  参数表变成"0 组"——看着像固件没参数。⇒ ①参数页也归入"要拉"的页面；
+  ②<code>params/grouped</code> 在停流时直接 <strong>409 并说明原因</strong>，不再返回空表。
+· 判据：<strong>V6</strong> 改成新流程（结束→改 N→开始，必须同时抓到 <code>stream/batch</code> 与 <code>stream</code>
+  且后端 <code>stream_on=true</code>）、新增 <strong>V11</strong>（切页开关拉取）与 <strong>I43</strong>（六段，正反都有）。
+细节见 §11.33。</p>
 <p><strong>改版记录 2026-10-22（三十）</strong>：修「点连接提示已连接、1 秒后断开」。
 · 根因不是串口，也不是驱动：抽屉里的【连接】/【断开】<strong>还是原型里的假动作</strong> ——
   只本地置 <code>connected=true</code> 再弹一个 toast，<strong>一个请求都没发</strong>。而改版二十八接上了
@@ -8127,6 +8140,179 @@ C.toast('ok', '已连接', val + ' · proto 9 · 状态 WAIT');   // 只弹窗
 <h4 id="_104">六、没做的一件（记着）</h4>
 <p>连接失败时<strong>只弹 toast</strong>，抽屉里的"最近错误"仍取 <code>/health.mouse.detail</code>（后端有值才有）。
 要做的话应该把最近一次连接失败的原因也走 <code>detail</code>，让它在抽屉里留得住。</p>
+<hr />
+<h3 id="1133">11.33 改版三十一·按页拉取（省链路）+ 开流带档（状态：<strong>已落地</strong>）</h3>
+<h4 id="_105">一、为什么改：拉取是唯一持续占链路的动作</h4>
+<p>停等是 1 条/往返（真机 4.4~6.5 Hz），批式 10 Hz；而人大部分时间在看参数、记录、
+视频 —— 那几页<strong>一帧都不需要</strong>。原来 <code>auto_stream: true</code> 让"连上就一直拉"，
+等于让没人看的页面也在吃带宽（蓝牙透传模块的缓冲就是这么灌满的）。</p>
+<p>现在的规矩：<strong><code>auto_stream: false</code></strong>，拉取由页面触发。</p>
+<table>
+<thead>
+<tr>
+<th>页面</th>
+<th>拉不拉</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>总览 / 实时状态 / 比赛 / 维护自检</td>
+<td><strong>拉</strong></td>
+<td>帧率、跑位、发车前检查、任务机状态，全是帧</td>
+</tr>
+<tr>
+<td><strong>参数设定</strong></td>
+<td><strong>拉</strong></td>
+<td>⚠️ 见下节：停流时 <code>GET ALL</code> 读不出来</td>
+</tr>
+<tr>
+<td>比赛记录 / 回放 / 视频 / 轨迹</td>
+<td>不拉</td>
+<td>纯读盘（记录、轨迹、产物）或纯写参数</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_106">二、实测出来的意外：参数表依赖拉取</h4>
+<p>停流时调 <code>/mouse/params/grouped</code>，返回 <code>count: 0</code>、<code>groups: {}</code>，
+而 <code>/health</code> 明明写着 <code>connected: true</code>。直接打上游门面看得更清楚：</p>
+<pre><code>流关: send_cmd(&quot;params.get_all&quot;) ok=False status='TIMEOUT'；1.2 s 后收到 38/41 项
+流开: send_cmd(&quot;params.get_all&quot;) ok=True  status='OK'；收到 41/41 项
+</code></pre>
+<p>⇒ 停流时 <code>GET ALL</code> 的应答<strong>凑不齐</strong>（固件的回包和遥测走同一条下行，停流后吞吐塌了），
+<code>send_cmd</code> 判 TIMEOUT，<code>get_all()</code> 就 <code>return {}</code> —— 界面看到的是 <strong>"0 组参数"</strong>，
+最容易被当成"固件没有参数表"。</p>
+<p>两处改动：
+1. <strong>参数页归入"要拉"</strong>（<code>NEED_PULL</code>），进页先开流再读表；
+2. <code>params_grouped(refresh=True)</code> 在停流时 <strong>409</strong>：
+   「拉取没开，参数读不出来（停流时 GET ALL 会超时）。先【开始拉取】再读参数。」
+   —— <strong>空表是假事实，报错才是真事实</strong>（三态纪律）。</p>
+<h4 id="on-n">三、开流必须带档（否则一次 <code>on()</code> 就把 N 抹掉）</h4>
+<p>上游 <code>stream.on()</code> 的注释写明「每次 <code>configure(1, t_ms)</code>」。所以"先 tune 再 on"
+会被 on 抹成 n=1 —— 界面写着 n=3、设备按 n=1 发，<strong>现场看不出来</strong>。</p>
+<p><code>adapters/mouse.py::set_stream()</code> 的做法：</p>
+<table>
+<thead>
+<tr>
+<th>情况</th>
+<th>走法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>n ≥ 2</code> 且有 <code>pace</code></td>
+<td>直接 <code>mc.stream.pace(n=self._pull_n, t_ms=PULL_T_MS)</code> —— <strong>一次到位</strong>，省掉 on→tune 的 stop/start 两趟往返</td>
+</tr>
+<tr>
+<td>否则（n=1 / 老上游）</td>
+<td><code>toggle(True)</code>，就是停等</td>
+</tr>
+</tbody>
+</table>
+<p>返回值里 <code>applied_n</code> 明说"这次真的带下去的档是几"（<code>None</code> = 按停等起的）。</p>
+<h4 id="_107">四、停流：人工照停，自动扣留</h4>
+<table>
+<thead>
+<tr>
+<th>谁发起</th>
+<th>行为</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>人工点【结束拉取】（不带 <code>auto</code>）</td>
+<td><strong>照停</strong></td>
+<td>那是<strong>排障手段</strong>：<code>off()</code> 会立刻丢弃在途请求，是排空蓝牙缓冲的唯一办法。不能替用户判断"能不能停"</td>
+</tr>
+<tr>
+<td>页面切走的自动停（<code>auto:true</code>）</td>
+<td><strong>记录中 / 车在跑时扣留</strong></td>
+<td>停了 = 这一跑的遥测被砍，事后只会觉得"记录怎么是空的"</td>
+</tr>
+</tbody>
+</table>
+<p>扣留原因分工：<strong>记录</strong>看 <code>ctx.store.current</code>（路由里有 ctx）、<strong>跑车</strong>看任务机
+<code>mazeTask ≥ 2</code>（适配器有遥测）—— 两件都在后端判断，界面不用自己算。
+返回 <code>{kept:true, reason:"recording"|"racing"}</code>，前端据此<strong>继续显示"拉取中"</strong>。</p>
+<h4 id="_108">五、开记录由后端兜底开流</h4>
+<p><code>ctx.session_open()</code> 里：拉取关着就开一次，并记一行
+<code>stream.auto_on</code>（<code>why=session_open</code>）。理由：记录是"要落数据"的动作，
+<strong>不能靠"用户正好停在实时状态页"这种巧合</strong>；失败只 warn，不阻断开会话。</p>
+<h4 id="_109">六、判据（三条，都有反向）</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+<th>反向那一半</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>V6</strong>（改）</td>
+<td>结束 → 改 n=3 → 开始：必须抓到 <code>stream/batch</code>(n=3) <strong>和</strong> <code>stream</code>，且后端 <code>stream_on=true</code>、界面 n=3</td>
+<td>只抓到 batch = "改了档没开流"；只抓到 stream = "没用上新档"</td>
+</tr>
+<tr>
+<td><strong>V11</strong>（新）</td>
+<td>进 live ⇒ 拉；切 data ⇒ 停；切 params ⇒ 拉且参数 41 项</td>
+<td>切走了还在拉（白占链路）/ 该拉的没开（参数表 0 组）</td>
+</tr>
+<tr>
+<td><strong>I43</strong>（新，drill）</td>
+<td>①连上不自动拉 ②停流改 N 有效但 <code>effective=false</code> ③开流 <code>applied_n=3</code> 且 <code>kind=pace</code> ④人工停照停 ⑤记录中自动停被扣留 ⑥空闲时自动停真停</td>
+<td>任一环错都红</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_110">七、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>停流改 N</td>
+<td><code>{n:3, mode:"off", effective:false}</code> —— <strong>没假装生效</strong></td>
+</tr>
+<tr>
+<td>开流</td>
+<td><code>{on:true, applied_n:3}</code>，<code>caps.pull={n:3, kind:'pace'}</code>，实测 <strong>10.01 Hz</strong></td>
+</tr>
+<tr>
+<td>记录中自动停</td>
+<td><code>{on:true, kept:true, reason:"recording"}</code></td>
+</tr>
+<tr>
+<td>车在跑自动停</td>
+<td><code>{on:true, kept:true, reason:"racing"}</code></td>
+</tr>
+<tr>
+<td>人工停</td>
+<td><code>{on:false, kept:false}</code></td>
+</tr>
+<tr>
+<td>按页开关（真浏览器）</td>
+<td>overview 拉 / data 停 / params 拉 / video 停 / live 拉 / track 停</td>
+</tr>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>43 PASS / 0 FAIL / 1 SKIP</strong></td>
+</tr>
+<tr>
+<td><code>browser_check --sim</code></td>
+<td><strong>15 PASS / 0 FAIL / 1 SKIP</strong>；不带 <code>--sim</code> 12 PASS / 0 FAIL / 3 SKIP</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_111">八、一条留给自己的提醒</h4>
+<p><code>drill</code> 的 14b（跟上游联调那一段）现在要<strong>显式开流</strong>（S6b）—— 连上不再自动拉，
+而 I16/I15/I17 都读帧。<strong>"改了一个默认值，所有依赖这个默认值的地方都要跟着改"</strong>，
+判据里那条 S6b 就是防止下次又被这个默认值绊住。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

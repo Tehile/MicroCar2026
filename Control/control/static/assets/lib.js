@@ -81,9 +81,10 @@ window.C = (function () {
     /* 拉取只有批式：一次往返取 N 帧，N 决定帧率 */
     pullMode: 'batch',
     pullN: 1,
-    /* 拉取开关（人工刹车）。默认开着 —— 页面一进来就该有东西看。
-       停了 ⇒ 不再有新帧 ⇒ 帧龄往上走、读数停在最后一帧（不接着假造）。 */
-    pulling: true,
+    /* 拉取开关（人工刹车）。
+       ⚠️ 改版三十一起，**真值来自后端** `health.mouse.stream_on` —— 本地这位只是
+       在两次轮询之间给界面一个即时反馈。连上设备但没进"要拉的页面"时它是 false。 */
+    pulling: false,
     rateLog: [],
     recSel: '',
     params: null,
@@ -590,6 +591,8 @@ window.C = (function () {
     if (mo.device && mo.device.fw != null) m.fw = String(mo.device.fw);
     m.detail = mo.detail || '';
     m.streamMode = mo.stream_mode || m.streamMode || '';
+    // 拉取的**真值**来自后端（改版三十一：连上不再自动拉，按页面开）
+    if (typeof mo.stream_on === 'boolean') S.pulling = mo.stream_on;
     S.estop = !!mo.estop_locked;
     if (d.clock) {
       S.health.clock.calibrated = !!d.clock.calibrated;
@@ -682,8 +685,10 @@ window.C = (function () {
         wsOpen();
         log('control', 'info', '已连后端 · 切到真数据（遥测走 WS）');
         emit('state');
-        // 首屏那几块：参数表、记录、视频会话。一次拉齐之后按页刷新。
-        loadParams(); loadRecords(); loadVideoSessions();
+        // 先按"当前这页需不需要"决定拉不拉，再取数：参数表读表依赖拉取在跑。
+        syncPull(S.route).then(function () {
+          loadParams(); loadRecords(); loadVideoSessions();
+        });
         if (!LIVE.timer) {
           LIVE.timer = setInterval(function () {
             get('/api/v1/health').then(applyHealth).catch(function () {
@@ -959,10 +964,12 @@ window.C = (function () {
         ]).then(function (pair) {
           if (pair[0]) applyCaps(pair[0].mouse || null);
           if (pair[1]) applyHealth(pair[1]);
-          loadParams();
           // 连接是"整体状态变了"：页面上的门控（发车/开始记录/维护动作）要跟着重算。
           // 这里用 `state` 而不是 `health`，因为页内按钮的 disabled 在页面自己手里。
           emit('state');
+          // 连上后**不一定**要拉：只在当前这页需要时开（改版三十一）。
+          // ⚠️ 顺序：先 syncPull 再 loadParams —— 参数表读表依赖拉取在跑。
+          syncPull(S.route).then(function () { loadParams(); });
           return r;
         });
       });
@@ -1304,7 +1311,10 @@ window.C = (function () {
      结束拉取 = 关流。上游 v2.1 的 `off()` **立刻丢弃在途请求**，是排空蓝牙
      透传缓冲的唯一手段 ⇒ 它是**排障手段**，不是省流量开关。
      三态纪律：没生效就说没生效，不许让界面继续显示"已生效"。 */
-  function setPull(on, n) {
+  function setPull(on, n, opts) {
+    // `auto=true` = 页面切走顺带停。后端在"车在跑"时会**扣留**（返回 kept=true），
+    // 那时必须继续显示"拉取中"，否则界面说结束、设备还在发帧。
+    const auto = !!(opts && opts.auto);
     if (!on) {
       if (!LIVE.on) {
         S.pulling = false;
@@ -1312,10 +1322,18 @@ window.C = (function () {
         emit('health');
         return Promise.resolve(false);
       }
-      return post('/api/v1/mouse/stream', { on: false }).then(function () {
+      return post('/api/v1/mouse/stream', { on: false, auto: auto }).then(function (d) {
+        // 后端扣留（车在跑）：**不许**把界面改成"已结束"
+        if (d && d.kept) {
+          S.pulling = true;
+          log('mouse', 'info', '想停拉取但被扣留（'
+            + (d.reason === 'racing' ? '迷宫任务机在跑' : String(d.reason)) + '）');
+          emit('health');
+          return true;
+        }
         S.pulling = false;
         log('mouse', 'info', '→ 拉取器已关 · 在途已丢弃');
-        toast('', '拉取已结束', '档位保留 n=' + S.pullN);
+        if (!auto) toast('', '拉取已结束', '档位保留 n=' + S.pullN);
         emit('health');
         return true;
       }).catch(function (e) {
@@ -1366,6 +1384,36 @@ window.C = (function () {
         return false;
       });
     });
+  }
+
+  /* ── 按页开门：**只有要看的页面才拉**（改版三十一）────────────────────────
+     拉取是唯一持续占链路的动作（停等 1 条/往返、批式 10 Hz）。而人大部分时间在
+     看参数/记录/视频 —— 那些页面一帧都不需要，却一直在吃带宽。
+
+     `NEED_PULL` 里这几页是"没有新帧就根本没法用"的：
+       · overview 总览：显示帧率与跑位
+       · live     实时状态：整个页面就是遥测
+       · race     比赛：发车前检查、迷宫状态机都读帧
+       · maint    维护自检：要靠 `mazeTask` 判断"车在跑 ⇒ 禁操作"
+     其余（params / data / video / track / replay）纯读盘或纯写参数，**不拉**。
+
+     ⚠️ 切走时发的是 `{on:false, auto:true}`：后端在"车在跑"时会**扣留**，
+        避免"人切到记录页看看，结果把这一跑的遥测砍了"。
+
+     ⚠️ **参数页也要拉**（改版三十一实测）：停流时上游 `GET ALL` 的应答凑不齐
+        （3 s 超时、只回 38/41 项）⇒ 参数表会空。所以「参数设定」在这张表里。 */
+  const NEED_PULL = { overview: 1, live: 1, params: 1, race: 1, maint: 1 };
+
+  /* 返回 Promise：进页时要**先开拉取再取数**（参数页尤其如此，否则读表 409）。 */
+  function syncPull(route) {
+    if (!LIVE.on) return Promise.resolve(false);
+    // 没连设备就没什么可开的 —— 打过去必然 409，只会在日志里刷"拉取没开起来"
+    if (!S.health.mouse.connected) return Promise.resolve(false);
+    const id = route || S.route;
+    const need = !!NEED_PULL[id];
+    if (need && !S.pulling) return setPull(true, S.pullN);
+    if (!need && S.pulling) return setPull(false, null, { auto: true });
+    return Promise.resolve(S.pulling);
   }
 
   /* ── 视频会话动作 ─────────────────────────────────────────────────────── */
@@ -1766,8 +1814,9 @@ window.C = (function () {
       if (location.hash !== h) history.pushState({ id }, '', h);
     }
     emit('route', id);
-    // 进页才拉这一页要的数据（连不上后端时 `needPage` 自己什么都不做）
-    needPage(id);
+    // 先定"这页要不要拉取"，再按页取数：参数页读表**依赖拉取在跑**（见 NEED_PULL），
+    // 反过来做会先吃一个 409、再补一次请求。
+    syncPull(id).then(function () { needPage(id); });
   }
 
   let timer = null;
@@ -1790,7 +1839,8 @@ window.C = (function () {
     S, util, icon, on, emit, log, toast, go, boot, act,
     sessionStart, sessionStop, setScene,
     videoStart, videoCancel, videoTick,
-    recomputeLeds, pullBatch, setPull,
+    recomputeLeds, pullBatch,
+    setPull, syncPull,
     // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
     startLive, LIVE,
     // 四页数据（按页拉取 + 形状翻译）

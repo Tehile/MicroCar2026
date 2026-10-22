@@ -617,7 +617,10 @@ class MouseAdapter:
                 self._mc = self._MouseClient(
                     session_dir=str(self.cfg.session_root),
                     auto_session=False,
-                    auto_stream=bool(self.cfg.get("mouse.auto_stream", True)),
+                    # ⚠️ 兜底默认**关**（改版三十一）：拉取由页面按需触发，
+                    #    连上就开流会让"没人看的页面"也在吃链路带宽。
+                    #    配置里写什么以 config.yaml 为准，这里只是"缺键时怎么想"。
+                    auto_stream=bool(self.cfg.get("mouse.auto_stream", False)),
                     scheduler_hz=float(self.cfg.get("mouse.scheduler_hz", 50.0)),
                     telemetry_window_s=float(self.cfg.get("mouse.telemetry_window_s", 30.0)),
                     auto_reconnect=bool(self.cfg.get("mouse.auto_reconnect", True)),
@@ -992,6 +995,76 @@ class MouseAdapter:
         if n <= 1:
             pace["fps"] = None
         return pace
+
+    @property
+    def stream_on(self) -> bool:
+        """拉取器这一刻在不在跑。**没连设备也返回 False**（不是"判不了"）。"""
+        mc = self._mc
+        try:
+            return bool(mc is not None and mc.is_connected and mc.stream.is_on)
+        except Exception:                                     # noqa: BLE001
+            return False
+
+    def pull_hold_reason(self) -> Optional[str]:
+        """**自动停**拉取时要扣留的原因；`None` = 可以停。
+
+        为什么"自动"与"人工"要分开：
+        · 人工点【结束拉取】是**排障手段**（上游 `off()` 会立刻丢弃在途请求，
+          是排空蓝牙透传缓冲的唯一办法）⇒ 一律照停，不问原因。
+        · 自动停只发生在"页面切走"这种**后台**动作上 ⇒ 这时如果正在记录或车还在跑，
+          停了就等于把这一跑的遥测砍掉，而且现场看不出来（只会觉得"记录怎么是空的"）。
+
+        判定用**任务机**而不是"有没有速度"：速度过零会闪，任务机是状态。
+        """
+        mc = self._mc
+        if mc is None or not mc.is_connected:
+            return None
+        try:
+            u = mc.telemetry.latest() or {}
+        except Exception:                                     # noqa: BLE001
+            u = {}
+        task = u.get("mazeTask")
+        try:
+            if task is not None and int(task) >= 2:            # SEARCH 及以上 = 车在跑
+                return "racing"
+        except (TypeError, ValueError):
+            pass
+        return None
+
+    def set_stream(self, on: bool, auto: bool = False) -> Dict[str, Any]:
+        """启停拉取器。**开流时把档 N 一起带上**，不留下"界面 n=3、设备按 n=1 发"。
+
+        `mc.stream.on()` 每次都 `configure(1, t_ms)`（上游 `on()` 的注释写明），
+        所以"先 tune 再 on"会被 on 抹掉。这里改成：
+          * `n ≥ 2` 且上游有 `pace` ⇒ 直接 `pace(n, t_ms)` 起**批式**，一次到位
+            （省掉 on→tune 的 stop/start 两趟往返）；
+          * 否则（n=1 或老上游）⇒ `toggle(True)`，就是停等方式。
+
+        `auto=True` 表示"这是页面切走顺带停的"⇒ 正在跑车就扣留（见 `pull_hold_reason`）。
+        人工停不进这个分支：排障时用户要的是"立刻停"，不是"帮我判断能不能停"。
+        """
+        mc = self._ensure()
+        if not on and auto:
+            why = self.pull_hold_reason()
+            if why:
+                return {"ok": True, "on": True, "kept": True, "reason": why,
+                        "n": self._pull_n, "note": "车在跑，自动停被扣留"}
+        applied: Optional[int] = None
+        if on:
+            if self._pull_n >= 2 and self._features.get("pace_pull"):
+                r = mc.stream.pace(n=self._pull_n, t_ms=PULL_T_MS)
+                applied = self._pull_n
+            else:
+                r = mc.stream.toggle(True)
+        else:
+            r = mc.stream.toggle(False)
+        return {"ok": bool(getattr(r, "ok", False)),
+                "status": str(getattr(r, "status", "") or ""),
+                "on": bool(mc.stream.is_on),
+                # `applied_n` = 这次**真的**带下去的档（None = 用停等起的，n 没参与）
+                "applied_n": applied,
+                "kept": False, "reason": None,
+                "n": self._pull_n}
 
     def apply_pull_n(self, n: Any, t_ms: Any = None) -> Dict[str, Any]:
         """设置**每批帧数**并立即生效。同步等 ACK ⇒ 调用方必须放 executor。
@@ -1760,6 +1833,14 @@ class MouseAdapter:
             # 形状与正常返回保持一致 —— 半截的 JSON 形状会让前端分成两条代码路径
             return {"groups": {}, "count": 0, "connected": False,
                     "note": "未连接"}
+        # ⚠️ **回读（refresh=True）要求拉取器在跑**（改版三十一实测）：
+        #    停流时上游 `GET ALL` 的应答要 3 s 以上才凑齐，`send_cmd` 直接判 TIMEOUT，
+        #    结果就是"连着呢、但参数表 0 组"—— 最容易被当成"固件没参数"。
+        #    ⇒ 明说原因（409），**不返回空表**：空表是"读到 0 项"这个假事实。
+        #    `refresh=False`（开记录时冻快照）只用本地缓存的 `snapshot()`，不受此限。
+        if refresh and not self.stream_on:
+            raise MouseError("拉取没开，参数读不出来（停流时 GET ALL 会超时）。"
+                             "先【开始拉取】再读参数。")
         try:
             vals = mc.params.get_all(refresh=refresh) if refresh else mc.params.snapshot()
         except Exception as e:                               # noqa: BLE001
