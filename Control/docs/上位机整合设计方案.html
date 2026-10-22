@@ -169,6 +169,7 @@ li{margin:.28em 0}
 <li><a href="#1129-p2">11.29 改版二十七·P2 后端契约补齐（状态：已落地）</a></li>
 <li><a href="#1130-p4-p5">11.30 改版二十八·P4 接线 + P5 判据重写（状态：已落地）</a></li>
 <li><a href="#1131">11.31 改版二十九·最后四页接真数据（状态：已落地）</a></li>
+<li><a href="#1132-1">11.32 改版三十·「提示已连接、1 秒后断开」（状态：已修）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -724,6 +725,19 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
   ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
   <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
+<p><strong>改版记录 2026-10-22（三十）</strong>：修「点连接提示已连接、1 秒后断开」。
+· 根因不是串口，也不是驱动：抽屉里的【连接】/【断开】<strong>还是原型里的假动作</strong> ——
+  只本地置 <code>connected=true</code> 再弹一个 toast，<strong>一个请求都没发</strong>。而改版二十八接上了
+  1 s 的 <code>/health</code> 轮询，它把真话拉回来（后端根本没连）⇒ 界面表现成"连上又断"。
+· 实测反证：真机 COM7 上 <code>POST /mouse/connect</code> 返回 fw 311 / proto 9 / mazetype 16，
+  <strong>连着 19 s 一次没掉</strong>。所以掉的不是连接，是界面。
+· 修法：新增 <code>connectMouse / disconnectMouse / listPorts</code>（lib.js 一层），抽屉按钮改成
+  真发请求；<strong>端口列表也改成后端扫</strong>（<code>GET /mouse/ports</code> 扫到真串口，原来写死
+  COM7/COM8/模拟器三行，换台机器就全错）。连上后立即刷 <code>caps</code>+<code>health</code>，不等下一秒。
+· 新判据 <strong>V10</strong>（负向，确定性）：点【连接】填一个<strong>不存在的端口</strong>，必须 ①抓到
+  <code>POST /mouse/connect</code> ②2 s 后界面 <code>connected=false</code> ③界面上不许出现"已连接"。
+  连着一个真机时 <strong>SKIP</strong>（点连接会先断开再开新口，拿现场试错等于把现场拆了）。
+细节见 §11.32。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -8046,6 +8060,73 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <p><code>#/race</code> 中栏的<strong>迷宫实时重构图</strong>（<code>GET /mouse/maze/reconstruct</code> 的 <code>wall_rows</code>）。
 它和上面第三点是同一类风险：<strong>读落盘的位掩码要先确认那套约定</strong>。现在 <code>_STEP</code> 修好了，
 重建端（<code>maze_reconstruct</code> → <code>to_json</code>）跟着一起对了；界面那一侧还没画。</p>
+<hr />
+<h3 id="1132-1">11.32 改版三十·「提示已连接、1 秒后断开」（状态：<strong>已修</strong>）</h3>
+<h4 id="_100">一、现象与误判</h4>
+<p>现场描述：点【连接】→ 弹「已连接 COM7」→ <strong>约 1 秒后设备片变回"未连接"</strong>。
+第一反应会去查串口/驱动/被占用 —— 这三个都不是原因。</p>
+<h4 id="_101">二、根因：按钮是原型假动作，而轮询说了真话</h4>
+<p><code>shell.js</code> 的抽屉里，<code>#dr-connect</code> 的实现是：</p>
+<pre><code class="language-js">h.mouse.connected = true; h.mouse.port = val;      // 只改本地
+C.toast('ok', '已连接', val + ' · proto 9 · 状态 WAIT');   // 只弹窗
+</code></pre>
+<p><strong>没有一个网络请求。</strong> 而改版二十八给页面加了 1 s 的 <code>/health</code> 轮询，
+<code>applyHealth</code> 拿回后端的 <code>connected:false</code> 并 <code>emit('health')</code> ⇒ 外壳重画设备片。
+于是"本地说了 1 秒的谎，被轮询当场纠正"。</p>
+<p>⇒ 这类 bug 的教训是通用的：<strong>凡是要动硬件的按钮，必须真的发请求</strong>。
+本地状态可以"乐观更新"，但前提是<strong>随后要被真实回执覆盖</strong>——这里从来没有回执。</p>
+<h4 id="_102">三、反证：真机连接本身是稳的</h4>
+<p>在同一台机器、同一个 <code>app.py</code> 上直接打端点：</p>
+<pre><code>POST /api/v1/mouse/connect {&quot;target&quot;:&quot;COM7&quot;}
+→ {&quot;ok&quot;:true,&quot;target&quot;:&quot;COM7&quot;,&quot;device&quot;:{&quot;proto&quot;:9,&quot;fw&quot;:311,&quot;mazetype&quot;:16},&quot;state&quot;:&quot;open&quot;}
+</code></pre>
+<p>随后每 1 s 读一次 <code>/health</code>，<strong>连续 19 次 <code>connected=True</code>、<code>port=COM7</code></strong>；
+再在真浏览器里点【连接】填 COM7，<strong>连续 6 s <code>conn=True</code>、设备片显示 <code>电脑鼠 COM7</code>、<code>fw 311</code></strong>。</p>
+<h4 id="_103">四、改法</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>改动</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lib.js</code></td>
+<td>新增 <code>connectMouse(target, baud)</code> / <code>disconnectMouse()</code> / <code>listPorts(force)</code>：真发请求；成功后<strong>立即</strong>刷 <code>caps</code>（fw / 通道数）+ <code>health</code>（状态 / 准备清单），不等下一秒轮询</td>
+</tr>
+<tr>
+<td><code>shell.js</code> 连接钮</td>
+<td>调 <code>C.connectMouse()</code>；<strong>失败如实报</strong>（<code>e.detail</code> 是后端给的原因，例如"被占用"）；按钮期间显示"连接中…"并禁用</td>
+</tr>
+<tr>
+<td><code>shell.js</code> 断开钮</td>
+<td>调 <code>C.disconnectMouse()</code></td>
+</tr>
+<tr>
+<td><code>shell.js</code> 端口列表</td>
+<td>原来写死 <code>COM7 · CH340 / COM8 · CP2102 / tcp://…:5555</code> 三行 —— <strong>换台机器就全错</strong>。改成 <code>GET /mouse/ports</code> 真扫（本机现在扫出 COM7/COM4/COM5 + 两个模拟器口），并加【刷新端口】</td>
+</tr>
+<tr>
+<td><code>shell.js</code> 固件/协议/通道</td>
+<td>没连时显示 <code>—</code>，不再把原型默认值（<code>2.13.0</code> / <code>v9</code> / <code>33 个</code>）当读数写出来</td>
+</tr>
+</tbody>
+</table>
+<h4 id="v10">五、判据 V10（负向，确定性）</h4>
+<p><strong>点一个不存在的端口（COM99），界面不许说"已连接"</strong>：</p>
+<ol>
+<li>必须抓到 <code>POST /api/v1/mouse/connect</code>（证明按钮真的在发请求）；</li>
+<li>2 s 后 <code>S.health.mouse.connected === false</code>（证明没有本地置真）；</li>
+<li>设备片/提示里不许出现"已连接"。</li>
+</ol>
+<p>三条缺一不可 —— 只查第 2 条会漏掉"发了请求但本地也置真"；
+只查第 1 条会漏掉"请求发出去、界面还是自己编"。</p>
+<p>⚠️ <strong>后端已连着真机时 SKIP</strong>：点连接会先断开再打开新端口，拿现场试错等于把现场拆了。
+这也是为什么它用"不存在的端口"而不是"连模拟器"来验 —— 不碰硬件也能验机制。</p>
+<h4 id="_104">六、没做的一件（记着）</h4>
+<p>连接失败时<strong>只弹 toast</strong>，抽屉里的"最近错误"仍取 <code>/health.mouse.detail</code>（后端有值才有）。
+要做的话应该把最近一次连接失败的原因也走 <code>detail</code>，让它在抽屉里留得住。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

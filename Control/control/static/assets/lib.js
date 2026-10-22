@@ -934,6 +934,78 @@ window.C = (function () {
     else if (id === 'replay') loadRecords().then(function () { loadReplay(S.recSel); });
   }
 
+  /* ── 设备连接：**真的去连** ────────────────────────────────────────────────
+     为什么单独有这一层：抽屉里原来的【连接】只改本地状态就弹"已连接"，一个请求
+     都不发；而 1 s 的 `/health` 轮询会把真话拉回来 ⇒ 界面表现成"连上又断开"，
+     现场只会怀疑串口/驱动。**凡是要动硬件的按钮，必须真的发请求。**
+
+     连上之后立刻刷 `caps`（fw / 通道数）与 `health`（状态 / 准备清单），
+     不等下一秒轮询 —— 否则那 1 s 里界面还是旧状态，看起来像没连上。 */
+  function connectMouse(target, baud) {
+    if (!LIVE.on) {
+      const e = new Error('还没连上后端（页面在原型模式）');
+      e.detail = '后端没起来或不可达，先把服务起起来再连设备。';
+      return Promise.reject(e);
+    }
+    return post('/api/v1/mouse/connect',
+      { target: target, baud: baud == null ? undefined : baud })
+      .then(function (r) {
+        return Promise.all([
+          get('/api/v1/caps').catch(function () { return null; }),
+          get('/api/v1/health').catch(function () { return null; }),
+        ]).then(function (pair) {
+          if (pair[0]) applyCaps(pair[0].mouse || null);
+          if (pair[1]) applyHealth(pair[1]);
+          loadParams();
+          // 连接是"整体状态变了"：页面上的门控（发车/开始记录/维护动作）要跟着重算。
+          // 这里用 `state` 而不是 `health`，因为页内按钮的 disabled 在页面自己手里。
+          emit('state');
+          return r;
+        });
+      });
+  }
+
+  function disconnectMouse() {
+    if (!LIVE.on) return Promise.resolve({ ok: true });
+    return post('/api/v1/mouse/disconnect', {}).then(function (r) {
+      return get('/api/v1/health').catch(function () { return null; }).then(function (h) {
+        if (h) applyHealth(h);
+        emit('state');
+        return r;
+      });
+    });
+  }
+
+  function applyPorts(d) {
+    const t = (d && d.targets) || [];
+    S.ports = t.map(function (x) {
+      return {
+        label: x.label || x.port || x.target || '',
+        target: x.target || x.port || '',
+        port: x.port || '',
+        kind: x.kind || '',
+        baud: x.baud,
+      };
+    });
+    S.portsNote = (d && d.note) || '';
+    return S.ports.length;
+  }
+
+  /* 端口列表也来自后端（`/mouse/ports` 扫的是本机真实串口）。
+     带缓存：列表在抽屉打开时就要有，不能每次都等一次串口枚举。 */
+  function listPorts(force) {
+    if (!LIVE.on) return Promise.resolve(S.ports || []);
+    if (!force && S.ports) return Promise.resolve(S.ports);
+    return get('/api/v1/mouse/ports').then(function (d) {
+      applyPorts(d);
+      return S.ports;
+    }).catch(function (e) {
+      S.portsErr = (e && (e.detail || e.message)) || String(e);
+      log('mouse', 'warn', '串口列表取不到：' + S.portsErr);
+      return S.ports || [];
+    });
+  }
+
   /* ── 日志 ─────────────────────────────────────────────────────────────── */
   const SRC = { mouse: '电脑鼠', video: '视频', control: '本层' };
   function log(src, level, text) {
@@ -1636,6 +1708,8 @@ window.C = (function () {
     // 四页数据（按页拉取 + 形状翻译）
     loadParams, loadRecords, loadVideoSessions, loadTrajectory, loadReplay, needPage,
     replayViewLive,
+    // 设备连接（真的要动硬件的按钮走这里）
+    connectMouse, disconnectMouse, listPorts,
     channels: { groups: GROUPS, text: valText, dirs: DIRS, tasks: TASKS, motions: MOTIONS, spurt: SPURT, front: FRONT },
     records: S.records,
     record(id) { return S.records.find(r => r.id === id) || S.records[0] || null; },

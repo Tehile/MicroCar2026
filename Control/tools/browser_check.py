@@ -561,8 +561,64 @@ async def run(args) -> int:
                            f"渲染 {got_p.get('rows')} 行"
                            + ("" if ok9 else " ⇒ **参数页没吃上后端数据，或派生量被当成了可写项**"))
 
+                # ---------------- V10 连接按钮必须真的去连（本版新增，专治"连上又断开"）
+                head("11. 连接按钮：点一个不存在的端口，界面不许说「已连接」")
+                # 只在**后端本来就没连**时跑：① 这正是 bug 复现的条件（界面自己编一个"已连接"，
+                # 1 s 后 /health 把真话拉回来）；② 不去动用户已经连着的真机
+                # （点连接会先断开再打开新端口，乱试等于把现场拆了）。
+                if not ui.get("live"):
+                    record("V10", "SKIP", "前端没进真数据模式 ⇒ 连接按钮无从验起")
+                elif api_mouse.get("connected"):
+                    record("V10", "SKIP",
+                           "电脑鼠已连着（可能是真机）⇒ 不拿它去试错端口，免得把现场拆了")
+                else:
+                    await cdp.eval("window.__calls.length=0")
+                    await cdp.eval(
+                        "(()=>{const c=document.querySelector('.devchip[data-dev=mouse]');"
+                        "if(c) c.click();})()")
+                    await asyncio.sleep(0.7)
+                    await cdp.eval(
+                        "(()=>{const i=document.getElementById('dr-manual');"
+                        "if(i) i.value='COM99';"
+                        "const b=document.getElementById('dr-connect');if(b) b.click();})()")
+                    err_txt = ""
+                    # 失败要留够时间：串口打不开有时要等到系统超时
+                    for _ in range(10):
+                        await asyncio.sleep(0.5)
+                        st = await cdp.eval(
+                            "(()=>{const S=window.C.S;"
+                            "const t=(document.getElementById('toasts')||{}).innerText||'';"
+                            "return {conn:S.health.mouse.connected,toast:t};})()") or {}
+                        err_txt = str(st.get("toast") or "")
+                        if not st.get("conn") and err_txt:
+                            break
+                    calls = await cdp.eval("window.__calls||[]") or []
+                    hit = [c for c in calls
+                           if str(c.get("u", "")).endswith("/api/v1/mouse/connect")]
+                    after = await cdp.eval(
+                        "(()=>{const S=window.C.S;"
+                        "const chip=document.querySelector('.devchip[data-dev=mouse]');"
+                        "return {conn:S.health.mouse.connected,"
+                        " chipTxt:chip?(chip.innerText||''):''};})()") or {}
+                    # 三个都要成立：真的发了请求；状态**没有被本地改成已连接**；
+                    # 界面上不许出现"已连接"这种话（只有后端说连上才允许说）
+                    said_ok = ("已连接" in err_txt) or ("已连接" in str(after.get("chipTxt") or ""))
+                    ok10 = bool(hit) and (after.get("conn") is False) and not said_ok
+                    # 关抽屉，别把下一节留在遮挡层下面
+                    await cdp.eval(
+                        "(()=>{const b=document.getElementById('dr-close');if(b) b.click();"
+                        "document.body.classList.remove('drawer-open');})()")
+                    record("V10", "PASS" if ok10 else "FAIL",
+                           f"点【连接】填 COM99 ⇒ 抓到 {len(hit)} 条 `POST /mouse/connect`；"
+                           f"2 s 后界面 connected={after.get('conn')}"
+                           f"（后端也没连）、设备片 {str(after.get('chipTxt'))[:24]!r}；"
+                           f"界面上出现「已连接」={said_ok}"
+                           + ("" if ok10 else
+                              " ⇒ **按钮只改了本地状态、没真连**（现场表现就是「提示已连接、"
+                              "1 秒后断开」），或者连不上时还敢说已连接"))
+
                 # ---------------- V8 界面文案纪律
-                head("11. 主区文案：不放机制说明")
+                head("12. 主区文案：不放机制说明")
                 txt = await cdp.eval(
                     "(()=>{const m=document.getElementById('main');"
                     "return m?(m.innerText||''):'';})()") or ""

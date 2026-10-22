@@ -198,6 +198,26 @@
         : '<div class="hint">还没有事件。</div>');
   }
 
+  /* 可连接目标：**来自后端**（`/mouse/ports` 扫的是本机真实串口）。
+     原来这里是写死的三行（COM7 / COM8 / 模拟器），换台机器就全错。 */
+  function portRows(m) {
+    const list = S.ports;
+    if (!list) {
+      return '<div class="hint">' + (S.portsErr
+        ? ('串口列表取不到：' + U.esc(S.portsErr))
+        : '正在读串口列表…') + '</div>';
+    }
+    if (!list.length) return '<div class="hint">这台机器上没扫到串口。手填 COM7 也行。</div>';
+    return list.map(function (p) {
+      const cur = !!m.connected && (p.port === m.port || p.target === m.port);
+      return '<button class="port-row' + (cur ? ' cur' : '') + '" data-port="' +
+        U.esc(p.target) + '">' +
+        '<span class="mono" style="font-size:11px">' + U.esc(p.label) + '</span>' +
+        '<span class="tag ' + (cur ? 'ok' : '') + '" style="margin-left:auto">' +
+        (cur ? '当前' : '选') + '</span></button>';
+    }).join('');
+  }
+
   function openDev(kind) {
     if (!DEV[kind]) kind = 'mouse';
     document.body.classList.add('drawer-open');
@@ -214,24 +234,25 @@
         kvRows([
           ['状态', m.connected ? '已连接' : '未连接', m.connected ? 'ok' : 'warn'],
           ['端口', m.port || '—'],
-          ['固件', m.fw + '（' + (m.fwInt >= 311 ? '4 灯可读' : '4 灯未知') + '）'],
-          ['协议', 'v' + m.proto + ' · 30 B 帧'],
-          ['通道', String(m.caps.unified_channels) + ' 个'],
+          // 没连上就别把默认值当读数写出来：fw / 协议 / 通道都是**连上才有**
+          ['固件', m.connected
+            ? (m.fw || '—') + '（' + (m.fwInt == null ? '4 灯判不了'
+              : (m.fwInt >= 311 ? '4 灯可读' : '4 灯未知')) + '）'
+            : '—'],
+          ['协议', m.connected ? ('v' + (m.proto == null ? '?' : m.proto) + ' · 30 B 帧') : '—'],
+          ['通道', m.connected
+            ? (String((m.caps && m.caps.unified_channels) || '—') + ' 个') : '—'],
           ['链路', m.link || '—'],
           ['最近错误', m.detail || '—', 'dim'],
         ]) +
         '<div class="sec-title">可连接目标</div>' +
-        ['COM7 · USB-SERIAL CH340', 'COM8 · CP2102', 'tcp://127.0.0.1:5555 · 模拟器'].map((t, i) =>
-          '<button class="port-row' + (i === 0 ? ' cur' : '') + '" data-port="' + t.split(' ')[0] + '">' +
-          '<span class="mono" style="font-size:11px">' + U.esc(t) + '</span>' +
-          (i === 0 ? '<span class="tag ok" style="margin-left:auto">当前</span>' : '<span class="tag" style="margin-left:auto">选</span>') +
-          '</button>').join('') +
-        '<div class="row" style="margin-top:10px"><input class="input" id="dr-manual" placeholder="COM11 / tcp://…" style="flex:1">' +
+        '<div id="dr-ports">' + portRows(m) + '</div>' +
+        '<div class="row" style="margin-top:10px"><input class="input" id="dr-manual" placeholder="COM7 / tcp://…" style="flex:1">' +
         '<button class="btn btn-primary" id="dr-connect">连接</button></div>' +
         '<div class="row" style="margin-top:8px">' +
         '<button class="btn btn-sm" id="dr-disconnect">断开</button>' +
         '<button class="btn btn-sm" id="dr-rescue">软复位</button>' +
-        '<button class="btn btn-sm btn-ghost">刷新端口</button></div>' +
+        '<button class="btn btn-sm btn-ghost" id="dr-ports-refresh">刷新端口</button></div>' +
         '<div class="banner" style="margin-top:12px">' + C.icon('alert') +
         '<div class="b-body">整机软复位 · 约 3 s 出首帧' +
         '<span class="b-next">⇒ 发车前放回起点角。</span></div></div>';
@@ -260,32 +281,67 @@
 
     const q = id => body.querySelector('#' + id);
     if (kind === 'mouse') {
-      body.querySelectorAll('[data-port]').forEach(p => {
-        p.onclick = function () {
-          body.querySelectorAll('[data-port]').forEach(x => x.classList.remove('cur'));
-          p.classList.add('cur');
-          q('dr-manual').value = p.dataset.port;
-        };
+      const bindPortRows = function (scope) {
+        (scope || body).querySelectorAll('[data-port]').forEach(p => {
+          p.onclick = function () {
+            body.querySelectorAll('[data-port]').forEach(x => x.classList.remove('cur'));
+            p.classList.add('cur');
+            const m0 = q('dr-manual');
+            if (m0) m0.value = p.dataset.port;
+          };
+        });
+      };
+      bindPortRows();
+      // 端口列表来自后端：先画"正在读…"，到了只重画这一段（不整页重挂，免得把输入框清掉）
+      C.listPorts().then(function () {
+        const box = body.querySelector('#dr-ports');
+        if (!box) return;
+        box.innerHTML = portRows(h.mouse);
+        bindPortRows(box);
       });
       const b = q('dr-connect');
       if (b) b.onclick = function () {
-        const val = (q('dr-manual').value || 'COM7').trim();
-        h.mouse.connected = true; h.mouse.port = val;
-        C.log('mouse', 'info', '→ 连接 ' + val + ' · fw 2.13.0 · proto 9');
-        C.toast('ok', '已连接', val + ' · proto 9 · 状态 WAIT');
-        S.readiness[0].ok = true; S.readiness[0].state = val + ' · fw 2.13.0';
-        C.recomputeLeds();
-        refreshChrome();
+        // 手填优先；没填就用列表第一个。**不写死 COM7** —— 换台机器就错了。
+        let val = (q('dr-manual').value || '').trim();
+        if (!val && S.ports && S.ports.length) val = S.ports[0].target;
+        if (!val) {
+          C.toast('warn', '先选一个端口', '列表里点一个，或手填 COM7 / tcp://…');
+          return;
+        }
+        b.disabled = true; b.textContent = '连接中…';
+        C.connectMouse(val).then(function (r) {
+          const dv = (r && r.device) || {};
+          C.toast('ok', '已连接', val + (dv.fw != null ? (' · fw ' + dv.fw) : ''));
+        }).catch(function (e) {
+          // 失败要**说清是哪一步错**：端口被占用 / 找不到 / 设备不应答
+          C.toast('bad', '连不上', (e && (e.detail || e.message)) || String(e), 8000);
+          C.log('mouse', 'error', '连接 ' + val + ' 失败：' +
+            ((e && (e.detail || e.message)) || e));
+        }).then(function () {
+          b.disabled = false; b.textContent = '连接';
+          openDev('mouse');                 // 用后端状态重画抽屉（成功失败都一样）
+        });
       };
       const d = q('dr-disconnect');
       if (d) d.onclick = function () {
-        h.mouse.connected = false; h.mouse.port = '';
-        S.running = false; S.tel.mazeTask = 0;
-        S.readiness[0].ok = false; S.readiness[0].state = '未连接 · 串口为空';
-        C.recomputeLeds();
-        C.log('mouse', 'warn', '串口已断开 · 4 灯转为未知');
-        C.toast('warn', '已断开', '电脑鼠连接已关闭；4 灯不再显示亮/灭。');
-        refreshChrome();
+        d.disabled = true; d.textContent = '断开中…';
+        C.disconnectMouse().then(function () {
+          C.toast('warn', '已断开', '串口已关闭；4 灯转为未知。');
+        }).catch(function (e) {
+          C.toast('bad', '断开失败', (e && (e.detail || e.message)) || String(e));
+        }).then(function () {
+          d.disabled = false; d.textContent = '断开';
+          openDev('mouse');
+        });
+      };
+      const rf = q('dr-ports-refresh');
+      if (rf) rf.onclick = function () {
+        S.ports = null; S.portsErr = '';
+        q('dr-ports').innerHTML = portRows(h.mouse);
+        C.listPorts(true).then(function () {
+          const box = q('dr-ports');
+          if (box) { box.innerHTML = portRows(h.mouse); bindPortRows(box); }
+        });
       };
       const r = q('dr-rescue');
       if (r) r.onclick = function () { C.act('rescue'); };
