@@ -1558,52 +1558,36 @@ def main(argv=None) -> int:
     print("Control 端到端演练（无鼠 / 无视频素材 / 无场地）")
     print("=" * 78)
 
-    # ---------------------------------------------------------------- 0a 前墙两档
-    head("0a. 前墙：远档也是\"本格前方有墙\"，不许消失（纯内存）")
-    # 现场（真机记录 20261022_162108 第 33 帧，t=6.60 s）：
-    #   车在 (5,1)、朝下 dir=2，判定 左/中/右 = 0/1/1，**frontFar=1**。
-    #   改版三十四把 frontFar 当成"墙在外一格"，还顺手给本格写了 front=False
-    #   ⇒ 重建出来的 `wall[5][1][2]`（南墙）是 False：**图上那道墙凭空消失**。
-    #   而上游 §5.4 的恒等式是 `frontNear | frontFar == wallFront` ——
-    #   两档都表示"前方有墙"，frontFar 只是**距离档**（用于提前决策）。
+    # ---------------------------------------------------------------- 0 纯本地：远近墙
+    head("0. 墙图：近墙落本格、远墙落外一格（纯内存，不碰服务）")
+    # 为什么单列一条**不依赖链路**的判据：模拟器的 `frontFar` 恒 0，
+    # 所以"远墙画在一格之外"这件事在联调里**永远验不到**。而它错了也不会崩，
+    # 只是图上少一格距离（照图判断"还有一格能走"就撞了）。
     try:
-        from control.maze_rec import MazeWallMap as _MWM
-        f33 = {"posX": 5, "posY": 1, "dir": 2,
-               "wallLeft": 0, "wallFront": 1, "wallRight": 1, "frontFar": 1}
-        mf = _MWM(16); mf.feed(f33)
-        south = bool(mf.wall[5][1][2])      # 本格南墙：必须存在
-        far_s = bool(mf.far[5][1][2])       # 且标成远档（只影响线型）
-        east = bool(mf.wall[5][1][1])       # 左=0 ⇒ 东边无墙
-        west = bool(mf.wall[5][1][3])       # 右=1 ⇒ 西边有墙
-        # 负向：同一场景但 frontFar=0（贴脸档）⇒ 同样有墙，只是 far=False
-        mn = _MWM(16); mn.feed(dict(f33, frontFar=0))
-        near_ok = bool(mn.wall[5][1][2]) and not bool(mn.far[5][1][2])
-        # 超一格不许被牵连：南边再下一格（(5,0) 的南墙）不应因为这一帧被置墙
-        ghost = bool(mf.wall[5][0][2])
-        # view 形状：`v` 是 n×(n-1)、`h` 是 (n-1)×n（少一列会让最右列横墙永不显示）
-        shape_ok, vs, hs = None, None, None
-        try:
-            from control.adapters.mouse import _wallmap_view as _vw
-            j = _vw(mf)
-            vs = (len(j["v"]), len(j["v"][0]))
-            hs = (len(j["h"]), len(j["h"][0]))
-            shape_ok = (vs == (16, 15) and hs == (15, 16))
-        except Exception as e:                                # noqa: BLE001
-            shape_ok = None
-            print(f"    （view 形状没测：{type(e).__name__}）")
-        i48_ok = bool(south and east is False and west and near_ok and not ghost
-                      and (shape_ok is not False))
-        record("I48", "PASS" if i48_ok else "FAIL",
-               f"现场帧(dir=2, L/F/R=0/1/1, frontFar=1)：南墙={south}（应 True）、"
-               f"远档标记={far_s}（应 True）、东={east}（应 False）、西={west}（应 True）；"
-               f"贴脸档(frontFar=0) 也有墙且 far=False={near_ok}；"
-               f"南边再下一格没被牵连={not ghost}；"
-               f"view 形状 v={vs} h={hs}（应 (16,15)/(15,16)）={shape_ok}"
-               + ("" if i48_ok else
-                  " ⇒ **远档把本格的墙清掉了**（图上那道墙消失，而算法以为能走），"
-                  "或者 h 少一列/行列颠倒"))
+        from control.maze_rec import MazeWallMap
+        # dir=0 是 +y（向上）。本格 (2,2) 前方 (2,3) 有远墙 ⇒
+        #   本格 (2,2) 的 front 必须是 False（贴脸是空的）
+        #   (2,3) 的 front 必须是 True （墙在再前一格的边上）
+        m_far = MazeWallMap(16)
+        m_far.feed({"posX": 2, "posY": 2, "dir": 0, "wallFront": 1, "frontFar": 1,
+                    "wallLeft": 0, "wallRight": 0})
+        far_ok = (m_far.wall[2][2][0] is False and m_far.wall[2][3][0] is True
+                  and m_far.known[2][2][0] is True)
+        # 负向：frontFar=0（近墙）⇒ 墙就在本格前沿，下一格必须是 False
+        m_near = MazeWallMap(16)
+        m_near.feed({"posX": 2, "posY": 2, "dir": 0, "wallFront": 1, "frontFar": 0,
+                     "wallLeft": 0, "wallRight": 0})
+        near_ok = (m_near.wall[2][2][0] is True and m_near.wall[2][3][0] is False)
+        i46_ok = bool(far_ok and near_ok)
+        record("I46", "PASS" if i46_ok else "FAIL",
+               f"frontFar=1 ⇒ 本格 front={m_far.wall[2][2][0]}（应 False）、"
+               f"下一格 front={m_far.wall[2][3][0]}（应 True）={far_ok}；"
+               f"frontFar=0 ⇒ 本格={m_near.wall[2][2][0]}（应 True）、"
+               f"下一格={m_near.wall[2][3][0]}（应 False）={near_ok}"
+               + ("" if i46_ok else
+                  " ⇒ **远墙被当成近墙画了**：图上少一格距离（照图判断会撞）"))
     except Exception as e:                                    # noqa: BLE001
-        record("I48", "FAIL", f"前墙两档单测没跑起来：{type(e).__name__}: {e}")
+        record("I46", "FAIL", f"墙图单测没跑起来：{type(e).__name__}: {e}")
 
     # ---------------------------------------------------------------- 0b 设备时基
     head("0b. 帧时刻：同批收到的两帧，时刻必须不同（纯内存）")
