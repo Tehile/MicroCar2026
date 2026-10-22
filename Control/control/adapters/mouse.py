@@ -148,8 +148,20 @@ def _wallmap_view(m: Any) -> Dict[str, Any]:
     n = int(getattr(m, "n", 0) or 0)
     if n < 2:
         return {"N": 0, "goal": [], "v": [], "h": [], "visited": {}, "trail": []}
-    v = [[1 if m.wall[x][y][1] else 0 for x in range(n - 1)] for y in range(n)]
-    h = [[1 if m.wall[x][y][0] else 0 for x in range(n - 1)] for y in range(n)]
+    # 值域 **0 / 1 / 2**：0 = 没墙，1 = 近档（贴脸），2 = 远档（提前量）。
+    # ⚠️ 远处的墙**位置不变**（都是本格前沿），只有**线型**不同 ——
+    #    `frontFar` 是距离档，不含"隔一格"的意思（见 `MazeWallMap.feed` 的注释）。
+    def cell(x: int, y: int, d: int) -> int:
+        if not m.wall[x][y][d]:
+            return 0
+        return 2 if m.far[x][y][d] else 1
+
+    # `v[y][x]` = (x,y)-(x+1,y) 之间 ⇒ n 行 × (n-1) 列
+    v = [[cell(x, y, 1) for x in range(n - 1)] for y in range(n)]
+    # `h[y][x]` = (x,y)-(x,y+1) 之间 ⇒ **(n-1) 行 × n 列**
+    # ⚠️ 这里曾经写成 `for x in range(n-1)`（少一列）⇒ 最右一列格子的横墙
+    #    在界面上永远画不出来（`h[y][n-1]` 是 undefined，`if` 判假，一声不响）。
+    h = [[cell(x, y, 0) for x in range(n)] for y in range(n - 1)]
     visited = {}
     for y in range(n):
         for x in range(n):

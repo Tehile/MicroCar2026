@@ -69,19 +69,28 @@ C.draw = (function () {
 
     /* 墙：已知实线（黑），未探明点线（浅） */
     function known(cx, cy) { return m.visited[cx + ',' + cy]; }
-    function line(x1, y1, x2, y2, on) {
+    /* `on` = 已知（实线）/ 未探明（点线）；`far` = **远档**（提前量看到的）。
+       ⚠️ 远档**不是"隔一格"**：位置一样在本格前沿，只是车离它还远
+       （`frontFar = wallFront && min(f1,f2) >= thrFrontNear`，见上游 §5.4），
+       所以这里只改**线型**（细一号 + 浅一档），不改位置。
+       以前把远档画到外一格、还把本格那道墙清掉 —— 图上直接少一道墙。 */
+    function line(x1, y1, x2, y2, on, far) {
       g.beginPath();
       g.setLineDash(on ? [] : [2, 3.5]);
-      g.strokeStyle = on ? INK : '#D5D3C9';
-      g.lineWidth = on ? 2 : 1;
+      g.strokeStyle = on ? (far ? '#8C8A80' : INK) : '#D5D3C9';
+      g.lineWidth = on ? (far ? 1.4 : 2) : 1;
       g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2));
       g.stroke();
       g.setLineDash([]);
     }
     for (let y = 0; y < N; y++) {
       for (let x = 0; x < N; x++) {
-        if (x < N - 1 && m.v[y][x]) line(x + 1, y, x + 1, y + 1, known(x, y) || known(x + 1, y));
-        if (y < N - 1 && m.h[y][x]) line(x, y + 1, x + 1, y + 1, known(x, y) || known(x, y + 1));
+        if (x < N - 1 && m.v[y][x]) {
+          line(x + 1, y, x + 1, y + 1, known(x, y) || known(x + 1, y), m.v[y][x] === 2);
+        }
+        if (y < N - 1 && m.h[y][x]) {
+          line(x, y + 1, x + 1, y + 1, known(x, y) || known(x, y + 1), m.h[y][x] === 2);
+        }
       }
     }
     g.strokeStyle = INK; g.lineWidth = 2.4;

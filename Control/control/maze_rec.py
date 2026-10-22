@@ -190,6 +190,9 @@ class MazeWallMap:
     #: `mouse.py` 的兜底是"不建图 + 如实报 None"，不是猜一个 7（那会画出错尺寸的图）。
     DEFAULT_N = 16
 
+    #: 矛盾样本的留存上限（只留计数 + 最早几条；全留会让长跑记录无限膨胀）。
+    CONFLICT_KEEP = 16
+
     def __init__(self, n: int = DEFAULT_N) -> None:
         self.n = int(n)
         self.reset()
@@ -198,27 +201,95 @@ class MazeWallMap:
         n = self.n
         self.known = [[[False] * 4 for _ in range(n)] for _ in range(n)]
         self.wall = [[[False] * 4 for _ in range(n)] for _ in range(n)]
+        #: 这道墙是**远档**看到的（`wallFront=1 & frontFar=1`）—— 只影响**线型**，
+        #: **不影响位置**。远档只说明"车离这堵墙还远（>= thrFrontNear）"，
+        #: 它仍然是**本格前方那道墙**（上游 `算法详解.md` §5.4 的双档拆分）。
+        self.far = [[[False] * 4 for _ in range(n)] for _ in range(n)]
+        #: "看到没墙、但已确认有墙"的矛盾（限流）。它比缺一道墙更值得现场关注：
+        #: 说明传感或定位不稳。见 `_note_conflict`。
+        self.conflicts: List[Dict[str, int]] = []
+        self.conflict_n: int = 0
         self.visited = [[False] * n for _ in range(n)]
+        #: 上一帧所在格（用来识别"真的跨格了"⇒ 那道边必然无墙）。
+        self._prev_cell: Optional[List[int]] = None
         #: 走过的格子序列（去重相邻重复），用于画轨迹
         self.track: List[List[int]] = []
 
-    def _set(self, x: int, y: int, d: int, has_wall: bool) -> None:
+    def _set(self, x: int, y: int, d: int, has_wall: bool, far: bool = False,
+             strong: bool = False) -> None:
         """写一格的一个方向；**同时写邻居格的反向** —— 一道墙是两格共有的。
 
         这一步不是优化，是**正确性**：不写邻居的话，界面会画出"这道墙只有一半"
         （从 A 看有墙、从 B 看能通过），现场会当成识别错误。
+
+        ## 证据分三级（改版三十六）
+
+        同一道墙会被反复观测，而观测**会互相矛盾**（现场实测：`(5,1)` 的西墙
+        在 189 帧里被判 3 次"有"（帧 33/59/92）、2 次"无"（帧 34/93），
+        而车**从没真的往东走过**）。以前是"后写的无条件覆盖先写的" ⇒ 墙上那道线
+        会随最后一帧的读数**闪烁/消失**，看的人根本不敢信图。
+
+        | 证据 | 强度 | 能否推翻已有的"有墙" |
+        |---|---|---|
+        | 车**真的穿过**了这道边（跨格移动） | 最强 | 能（`strong=True`） |
+        | 传感器说"有墙" | 强 | —— |
+        | 传感器说"没墙" | 弱 | **不能**（记一条矛盾，图不动） |
+
+        为什么"看到没墙"要弱：红外漏检（距离/角度/反光）比误报更常见，而
+        "以为没墙就撞上去"的代价远大于"以为有墙多绕一步"。真要纠正，等车**走过去**。
+
+        `far` 只记"这次是远档看到的"，**不改变墙的位置**（`wall` 的语义永远是
+        "紧邻格的这个方向有墙"）。同一道墙会被反复看到：车靠近之后读数从远档变近档，
+        所以这里**按最近一次覆盖** —— 让线型跟着距离自然收敛。
         """
         n = self.n
         if not (0 <= x < n and 0 <= y < n):
             return
         self.known[x][y][d] = True
-        self.wall[x][y][d] = bool(has_wall)
+        if has_wall:
+            self.wall[x][y][d] = True
+            self.far[x][y][d] = bool(far)
+        elif self.wall[x][y][d] and not strong:
+            # 已有"有墙"的证据，这一帧只是"没看到墙" ⇒ **不擦**，留一条矛盾备查
+            self._note_conflict(x, y, d)
+        else:
+            self.wall[x][y][d] = False
+            self.far[x][y][d] = False
         dx, dy = _STEP[d]
         nx, ny = x + dx, y + dy
         if 0 <= nx < n and 0 <= ny < n:
             rd = _OPP[d]
             self.known[nx][ny][rd] = True
-            self.wall[nx][ny][rd] = bool(has_wall)
+            if has_wall:
+                self.wall[nx][ny][rd] = True
+                self.far[nx][ny][rd] = bool(far)
+            elif self.wall[nx][ny][rd] and not strong:
+                self._note_conflict(nx, ny, rd)
+            else:
+                self.wall[nx][ny][rd] = False
+                self.far[nx][ny][rd] = False
+
+    def _note_conflict(self, x: int, y: int, d: int) -> None:
+        """记一条"看到没墙，但图上已确认有墙"的矛盾（**不改变图**）。
+
+        为什么要记：这类矛盾说明**传感或定位不稳**，是比"图上少一道墙"更值得
+        现场关注的信息。限流到 `CONFLICT_KEEP` 条，只留计数与最近的样本。
+        """
+        self.conflict_n += 1
+        if len(self.conflicts) < self.CONFLICT_KEEP:
+            self.conflicts.append({"x": int(x), "y": int(y), "d": int(d)})
+
+    def _confirm_by_move(self, x0: int, y0: int, x1: int, y1: int) -> None:
+        """车**真的从 (x0,y0) 走到了 (x1,y1)** ⇒ 那道边必然没有墙（最强证据）。
+
+        这是唯一能推翻"有墙"的东西：传感器会说错，**走过去不会**。
+        缺了它，一次误报的"有墙"就会永久留在图上（车永远绕路）。
+        """
+        dx, dy = x1 - x0, y1 - y0
+        for d, (sx, sy) in _STEP.items():
+            if (sx, sy) == (dx, dy):
+                self._set(x0, y0, d, False, strong=True)
+                return
 
     def feed(self, rec: Dict[str, Any]) -> None:
         """吃一帧统一帧记录，把这一格看到的三面墙写进图。"""
@@ -233,37 +304,45 @@ class MazeWallMap:
         if f is None:
             return
         self.visited[x][y] = True
+        # ---- **移动证据**：真的跨格了 ⇒ 那道边必然没有墙（最强证据，可以推翻误报）
+        pc = self._prev_cell
+        if pc and abs(x - pc[0]) + abs(y - pc[1]) == 1:
+            self._confirm_by_move(pc[0], pc[1], x, y)
+        self._prev_cell = [x, y]
         if not self.track or self.track[-1] != [x, y]:
             # 轨迹太长就没用了（一盘迷宫几千帧）；240 个格子点足够画出走法
             if len(self.track) < 240:
                 self.track.append([x, y])
         # 三面墙：值 1 = **有墙**（上游 `wallLeft/Front/Right` 的语义）
-        # ⚠️ **前墙分两档**（改版三十四），别把远墙画成近墙：
-        #   `wallFront=1 & frontFar=0` ⇒ 近墙（贴脸，`min(f1,f2) < thrFrontNear`），
-        #                                墙在**本格**前方；
-        #   `wallFront=1 & frontFar=1` ⇒ 远墙（提前量），墙在**外一格**前方
-        #                                （= 本格前方那格的**再前一格**）。
-        #   两档画在**不同位置**（差一格），这正是"近墙/远墙"在图上能分辨的唯一依据。
-        #   同时必须给本格写 `front=False`：远墙意味着**贴脸那格是空的**，
-        #   不写的话界面会以为"这里还没探过"，而决策靠的就是这个"空"。
         for key, has in (("left", rec.get("wallLeft")),
                          ("right", rec.get("wallRight"))):
             if has is None:
                 continue          # 这一路没给 ⇒ **不写**（"没读到"不是"没有"）
             self._set(x, y, f[key], bool(_i(has)))
 
+        # ---- 前墙：**两档都是"本格前方有墙"**，区别只在车离它多远
+        #
+        # ⚠️ 这里曾经把 `frontFar=1` 当成"墙在**外一格**"，还顺手给本格写了
+        #    `front=False`。那是**两重错**：
+        #      ① 位置错（多算/少算一格）；
+        #      ② 更糟：把**真实存在的墙记成了"确认没有"**（`known=True, wall=False`）
+        #         ⇒ 图上那道墙消失，而算法以为"这条路能走"。
+        #    现场就是：车在 (5,1) 朝下、判定 wallFront=1 & frontFar=1，
+        #    重建出来的 `wall[5][1][2]` 却是 False（南墙凭空没了）。
+        #
+        #    上游 `算法详解.md` §5.4 写得很清楚：
+        #      frontNear = wallSns.front && min(f1,f2) <  thrFrontNear  /* 贴脸: 必须处理 */
+        #      frontFar  = wallSns.front && min(f1,f2) >= thrFrontNear  /* 提前量: 可用于提前决策 */
+        #    两者**互斥且穷尽** `wallFront`，所以 `wallFront=1` 永远表示"紧邻格前方有墙"；
+        #    `frontFar` 只是一个**距离档**（用于提前决策），**不含任何"下一格"的含义**。
+        #
+        #    ⇒ 位置一律写本格；`far` 只作为**线型**标记（界面把远档画细/画浅）。
         fw = rec.get("wallFront")
         if fw is not None:
             has = bool(_i(fw))
-            far = bool(_i(rec.get("frontFar"))) if rec.get("frontFar") is not None else False
-            if has and far:
-                dx, dy = _STEP[f["front"]]
-                nx2, ny2 = x + dx, y + dy
-                self._set(x, y, f["front"], False)      # 贴脸这格：确认**没有**墙
-                if 0 <= nx2 < n and 0 <= ny2 < n:
-                    self._set(nx2, ny2, f["front"], True)   # 远墙落在下一格的前沿
-            else:
-                self._set(x, y, f["front"], has)
+            ff = rec.get("frontFar")
+            far = bool(_i(ff)) if ff is not None else False
+            self._set(x, y, f["front"], has, far=far)
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -1719,12 +1798,18 @@ class MazeRecorder:
             m.feed(rec)
 
         def w(x: int, y: int, d: int) -> int:
+            """0 = 没墙，1 = 近档（贴脸），2 = 远档（提前量）。**位置都一样**。"""
             if not (0 <= x < n and 0 <= y < n):
                 return 0
-            return 1 if m.wall[x][y][d] else 0
+            if not m.wall[x][y][d]:
+                return 0
+            return 2 if m.far[x][y][d] else 1
 
+        # `v[y][x]` = (x,y)-(x+1,y) 之间 ⇒ n 行 × (n-1) 列
         v = [[w(x, y, 1) for x in range(n - 1)] for y in range(n)]
-        h = [[w(x, y, 0) for x in range(n - 1)] for y in range(n)]
+        # `h[y][x]` = (x,y)-(x,y+1) 之间 ⇒ **(n-1) 行 × n 列**（以前少一列，
+        # 最右一列格子的横墙在界面上永远是 undefined ⇒ 不画，且一声不响）
+        h = [[w(x, y, 0) for x in range(n)] for y in range(n - 1)]
         goal = [[x, y] for (x, y) in GOAL_CELLS if x < n and y < n]
         out: Dict[str, Any] = {"N": n, "goal": goal, "v": v, "h": h}
         notes = []
