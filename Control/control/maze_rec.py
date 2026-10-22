@@ -574,6 +574,17 @@ class MazeRecorder:
     #: 给到 20 万帧是为了"万一有人开着不关"，而不是鼓励长跑。
     MAX_FRAMES = 200_000
 
+    #: 采样缺口的判定门槛（设备毫秒）—— **= 少采 ≥2 帧**（10 Hz 下一帧 100 ms）。
+    #: 链路抖动、批式一次回 2~3 帧都不会产生 250 ms，只有"压根没请求"或"真丢了"才会。
+    GAP_MIN_MS = 250
+    #: 缺口明细的留存上限（计数 `gaps_n` 不受限）。一盘跑下来正常是 0~几条，
+    #: 真要是有几百条，那本身就是"链路烂了"的信号，留最早的 200 条足够说明问题。
+    GAP_KEEP = 200
+    #: 发车窗口的**兜底宽度**（毫秒）：`ack` 还没回来时，用 `sent + 这个值` 划窗口。
+    #: 取 5000 是因为上游 `maze.run` 的 `timeout=3.0` + `resume()` 重发 `RATE PULL`
+    #: 的 3 次重试都在这个量级内（实测 0.9~2.4 s）。
+    LAUNCH_WIN_MS = 5000
+
     def __init__(self, root: Path, get_channels=None,
                  codes: Optional[Dict[str, Any]] = None,
                  get_link_stats=None, get_params=None) -> None:
@@ -589,6 +600,8 @@ class MazeRecorder:
         self._lock = threading.RLock()
         self._rec: Optional[Dict[str, Any]] = None      # 在记的一段（None = 没在记）
         self.start_ms: Optional[int] = None
+        #: 这一段的文件名（**开录时**就定，见 `status()`；落盘时 `_write()` 用它）。
+        self._name: Optional[str] = None
         self._last: Optional[Dict[str, Any]] = None     # 最近一次的收尾摘要
         self._maps: Dict[str, MazeWallMap] = {}         # 复盘缓存：name → 重建图
         # 决策差分的**码表**（上游的名字表与路口分类器）——由适配器注入。
@@ -761,6 +774,10 @@ class MazeRecorder:
                 "frames": (len(r["frames"]) if r else 0),
                 "duration_ms": (int(time.time() * 1000) - self.start_ms
                                 if (r and self.start_ms) else 0),
+                # 文件名**开录时就定了**（改版三十八）：界面那句"记录 xxx"要能显示出来。
+                # 以前只在 `stop()` 落盘时才生成 ⇒ 跑的过程中永远是空，界面上那半句
+                # "· 记录 <名>"从来没出现过（谁也发现不了，因为它长得像可选的）。
+                "name": (self._name if r is not None else None),
                 "last": self._last,
             }
             if r is not None:
@@ -819,8 +836,85 @@ class MazeRecorder:
                 # 收尾时再读一次做差量 —— 见 `_probe_losses`。取不到就是 None。
                 "drop_base": self._probe_losses(),
                 "auto_end": None,
+                #: **采样缺口**（改版三十八）：`t_ms` 上"少采了 ≥2 帧"的位置。
+                #: ⚠️ 与 `seq_lost_delta`（协议层丢序号）**不是一回事**：
+                #: 发车命令独占链路时，设备照常采样、但一句都没被请求 ⇒
+                #: **序号不丢、采样却缺一段**。两条都留，才能分开"没采"与"丢了"。
+                "gaps": [],
+                "gaps_n": 0,
+                #: 发车命令的两端锚点（墙钟 ms）：`{sent_pc_ms, ack_pc_ms, ack_ms}`。
+                #: `first_run_t_ms` / `run_lag_ms`（设备侧运动起点）在 `_build_doc` 里补。
+                "launch": None,
             }
-            return {"ok": True, "started_ms": self.start_ms, "fresh_epoch": True}
+            self._name = self._name_for(self.start_ms, self._rec["mazetype"])
+            return {"ok": True, "started_ms": self.start_ms, "fresh_epoch": True,
+                    "name": self._name}
+
+    # ------------------------------------------------------------ 文件名 / 发车锚点
+
+    @staticmethod
+    def _name_for(start_ms: Optional[int], mazetype: Any) -> str:
+        """这一段的文件名：`<时间戳>_mz<mazetype>.maze.json`。
+
+        为什么开录时就定：界面在跑的过程中要显示"记录 xxx"（`status()["name"]`），
+        而以前只在 `stop()` 落盘时才算名字 ⇒ 那半句永远是空的。
+        时间戳取 `start_ms`（本段第一帧的到达时刻），与落盘用的 `created_ms` 同源。
+        """
+        ms = int(start_ms or (time.time() * 1000))
+        ts = time.strftime("%Y%m%d_%H%M%S", time.localtime(ms / 1000.0))
+        return f"{ts}_mz{_i(mazetype, 7)}.maze.json"
+
+    def note_launch(self, sent_pc_ms: int, ack_pc_ms: Optional[int] = None) -> None:
+        """记**发车命令**的两端锚点（墙钟毫秒）。发车前调一次、回来后带 `ack` 再调一次。
+
+        为什么要记：`MAZE RUN` 在上游是 urgent 命令，整段往返里拉取让路
+        ⇒ 记录里必然有一段**无采样**。没有这两个锚，"缺了多久/是不是发车占的"
+        就只能猜。`ack` 先不给也可以：拿 `LAUNCH_WIN_MS` 划一个兜底窗口，
+        这样即使"下一帧比我们的调用先到"，那道缺口也照样能被标上原因。
+
+        设备侧的**运动起点**不在这里给（那时还没有发车后的帧），由 `_build_doc` 收尾时补。
+        """
+        with self._lock:
+            r = self._rec
+            if r is None:
+                return
+            cur = r.get("launch") if isinstance(r.get("launch"), dict) else {}
+            r["launch"] = {
+                "sent_pc_ms": int(sent_pc_ms),
+                "ack_pc_ms": (int(ack_pc_ms) if ack_pc_ms is not None
+                              else cur.get("ack_pc_ms")),
+                "ack_ms": (int(ack_pc_ms) - int(sent_pc_ms) if ack_pc_ms is not None
+                           else None),
+            }
+
+    def _add_gap(self, t_from: int, t_to: int) -> None:
+        """记一条**采样缺口**（只记元信息，**绝不补帧**）。
+
+        不补帧是有意的：插值出来的帧没有设备时基依据，会把"没采到"变成
+        "看起来采到了"——比缺一段更坏。缺口一律只标注，让读的人知道这里空了多久。
+
+        能自动标上原因的只有一种：与 `note_launch()` 记下的发车窗口**有重叠**的缺口
+        （真机实测 0.9~2.4 s，正是"发车命令占链路"）。其余原因（真丢帧、串口抖动）
+        留给 `integrity.seq_lost_delta` 与现场判断，**不猜**。
+        """
+        r = self._rec
+        if r is None:
+            return
+        r["gaps_n"] = int(r.get("gaps_n") or 0) + 1
+        why = None
+        lc = r.get("launch") if isinstance(r.get("launch"), dict) else None
+        if lc and isinstance(lc.get("sent_pc_ms"), int):
+            lo = lc["sent_pc_ms"]
+            hi = lc.get("ack_pc_ms")
+            if not isinstance(hi, int):
+                hi = lo + self.LAUNCH_WIN_MS
+            # 缺口与发车窗口有重叠 ⇒ 这一段就是命令占链路的那段
+            if int(t_to) >= lo and int(t_from) <= hi:
+                why = "launch_cmd"
+        gaps = r.get("gaps")
+        if isinstance(gaps, list) and len(gaps) < self.GAP_KEEP:
+            gaps.append({"t_ms_from": int(t_from), "t_ms_to": int(t_to),
+                         "ms": int(t_to) - int(t_from), "why": why})
 
     # ------------------------------------------------------------ 喂
 
@@ -977,6 +1071,13 @@ class MazeRecorder:
             # 元组第 3 列从"设备时刻"改成**到达时刻**（改版三十五）：
             # 主列已经是设备时基了，这一列留给链路分析（`rx_t_ms`）。
             frames.append((now_ms, rec, rx_ms))
+            # ---- 采样缺口（改版三十八）：设备时基上**少采了 ≥2 帧**的位置。
+            # 判据只用 `t_ms`（设备时基，逐帧唯一）：10 Hz 下正常步进正好 100 ms，
+            # 抖不出 250 来。所以 ≥250 ms 只可能是"这段压根没请求"或"真丢了"。
+            if len(frames) >= 2:
+                prev_t = frames[-2][0]
+                if now_ms - prev_t >= self.GAP_MIN_MS:
+                    self._add_gap(prev_t, now_ms)
             # ---- 完整性：EVQ 要**如实记**（不是告警，是"这段数据完不完整"）。
             # ⚠️ 丢帧**不在这里逐帧读**：设备侧的 `dropCnt` v9 已删（召回也没落地），
             #    改在收尾时按**本机** `seq_lost` 差量算 —— 语义与不自己比 seq 的
@@ -1290,6 +1391,28 @@ class MazeRecorder:
         # ⇒ 上行流断过，同样不完整。
         drop_seen = any(d is not None and d != 0 for d in (d_lost, d_crc))
 
+        # ---- 发车锚点（改版三十八）：两端墙钟 + **设备侧**运动起点
+        # "车到底什么时候动的"只能从设备侧找：第一帧 `mazeTask>=2`（SEARCH）或
+        # `motionTask != 0`。这两个信号不同时到（任务机先起 / 电机先动），
+        # **不挑一个**：谁先到就记谁，同时把两个都查出来，读的人能看清先后。
+        launch = r.get("launch")
+        if isinstance(launch, dict):
+            launch = dict(launch)
+            first_run = None
+            first_task = None
+            for (t, _r, _d) in frames:
+                mz = _i(_r.get("mazeTask"), 0)
+                mt = _i(_r.get("motionTask"), 0)
+                if first_task is None and mz >= 2:
+                    first_task = t
+                if first_run is None and (mz >= 2 or mt != 0):
+                    first_run = t
+                    break
+            launch["first_run_t_ms"] = first_run
+            launch["first_task_t_ms"] = first_task
+            launch["run_lag_ms"] = (None if first_run is None
+                                    else int(first_run - launch.get("sent_pc_ms")))
+
         doc: Dict[str, Any] = {
             "format": FORMAT,
             "created_ms": end_ms,
@@ -1333,6 +1456,17 @@ class MazeRecorder:
                 "bad_crc_delta": d_crc,
                 "tiny": len(frames) < MIN_FRAMES,
                 "decisions": len(dec),
+                # ---- 采样缺口（改版三十八）：**不是丢帧**，是"这段时间没请求"。
+                # 每条 `{t_ms_from, t_ms_to, ms, why}`；两个时刻都**转成相对 `t_ms`
+                # 的口径**（减同一个 `t0`）—— 界面要拿它在进度条上对位置，
+                # 给绝对墙钟就得再减一次零点，错一点就是"整条带子偏掉"。
+                "gaps": [{"t_ms_from": int(g["t_ms_from"] - t0),
+                          "t_ms_to": int(g["t_ms_to"] - t0),
+                          "ms": int(g.get("ms") or (g["t_ms_to"] - g["t_ms_from"])),
+                          "why": g.get("why")}
+                         for g in (r.get("gaps") or [])],
+                "gaps_n": int(r.get("gaps_n") or 0),
+                "launch": launch,
             },
             "wall": wm.to_json(),
         }
@@ -1362,12 +1496,14 @@ class MazeRecorder:
     def _write(self, doc: Dict[str, Any]) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y%m%d_%H%M%S", time.localtime(doc["created_ms"] / 1000.0))
-        name = f"{ts}_mz{doc.get('mazetype')}.maze.json"
+        # 名字**开录时就定了**（`start()` 里 `_name_for`）；这里只负责"重名不覆盖"。
+        name = self._name or f"{ts}_mz{doc.get('mazetype')}.maze.json"
         p = self.root / name
         # 同一秒收两次（反复点发车/停止）时不要互相覆盖
         i = 2
         while p.exists():
-            p = self.root / f"{ts}_{i}_mz{doc.get('mazetype')}.maze.json"
+            p = self.root / (name[: -len(".maze.json")]
+                             + f"_{i}.maze.json")
             i += 1
         tmp = p.with_suffix(".json.part")
         with open(tmp, "w", encoding="utf-8") as f:
@@ -1648,6 +1784,14 @@ class MazeRecorder:
             "launch_at_s": (0.0 if why == "maze_run" else None),
             "end_why": doc.get("end_why"),
             "gap": gap,
+            # ---- 采样缺口（改版三十八）。⚠️ 与上面的 `gap` **不是一个东西**：
+            # `gap` = `seq_lost_delta`（协议层**丢帧**）；`gaps` = `t_ms` 上
+            # **少采**了 ≥2 帧的位置（多半是"这一段没请求"）。键名分开，就是为了
+            # 不让界面把两者混成一句"差 N 帧"。
+            "gaps": (integ.get("gaps") or []),
+            "gaps_n": (_int_or_none(integ.get("gaps_n")) or 0),
+            # 发车锚点：`{sent_pc_ms, ack_pc_ms, ack_ms, first_run_t_ms, run_lag_ms}`
+            "launch_cmd": (integ.get("launch") or None),
             # 三态：老记录没有 `seq_lost_delta` ⇒ 判不了
             "ledger": (None if gap is None
                        else bool(not integ.get("tiny") and gap == 0

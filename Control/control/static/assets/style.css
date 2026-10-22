@@ -876,6 +876,11 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
   font-size:9px;color:var(--muted);white-space:nowrap;
 }
 .scrub-marks i:last-child em{left:auto;right:3px}
+/* 采样缺口（改版三十八）：**带子**不是刻度 —— 它是一段"没有数据"的区间，
+   画成 1px 线会被读成"某个时刻发生了什么"。颜色取警示色但压淡：
+   不是错误，是"这段时间压根没请求"（发车命令独占链路）。 */
+.scrub-marks i.gap{top:1px;height:4px;background:var(--amber);opacity:.45;border-radius:1px}
+.scrub-marks i.gap em{top:5px;font-size:8px;opacity:.9}
 
 .rp-tbl .rp-grp td{
   background:var(--paper);font-family:var(--mono);font-size:9px;letter-spacing:.1em;

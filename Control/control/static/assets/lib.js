@@ -944,6 +944,11 @@ window.C = (function () {
       if (d.video_sid) rec.video = d.video_sid;
       rec.ledger = (d.ledger === true ? true : (d.ledger === false ? false : null));
       rec.gap = (d.gap == null ? null : d.gap);
+      // 采样缺口（改版三十八）：**与 `gap` 不是一回事** ——
+      // `gap` 是协议层丢帧，`gaps` 是"这段时间压根没请求"（发车命令独占链路）。
+      rec.gaps = Array.isArray(d.gaps) ? d.gaps : [];
+      rec.gapsN = (d.gaps_n == null ? rec.gaps.length : d.gaps_n);
+      rec.launchCmd = d.launch_cmd || null;
       rec.maze = d.maze || null;
       rec.mazeNote = (d.maze && d.maze.note) || '';
       rec.samples = d.samples || [];

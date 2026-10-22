@@ -1235,6 +1235,13 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
     # 为什么必须记：命令期间拉取让路 ⇒ 记录里必有一段无采样；这两条锚点让
     # "缺口有多长、车在这段里跑了多远"以后能算（对轴用），而不是靠猜。
     t_sent = time.time()
+    # 先把 `sent` 锚点交给记录器**再发命令**：缺口是在"下一帧到达时"才被记下来的，
+    # 而那一帧可能比下面 `note_launch(ack)` 还早到。先给它划一个兜底窗口（5 s），
+    # 那道缺口才不会被标成"原因不明"。
+    try:
+        ctx.maze_rec.note_launch(int(t_sent * 1000))
+    except Exception:                                      # noqa: BLE001
+        pass
     ctx.store.mark("mouse", "mouse.maze_run.sent", target,
                    f"pull_n={pull.get('n')} pull_started={pull.get('started')} "
                    f"frame_age_ms={pull.get('frame_age_ms')}")
@@ -1263,8 +1270,14 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
         except Exception:                                     # noqa: BLE001
             pass
         raise
+    t_ack = time.time()
+    try:
+        # 补齐 `ack`：窗口收紧到"命令真正往返的那一段"，缺口据此标 `why=launch_cmd`。
+        ctx.maze_rec.note_launch(int(t_sent * 1000), int(t_ack * 1000))
+    except Exception:                                      # noqa: BLE001
+        pass
     ctx.store.mark("mouse", "mouse.maze_run.ack", target,
-                   f"耗时 {int((time.time() - t_sent) * 1000)} ms（这段拉取是停的，"
+                   f"耗时 {int((t_ack - t_sent) * 1000)} ms（这段拉取是停的，"
                    f"记录里必然有一个缺口）")
     return ok({**res, "precheck": precheck, "pull": pull,
                "record": ctx.maze_rec.status(), "record_note": rec_note})

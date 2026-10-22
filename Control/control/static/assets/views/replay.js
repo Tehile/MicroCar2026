@@ -13,6 +13,27 @@
     return String(m).padStart(2, '0') + ':' + U.fmt(r, 1).padStart(4, '0');
   }
 
+  /* 采样缺口的短文案（进度条上的带子 / 信息栏那行共用一份，别写两处口径）。
+     `why` 只有一种：`launch_cmd` = 发车命令独占链路（上游 urgent 语义）。
+     其余原因**不猜** —— 真丢帧看 `gap`（seq_lost），别在这里编。 */
+  function gapText(g) {
+    const ms = (g && g.ms) || 0;
+    const core = U.fmt(ms / 1000, 1) + ' s 无采样';
+    return g && g.why === 'launch_cmd' ? core + ' · 发车占链路' : core;
+  }
+
+  function gapsInfo(rec) {
+    const gs = rec.gaps || [];
+    if (!gs.length) return '无';
+    const max = gs.reduce((a, b) => (b.ms > (a || 0) ? b.ms : a), 0);
+    const why = gs.some(g => g.why === 'launch_cmd') ? '（含发车占链路）' : '';
+    // 计数取后端的 `gaps_n`（明细有留存上限）；**两个数都写出来**，
+    // 免得"明细只留 200 条"被读成"只有 200 处"。
+    const n = (rec.gapsN == null ? gs.length : rec.gapsN);
+    return n + ' 处 · 最长 ' + U.fmt(max / 1000, 1) + ' s' + why +
+      (n > gs.length ? '（明细只留前 ' + gs.length + ' 条）' : '');
+  }
+
   C.VIEWS.replay = {
     eyebrow: '记录 · 回放',
     title: '回放',
@@ -139,12 +160,23 @@
       const back = actions && actions.querySelector('[data-rp="back"]');
       if (back) back.onclick = () => C.go('data');
 
-      /* 发车刻度 */
+      /* 发车刻度 + **采样缺口**（改版三十八）。
+         ⚠️ 缺口画成**带子**（有宽度），不是 1px 刻度：它是一段"没有数据"的区间，
+         画成一条线会被读成"某个时刻发生了什么"。位置用的是 `t_ms` 同一口径
+         （后端已经把绝对墙钟减成相对毫秒），所以和进度条/帧号严格对齐。 */
       const marks = [];
       if (rec.launch) marks.push({ p: (rec.launchAt + 1) / rec.dur, t: '发车' });
+      const durMs = Math.max(1, (rec.dur || 0) * 1000);
+      (rec.gaps || []).forEach(g => {
+        const a = U.clamp((g.t_ms_from || 0) / durMs, 0, 1);
+        const b = U.clamp((g.t_ms_to || 0) / durMs, 0, 1);
+        marks.push({ a: a, b: b, t: gapText(g), gap: true });
+      });
       marks.push({ p: 1, t: '收车' });
-      root.querySelector('#rp-marks').innerHTML = marks.map(m =>
-        '<i style="left:' + (m.p * 100).toFixed(2) + '%"><em>' + m.t + '</em></i>').join('');
+      root.querySelector('#rp-marks').innerHTML = marks.map(m => m.gap
+        ? '<i class="gap" style="left:' + (m.a * 100).toFixed(2) + '%;width:' +
+          Math.max(0.5, (m.b - m.a) * 100).toFixed(2) + '%"><em>' + U.esc(m.t) + '</em></i>'
+        : '<i style="left:' + (m.p * 100).toFixed(2) + '%"><em>' + m.t + '</em></i>').join('');
 
       /* 参数：只在挂载时写一次。
          `rec.params === null` = **这条记录没冻过快照**（改版二十八之前的老记录）。
@@ -212,6 +244,9 @@
         ['ledger', '账本', rec.ledger === true ? '通过'
           : rec.ledger === false ? ('差 ' + (rec.gap == null ? '?' : rec.gap) + ' 帧')
             : '判不了（这条记录没有丢帧计数）'],
+        // 采样缺口（改版三十八）：与上面那行**分开**——那行是"丢帧"，这行是
+        // "这段没请求"（发车命令独占链路）。混成一句就再也分不清"没采"和"丢了"。
+        ['gaps', '采样缺口', gapsInfo(rec)],
       ].map(r => '<div><dt>' + r[1] + ' <code>' + r[0] + '</code></dt><dd' +
         (r[0] === 'ledger' && !rec.ledger ? ' class="bad"' : '') + '>' + U.esc(r[2]) + '</dd></div>').join('');
 

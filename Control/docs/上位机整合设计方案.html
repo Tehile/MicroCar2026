@@ -175,7 +175,7 @@ li{margin:.28em 0}
 <li><a href="#1135">11.35 改版三十三·真机跑起来之后才暴露的五个静默错（状态：已落地）</a></li>
 <li><a href="#1136">11.36 改版三十四·地图对齐固件坐标 + 清空 + 远近墙 + 测试提速（状态：已落地）</a></li>
 <li><a href="#1137">11.37 改版三十五·记录的主时间轴改成设备时基（每帧唯一）（状态：已落地）</a></li>
-<li><a href="#1138-124-s">11.38 改版三十七·发车前先拉取（那 1~2.4 s 缺口的成因与"对轴"设计）（状态：前半已落地，后半是设计）</a></li>
+<li><a href="#1138-124-s">11.38 改版三十七·发车前先拉取（那 1~2.4 s 缺口的成因与"对轴"）（状态：本层已落地；改上游那条是设计）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -742,8 +742,12 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 · 改法（已落地）：<code>MouseAdapter.ensure_pull()</code> 先开流并<strong>等到一帧新帧</strong>（帧龄 ≤350 ms，
   最多等 1.5 s），等不到就 <strong>409 拒绝发车</strong>（车不动）；顺序固定
   <strong>先拉取 → 再开记录 → 最后发车</strong>；账本加 <code>maze_run.sent/.ack</code> 两条锚点。
-· 设计（未落地）：缺口<strong>不补帧</strong>，只在 <code>integrity.gaps</code> / <code>integrity.launch</code> 里标注，
-  并用<strong>设备侧运动起点</strong>对轴；彻底缩短要上游把"写命令"与"等应答"拆开。
+· 缺口<strong>不补帧</strong>、只标注：记录里落 <code>integrity.gaps</code>（每条 <code>ms</code> 与 <code>t_ms</code> 跳变自洽）
+  与 <code>integrity.launch</code>（命令两端墙钟 + <strong>设备侧运动起点</strong> <code>first_run_t_ms</code>）；
+  回放页把缺口画成进度条上的<strong>带子</strong>（不是 1px 刻度）+ 信息栏一行"采样缺口 N 处"。
+  顺手修了"记录名只在 <code>stop()</code> 才生成"⇒ 界面那句"记录 xxx"从来没显示过。
+· 设计（未落地）：彻底缩短这 2.4 s 要<strong>上游</strong>把"写命令"与"等应答"拆开
+  （写完即 <code>resume()</code>、ACK 异步等），只对长等待非安全命令生效。
 细节见 §11.38。</p>
 <p><strong>改版记录 2026-10-22（三十五）</strong>：<strong>记录的主时间轴改用设备时基</strong>（每帧唯一）。
 · 现场发现"1-2 帧的时刻一样"，一查是<strong>结构性</strong>的：<code>t_ms</code> 记的是"主机处理时刻"
@@ -8907,7 +8911,7 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 </tbody>
 </table>
 <hr />
-<h3 id="1138-124-s">11.38 改版三十七·<strong>发车前先拉取</strong>（那 1~2.4 s 缺口的成因与"对轴"设计）（状态：<strong>前半已落地，后半是设计</strong>）</h3>
+<h3 id="1138-124-s">11.38 改版三十七·<strong>发车前先拉取</strong>（那 1~2.4 s 缺口的成因与"对轴"）（状态：<strong>本层已落地；改上游那条是设计</strong>）</h3>
 <h4 id="_127">一、现场（用户报的）</h4>
 <blockquote>
 <p>"第一次发出发车命令后间隔了一段时间后实时记录的数据才跟上记录，中间有一段时间的数据
@@ -9007,11 +9011,15 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 <td>应答</td>
 <td>多带 <code>pull: {was_on, started, n, waited_ms, frame_age_ms}</code>（"这一跑发车前到底在不在拉"可查）</td>
 </tr>
+<tr>
+<td>记录名</td>
+<td><strong>开录时就定</strong>（<code>MazeRecorder._name_for</code>），<code>status()["name"]</code> 因此可用。以前只在 <code>stop()</code> 落盘时才有名字 ⇒ 界面那句"· 记录 xxx"<strong>从来没显示过</strong>（它长得像可选项，所以谁都没发现）</td>
+</tr>
 </tbody>
 </table>
 <p>⚠️ 顺序不能换成"先开记录再拉取"：记录器<strong>只在收到帧时才写文件</strong>，而文件头决定
 "开录那一刻链路的状态"——先拉取，帧 0/1 才是"已经在出帧"的帧（I49 验的就是这个）。</p>
-<h4 id="_130">五、设计（<strong>未落地</strong>）：缺口怎么"对轴"</h4>
+<h4 id="_130">五、缺口怎么"对轴"（已落地：只标注、<strong>不补帧</strong>）</h4>
 <p>原则：<strong>缺口不补帧</strong> —— 插值出来的帧没有设备时基依据，会把"没采到"变成"看起来采到了"
 （比缺一段更坏）。只<strong>标注</strong>、不造假：</p>
 <table>
@@ -9024,23 +9032,37 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 <tbody>
 <tr>
 <td><code>integrity.gaps</code></td>
-<td><code>[{t_ms_from, t_ms_to, ms, why:"launch_cmd", frames_est}]</code>（<code>frames_est</code> 按 100 ms 网格推算，<strong>只是估算</strong>）</td>
+<td><code>[{t_ms_from, t_ms_to, ms, why}]</code>，两个时刻<strong>已减同一个 <code>t0</code></strong>（与 <code>t_ms</code> 同口径）。界面要拿它在进度条上对位置，给绝对墙钟就得再减一次零点，错一点整条带子就偏</td>
+</tr>
+<tr>
+<td><code>integrity.gaps_n</code></td>
+<td>总条数（明细另有留存上限 <code>GAP_KEEP=200</code>）。<strong>两个数都给</strong>，免得"明细只留 200 条"被读成"只有 200 处"</td>
 </tr>
 <tr>
 <td><code>integrity.launch</code></td>
-<td><code>{sent_pc_ms, ack_pc_ms, ack_ms, first_run_t_ms, run_lag_ms}</code>（<code>first_run_t_ms</code> 取<strong>设备侧</strong>运动起点）</td>
+<td><code>{sent_pc_ms, ack_pc_ms, ack_ms, first_run_t_ms, first_task_t_ms, run_lag_ms}</code>（墙钟毫秒）</td>
 </tr>
 <tr>
-<td>运动起点判据</td>
-<td><code>mazeTask ≥ 2</code>（SEARCH）<strong>或</strong> <code>motionTask</code> 由 0 → 非 0 的第一帧；两者不同时到时<strong>都记</strong>，不挑一个</td>
+<td>缺口判据</td>
+<td><code>t_ms</code> 相邻两帧 ≥ <code>GAP_MIN_MS=250 ms</code> ⇒ <strong>少采 ≥2 帧</strong>。10 Hz 正常步进正好 100 ms，链路抖动/批量回帧都抖不出 250 —— 只有"没请求"或"真丢了"才会</td>
 </tr>
 <tr>
-<td>回放/曲线</td>
-<td>缺口画<strong>竖虚线带</strong> + 文案"发车命令占用链路 2.4 s（无采样，非丢帧）"；帧率曲线在缺口处<strong>断开</strong>，不许连成平滑线</td>
+<td><code>why</code> 的来源</td>
+<td><strong>只有一种能自动判定</strong>：与 <code>note_launch()</code> 记下的发车窗口有重叠 ⇒ <code>launch_cmd</code>。其余一律 <code>None</code>（真丢帧看 <code>seq_lost_delta</code>，<strong>不猜</strong>）</td>
+</tr>
+<tr>
+<td>运动起点</td>
+<td><code>first_run_t_ms</code> = 第一帧 <code>mazeTask≥2</code> <strong>或</strong> <code>motionTask≠0</code>；<code>first_task_t_ms</code> 单独记"任务机先起"的那一刻。两个信号不同时到 ⇒ <strong>都记</strong>，不挑一个</td>
+</tr>
+<tr>
+<td>回放页</td>
+<td>进度条上画<strong>带子</strong>（有宽度，不是 1px 刻度 —— 它是一段"没有数据"的区间），信息栏加一行「采样缺口 N 处 · 最长 X s（含发车占链路）」，与「账本/丢帧」那行<strong>分开</strong></td>
 </tr>
 </tbody>
 </table>
-<p>⚠️ 派生字段不进帧区（铁律 15）：<code>gaps</code>/<code>launch</code> 是<strong>元信息</strong>，帧数组不动。</p>
+<p>⚠️ 派生字段不进帧区（铁律 15）：<code>gaps</code> / <code>launch</code> 是<strong>元信息</strong>，帧数组一个字节都不动。
+⚠️ 本层回放页<strong>没有帧率曲线</strong>（曲线在实时页），所以"曲线在缺口处断开"这一条
+<strong>当前不适用</strong>；将来给回放加曲线时按 <code>gaps</code> 断开，不许连成平滑线。</p>
 <h4 id="_131">六、设计（<strong>未落地，需上游同意</strong>）：把"写命令"和"等应答"拆开</h4>
 <pre><code class="language-python">if spec.urgent:
     self.stream.suspend()
@@ -9074,9 +9096,14 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 <td>先把流<strong>关掉</strong>（旧帧龄 ≥1.2 s）→ 发车 → ① 应答 <code>pull.started=True</code> 且 <code>frame_age_ms ≤ 350</code>；② 这一跑记录<strong>头两帧间隔 ≤250 ms</strong></td>
 <td>① 是<strong>正反两面</strong>：若实现拿旧帧充数，读数会 ≥1200 ms ⇒ 立刻红；② 验的是"开录时链路已经在出帧"，正是 162357 断 949 ms 的那一处</td>
 </tr>
+<tr>
+<td><strong>I50</strong></td>
+<td>纯内存：喂 5 帧、中间造两段"没数据"（一段落在发车窗口内、一段在窗口之后）⇒ ① <code>gaps</code> 每条 <code>ms</code> 必须<strong>等于</strong> <code>t_ms</code> 的跳变（自洽）；② 窗口内那条 <code>why="launch_cmd"</code>、窗口外那条 <code>why=None</code>；③ 帧数<strong>仍是 5</strong>（没人偷偷补帧）；④ <code>status()["name"]</code> 开录时就有、且等于落盘名</td>
+<td>① 不自洽的缺口等于标错位置；② 一律标成"发车"就是编原因；③ 补帧会把"没采到"变成"看起来采到了"；④ 名字只在 <code>stop()</code> 才有 ⇒ 界面那半句永远是空的</td>
+</tr>
 </tbody>
 </table>
-<p>低电被拦 ⇒ 这条记 <strong>SKIP</strong>（判不了 ≠ 不通过）。</p>
+<p>低电被拦 ⇒ I49 记 <strong>SKIP</strong>（判不了 ≠ 不通过）。</p>
 <h4 id="_133">八、实测</h4>
 <table>
 <thead>
@@ -9091,8 +9118,16 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 <td><code>started=True</code>、<code>frame_age_ms=11</code>、<code>waited_ms=20</code>、记录头两帧间隔 <strong>19 ms</strong></td>
 </tr>
 <tr>
+<td>I50（纯内存）</td>
+<td>缺口 2 条：<code>(1280 ms, launch_cmd)</code> / <code>(1280 ms, None)</code>、<code>ms</code> 与 <code>t_ms</code> 跳变自洽、帧数 5/5（<strong>不补帧</strong>）、开录即有名；发车锚点 <code>ack=1201 ms</code>、<code>run_lag=1380 ms</code></td>
+</tr>
+<tr>
+<td>缺口检测（真机记录回放）</td>
+<td><code>162108</code> 检出 5 处（含 <strong>2398 ms</strong>）、<code>162357</code> 检出 5 处（含 <strong>949 ms</strong>）—— 与人工逐帧对照一致</td>
+</tr>
+<tr>
 <td><code>drill --sim</code></td>
-<td><strong>48 PASS / 0 FAIL / 1 SKIP</strong></td>
+<td><strong>49 PASS / 0 FAIL / 1 SKIP</strong>（连跑两次一致）</td>
 </tr>
 </tbody>
 </table>

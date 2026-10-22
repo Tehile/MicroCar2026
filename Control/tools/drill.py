@@ -1696,6 +1696,76 @@ def main(argv=None) -> int:
     except Exception as e:                                    # noqa: BLE001
         record("I47", "FAIL", f"时刻单测没跑起来：{type(e).__name__}: {e}")
 
+    # ---------------------------------------------------------------- 0c 采样缺口
+    head("0c. 采样缺口：只标注不补帧，且能认出「这段是发车命令占的」（纯内存）")
+    # 为什么单列：真机两条记录里 `t_ms` 分别跳过 2398 / 949 ms，而
+    # `integrity.seq_lost_delta` **都是 0** —— 协议层没丢序号（压根没请求），
+    # 于是"缺了 24 帧"在账面上显示"完好"。缺口必须**单独记一条**，否则它就是静默的。
+    #
+    # 这条判据钉四件事：
+    #   ① 缺口按 `t_ms` 判定（≥`GAP_MIN_MS`），`ms` 必须**等于** `t_ms` 的跳变（自洽）；
+    #   ② 与发车窗口重叠的缺口标 `why="launch_cmd"`；
+    #   ③ **窗口之后**的缺口 `why=None`（不许一律标成发车 —— 那是编原因）；
+    #   ④ **帧数不多不少**（没人偷偷插值补帧），且 `status()["name"]` 开录时就有。
+    try:
+        from control.maze_rec import MazeRecorder as _MR
+        _chs2 = ["ms8", "posX", "posY", "dir", "wallLeft", "wallFront", "wallRight",
+                 "mazeTask", "motionTask"]
+        _t2 = Path(".tmp")
+        _t2.mkdir(exist_ok=True)
+        mr2 = _MR(root=_t2, get_channels=lambda: list(_chs2))
+        st2 = mr2.start(why="drill-gap")
+        name_at_start = (mr2.status() or {}).get("name")
+        base2 = {"posX": 0, "posY": 0, "dir": 0, "wallLeft": 0, "wallFront": 0,
+                 "wallRight": 0, "mazeTask": 0, "motionTask": 0}
+        mr2.feed(dict(base2, ms8=10))
+        mr2.feed(dict(base2, ms8=110))
+        sent2 = int(time.time() * 1000)
+        mr2.note_launch(sent2)                      # 发车窗口从这里开始（ack 还没回来）
+        time.sleep(1.20)                            # 模拟"命令独占链路"的那段
+        # 这一段的车已经开始跑（mazeTask/motionTask 起来）⇒ 设备侧运动起点
+        mr2.feed(dict(base2, ms8=110, mazeTask=2, motionTask=32))
+        ack2 = int(time.time() * 1000)
+        mr2.note_launch(sent2, ack2)
+        mr2.feed(dict(base2, ms8=210, mazeTask=2, motionTask=32))
+        time.sleep(1.20)                            # 窗口**之后**的一段（必须不标原因）
+        mr2.feed(dict(base2, ms8=210, mazeTask=2, motionTask=32))
+        out2 = mr2.stop(why="manual")
+        doc2 = json.loads(Path(out2["path"]).read_text(encoding="utf-8"))
+        tt2 = doc2.get("t_ms") or []
+        integ2 = doc2.get("integrity") or {}
+        gs2 = integ2.get("gaps") or []
+        lc2 = integ2.get("launch") or {}
+        # ① 缺口自洽：每条的 ms 必须等于 t_ms 上对应那一跳
+        jumps = {tt2[i] - tt2[i - 1]: 0 for i in range(1, len(tt2))}
+        consistent = bool(gs2) and all(
+            any(abs(g["ms"] - (tt2[i] - tt2[i - 1])) < 2 for i in range(1, len(tt2)))
+            for g in gs2)
+        # ②③ 原因：第一条（与窗口重叠）必须是 launch_cmd，最后一条必须是 None
+        why_ok = (len(gs2) >= 2 and gs2[0].get("why") == "launch_cmd"
+                  and gs2[-1].get("why") is None)
+        # ④ 不补帧（喂了 5 帧就必须正好 5 帧）+ 开录即有名
+        no_fill = (len(tt2) == 5)
+        name_ok = bool(name_at_start) and name_at_start == out2.get("name")
+        run_ok = isinstance(lc2.get("first_run_t_ms"), int) and (
+            lc2.get("run_lag_ms") is not None and lc2["run_lag_ms"] >= 0)
+        i50_ok = bool(consistent and why_ok and no_fill and name_ok and run_ok)
+        record("I50", "PASS" if i50_ok else "FAIL",
+               f"缺口 {len(gs2)} 条：{[ (g['ms'], g['why']) for g in gs2 ]}"
+               f"（`ms` 与 `t_ms` 跳变自洽={consistent}；首条 why=launch_cmd、"
+               f"末条 why=None={why_ok}）；帧数 {len(tt2)}/5（**不补帧**={no_fill}）；"
+               f"开录即有名={name_ok}（status.name={name_at_start!r}、落盘 {out2.get('name')!r}）；"
+               f"发车锚点 ack={lc2.get('ack_ms')} ms、运动起点 run_lag={lc2.get('run_lag_ms')} ms"
+               + ("" if i50_ok else
+                  " ⇒ 缺口要么没记（账面上 'seq_lost=0' 会把'缺 24 帧'说成完好），"
+                  "要么把窗口外的缺口也标成发车（编原因）"))
+        try:
+            Path(out2["path"]).unlink()
+        except OSError:
+            pass
+    except Exception as e:                                    # noqa: BLE001
+        record("I50", "FAIL", f"缺口单测没跑起来：{type(e).__name__}: {e}")
+
     # ---------------------------------------------------------------- 1 起服务
     head("1. 起服务")
     env = dict(os.environ)
