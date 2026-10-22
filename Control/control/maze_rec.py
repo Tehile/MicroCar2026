@@ -1554,6 +1554,30 @@ class MazeRecorder:
             return {"N": 0, "goal": [], "v": [], "h": [],
                     "note": "这条记录没说迷宫尺寸（mazetype 与 wall.n 都缺），不建图"}
 
+        # ⚠️ **尺寸字段可能比帧里的坐标小**（2026-10-22 真机就是这样）：
+        #    记录写的是 `mazetype=7`（上游 ring 的恒值，见 adapter.mazetype()），
+        #    而帧里 posX 已经到 11 —— 按 7 建图会让 `feed()` 把越界帧全丢掉，
+        #    结果是**空图 + 车在框外**（"回放打不开"的真实原因）。
+        #    以**帧里出现过的最大坐标**为准，并把这件事写进 note：宁可图大一圈，
+        #    也不要一张空图 —— 但"记录尺寸字段不可信"这件事必须让人看得见。
+        need = 0
+        for key in ("posX", "posY"):
+            j = pos.get(key)
+            if j is None:
+                continue
+            for fr in (doc.get("frames") or []):
+                if not isinstance(fr, list) or j >= len(fr):
+                    continue
+                try:
+                    need = max(need, int(fr[j]) + 1)
+                except (TypeError, ValueError):
+                    continue
+        note_mismatch = ""
+        if need > n:
+            note_mismatch = (f"记录标的迷宫是 {n}×{n}，但帧里坐标到过 {need - 1}"
+                             f" ⇒ 按 {need}×{need} 建图（尺寸字段不可信）")
+            n = need
+
         m = MazeWallMap(n)
         for fr in (doc.get("frames") or []):
             rec = {}
@@ -1572,12 +1596,38 @@ class MazeRecorder:
         h = [[w(x, y, 0) for x in range(n - 1)] for y in range(n)]
         goal = [[x, y] for (x, y) in GOAL_CELLS if x < n and y < n]
         out: Dict[str, Any] = {"N": n, "goal": goal, "v": v, "h": h}
+        notes = []
+        if note_mismatch:
+            notes.append(note_mismatch)
         if not goal:
             # 7×7 时代的老记录：当前终点区是 16×16 的中心 2×2，装不进去。
             # 如实说，不画一个"看起来像终点"的框。
-            out["note"] = (f"这条记录的迷宫是 {n}×{n}，终点区按 16×16 定在中心 2×2，"
-                           f"这张图上不标终点")
+            notes.append(f"这条记录的迷宫是 {n}×{n}，终点区按 16×16 定在中心 2×2，"
+                         f"这张图上不标终点")
+        if notes:
+            out["note"] = "；".join(notes)
         return out
+
+    def delete(self, name: str) -> Dict[str, Any]:
+        """删掉一条记录（含它的关联文件）。**不可逆**。
+
+        ⚠️ 只删本层产物：`<名>.maze.json` 与 `<名>.link.json`。**不碰**
+        `records/video/` 里的视频产物 —— 两边是独立的产物（`视频 → 记录`是单向关联，
+        删记录不该顺手把视频删了）。
+        """
+        p = self._safe_path(name)
+        removed = []
+        for f in (p, self._link_path(name)):
+            try:
+                if f.is_file():
+                    f.unlink()
+                    removed.append(f.name)
+            except OSError as e:
+                raise ValueError(f"删不掉 {f.name}：{type(e).__name__}: {e}") from e
+        if not removed:
+            raise ValueError(f"没有这份记录：{name!r}")
+        return {"ok": True, "name": name, "removed": removed,
+                "note": "记录已删除（视频产物不受影响）"}
 
     def exists(self, name: str) -> bool:
         """这条记录**在不在**（顺带防目录穿越）。

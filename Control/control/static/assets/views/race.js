@@ -159,10 +159,45 @@
       note.className = 'banner ' + k;
       note.innerHTML = C.icon('alert') + '<div class="b-body">' + n + '</div>';
 
-      root.querySelector('#rc-vtag').textContent = '已探明 ' + Object.keys(C.maze.visited).length + ' 格';
-      root.querySelector('#rc-trail').textContent = '轨迹 ' + C.maze.idx + '/' + (C.maze.path.length - 1);
+      /* 迷宫：**只用设备重构出来的图**（`GET /mouse/maze/reconstruct` 的 `view`）。
+         没取到就画一张**空白网格** —— 初始状态本来就该是空白，不许拿原型那张
+         随机生成的迷宫冒充（"一进来就有一条路径"，等于编了一个没发生过的走法）。 */
+      const mv = S.mazeView || null;
+      const N = (mv && mv.N) || S.mazeN || 16;
+      /* 空白网格：**墙矩阵要是真的 N×N（全 0）**，不能给空数组 ——
+         `draw.maze` 会按 y/x 下标取 `m.v[y][x]`，空数组在 (0,0) 处就抛
+         "Cannot read properties of undefined"（真机就是这么整页渲染失败的）。 */
+      const blank = function (n) {
+        const v = [], h = [];
+        for (let y = 0; y < n; y++) {
+          v.push(new Array(Math.max(0, n - 1)).fill(0));
+          h.push(new Array(Math.max(0, n - 1)).fill(0));
+        }
+        return v;
+      };
+      const view = mv || {
+        N: N, goal: (N >= 9 ? [[7, 7], [7, 8], [8, 7], [8, 8]] : []),
+        v: blank(N), h: blank(N), visited: {}, trail: [],
+      };
+      const car = {
+        x: (S.tel.posX == null ? .5 : S.tel.posX + .5),
+        y: (S.tel.posY == null ? .5 : S.tel.posY + .5),
+        dir: (S.tel.dir == null ? 0 : S.tel.dir),
+      };
+      const nv = Object.keys(view.visited || {}).length;
+      root.querySelector('#rc-vtag').textContent = '已探明 ' + nv + ' 格';
+      root.querySelector('#rc-trail').textContent = mv
+        ? ('轨迹 ' + (view.trail || []).length + ' 点 · ' + (mv.frames_used || 0) + ' 帧重建')
+        : '等设备帧';
       const cv = root.querySelector('#rc-maze');
-      if (cv && cv.clientWidth) C.draw.maze(cv);
+      if (cv && cv.clientWidth) {
+        C.draw.maze(cv, {
+          N: view.N, goal: view.goal || [], v: view.v || [], h: view.h || [],
+          visited: view.visited || {}, trail: view.trail || [],
+          path: [],                      // 实时图没有"规划路径"，只有走过的 trail
+          car: car,
+        });
+      }
     },
 
     onTick() {

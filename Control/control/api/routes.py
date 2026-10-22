@@ -166,6 +166,7 @@ def register(app: web.Application, ctx: Any) -> None:
     # 在旧端点上加列会让"只想知道有几条"的调用也跟着读整份 JSON。
     r.add_get("/api/v1/records", _records)
     r.add_get("/api/v1/records/{name}/replay", _records_replay)
+    r.add_delete("/api/v1/records/{name}", _records_delete)
     r.add_post("/api/v1/records/{name}/video", _records_link)
 
     r.add_get("/ws", ws_handler)
@@ -805,7 +806,8 @@ async def _maze_record_start(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
     d = await body_json(request) or {}
     why = str(d.get("why") or "manual")
-    mazetype = d.get("mazetype")
+    # 没显式给就用**设备报的**尺寸（不是上游 ring 那个恒为 7 的字段，见 adapter.mazetype()）
+    mazetype = d.get("mazetype") or ctx.mouse.mazetype()
     out = ctx.maze_rec.start(why=why, mazetype=mazetype)
     if out.get("ok"):
         ctx.store.mark("mouse", "maze.record.start", "", f"why={why}")
@@ -1165,9 +1167,7 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
     #: 它是下面"发车被拒时怎么收场"的唯一依据：只有新开的那一段才该被丢掉。
     fresh = False
     try:
-        out = ctx.maze_rec.start(why="maze_run",
-                                 mazetype=(ctx.mouse.mc.maze.mazetype()
-                                           if ctx.mouse.mc is not None else None))
+        out = ctx.maze_rec.start(why="maze_run", mazetype=ctx.mouse.mazetype())
         if out.get("already"):
             rec_note = "（已在记录中，沿用上一段）"
         else:
@@ -1588,6 +1588,31 @@ async def _records(request: web.Request) -> web.Response:
     loop = asyncio.get_running_loop()
     rows = await loop.run_in_executor(None, lambda: ctx.maze_rec.summaries(n))
     return ok({"root": str(ctx.maze_rec.root), "records": rows, "n": len(rows)})
+
+
+async def _records_delete(request: web.Request) -> web.Response:
+    """**删除一条比赛记录**（改版三十二）。**不可逆**。
+
+    `name` 是记录文件名（`*.maze.json`，路由里要 URL 编码）。
+
+    三条纪律：
+    * **只删本层产物**：`<名>.maze.json` + `<名>.link.json`。**不碰视频产物** ——
+      "记录 → 视频"是单向关联，删记录顺手把视频删了，那是替人做决定。
+    * 不存在 ⇒ **404**（`exists()` 先判），不是 409：换个名字就行。
+    * 写盘操作走 executor；失败把 `OSError` 的原文报出来（"删不掉"必须能追到原因）。
+    """
+    ctx = request.app["ctx"]
+    name = request.match_info.get("name") or ""
+    if not ctx.maze_rec.exists(name):
+        raise ApiError(404, f"没有这条记录：{name}（刷新一下列表，可能已经被删了）。")
+    loop = asyncio.get_running_loop()
+    try:
+        out = await loop.run_in_executor(None, lambda: ctx.maze_rec.delete(name))
+    except ValueError as e:
+        raise ApiError(409, f"删不掉：{e}")
+    ctx.store.mark("control", "record.delete", name,
+                   json.dumps({"removed": out.get("removed")}, ensure_ascii=False))
+    return ok(out)
 
 
 async def _records_replay(request: web.Request) -> web.Response:

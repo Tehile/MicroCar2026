@@ -171,6 +171,7 @@ li{margin:.28em 0}
 <li><a href="#1131">11.31 改版二十九·最后四页接真数据（状态：已落地）</a></li>
 <li><a href="#1132-1">11.32 改版三十·「提示已连接、1 秒后断开」（状态：已修）</a></li>
 <li><a href="#1133">11.33 改版三十一·按页拉取（省链路）+ 开流带档（状态：已落地）</a></li>
+<li><a href="#1134">11.34 改版三十二·真机四连修（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -726,6 +727,18 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
   ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
   <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
+<p><strong>改版记录 2026-10-22（三十二）</strong>：真机（COM7 / fw311）四连修。
+· <strong>比赛页地图不对</strong>：原来画的是<strong>原型那张静态迷宫</strong>（<code>C.maze</code>，一进来就有路径），
+  真实帧从来没进过图。改成：初始 = <strong>空白 N×N 网格</strong>，进页每 1.2 s 取
+  <code>GET /mouse/maze/reconstruct</code> 的 <code>view</code>（后端已把位掩码翻成 <code>v/h/visited/trail</code>）。
+· <strong>拉取会间断</strong>：加<strong>看门狗</strong>（2 s 巡检：这页要帧 + 连着设备 + 拉取停着 ⇒ 重开）。
+  人工停让 8 s（那是排障意图），自己掉的不让。
+· <strong>记录删不掉</strong>：新增 <code>DELETE /api/v1/records/{name}</code>（只删记录与关联，不碰视频），
+  界面两步确认。顺带修掉"关联视频只改本地对象、不写盘"。
+· <strong>回放打不开</strong>：根因是<strong>迷宫尺寸</strong>——记录里 <code>mazetype=7</code>（上游 ring 的默认值，
+  因为统一帧里没有 mazetype 这个通道），而帧里 <code>posX</code> 已经到 <strong>11</strong> ⇒ 按 7×7 建图
+  把越界帧全丢了 ⇒ <strong>空图 + 车在框外</strong>。三处一起修（见 §11.34）。
+细节见 §11.34。</p>
 <p><strong>改版记录 2026-10-22（三十一）</strong>：<strong>拉取改成"按页开门"</strong>（省链路），并且开流要带档。
 · 前端实时状态页加了【开始拉取】/【结束拉取】，规则是"<strong>结束 → 改 N → 开始</strong>"。
   后端跟着改三处：<code>/mouse/stream</code> 收 <code>auto</code> 并把档 N 一起带下去；停流时改 N 仍有效
@@ -8313,6 +8326,112 @@ C.toast('ok', '已连接', val + ' · proto 9 · 状态 WAIT');   // 只弹窗
 <p><code>drill</code> 的 14b（跟上游联调那一段）现在要<strong>显式开流</strong>（S6b）—— 连上不再自动拉，
 而 I16/I15/I17 都读帧。<strong>"改了一个默认值，所有依赖这个默认值的地方都要跟着改"</strong>，
 判据里那条 S6b 就是防止下次又被这个默认值绊住。</p>
+<hr />
+<h3 id="1134">11.34 改版三十二·真机四连修（状态：<strong>已落地</strong>）</h3>
+<h4 id="_112">一、比赛页地图：画的是原型，不是设备</h4>
+<p><code>race.js</code> 画的是 <code>C.draw.maze(cv)</code>（缺省参数 = <strong>前端原型那盘 16×16 随机迷宫</strong>），
+<code>C.maze</code> 从头到尾没被设备数据碰过 ⇒ 一进页面就有"路径"和"已走轨迹"，
+而真跑起来<strong>一格都不更新</strong>。</p>
+<p>改法：
+* <code>GET /mouse/maze/reconstruct</code> 的输出加 <code>view = {N, goal, v, h, visited, trail}</code>
+  （后端把位掩码翻成界面口径，与回放共用一个 <code>_wallmap_view</code>）。
+* 进比赛页起 <code>1.2 s</code> 轮询；<code>frames_used = 0</code> ⇒ <code>S.mazeView = null</code> ⇒ <strong>画空白网格</strong>
+  （清空/换场后必须能重新变空白）。
+* 车的位置来自遥测 <code>posX/posY/dir</code>（格中心 +0.5）。</p>
+<h4 id="drawmaze">二、<code>draw.maze</code> 的两个崩溃点（都是"少了字段"）</h4>
+<table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>修法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>回放页整页 "这一页渲染失败 Cannot read properties of undefined (<strong>reading 'length'</strong>)"</td>
+<td>回放只给 <code>trail</code>、没有规划路径，<code>draw.maze</code> 读 <code>m.path.length</code></td>
+<td><code>const path = m.path \|\| []</code>，全部改用 <code>path</code></td>
+</tr>
+<tr>
+<td>比赛页空白状态 "…(<strong>reading '0'</strong>)"</td>
+<td>空白时传了 <code>v: []</code>，<code>draw.maze</code> 取 <code>m.v[y][x]</code></td>
+<td>空白也要给<strong>真的 N×(N-1) 全 0 矩阵</strong>（<code>blank(n)</code>）</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 这两条的共同点：<strong>少一个字段，整页白掉</strong>，而服务端日志干净、异常被 shell 兜住
+（只在页面上显示一句"这一页渲染失败"）。所以判据要看<strong>画布真的有没有像素</strong>。</p>
+<h4 id="_113">三、拉取不能间断：看门狗</h4>
+<p>比赛页没有新帧 = 瞎了（发车前检查、任务机、迷宫全部读帧）。所以：</p>
+<ul>
+<li><code>startPullGuard()</code>（常驻，2 s 巡检）：<code>LIVE.on</code> + 已连设备 + 当前页在 <code>NEED_PULL</code></li>
+<li><code>S.pulling === false</code> + 不在开流中（<code>LIVE.pullBusy</code>）⇒ <strong>自动重开</strong>。</li>
+<li><strong>人工停让 8 s</strong>（<code>LIVE.pullOffAt</code>）：结束拉取是排障手段，不能被看门狗立刻抢回去。</li>
+<li><code>setPull</code> 加 <code>pullBusy</code> 防重入：停等链路是串行的，堆两条命令就是多两次往返。</li>
+</ul>
+<h4 id="_114">四、迷宫尺寸取错（回放"打不开"的真因）</h4>
+<p>实测（COM7 / fw311）：</p>
+<pre><code>记录：mazetype=7     帧里 posX 最大 11     → 按 7×7 建图：空图 + 车在框外
+设备信息：mazetype=16
+</code></pre>
+<p>原因链：<code>mc.maze.mazetype()</code> 读的是上游 ring 的 <code>mazetype</code> 字段，而它来自
+<strong>统一帧</strong>——v9 的 33 个通道里<strong>没有 mazetype</strong>（<code>UNIFIED_CHANNELS</code> 实测），
+所以永远是 ring 的默认值 <strong>7</strong>。</p>
+<p>三处一起修：
+1. <code>MouseAdapter.mazetype()</code>：<strong>设备信息 → 固件地图 <code>mapWall</code> 长度 → ring（兜底）</strong>。
+2. <code>_device_fresh()</code>：<code>mc.device</code> 为空就<strong>补发一次 PING</strong>（5 s 节流）。
+   ⚠️ 上游 <code>client.py</code> 注释写明：PING 与拉取器首条 <code>TELEM</code> 背靠背时会<strong>被固件丢掉</strong> ——
+   所以"连上就开流"那一下 <code>device</code> 常常是 <code>{}</code>，而 <code>mazetype</code> 就在里面。
+3. 记录写入与回放：都改用这个尺寸；老记录（尺寸字段小于帧坐标）<strong>按帧坐标扩图</strong>，
+   并在 <code>note</code> 里写明"尺寸字段不可信"——宁可图大一圈，也不要一张空图。</p>
+<h4 id="_115">五、记录删除 + 关联写盘</h4>
+<ul>
+<li><code>DELETE /api/v1/records/{name}</code>：删 <code>&lt;名&gt;.maze.json</code> 与 <code>&lt;名&gt;.link.json</code>，
+  <strong>不碰视频产物</strong>；不存在 ⇒ 404；写盘失败 ⇒ 409 带 <code>OSError</code> 原文。</li>
+<li>界面：详情里【删除记录】<strong>两步确认</strong>（5 s 内再点一次，与维护页同一套口径）。</li>
+<li>顺带：记录页的"关联视频 / 解除关联"原来只改本地对象（跟【连接】按钮同一类问题），
+  现在真发 <code>POST /records/{name}/video</code>。</li>
+</ul>
+<h4 id="com7">六、实测（真机 COM7）</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>连接</td>
+<td><code>device={proto:9, fw:311, mazetype:16}</code>（补 PING 后不再为空）</td>
+</tr>
+<tr>
+<td>重构</td>
+<td><code>n=16</code>、<code>view.N=16</code>、<code>goal=(7,7)…(8,8)</code>、<code>v/h</code> 有值</td>
+</tr>
+<tr>
+<td>比赛页</td>
+<td><code>ink=8628</code> 像素、<code>已探明 1 格</code>、<code>pulling=true</code></td>
+</tr>
+<tr>
+<td>回放（老记录）</td>
+<td><code>N=12</code>（按帧坐标扩）、<code>ink=9331</code>、无报错横幅</td>
+</tr>
+<tr>
+<td>删除</td>
+<td><code>DELETE → 200</code>、文件消失、再删 → <code>404</code></td>
+</tr>
+<tr>
+<td><code>browser_check</code>（不带 --sim）</td>
+<td>12 PASS / 0 FAIL / 3 SKIP</td>
+</tr>
+<tr>
+<td><code>check_iface_table</code></td>
+<td>5/0（<strong>86 路由</strong>）</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

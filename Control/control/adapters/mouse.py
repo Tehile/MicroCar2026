@@ -132,7 +132,36 @@ from ..clock import mono_to_ms, now_ms
 from ..leds import _fw_int as _led_fw_int, led_states
 # 墙图重建（实验 8 的中栏"重构示意"）。复用**同一个类**：实时从环形缓冲重建、
 # 复盘从记录文件重放 —— 两边走同一套方向转换，才不会"实时看到的图与复盘的不一样"。
-from ..maze_rec import MazeWallMap
+from ..maze_rec import MazeWallMap, GOAL_CELLS
+
+
+def _wallmap_view(m: Any) -> Dict[str, Any]:
+    """`MazeWallMap` → **界面直接能画**的形状：`{N, goal, v, h, visited, trail}`。
+
+    口径与回放（`MazeRecorder._maze_for_view`）**完全一致**：
+    `v[y][x]` = (x,y) 与 (x+1,y) 之间有墙；`h[y][x]` = (x,y) 与 (x,y+1) 之间有墙；
+    下标就是固件 `posY` 那个索引空间（`_STEP` 那节的实测结论）。
+
+    为什么不把 `wall_rows` 位掩码直接端给界面：位从哪位起、y 要不要翻，
+    这两件只要有一处说错，画出来就是**有内容但错位**的图 —— 比空白更难发现。
+    """
+    n = int(getattr(m, "n", 0) or 0)
+    if n < 2:
+        return {"N": 0, "goal": [], "v": [], "h": [], "visited": {}, "trail": []}
+    v = [[1 if m.wall[x][y][1] else 0 for x in range(n - 1)] for y in range(n)]
+    h = [[1 if m.wall[x][y][0] else 0 for x in range(n - 1)] for y in range(n)]
+    visited = {}
+    for y in range(n):
+        for x in range(n):
+            if m.visited[x][y]:
+                visited[f"{x},{y}"] = 1
+    trail = [[c[0] + 0.5, c[1] + 0.5] for c in (m.track or []) if len(c) >= 2]
+    return {"N": n,
+            # 终点是赛道属性（16×16 的中心 2×2）；装不下就**不给**，不硬塞
+            "goal": [[x, y] for (x, y) in GOAL_CELLS if x < n and y < n],
+            "v": v, "h": h, "visited": visited, "trail": trail}
+
+
 from . import probe_module
 
 #: 高频遥测的采样节拍（Hz）—— 10 Hz 足够人看。
@@ -921,8 +950,10 @@ class MouseAdapter:
         if not ok:
             raise MouseError(_enhance(mc.state_detail or "连接失败，但上游没给原因"))
         self._last_advice = None
-        out = {"ok": True, "target": _t(mc.link.target), "device": mc.device,
-               "state": mc.state}
+        # 设备自述可能因为"PING 与首条 TELEM 背靠背被丢"而空 ⇒ 这里补一次，
+        # 否则界面拿不到 fw / mazetype（后者决定地图按几乘几建）
+        out = {"ok": True, "target": _t(mc.link.target),
+               "device": self._device_fresh(mc), "state": mc.state}
         # ---- 连上之后的默认拉取模式（上游 2.9.0 起有二选一）
         # `auto_stream` 已经开了**停等式**（上游 connect 的行为）⇒ 默认 `stopwait`
         # 时这里**一个动作都不用做**（无命令往返、无降级风险）；只有配置成 `pace`
@@ -1030,6 +1061,71 @@ class MouseAdapter:
         except (TypeError, ValueError):
             pass
         return None
+
+    def mazetype(self) -> Optional[int]:
+        """迷宫边长（格）。**优先取设备信息里的 `mazetype`**。
+
+        ⚠️ 为什么不信 `mc.maze.mazetype()`：它读上游 ring 的 `mazetype` 字段，
+        而那个字段来自**统一帧的 `mazetype`** —— v9 的 33 个通道里**根本没有这一项**
+        （实测 `UNIFIED_CHANNELS` 不含 mazetype）。于是 ring 里永远是它自己的默认值
+        **7**，而设备信息（`MCU INFO`）明确报 16。
+
+        后果不是报错，而是**整套地图按 7×7 建**：帧里 posX 能到 11，
+        `feed()` 对越界坐标直接 return ⇒ 重建出**空图**、回放里**车在框外**。
+        2026-10-22 真机（COM7 / fw311）就是这么踩到的。
+        """
+        mc = self._mc
+        if mc is None or not mc.is_connected:
+            return None
+        dev = self._device_fresh(mc)
+        try:
+            v = int(dev.get("mazetype") or 0)
+        except (TypeError, ValueError):
+            v = 0
+        if v >= 2:
+            return v
+        # ② 固件自己的地图（MAP 帧）：`mapWall` 是 n×n，长度就是边长
+        try:
+            fm = mc.maze.last() or {}
+            grid = fm.get("mapWall") or fm.get("grid") or []
+            if isinstance(grid, list) and len(grid) >= 2:
+                return len(grid)
+        except Exception:                                     # noqa: BLE001
+            pass
+        # ③ 最后才是上游那个值 —— 它是 ring 的默认 7，**不可信**，只当兜底
+        try:
+            v = int(mc.maze.mazetype())
+        except Exception:                                     # noqa: BLE001
+            return None
+        return v if v >= 2 else None
+
+    def _device_fresh(self, mc: Any) -> Dict[str, Any]:
+        """读设备自述；空的就**补发一次 PING**。
+
+        ⚠️ 为什么需要补：上游 `client.py` 的注释写明 —— PING 与拉取器首条 `TELEM`
+        **背靠背发出时，后发的 PING 会被固件丢掉**（固件每 1 ms 只消费一行命令）。
+        所以"连上就开流"时 `mc.device` 常常是 **空 dict**，而 `mazetype` 就在里面：
+        拿不到它，整张地图就按 7×7 建（真机 fw311 实测踩到）。
+        重试有节流（5 s 一次），避免每次取尺寸都往链路上插命令。
+        """
+        dev = dict(getattr(mc, "device", None) or {})
+        if dev:
+            self._dev_ping_at = 0.0
+            return dev
+        now = time.time()
+        if now - getattr(self, "_dev_ping_at", 0.0) < 5.0:
+            return dev
+        self._dev_ping_at = now
+        try:
+            mc.cmd.send("PING", wait=True, timeout=2.0)
+        except Exception as e:                                # noqa: BLE001
+            self.bus.log("warn", f"补发 PING 失败（设备尺寸暂时取不到）："
+                                 f"{type(e).__name__}: {e}", source="mouse")
+            return dev
+        dev = dict(getattr(mc, "device", None) or {})
+        if dev:
+            self.bus.log("info", f"设备自述补齐：{dev}", source="mouse")
+        return dev
 
     def set_stream(self, on: bool, auto: bool = False) -> Dict[str, Any]:
         """启停拉取器。**开流时把档 N 一起带上**，不留下"界面 n=3、设备按 n=1 发"。
@@ -2162,10 +2258,9 @@ class MouseAdapter:
             if v is not None and len(v):
                 n_frames = len(v)
                 break
-        try:
-            n = int(mc.maze.mazetype())
-        except Exception:                                     # noqa: BLE001
-            n = None
+        # ⚠️ 用 `self.mazetype()`（优先设备信息），**不用** `mc.maze.mazetype()` ——
+        #    后者读的 ring 字段来自统一帧，而帧里没有 mazetype ⇒ 恒为 7（见 mazetype()）。
+        n = self.mazetype()
         # ⚠️ 取不到真实尺寸时**不建图**。以前兜底写 7（那时迷宫就是 7×7）；
         #   新基线是 16×16（上游 2.11 换基线），再拿 7 去喂一张 16 格的帧序列，
         #   结果是一张**错位的图**——而错位的图看起来"有内容"，比空白更坏（静默错）。
@@ -2183,6 +2278,9 @@ class MouseAdapter:
         out = m.to_json()
         out.update({"frames_used": n_frames, "window_s": float(seconds),
                     "mazetype": n, "source": "ring"})
+        # 界面直接能画的形状（v/h/visited/trail）—— 位掩码 + 十六进制串那套是**落盘**用的，
+        # 让界面自己解位、自己决定 y 方向 = 又多一处"方向约定"的复制品。
+        out["view"] = _wallmap_view(m)
         # 固件自述的那份（对账用）—— 只是本地缓存读，不发命令
         try:
             fm = mc.maze.last()
@@ -2204,7 +2302,7 @@ class MouseAdapter:
         except Exception:                                     # noqa: BLE001
             pos = None
         try:
-            mazetype = mc.maze.mazetype()
+            mazetype = self.mazetype()
         except Exception:                                     # noqa: BLE001
             mazetype = None
         try:

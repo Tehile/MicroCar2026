@@ -86,6 +86,9 @@ window.C = (function () {
        在两次轮询之间给界面一个即时反馈。连上设备但没进"要拉的页面"时它是 false。 */
     pulling: false,
     rateLog: [],
+    /* 比赛页的实时迷宫：`null` = 还什么都没探到（图上就是空白网格，不许编） */
+    mazeView: null,
+    mazeN: 0,
     recSel: '',
     params: null,
     log: [],
@@ -464,6 +467,7 @@ window.C = (function () {
       v: m.v, h: m.h,
       visited: visited,
       trail: trail,
+      path: [],                       // 回放同样只有 trail，没有规划路径
       car: { x: (sm.posX == null ? .5 : sm.posX),
              y: (sm.posY == null ? .5 : sm.posY),
              dir: (sm.dir == null ? 0 : sm.dir) },
@@ -534,7 +538,9 @@ window.C = (function () {
      （后端按"组名→项名"索引，前端要数组）、比赛记录表、回放（要 `recordView`）、
      迷宫图（后端 `wall` 结构 ≠ 前端 `Maze`）。这些页面在 live 模式下会显示
      原型数据 —— **看它们之前先看左轨那句"原型 · 纯前端"**。 */
-  const LIVE = { on: false, err: '', ws: null, caps: null, timer: null, vtimer: null };
+  const LIVE = { on: false, err: '', ws: null, caps: null, timer: null, vtimer: null,
+    // 拉取相关的运行态：`pullBusy` 防重入、`pullOffAt` 记"人工停的时刻"（看门狗据此让 8 s）
+    pullBusy: false, pullOffAt: 0, guard: null };
 
   function liveCleanup() {
     if (LIVE.timer) { clearInterval(LIVE.timer); LIVE.timer = null; }
@@ -560,6 +566,16 @@ window.C = (function () {
 
   function get(path) {
     return api(path).then(unwrap);
+  }
+
+  /* DELETE：`api()` 只做 GET/POST（按有没有 body 区分），删除得单独一条。
+     ⚠️ 不把 DELETE 塞进 `api()`：那个函数被四个地方依赖，改它的行为要连带验一遍。 */
+  function del(path) {
+    return fetch(path, { method: 'DELETE' }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        return { status: r.status, ok: r.ok, body: j };
+      });
+    }).then(unwrap);
   }
 
   function applyCaps(d) {
@@ -689,6 +705,8 @@ window.C = (function () {
         syncPull(S.route).then(function () {
           loadParams(); loadRecords(); loadVideoSessions();
         });
+        // 看门狗常驻：哪一页要帧就保证它在拉（自己掉的会重开，人工停的让 8 s）
+        startPullGuard();
         if (!LIVE.timer) {
           LIVE.timer = setInterval(function () {
             get('/api/v1/health').then(applyHealth).catch(function () {
@@ -1016,6 +1034,98 @@ window.C = (function () {
     });
   }
 
+  /* ── 比赛页的实时迷宫 ─────────────────────────────────────────────────────
+     数据源 `GET /mouse/maze/reconstruct`（上游 30 s 环形缓冲重建）+ 它的 `view`
+     （后端已经把位掩码翻成 `v/h/visited/trail`，界面不再解二进制）。
+
+     **一帧都没用上 ⇒ 置 null**：清空/换场后地图必须能重新变空白，
+     不能留着上一张图当"现在的地图"（那是编的）。 */
+  function loadMazeView() {
+    if (!LIVE.on || !S.health.mouse.connected) return Promise.resolve(null);
+    return get('/api/v1/mouse/maze/reconstruct').then(function (d) {
+      if (d && d.mazetype) S.mazeN = d.mazetype;
+      const v = (d && d.view) || null;
+      S.mazeView = (v && (d.frames_used || 0) > 0)
+        ? Object.assign({ frames_used: d.frames_used, window_s: d.window_s }, v)
+        : null;
+      emit('health');                     // 只重画，不整页重挂
+      return S.mazeView;
+    }).catch(function (e) {
+      log('mouse', 'warn', '迷宫重构取不到：' + ((e && (e.detail || e.message)) || e));
+      return null;
+    });
+  }
+
+  let raceTimer = null;
+  function startRaceTick() {
+    if (raceTimer) return;
+    loadMazeView();
+    raceTimer = setInterval(function () {
+      // 人已经走了就停（别在后台一直请求）
+      if (S.route !== 'race') { stopRaceTick(); return; }
+      loadMazeView();
+    }, 1200);
+  }
+  function stopRaceTick() {
+    if (raceTimer) { clearInterval(raceTimer); raceTimer = null; }
+  }
+
+  /* ── 拉取看门狗 ───────────────────────────────────────────────────────────
+     为什么需要：拉取可能被别处关掉（另一次 setPull 的响应晚到、上游自己掉、
+     人工点了结束忘了开）。而**比赛页没有新帧就等于瞎了**（发车前检查、任务机、
+     迷宫全读帧）。所以只要"这页需要帧 + 连着设备 + 拉取是停的"，就自动重开。
+
+     不跟用户抢：#人工**主动**停止是明确意图（排障），所以停止后 8 s 内不自动重开
+     （`LIVE.pullOffAt`），超过 8 s 仍停着才认为"是被意外关掉的"。
+     这也是"不能有间断"的具体落法 —— 间隙最多就是这么一次重连（~1 s）。 */
+  function startPullGuard() {
+    if (LIVE.guard) return;
+    LIVE.guard = setInterval(function () {
+      if (!LIVE.on || !S.health.mouse.connected) return;
+      if (!NEED_PULL[S.route]) return;
+      if (S.pulling || LIVE.pullBusy) return;
+      if (LIVE.pullOffAt && (Date.now() - LIVE.pullOffAt) < 8000) return;
+      log('mouse', 'warn', '这页要实时帧，但拉取是停的 ⇒ 自动重开');
+      setPull(true, S.pullN);
+    }, 2000);
+  }
+
+  /* ── 记录 ↔ 视频的关联（**真的写盘**，不是只改本地对象） ───────────────── */
+  function linkVideo(id, sid) {
+    const rec = S.records.find(function (r) { return r.id === id; });
+    if (!rec || !LIVE.on) return Promise.resolve(false);
+    // `sid === null` = 解除关联（后端要求**显式**给 null；不带这个键会被判 400）
+    return post('/api/v1/records/' + encodeURIComponent(rec.name) + '/video',
+      { video_sid: sid == null ? null : String(sid) })
+      .then(function () {
+        log('control', 'info', (sid ? '关联 ' : '解除关联 ') + rec.id
+          + (sid ? (' ← ' + sid) : ''));
+        return true;
+      })
+      .catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('control', 'warn', '关联没写进去：' + msg);
+        toast('bad', '关联失败', String(msg).slice(0, 120));
+        return false;
+      });
+  }
+
+  /* ── 删除一条比赛记录（不可逆，二次确认在前端做） ─────────────────────── */
+  function deleteRecord(id) {
+    const rec = S.records.find(function (r) { return r.id === id; });
+    if (!rec) return Promise.resolve(false);
+    if (!LIVE.on) return Promise.resolve(false);
+    return del('/api/v1/records/' + encodeURIComponent(rec.name)).then(function () {
+      log('control', 'warn', '记录已删除 · ' + rec.id);
+      return loadRecords();
+    }).catch(function (e) {
+      const msg = (e && (e.detail || e.message)) || String(e);
+      log('control', 'warn', '删不掉 ' + rec.id + '：' + msg);
+      toast('bad', '删不掉', String(msg).slice(0, 120));
+      return false;
+    });
+  }
+
   /* ── 日志 ─────────────────────────────────────────────────────────────── */
   const SRC = { mouse: '电脑鼠', video: '视频', control: '本层' };
   function log(src, level, text) {
@@ -1315,6 +1425,10 @@ window.C = (function () {
     // `auto=true` = 页面切走顺带停。后端在"车在跑"时会**扣留**（返回 kept=true），
     // 那时必须继续显示"拉取中"，否则界面说结束、设备还在发帧。
     const auto = !!(opts && opts.auto);
+    // 防重入：看门狗每 2 s 看一眼，若上一次开流还没回来就再发一条，
+    // 会在链路上堆命令（停等是串行的，堆两条就多两次往返）。
+    LIVE.pullBusy = true;
+    const done = function (v) { LIVE.pullBusy = false; return v; };
     if (!on) {
       if (!LIVE.on) {
         S.pulling = false;
@@ -1332,16 +1446,17 @@ window.C = (function () {
           return true;
         }
         S.pulling = false;
+        if (!auto) LIVE.pullOffAt = Date.now();   // 人工停 ⇒ 看门狗让 8 s
         log('mouse', 'info', '→ 拉取器已关 · 在途已丢弃');
-        if (!auto) toast('', '拉取已结束', '档位保留 n=' + S.pullN);
+        if (!auto) toast('', '拉取已结束', '档位保留 n=' + S.pullN + '（8 s 内不会被自动重开）');
         emit('health');
-        return true;
+        return done(true);
       }).catch(function (e) {
         const msg = (e && e.message) ? e.message : String(e);
         log('mouse', 'warn', '拉取器没关掉：' + msg);
         toast('bad', '没关掉', String(msg).slice(0, 120));
         emit('health');
-        return false;
+        return done(false);
       });
     }
     /* 开：N 先落，再开流
@@ -1375,7 +1490,7 @@ window.C = (function () {
         toast('ok', '拉取已开始', '档 n=' + r.n
           + (d && d.hz != null ? ' · 实测 ' + util.fmt(d.hz, 1) + ' Hz' : ''));
         emit('health');
-        return true;
+        return done(true);
       }).catch(function (e) {
         const msg = (e && e.message) ? e.message : String(e);
         log('mouse', 'warn', '拉取没开起来：' + msg);
@@ -1817,6 +1932,8 @@ window.C = (function () {
     // 先定"这页要不要拉取"，再按页取数：参数页读表**依赖拉取在跑**（见 NEED_PULL），
     // 反过来做会先吃一个 409、再补一次请求。
     syncPull(id).then(function () { needPage(id); });
+    // 比赛页要"实时图 + 持续帧"：进页面就起重构轮询与拉取看门狗，离开就停
+    if (id === 'race') startRaceTick(); else stopRaceTick();
   }
 
   let timer = null;
@@ -1841,6 +1958,7 @@ window.C = (function () {
     videoStart, videoCancel, videoTick,
     recomputeLeds, pullBatch,
     setPull, syncPull,
+    loadMazeView, startRaceTick, stopRaceTick, deleteRecord, linkVideo,
     // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
     startLive, LIVE,
     // 四页数据（按页拉取 + 形状翻译）

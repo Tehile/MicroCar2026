@@ -915,6 +915,12 @@ li{margin:.28em 0}
 <td>—</td>
 <td><strong>改版二十七新增：记录 ↔ 视频会话关联</strong>。body <code>{"video_sid": "&lt;id&gt;"}</code>；<strong>解除关联显式给 <code>null</code></strong>（不带这个键 ⇒ <strong>400</strong>，否则一次手滑的空 POST 就会删掉已有关联）。<code>video_sid</code> 指向的会话目录必须存在，否则 <strong>404</strong>。落点 <code>records/maze/&lt;记录名&gt;.link.json</code>（<strong>不写回 <code>.maze.json</code> 本体</strong> —— 那份是产物，要和上游/别的工具对得上）。同步写小文件 ⇒ executor；原子写（<code>.tmp</code> + <code>os.replace</code>）</td>
 </tr>
+<tr>
+<td><code>DELETE /api/v1/records/{name}</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>改版三十二新增：删一条比赛记录</strong>（<strong>不可逆</strong>）。删 <code>records/maze/&lt;名&gt;.maze.json</code> + 它的 <code>.link.json</code>；<strong>不碰视频产物</strong>（"记录 → 视频"是单向关联，删记录顺手删视频＝替人做决定）。不存在 ⇒ <strong>404</strong>（先 <code>exists()</code> 判，不靠异常文案猜）；写盘失败 ⇒ <strong>409</strong> 带 <code>OSError</code> 原文。界面上是<strong>两步确认</strong>（5 s 内再点一次）</td>
+</tr>
 </tbody>
 </table>
 <h2 id="5">5. 场地（<strong>改版二十四：整节删除</strong>）</h2>

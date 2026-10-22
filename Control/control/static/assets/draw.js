@@ -81,10 +81,13 @@ C.draw = (function () {
     g.strokeStyle = INK; g.lineWidth = 2.4;
     g.beginPath(); g.rect(X(0), Y(0), N * s, N * s); g.stroke();
 
-    /* 全程路径：浅蓝虚线 */
-    if (m.path.length > 1) {
+    /* 全程路径：浅蓝虚线。
+       ⚠️ `path` 可能**没有**（实时重构/回放只给"走过的 trail"，不给规划路径）——
+       这里必须 `|| []`：真机上就是因为读了 `undefined.length` 整页渲染失败。 */
+    const path = m.path || [];
+    if (path.length > 1) {
       g.beginPath();
-      m.path.forEach((p, i) => {
+      path.forEach((p, i) => {
         const px = X(p[0] + .5), py = Y(p[1] + .5);
         i ? g.lineTo(px, py) : g.moveTo(px, py);
       });
@@ -97,8 +100,8 @@ C.draw = (function () {
     let trail = m.trail;
     if (!trail || !trail.length) {
       trail = [];
-      const upto = Math.min(m.path.length - 1, m.idx || 0);
-      for (let k = 0; k <= upto; k++) trail.push([m.path[k][0] + .5, m.path[k][1] + .5]);
+      const upto = Math.min(path.length - 1, m.idx || 0);
+      for (let k = 0; k <= upto; k++) trail.push([path[k][0] + .5, path[k][1] + .5]);
       if (trail.length) trail.push([m.car.x, m.car.y]);
     }
     if (trail.length > 1) {

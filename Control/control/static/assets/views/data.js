@@ -3,6 +3,7 @@
   const S = C.S, U = C.util;
   let selId = '';
   let assoc = false;
+  let delArm = 0;      // 删除的两步确认：第一次点击的时刻
 
   function dur(s) {
     const m = Math.floor(s / 60), r = Math.round(s % 60);
@@ -118,6 +119,7 @@
               '<button class="btn" data-rp="csv">' + C.icon('download') + '导出 CSV</button>' +
               '<button class="btn" data-rp="dir">打开目录</button>' +
               '<button class="btn btn-ghost" data-rp="assoc">' + C.icon('link') + (r.video ? '改关联' : '关联视频') + '</button>' +
+              '<button class="btn btn-ghost" data-rp="del">删除记录</button>' +
             '</div>' +
           '</div>' +
           (r.launch ? '' : '<div class="banner warn" style="margin-top:12px">' + C.icon('alert') +
@@ -136,25 +138,47 @@
             C.toast('ok', '已导出', r.id + '.csv');
           } else if (k === 'dir') C.toast('', r.dir, '已在文件管理器打开');
           else if (k === 'assoc') { assoc = !assoc; this.paint(); }
+          else if (k === 'del') {
+            /* 两步确认（与维护页同一套口径）：点一次变红写着"确认删除"，
+               5 s 内再点才真删。**不可逆**，所以不做"点了就删"。 */
+            const now = Date.now();
+            if (!delArm || now - delArm > 5000) {
+              delArm = now;
+              b.textContent = '确认删除？（5 s 内再点）';
+              b.classList.add('btn-danger');
+              return;
+            }
+            delArm = 0;
+            b.disabled = true; b.textContent = '删除中…';
+            C.deleteRecord(r.id).then(() => {
+              C.toast('warn', '已删除', r.id + ' 及其关联文件');
+              this.paint();
+            });
+          }
         };
       });
 
       if (assoc) {
         box.querySelectorAll('[data-link]').forEach(b => {
           b.onclick = () => {
-            r.video = b.dataset.link;
-            assoc = false;
-            C.log('control', 'info', '关联 ' + r.id + ' ← 视频 ' + r.video);
-            C.toast('ok', '已关联', r.id + ' ← ' + r.video);
-            this.paint();
-            C.emit('state');
+            const vid = b.dataset.link;
+            C.linkVideo(r.id, vid).then((done) => {
+              if (!done) return;                 // 失败已经 toast/日志说过了
+              r.video = vid;
+              assoc = false;
+              C.toast('ok', '已关联', r.id + ' ← ' + vid);
+              this.paint();
+            });
           };
         });
         const un = box.querySelector('[data-unlink]');
         if (un) un.onclick = () => {
-          r.video = ''; assoc = false;
-          C.log('control', 'warn', '解除关联 ' + r.id);
-          this.paint();
+          C.linkVideo(r.id, null).then((done) => {
+            if (!done) return;
+            r.video = ''; assoc = false;
+            C.toast('warn', '已解除关联', r.id);
+            this.paint();
+          });
         };
       }
     },
