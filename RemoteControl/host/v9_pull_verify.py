@@ -14,7 +14,7 @@ S0 离线一致性  上位机 codec 常量 vs **固件源码** `REMOTE/link.h`(�
                `LINK_U_*` 偏移 / 8 个 flags 位 / 状态C 墙位), 加
                `pack_unified` <-> `decode_unified` 往返与派生量恒等式; 并报告待烧
                `USER/Remote/TEST.hex` 的 sha256 与 mtime(判断"烧的是不是这份源码编的")。
-S1 PING 指纹   proto=9 / fw=311 / mazetype=16 —— **判"烧错档 / 烧旧固件"的唯一入口**。
+S1 PING 指纹   proto=9 / fw=312 / mazetype=16 —— **判"烧错档 / 烧旧固件"的唯一入口**。
 S2 单帧语义   连续 8 次 TELEM: 载荷必须**正好 30 B**。烧了 v8 固件时这里才会暴露 ——
                codec 会拿 49 B 的前 30 B 去解, **不报错只出垃圾**, 所以必须量长度;
                再验 33 通道齐全、`frontNear == wallFront & !frontFar`、`frontFar ⊆ wallFront`、
@@ -70,7 +70,7 @@ from host import fwprofile  # noqa: E402
 #: 板上应当报的指纹。固件源码里读到的是 v9 期望值, 这里再钉一遍是为了让"源码被谁改错了"
 #: 也能在 S0 就暴露(否则 S0 会拿错源码当正确答案去比对 codec)。
 EXPECT_PROTO = 9
-EXPECT_FW = 311
+EXPECT_FW = 312
 EXPECT_MAZETYPE = 16
 
 #: v8(57 B/帧)时代的实测容量点, 只用于 S3 的对比话术。

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LED 位上报专项实机验证 —— v9.1 / FW 311（状态B1 的 bit2-5 = led1..led4）。
+"""LED 位上报专项实机验证 —— v9.2 / FW 312（状态B1 的 bit2-5 = led1..led4）。
 
 目的很窄：证明"固件里 LED 真的变了，帧里那 4 位就真的跟着变"，而不是只证明
 "字段能解出来"。判据全部来自固件里的确定性行为：
@@ -21,8 +21,24 @@
 与 `link_pull_evt.py` 同款、在途恒 ≤1。每周期 4 帧 / 60 ms ≈13 Hz。
 ⚠️ 不要改成 `RATE FIX` 连续发流：实测它会 ①把透传模块缓冲灌满（COM7 能开、
 0 字节、必须断电）②取流期间下行命令被打坏（`ACK -1 ERR_CRC`，ARM 会静默不执行）。
+
+v9.2 / FW 312 起，发车走**复合命令** `MAZE RUN [target] PULL <n> <t_ms>`：一条命令
+= 发车 + 启动**恰好一批** N 帧，主机不再"停拉流 → 发车 → 等 ACK → 重下 PULL"。
+**批次停等模型不变**（固件侧不自续订、在途批次仍为 1），但"发车 → 下一帧到达"的
+空窗从数百毫秒降到十几毫秒。前提是主机严格遵守下面的三态状态机。
+
+三态状态机（`docs/发车数据空窗分析与解决方案.md` 方案 E）：
+
+    IDLE      已确认固件静默 —— **唯一允许发命令**的状态
+    PENDING   批次在途，固件正在发帧 —— 禁止发任何字节，只收
+    RESETTING 上一批丢帧/超时 —— 只发 `RATE OFF` 重建静默，然后回 IDLE
+
+进入 IDLE 的三条路径：① 本批 N 帧收满 ② `RATE OFF` 收到 ACK
+③ 连接后 `quiet_handshake()`（发 `RATE OFF` + 静候 250 ms 无残流）。
+**非 IDLE 发命令会被半双工链路截断**（固件回 `ERR_CRC`、命令根本没执行）。
+
 命令一律走 `send_checked()`：被打坏就用**同一 seq + 同一正文**重发 —— 固件的
-"幂等重放"分支保证不会重复执行。
+"幂等重放"分支保证不会重复执行，且会**一并重启复合命令的拉流**（否则死锁）。
 
 用法:
     python led_bit_verify.py COM7                 # L1..L4 全跑，末尾软复位清场
@@ -52,8 +68,14 @@ LEDS = ("led1", "led2", "led3", "led4")
 MARK_MS = 300          # 固件 LINK_LAUNCH_MARK_MS
 BEACON_MS = 1000       # 固件 LINK_TIME_DIV
 BATCH_N, BATCH_T = 4, 60     # 每周期 4 帧、间隔 60 ms ⇒ ≈13 Hz（与 link_pull_evt N=4 同款）
-MARK_N, MARK_T = 6, 40       # 发车那一刻用更密的一批(240 ms)，覆盖 300 ms 标记窗口
+MARK_N, MARK_T = 8, 40       # 发车那一批 8 帧 / 40 ms ⇒ 280 ms，覆盖 300 ms 标记窗口
+LAUNCH_GAP_MS_MAX = 100      # 判据: 发车 -> 下一帧到达 必须 < 100 ms（方案 E 目标 <=65）
 ALLOWED = {"PING", "TELEM", "RATE", "ARM", "MAZE", "MCU"}
+
+# ---- 拉流三态（见模块 docstring 与 docs/发车数据空窗分析与解决方案.md 方案 E）----
+IDLE = "IDLE"              # 已确认固件静默：唯一允许发命令的状态
+PENDING = "PENDING"        # 批次在途：禁止发任何字节
+RESETTING = "RESETTING"    # 失同步：只发 RATE OFF 重建静默
 
 _npass = 0
 _nfail = 0
@@ -141,7 +163,7 @@ def frame_gaps_ms(frames: list) -> list:
 
 
 # --------------------------------------------------------------------------- #
-#  串口会话：RATE FIX 连续取流 + 期间插命令
+#  串口会话：三态拉流状态机 + 批量下拉
 # --------------------------------------------------------------------------- #
 class Sess:
     def __init__(self, port: str):
@@ -153,6 +175,11 @@ class Sess:
         self.lines: list = []
         self.acks: list = []
         self._t0 = time.time()
+        self.state = IDLE
+        self.want = 0            # 本批目标帧数（0 = 无在途批次）
+        self._base = 0           # 本批起始帧下标
+        self.gaps: list = []     # 每次下发到"下一帧到达"的空窗 ms（判据用）
+        self.recoveries = 0      # 进过 RESETTING 的次数（应为 0，除非真丢帧）
 
     def close(self) -> None:
         try:
@@ -161,11 +188,126 @@ class Sess:
             pass
 
     def cmd(self, text: str) -> int:
+        """**只允许在 IDLE 下调用**：写命令并立刻返回 seq，不等 ACK。"""
+        assert self.state == IDLE, "非 IDLE 禁止发命令(当前 %s): %s" % (self.state, text)
         self.seq += 1
         self.ser.write(build_cmd(text, self.seq))
         self.ser.flush()
         self.lines.append((time.time() - self._t0, "<sent> " + text))
         return self.seq
+
+    def _find_ack(self, seq: int):
+        for _, txt in self.lines:
+            if txt.startswith("ACK %d " % seq):
+                return txt
+        return None
+
+    def _await(self, want_frames: int, seq: int, timeout: float) -> tuple:
+        """并行收 ACK 与数据帧：ACK 先到（固件 TX 是 FIFO，ACK 先入队），随后是帧。
+
+        这就是"不等 ACK"的正确形态 —— **并行**而不是阻塞，所以空窗里不包含 RTT。
+        返回 (ack_text | None, 实收帧数, 首帧时刻或 None)。
+        """
+        base = len(self.frames)
+        t0 = time.time()
+        ack = None
+        t_first = None
+        while time.time() - t0 < timeout:
+            self.pump()
+            if ack is None:
+                ack = self._find_ack(seq)
+            got = len(self.frames) - base
+            if got > 0 and t_first is None:
+                t_first = self.frames[base]["_t"]
+            if got >= want_frames and ack is not None:
+                break
+        return ack, len(self.frames) - base, t_first
+
+    def _settle(self, seq: int, t_sent: float, want_frames: int,
+                ack, t_first, got: int) -> None:
+        """批次收尾：收满 ⇒ IDLE；ACK 丢失或帧没收满 ⇒ RESETTING 并自动重建静默。"""
+        if t_first is not None:
+            self.gaps.append((t_first - t_sent) * 1000.0)
+        if ack is None:
+            # ACK 没回来：命令多半被半双工链路打坏、根本没执行。同 seq 同正文重发是幂等安全的，
+            # 但在重建静默之前不能盲发 —— 故先回 IDLE，由调用方决定重试。
+            note("ACK 未到，进 RESETTING", "seq=%d 收到 %d/%d 帧" % (seq, got, want_frames))
+            self._recover()
+            return
+        if got < want_frames:
+            note("批次未收满，进 RESETTING", "%d/%d 帧" % (got, want_frames))
+            self._recover()
+            return
+        self.state = IDLE
+
+    def _recover(self) -> None:
+        """超时/丢帧：进 RESETTING，发 `RATE OFF` 拿回 IDLE，再静候确认无残流。"""
+        self.state = RESETTING
+        self.recoveries += 1
+        self.want = 0
+        self.seq += 1
+        seq = self.seq
+        try:
+            self.ser.write(build_cmd("RATE OFF", seq))
+            self.ser.flush()
+            self.lines.append((time.time() - self._t0, "<sent> RATE OFF (recover)"))
+            self._await(0, seq, 0.6)
+        except Exception as e:                                  # noqa: BLE001
+            note("恢复期 RATE OFF 失败", str(e)[:70])
+        base = len(self.frames)
+        t0 = time.time()
+        while time.time() - t0 < 0.25:                           # 静默确认
+            self.pump()
+        left = len(self.frames) - base
+        if left:
+            note("RATE OFF 后仍有残流", "%d 帧(已丢弃)" % left)
+        self.state = IDLE
+
+    def quiet_handshake(self) -> bool:
+        """连接后的**静默握手**：`RATE OFF` + 静候 250 ms 无残流 ⇒ 确认固件静默。
+
+        没有这一步，主机可能在上电残留批次还没跑完时就下发命令 ⇒ 被半双工截断
+        （固件回 `ERR_CRC`、命令根本没执行）。这是"此前没有传输、此次拉流是启动"
+        场景的前置条件：**先把自己置于 IDLE，再谈下发第一条命令**。
+        """
+        self.state = IDLE
+        seq = self.cmd("RATE OFF")
+        ack, _, _ = self._await(0, seq, 1.0)
+        base = len(self.frames)
+        t0 = time.time()
+        while time.time() - t0 < 0.25:
+            self.pump()
+        left = len(self.frames) - base
+        ok = (ack is not None and " OK" in ack)
+        note("静默握手", "ACK=%s 残流=%d 帧" % (ack or "无", left))
+        self.state = IDLE
+        return ok and left == 0
+
+    def pull_batch(self, n: int = BATCH_N, t_ms: int = BATCH_T, timeout: float = 1.5) -> str:
+        """裸批次：`RATE PULL <n> <t_ms>`，等收满 n 帧才回 IDLE。返回 ACK 文本。"""
+        seq = self.cmd("RATE PULL %d %d" % (n, t_ms))
+        t_sent = self.lines[-1][0]
+        self.want = n
+        self._base = len(self.frames)
+        ack, _, t_first = self._await(n, seq, timeout)
+        self._settle(seq, t_sent, n, ack, t_first, len(self.frames) - self._base)
+        return ack or "无 ACK"
+
+    def combo_launch(self, n: int = MARK_N, t_ms: int = MARK_T,
+                     timeout: float = 1.6) -> dict:
+        """**复合命令**：`MAZE RUN PULL <n> <t_ms>` —— 发车 + 启动恰好一批 N 帧。
+
+        不等 ACK：ACK 与数据帧并行收。固件把 ACK 先入 TX FIFO，故 ACK 必先于首帧到达；
+        主机据此把"确认"和"收帧"并行化，空窗里不含任何 RTT。
+        """
+        seq = self.cmd("MAZE RUN PULL %d %d" % (n, t_ms))
+        t_sent = self.lines[-1][0]
+        self.want = n
+        self._base = len(self.frames)
+        ack, got, t_first = self._await(n, seq, timeout)
+        gap_ms = (t_first - t_sent) * 1000.0 if t_first is not None else None
+        self._settle(seq, t_sent, n, ack, t_first, got)
+        return {"ack": ack or "无 ACK", "got": got, "gap_ms": gap_ms, "t_run": t_sent}
 
     def send_checked(self, text: str, tries: int = 5, timeout: float = 1.2):
         """下发并**确认 ACK OK**；ERR_CRC / ERR_NOCRC / 超时都用**同一 seq、同一正文**重发。
@@ -173,9 +315,14 @@ class Sess:
         为什么要这个：取流期间下行命令会偶发被透传模块打坏（实测 `ACK -1 ERR_CRC`、
         `ERR_NOCRC`），一旦被打坏命令就**根本没执行**（例如 ARM 没执行 ⇒ 基准灯不闪，
         看起来像固件坏了）。重发同一 seq + 同一 CRC 是安全的：固件"幂等重放"分支
-        （link.c:3199）会把上次应答原样回一遍，**不会重复执行**命令 —— 所以即使
+        （link.c:3198）会把上次应答原样回一遍，**不会重复执行**命令 —— 所以即使
         第一次其实执行了、只是 ACK 丢了，重发也不会真的再执行一次。
+        FW 312 起该分支还会**一并重启复合命令的拉流**，所以带 PULL 的命令重发
+        同样能拿到帧（否则主机死等）。
+
+        ⚠️ 只能在 IDLE 下调用：本函数阻塞等 ACK，期间不能再发别的命令。
         """
+        assert self.state == IDLE, "非 IDLE 禁止阻塞等 ACK(当前 %s): %s" % (self.state, text)
         self.seq += 1
         s = self.seq
         body = build_cmd(text, s)
@@ -220,7 +367,7 @@ class Sess:
 
     def batch(self, n: int = BATCH_N, t_ms: int = BATCH_T,
               pre_cmds=(), want: int = 0, timeout: float = 1.0) -> int:
-        """一个**批量下拉**周期：先发 pre_cmds，再发 PULL，收够 want(缺省 n) 帧。
+        """兼容旧调用形态：一个批量下拉周期（可选先发几条命令）。
 
         这就是 `link_pull_evt.py` 的形态：一批发完固件就静默，等下一条 PULL。
         绝不用 RATE FIX 连续发流 —— 实测连续发流会让透传模块缓冲灌满(0 字节，
@@ -229,19 +376,12 @@ class Sess:
         base = len(self.frames)
         for c in pre_cmds:
             self.send_checked(c)
-        self.send_checked("RATE PULL %d %d" % (n, t_ms))
-        t0 = time.time()
-        need = want or n
-        while len(self.frames) - base < need and time.time() - t0 < timeout:
-            self.pump()
+        self.pull_batch(n if not want else want, t_ms, timeout=timeout + 0.5)
         return len(self.frames) - base
 
     def stream(self, dur: float, n: int = BATCH_N, t_ms: int = BATCH_T,
                schedule=(), post_cmds=None) -> None:
-        """连续做 dur 秒的批量下拉；schedule=[(相对秒, [命令...])] 在周期边界插命令。
-
-        post_cmds: 每个周期 PULL 之前都要补发的命令（L3 用来在发车后持续加密采样）。
-        """
+        """连续做 dur 秒的批量下拉；schedule=[(相对秒, [命令...])] 在周期边界插命令。"""
         sched = sorted(schedule, key=lambda x: x[0])
         k = 0
         while True:
@@ -258,14 +398,24 @@ class Sess:
             k += 1
 
     def off(self) -> None:
-        """安全网：确保固件不在自时钟发流（批量模式下本来就静默）。"""
-        self.send_checked("RATE OFF", tries=3)
+        """确保固件不在自时钟发流（批量模式本来就静默，这里把状态机也归位）。"""
+        if self.state != IDLE:
+            self._recover()
+            return
+        ack = None
+        try:
+            seq = self.cmd("RATE OFF")
+            ack, _, _ = self._await(0, seq, 1.0)
+        except Exception as e:                                  # noqa: BLE001
+            note("RATE OFF 失败", str(e)[:70])
         base = len(self.frames)
         t0 = time.time()
         while time.time() - t0 < 0.25:
             self.pump()
         if len(self.frames) != base:
             note("RATE OFF 后仍有残流", "多收 %d 帧" % (len(self.frames) - base))
+        self.state = IDLE
+        _ = ack
 
     def reset_log(self) -> None:
         self.frames, self.lines, self.acks = [], [], []
@@ -293,8 +443,11 @@ def open_link(port: str, tries: int = 4) -> Sess:
 # --------------------------------------------------------------------------- #
 #  L0 前置指纹
 # --------------------------------------------------------------------------- #
+EXPECT_FW = 312
+
+
 def stage0(lk: Sess, res: dict) -> bool:
-    print("\n[L0] 前置指纹 —— 确认烧的是 FW 311(带 LED 位)")
+    print("\n[L0] 前置指纹 —— 确认烧的是 FW %d(LED 位 + 复合命令)" % EXPECT_FW)
     pong = None
     for k in range(4):
         lk.reset_log()
@@ -311,7 +464,7 @@ def stage0(lk: Sess, res: dict) -> bool:
     if not check("PING 有 PONG 回应", pong is not None, str(pong)):
         return False
     res["pong"] = pong
-    check("fw = 311 (LED 位版本)", pong["fw"] == 311, "fw=%d" % pong["fw"])
+    check("fw = %d (复合命令版本)" % EXPECT_FW, pong["fw"] == EXPECT_FW, "fw=%d" % pong["fw"])
     check("proto = 9", pong["proto"] == 9, "proto=%d" % pong["proto"])
     check("mazetype = 16", pong["mazetype"] == 16, "mazetype=%d" % pong["mazetype"])
     check("通道表 33 项 (29 + 4 LED)", len(codec.UNIFIED_CHANNELS) == 33,
@@ -391,43 +544,40 @@ def stage2(lk: Sess, res: dict, sec: float = 6.0) -> None:
 #  L3 发车标记窗口
 # --------------------------------------------------------------------------- #
 def _launch_once(lk: Sess) -> dict:
-    """一轮完整的"采基线 → 发车 → 密采样 → 收车"。返回该轮的帧与 ACK。
+    """一轮完整的"采基线 → **复合命令发车** → 密采样 → 收车"。
 
-    关键时序：`MAZE RUN` **不能等 ACK 再发 PULL** —— 标记窗口只有 300 ms，而
-    RTT≈300 ms，等 ACK 就已经错过。所以发车行写完 20 ms 就紧跟一条密 PULL 批次
-    （20 ms 远大于固件 1 行/ms 的消费速率，不会撞掉第二行）。
+    关键时序(v9.2/FW 312)：发车走 `MAZE RUN PULL <n> <t>` —— 一条命令同时完成
+    "发车"和"启动恰好一批 n 帧"。主机**不等 ACK**，ACK 与数据帧并行收，所以
+    "发车 → 下一帧到达"的空窗里不含任何 RTT。
+
+    旧写法(FW 311)必须"先写 MAZE RUN 行 → sleep 20 ms → 再单独发一条 RATE PULL"，
+    而 `RATE PULL` 那条又要 `send_checked` 等它自己的 ACK，实测空窗 300 ms 量级。
     """
     lk.reset_log()
     lk.batch()                                        # ① 窗口前的上下文帧
     while time.time() - lk._t0 < 0.70:                # ② 采到 ~0.7 s
         lk.batch()
-    lk.seq += 1
-    run_seq = lk.seq
-    lk.ser.write(build_cmd("MAZE RUN", run_seq))      # ③ 发车（不等 ACK）
-    lk.ser.flush()
-    t_run = time.time() - lk._t0
-    lk.lines.append((t_run, "<sent> MAZE RUN"))
-    time.sleep(0.02)
-    lk.batch(MARK_N, MARK_T, want=MARK_N, timeout=1.2)  # ④ 紧跟一批密采样覆盖窗口
-    while time.time() - lk._t0 < 2.30:                # ⑤ 继续常规采样到 2.3 s
+    run = lk.combo_launch(MARK_N, MARK_T)             # ③ 复合命令：发车 + 一批密采样
+    while time.time() - lk._t0 < 2.30:                # ④ 继续常规采样到 2.3 s
         lk.batch()
-    lk.send_checked("MAZE STOP")                      # ⑥ 收车
+    lk.send_checked("MAZE STOP")                      # ⑤ 收车
     while time.time() - lk._t0 < 3.10:
         lk.batch()
-    ack = [s for _, s in lk.lines if s.startswith("ACK %d " % run_seq)]
     return {"frames": list(lk.frames), "acks": list(lk.acks),
-            "run_ack": ack[0] if ack else "无 ACK", "t_run": t_run}
+            "run_ack": run["ack"], "t_run": run["t_run"],
+            "launch_gap_ms": run["gap_ms"], "launch_got": run["got"]}
 
 
 def stage3(lk: Sess, res: dict) -> None:
-    print("\n[L3] 发车标记 —— MAZE RUN 后 4 位应同时为 1 约 %d ms" % MARK_MS)
+    print("\n[L3] 发车标记 —— 复合命令 `MAZE RUN PULL %d %d` 一条搞定" % (MARK_N, MARK_T))
     run = None
     for k in range(3):
         run = _launch_once(lk)
         m = find_mark_window(run["frames"])
-        note("第 %d 次尝试" % (k + 1), "%d 帧 · MAZE RUN -> %s · 全 1 窗口 %s" %
+        note("第 %d 次尝试" % (k + 1), "%d 帧 · 发车 -> %s · 全 1 窗口 %s · 空窗 %s" %
              (len(run["frames"]), run["run_ack"],
-              ("%d 帧" % m["count"]) if m.get("found") else "未出现"))
+              ("%d 帧" % m["count"]) if m.get("found") else "未出现",
+              ("%.0f ms" % run["launch_gap_ms"]) if run["launch_gap_ms"] is not None else "无帧"))
         if m.get("found") and " OK" in run["run_ack"]:
             break
         if k < 2:
@@ -437,6 +587,20 @@ def stage3(lk: Sess, res: dict) -> None:
     fr = run["frames"]
     res["l3_run_ack"] = run["run_ack"]
     res["l3_frames"] = len(fr)
+    res["launch_gap_ms"] = run["launch_gap_ms"]
+    res["launch_got"] = run["launch_got"]
+
+    # ---- 方案 E 的核心判据: 发车 -> 下一帧到达的空窗 ----
+    gap = run["launch_gap_ms"]
+    check("复合命令 ACK 为 OK", " OK" in run["run_ack"], run["run_ack"])
+    check("复合命令自带的一批收满", (run["launch_got"] or 0) >= MARK_N,
+          "%d/%d 帧" % (run["launch_got"] or 0, MARK_N))
+    if gap is not None:
+        check("发车->下一帧空窗 < %d ms" % LAUNCH_GAP_MS_MAX, gap < LAUNCH_GAP_MS_MAX,
+              "%.0f ms(旧写法 300 ms 量级)" % gap)
+    else:
+        check("发车->下一帧空窗 < %d ms" % LAUNCH_GAP_MS_MAX, False, "一帧都没收到")
+
     if not check("收到统一帧", len(fr) >= 25, "%d 帧" % len(fr)):
         return
     check("MAZE RUN 回 ACK OK", " OK" in run["run_ack"], run["run_ack"])
@@ -510,6 +674,59 @@ def _mk(seq_bits, dt=0.07):
              "mazeTask": 1, "motionTask": 0} for i, b in enumerate(seq_bits)]
 
 
+class _FakeSer:
+    """不碰串口的假串口：只测状态机的状态迁移与断言，不测时序。"""
+
+    def __init__(self):
+        self.buf = b""
+
+    def write(self, data):
+        self.buf += data
+        return len(data)
+
+    def flush(self):
+        pass
+
+    def read(self, n):
+        d, self.buf = self.buf[:n], self.buf[n:]
+        return d
+
+
+class _FakeSess(Sess):
+    """`_FakeSess.cmd` 用的是**父类真实实现** —— 被测的正是它的 IDLE 断言。"""
+
+    def __init__(self, state=IDLE):
+        self.ser = _FakeSer()
+        self.rb = None
+        self.seq = 900
+        self.frames, self.lines, self.acks = [], [], []
+        self._t0 = time.time()
+        self.state = state
+        self.want = 0
+        self._base = 0
+        self.gaps = []
+        self.recoveries = 0
+
+
+def _raises(fn) -> bool:
+    try:
+        fn()
+        return False
+    except AssertionError:
+        return True
+    except Exception:                                          # noqa: BLE001
+        return False
+
+
+def _settle_probe(ack="ACK 1 OK", got=4, want=4):
+    """跑一次 `_settle`，返回 (结束状态, 是否走了 _recover)。"""
+    fs = _FakeSess(IDLE)
+    seen = []
+    fs._recover = lambda: (seen.append(1), setattr(fs, "state", RESETTING))[0]
+    fs._settle(901, 0.0, want, ack, None, got)
+    return fs.state, bool(seen)
+
+
 def selftest() -> int:
     print("[SELFTEST] 判据函数离线自检")
 
@@ -553,6 +770,32 @@ def selftest() -> int:
     check("MAZE RUN 报文格式", good.endswith(b"\r\n") and b" #7" in good,
           good.decode("ascii").strip())
 
+    # ---- 复合命令报文 ----
+    combo = build_cmd("MAZE RUN PULL 8 40", 11)
+    ctxt = combo.decode("ascii")
+    check("复合命令带 PULL 参数", ctxt.startswith("MAZE RUN PULL 8 40 #11*"),
+          ctxt.strip())
+    check("复合命令仍受白名单约束",
+          _raises(lambda: build_cmd("MOVERUN PULL 1 1", 1)), "越界前缀被拒")
+
+    # ---- 三态状态机的离线判据(不需要硬件) ----
+    check("状态常量齐全", (IDLE, PENDING, RESETTING) == ("IDLE", "PENDING", "RESETTING"),
+          "%s/%s/%s" % (IDLE, PENDING, RESETTING))
+    check("空窗判据阈值 = 100 ms", LAUNCH_GAP_MS_MAX == 100, str(LAUNCH_GAP_MS_MAX))
+    check("非 IDLE 禁止发命令", _raises(lambda: _FakeSess(PENDING).cmd("RATE PULL 4 60")),
+          "PENDING 下发被断言拦住")
+    fs = _FakeSess(IDLE)
+    fs.cmd("RATE PULL 4 60")
+    check("IDLE 下可发命令", fs.lines[-1][1] == "<sent> RATE PULL 4 60", fs.lines[-1][1])
+    check("RESETTING 下禁止发命令",
+          _raises(lambda: _FakeSess(RESETTING).cmd("RATE PULL 4 60")), "断言拦住")
+    st, rec = _settle_probe(ack="ACK 1 OK", got=4, want=4)
+    check("批次收满 ⇒ 回 IDLE", st == IDLE and not rec, "%s recovered=%s" % (st, rec))
+    st, rec = _settle_probe(ack="ACK 1 OK", got=3, want=4)
+    check("批次没收满 ⇒ 走重建静默", rec and st == RESETTING, "%s recovered=%s" % (st, rec))
+    st, rec = _settle_probe(ack=None, got=4, want=4)
+    check("ACK 丢失 ⇒ 走重建静默", rec, "ACK=None recovered=%s" % rec)
+
     print("\n%s  ——  自检 %d 通过 / %d 失败" %
           ("[PASS]" if _nfail == 0 else "[FAIL]", _npass, _nfail))
     return 0 if _nfail == 0 else 1
@@ -560,7 +803,7 @@ def selftest() -> int:
 
 # --------------------------------------------------------------------------- #
 def main() -> int:
-    ap = argparse.ArgumentParser(description="LED 位上报专项实机验证 (FW 311)")
+    ap = argparse.ArgumentParser(description="LED 位上报 + 复合命令空窗专项实机验证 (FW 312)")
     ap.add_argument("port", nargs="?", default="COM7", help="串口号 (默认 COM7)")
     ap.add_argument("--selftest", action="store_true", help="离线判据自检，不碰串口")
     ap.add_argument("--no-launch", action="store_true", help="跳过 L3(不发车)")
@@ -573,12 +816,15 @@ def main() -> int:
         return selftest()
 
     print("=" * 70)
-    print(" LED 位上报专项验证   端口 %s   批量下拉 %d 帧/%d ms ≈13 Hz" %
+    print(" LED 位 + 复合命令专项验证   端口 %s   批量下拉 %d 帧/%d ms ≈13 Hz" %
           (a.port, BATCH_N, BATCH_T))
     print("=" * 70)
     res = {"port": a.port, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
     lk = open_link(a.port)
     try:
+        # 静默握手：确认固件此刻不在发帧，才能安全下发第一条命令。
+        # 这是"此前没有传输、此次拉流是启动"场景的前置条件（方案 E.2）。
+        lk.quiet_handshake()
         if not stage0(lk, res):
             return 1
         stage1(lk, res, a.idle_sec)
@@ -591,9 +837,14 @@ def main() -> int:
             print("\n[L4] 跳过 (--no-reset)")
         else:
             stage4(lk, res)
+        res["recoveries"] = lk.recoveries
+        check("全程未触发失同步重建", lk.recoveries == 0,
+              "RESETTING 次数 %d" % lk.recoveries)
+        if lk.gaps:
+            note("各批空窗(下发→首帧)", " / ".join("%.0f ms" % g for g in lk.gaps))
     finally:
         try:
-            lk.send_checked("RATE OFF", tries=2)
+            lk.off()
         except Exception:                                       # noqa: BLE001
             pass
         lk.close()

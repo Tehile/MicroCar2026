@@ -211,6 +211,11 @@ static u8 linkMazeTarget; /* 本次发车目标(LINK_MAZE_BLIND / LINK_MAZE_RACE)。
 static u32 linkLaunchMarkEnd; /* v2.8: 发车标记灯**结束时刻**(linkTimeMs 读数);
                                *     0 = 标记未激活。见 LINK_LAUNCH_MARK_MS
                                *     与 LINK_Tick 的 0b 段。 */
+static u8 linkLastPullN;  /* v3.12(2026-10-22): 幂等重放用的**拉流影子**(0=无挂起拉流)。
+                         *     复合命令 `MAZE RUN ... PULL <n> <t>` 受理成功时写入,
+                         *     供 link_HandleLine 的幂等重放分支一并重放 —— 拉流是
+                         *     "状态"不是"动作", 重启同一批次天然幂等。 */
+static u16 linkLastPullT; /* 同上: 批内帧间隔 ms。 */
 #endif
 
 #ifdef MOUSE_REMOTE
@@ -2806,9 +2811,39 @@ static void link_ExecCmd(char *line, s32 seq)
 			LED2 = 0;
 			LED3 = 0;
 			LED4 = 0;
-			linkLaunchMarkEnd = linkTimeMs + LINK_LAUNCH_MARK_MS;
-			link_Ack(seq, "OK");
-			return;
+				linkLaunchMarkEnd = linkTimeMs + LINK_LAUNCH_MARK_MS;
+
+				/* v3.12(2026-10-22): 可选的 `PULL <n> <t_ms>` —— **复合命令**。
+				 * 一条命令 = 发车 + 启动**恰好一批** N 帧, 主机因此省掉"发车之后再下
+				 * 一条 RATE PULL"的一整个命令往返(约 1 个 RTT)。动机与实测见
+				 * docs/发车数据空窗分析与解决方案.md。
+				 *   - 参数全可选: 不带 PULL 时行为与改动前**逐字节一致**(向后兼容);
+				 *   - 批次停等模型不变: 仍是"发 N 帧 -> 静默等下一条命令",
+				 *     固件侧**不做**自续订, 在途批次仍然只有 1 个;
+				 *   - 必须先 link_RateStop(): 万一主机误判"无在途批次", 宁可丢掉
+				 *     残余批次也不能让两个批次叠加;
+				 *   - 只有受理成功才启动拉流: ERR_BUSY / ERR_ESTOP 已在上面 return,
+				 *     不会走到这里(被拒时主机改用裸 RATE PULL 单独观察);
+				 *   - 参数缺失(n 或 t < 1)时不启动拉流, 保持旧行为(否则会被钳成
+				 *     1ms 间隔 = 500Hz, 足以灌死透传模块);
+				 *   - 记 linkLastPullN/T 供幂等重放(ACK 丢失误发同 seq 时必须补发)。
+				 * ACK 先入队(TX 是 FIFO)、首帧要等下一个 SysTick 才组, 所以下行
+				 * 里 ACK 必然排在数据帧前面 —— 主机据此把"确认"与"收帧"并行化。 */
+				if (link_TokIs(&p, "PULL"))
+				{
+					s32 pn = link_TokNum(&p);
+					s32 pt = link_TokNum(&p);
+					if (pn >= 1 && pt >= 1)
+					{
+						linkLastPullN = (u8)pn;
+						linkLastPullT = (u16)pt;
+						link_RateStop();
+						linkRateOn = 1;
+						link_PullSet(pn, pt);
+					}
+				}
+				link_Ack(seq, "OK");
+				return;
 #endif
 		}
 #ifdef MOUSE_REMOTE
@@ -3198,6 +3233,18 @@ static void link_HandleLine(char *buf, u8 len)
 	/* ---- 幂等: 相同 seq 且相同 CRC -> 重放上次应答 ---- */
 	if (seq >= 0 && seq == linkLastSeq && crcRecv == linkLastCrc)
 	{
+#ifdef MOUSE_REMOTE
+		/* v3.12: 复合命令的拉流必须**随 ACK 一起重放**, 否则死锁 ——
+		 * ACK 在半双工链路途中被打坏时, 主机按同 seq 重发; 若这里只回 ACK
+		 * 而不重启拉流, 主机就永远等不到帧(它已经进了"等本批 N 帧"的状态)。
+		 * 拉流是状态不是动作: 重放 = 重置同一批次参数, 幂等。
+		 * 必须排在 link_TxStr 之前, 保证 ACK 仍先于首帧进 TX FIFO。 */
+		if (linkLastPullN)
+		{
+			linkRateOn = 1;
+			link_PullSet(linkLastPullN, linkLastPullT);
+		}
+#endif
 		link_TxStr("ACK ");
 		link_TxInt(seq);
 		link_TxPut(' ');
@@ -3207,6 +3254,10 @@ static void link_HandleLine(char *buf, u8 len)
 	}
 	linkLastSeq = seq;
 	linkLastCrc = crcRecv;
+#ifdef MOUSE_REMOTE
+	/* 新命令覆盖影子: 只有携带 PULL 的 MAZE RUN 会再写它(见 link_ExecCmd) */
+	linkLastPullN = 0;
+#endif
 
 	link_ExecCmd(buf, seq);
 }
