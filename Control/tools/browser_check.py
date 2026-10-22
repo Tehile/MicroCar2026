@@ -477,8 +477,92 @@ async def run(args) -> int:
                     except Exception:                         # noqa: BLE001
                         pass
 
+                # ---------------- V7 记录页 / 回放页真的用上后端数据
+                head("9. 记录与回放：后端有数据时，界面是不是真的用了它")
+                rec_api, rc = _req(base + "/api/v1/records?n=50", timeout=15)
+                api_rows = ((rec_api.get("data") or {}).get("records") or []) if rc == 200 else []
+                api_rows = [r for r in api_rows if not r.get("error")]
+                if not ui.get("live"):
+                    record("V7", "SKIP", "前端没进真数据模式 ⇒ 记录页无从验起")
+                elif not api_rows:
+                    record("V7", "SKIP", "记录目录里一条记录都没有 ⇒ 无从验起（不是失败）")
+                else:
+                    await cdp.eval("window.C.loadRecords()")
+                    await asyncio.sleep(1.2)
+                    ui_rows = await cdp.eval(
+                        "(()=>{const S=window.C.S;"
+                        "return {n:S.records.length,"
+                        " first:(S.records[0]||{}).id||'',"
+                        " ledger0:(S.records[0]||{}).ledger,"
+                        " hasNull:S.records.some(r=>r.ledger===null)};})()") or {}
+                    # 回放：进页会自己取一次（`needPage`），等到样本到齐
+                    await cdp.eval("window.C.go('replay')")
+                    got = {}
+                    for _ in range(12):
+                        await asyncio.sleep(0.5)
+                        got = await cdp.eval(
+                            "(()=>{const r=window.C.record(window.C.S.recSel);"
+                            "return r?{n:(r.samples||[]).length,"
+                            " N:((r.maze||{}).N||0),"
+                            " sampled:r.sampled||1,"
+                            " params:(r.params?r.params.length:null)}:null;})()") or {}
+                        if (got.get("n") or 0) > 0:
+                            break
+                    # 账本三态在界面上的样子（老记录 ledger=null 必须是「判不了」）
+                    await cdp.eval("window.C.go('data')")
+                    await asyncio.sleep(0.8)
+                    led = await cdp.eval(
+                        "(()=>{const t=document.getElementById('dt-rows');"
+                        "if(!t) return {txt:'', hasBad:false};"
+                        "const txt=t.innerText||'';"
+                        "return {txt:txt, hasBad:txt.indexOf('判不了')>=0,"
+                        " hasDiff:txt.indexOf('差 ')>=0};})()") or {}
+                    n_ok = ui_rows.get("n") == len(api_rows)
+                    id_ok = (ui_rows.get("first") == (api_rows[0].get("id") or ""))
+                    rep_ok = (got.get("n") or 0) > 0 and (got.get("N") or 0) >= 2
+                    # 若后端给了 null 账本，界面必须出现「判不了」而不是「差 N 帧」
+                    led_ok = (not ui_rows.get("hasNull")) or bool(led.get("hasBad"))
+                    ok7 = n_ok and id_ok and rep_ok and led_ok
+                    record("V7", "PASS" if ok7 else "FAIL",
+                           f"记录页 {ui_rows.get('n')} 行 / 后端 {len(api_rows)} 条"
+                           f"（首行 {ui_rows.get('first')!r} 对齐={id_ok}）；"
+                           f"回放取到 {got.get('n')} 个样本、迷宫 N={got.get('N')}"
+                           f"（抽样间隔 {got.get('sampled')}）；"
+                           f"老记录账本显示「判不了」={led.get('hasBad')}"
+                           + ("" if ok7 else " ⇒ **界面没用上后端数据，或把'判不了'画成了'差 N 帧'**"))
+
+                # ---------------- V9 参数页真的吃上了后端那 41 项
+                head("10. 参数页：41 项四组，派生量只读")
+                if not api_mouse.get("connected"):
+                    record("V9", "SKIP", "电脑鼠没连 ⇒ 参数端点 409，界面理应没有参数表")
+                else:
+                    await cdp.eval("window.C.loadParams()")
+                    await cdp.eval("window.C.go('params')")
+                    got_p = {}
+                    for _ in range(10):
+                        await asyncio.sleep(0.4)
+                        got_p = await cdp.eval(
+                            "(()=>{const P=window.C.S.params||[];"
+                            "const all=P.reduce((a,g)=>a+(g.items||[]).length,0);"
+                            "const der=P.reduce((a,g)=>a+(g.items||[]).filter(i=>i.derived).length,0);"
+                            "const sp=P[0]&&P[0].items?P[0].items.filter(i=>i.name==='SPEEDL')[0]:null;"
+                            "const rows=document.querySelectorAll('#pp-rows tr').length;"
+                            "return {g:P.length,all:all,der:der,rows:rows,"
+                            " spVal:sp?sp.value:null,spDer:sp?!!sp.derived:null};})()") or {}
+                        if (got_p.get("all") or 0) > 0:
+                            break
+                    ok9 = (got_p.get("g") == 4 and got_p.get("all") == 41
+                           and got_p.get("der") == 2 and got_p.get("spDer") is True
+                           and (got_p.get("rows") or 0) > 0)
+                    record("V9", "PASS" if ok9 else "FAIL",
+                           f"参数表 {got_p.get('g')} 组 / {got_p.get('all')} 项"
+                           f"（后端 41 项四组）、派生 {got_p.get('der')} 项、"
+                           f"SPEEDL 只读={got_p.get('spDer')} 值={got_p.get('spVal')}、"
+                           f"渲染 {got_p.get('rows')} 行"
+                           + ("" if ok9 else " ⇒ **参数页没吃上后端数据，或派生量被当成了可写项**"))
+
                 # ---------------- V8 界面文案纪律
-                head("9. 主区文案：不放机制说明")
+                head("11. 主区文案：不放机制说明")
                 txt = await cdp.eval(
                     "(()=>{const m=document.getElementById('main');"
                     "return m?(m.innerText||''):'';})()") or ""

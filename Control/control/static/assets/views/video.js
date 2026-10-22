@@ -248,12 +248,16 @@
         sid.textContent = cur.id;
         const ir = Object.keys(cur.invalid_reasons || {}).map(k => k + ' × ' + cur.invalid_reasons[k]).join(' · ');
         det.innerHTML = kv([
-          ['frames', '帧', cur.n_total + ' 总 / ' + cur.n_valid + ' 有效'],
+          ['frames', '帧', (cur.n_total == null ? '—' : cur.n_total) + ' 总 / ' +
+            (cur.n_valid == null ? '—' : cur.n_valid) + ' 有效'],
           ['invalid', '无效原因', ir || '无'],
           ['flags', '标志', flagsText(cur.flags)],
-          ['maze', '迷宫', '墙 ' + cur.maze.n_wall + ' · 段 ' + cur.maze.n_segment +
-            ' · 一致率 ' + U.fmt(cur.maze.consistency, 2)],
-          ['out', '输出目录', cur.out_dir],
+          // 迷宫一致性来自详情端点；列表里没有 ⇒ 显示「—」，别读 null 崩掉
+          ['maze', '迷宫', cur.maze
+            ? ('墙 ' + cur.maze.n_wall + ' · 段 ' + cur.maze.n_segment +
+               ' · 一致率 ' + U.fmt(cur.maze.consistency, 2))
+            : '—'],
+          ['out', '输出目录', cur.out_dir || '—'],
         ]);
       } else {
         sid.textContent = '—';

@@ -78,7 +78,13 @@
           '<td>' + (r.video
             ? '<span class="tag blue">' + r.video + '</span>'
             : '<button class="btn btn-sm btn-ghost" data-assoc="' + r.id + '">' + C.icon('link') + '关联</button>') + '</td>' +
-          '<td><span class="tag ' + (r.ledger ? 'ok' : 'bad') + '">' + (r.ledger ? '通过' : '差 ' + r.gap) + '</span></td>' +
+          // 三态：true=通过 / false=丢帧 / null=**判不了**（老记录没有丢帧计数）
+          // 判不了不许画成"差 X 帧"—— 那是在替设备作证
+          '<td>' + (r.ledger === true
+            ? '<span class="tag ok">通过</span>'
+            : r.ledger === false
+              ? '<span class="tag bad">差 ' + (r.gap == null ? '?' : r.gap) + ' 帧</span>'
+              : '<span class="tag">判不了</span>') + '</td>' +
           '</tr>';
       }).join('');
 

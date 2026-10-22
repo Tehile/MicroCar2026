@@ -140,14 +140,16 @@
       const tb = root.querySelector('#pp-rows');
       tb.innerHTML = items.map(it => {
         const isDirty = dirty[it.name] !== undefined;
+        // `value` 可能是 null（设备没答这一项）⇒ 显示破折号，别把 "null" 写上屏
+        const shown = isDirty ? dirty[it.name] : (it.value == null ? '' : it.value);
         return '<tr class="' + (isDirty ? 'row-dirty' : '') + '">' +
-          '<td class="num dim">' + it.id + '</td>' +
+          '<td class="num dim">' + (it.id == null ? '—' : it.id) + '</td>' +
           '<td class="name"><b>' + it.name + '</b></td>' +
           '<td>' + (it.derived
-            ? '<span class="dim mono" title="派生量 = TRACK/100">' + it.value + '</span>'
+            ? '<span class="dim mono" title="派生量 = TRACK / 100">' + (it.value == null ? '—' : it.value) + '</span>'
             : '<input class="cell-input" data-name="' + it.name + '" value="' +
-               U.esc(isDirty ? dirty[it.name] : it.value) + '">') + '</td>' +
-          '<td class="num dim">' + (it.derived ? '—' : it.q16) + '</td>' +
+               U.esc(shown) + '"' + (it.value == null ? ' placeholder="读不到"' : '') + '>') + '</td>' +
+          '<td class="num dim">' + (it.derived ? '—' : (it.q16 == null ? '—' : it.q16)) + '</td>' +
           '<td class="dim" style="font-size:10px">' + U.esc(it.unit || '—') +
             (it.enumText ? '<div style="color:var(--muted-2)">' + it.enumText + '</div>' : '') + '</td>' +
           '<td class="dim" style="font-size:11px">' + U.esc(it.desc) + '</td>' +

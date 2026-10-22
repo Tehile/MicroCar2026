@@ -173,6 +173,12 @@ FLASH_PAGE_LESSON = 116    # 课程调参：id 8–21
 #: 默认停等：在途恒 1 条请求、帧率 = 1/RTT，现场出任何异常都能当场归因。
 DEFAULT_STREAM_MODE = "stopwait"
 
+#: 派生参数：值**不由设备给**，而是由另一个参数算出 ⇒ 只读、不写 Flash。
+#: `SPEEDL/SPEEDR = TRACKL/TRACKR ÷ 100`（同一物理量的两种刻度）。
+#: ⚠️ 必须由本层算：让界面自己除，就会出现"改了 TRACKL、SPEEDL 还显示旧值"
+#:    或者两份各自取整不一致（铁律 32：一个元素一条真相）。
+DERIVED_PARAMS = {"SPEEDL": ("TRACKL", 100.0), "SPEEDR": ("TRACKR", 100.0)}
+
 #: 每批帧数 n 的合法区间。**照抄上游 `TelemetryPuller.configure()` 的校验**
 #: （`if not 1 <= n <= 16: raise ValueError("n 须在 1..16(固件 RATE PULL 上限)")`）——
 #: 本层不另立一套数字，否则上游改了这里就成了"界面收下了、设备拒了"。
@@ -1793,16 +1799,34 @@ class MouseAdapter:
                 meta = mc.params.meta(name)
             except Exception:                                # noqa: BLE001
                 pass
-            q = None
-            readable = name in prod_ids
-            if refresh and readable:
-                # 原始 Q16.16 值只在明确要求回读、且该名字在 GET 覆盖范围内时才去问设备。
+            # ── 派生量：值由**另一个参数**算出，不问设备、不占 Flash ──────────
+            # 只读：`readable=False`（写它没有意义，写了也会被 TRACK? 覆盖）
+            dv = DERIVED_PARAMS.get(name)
+            derived = dv is not None
+            if derived:
+                src_name, div = dv
+                src_v = (vals or {}).get(src_name)
                 try:
-                    q = mc.params.get_raw(name)
-                except Exception:                            # noqa: BLE001
-                    pass
+                    v = (float(src_v) / div) if src_v is not None else None
+                except (TypeError, ValueError):
+                    v = None
+                q = None
+                readable = False
+            else:
+                q = None
+                readable = name in prod_ids
+                if refresh and readable:
+                    # 原始 Q16.16 值只在明确要求回读、且该名字在 GET 覆盖范围内时才去问设备。
+                    try:
+                        q = mc.params.get_raw(name)
+                    except Exception:                        # noqa: BLE001
+                        pass
             group[name] = {
                 "value": v, "q": q, "readable": readable,
+                "derived": derived,
+                # 派生量的来路写进载荷：界面显示"= TRACKL / 100"时用它，别自己猜
+                "derived_from": (dv[0] if derived else None),
+                "derived_div": (dv[1] if derived else None),
                 "unit": (meta[0] if meta else ""),
                 "decimals": (meta[1] if meta else None),
                 "desc": self._short_desc(meta[2] if meta else ""),
@@ -1812,8 +1836,24 @@ class MouseAdapter:
                 "flash_page": (FLASH_PAGE_LESSON if g == "课程调参" else FLASH_PAGE_PROD),
             }
         live = {k: v for k, v in groups.items() if v}
+        #: 分组元信息（**给界面用，省得它自己从条目里现攒**）：
+        #: `is_derived` 让界面知道"整组可写 / 其中几项只读"；
+        #: `id_min/id_max` 是显示用的范围（"01–07" 的补零属于显示，交给界面）。
+        groups_meta = {}
+        for gname, items in live.items():
+            ids = [it["id"] for it in items.values() if isinstance(it.get("id"), int)]
+            first = next(iter(items.values()))
+            groups_meta[gname] = {
+                "count": len(items),
+                "id_min": (min(ids) if ids else None),
+                "id_max": (max(ids) if ids else None),
+                "flash_page": first.get("flash_page"),
+                "write_via": first.get("write_via"),
+                "n_derived": sum(1 for it in items.values() if it.get("derived")),
+            }
         return {
             "groups": live,
+            "groups_meta": groups_meta,
             "count": sum(len(v) for v in live.values()),
             "connected": True,
             # ⚠️ 这段话会**原样出现在界面上**（`params.js` 把 `note` 直接写进 `#p-top`），
@@ -1832,10 +1872,13 @@ class MouseAdapter:
 
         上游的 desc 是仿《参数名称-功能-调整表》"变量功能"列写的（功能句 +
         默认值 + 覆写警示），信息全部要保留 —— 但 ⚠️ 是图形标记、`——` 是
-        界面禁用破折号（判据 B13/B23 扫的是**可见文本**，不区分"我们写的"
-        和"透传的"）。功能句/默认值/警示原样保留，标点换成界面允许的。
+        界面禁用破折号、`判据` 是**本层自己的验收词**（判据 V8 会扫界面可见文本，
+        不区分"我们写的"和"透传的"）。功能句/默认值/警示原样保留，这几个词换掉。
         """
         s = (raw or "").replace("⚠️", " ").replace("——", "，").replace("`", "'")
+        # 上游说明里会写"走一格判据的直接因子"这类话；"判据"是我们内部的说法，
+        # 上屏要换成"判定"。改的是词，不是意思。
+        s = s.replace("判据", "判定")
         return " ".join(s.split())
 
     def set_params_grouped(self, values: Dict[str, float], readback: bool = True,

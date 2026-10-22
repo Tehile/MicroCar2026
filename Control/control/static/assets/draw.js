@@ -43,19 +43,23 @@ C.draw = (function () {
       g.beginPath(); g.moveTo(X(0), Math.round(Y(i)) + .5); g.lineTo(X(N), Math.round(Y(i)) + .5); g.stroke();
     }
 
-    /* 终点区：中心 2×2，锁死不从帧读 */
-    const gm = m.goal;
-    const minX = Math.min.apply(null, gm.map(p => p[0])), maxX = Math.max.apply(null, gm.map(p => p[0]));
-    const minY = Math.min.apply(null, gm.map(p => p[1])), maxY = Math.max.apply(null, gm.map(p => p[1]));
-    const gx = X(minX), gy = Y(minY), gw = (maxX - minX + 1) * s, gh = (maxY - minY + 1) * s;
-    g.fillStyle = 'rgba(43,79,242,.13)';
-    g.fillRect(gx, gy, gw, gh);
-    g.strokeStyle = BLUE; g.lineWidth = 2;
-    g.strokeRect(gx + 1, gy + 1, gw - 2, gh - 2);
-    g.fillStyle = INK;
-    g.font = '700 ' + Math.max(8, s * .32) + 'px Consolas,monospace';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('GOAL', gx + gw / 2, gy + gh / 2);
+    /* 终点区：中心 2×2，锁死不从帧读。
+       ⚠️ `goal` 可能是**空数组**：7×7 时代的老记录装不下 16×16 的终点区，
+       后端会如实给空并在 `note` 里说明。空的时候不画框，不许画一个"看着像终点"的框。 */
+    const gm = m.goal || [];
+    if (gm.length) {
+      const minX = Math.min.apply(null, gm.map(p => p[0])), maxX = Math.max.apply(null, gm.map(p => p[0]));
+      const minY = Math.min.apply(null, gm.map(p => p[1])), maxY = Math.max.apply(null, gm.map(p => p[1]));
+      const gx = X(minX), gy = Y(minY), gw = (maxX - minX + 1) * s, gh = (maxY - minY + 1) * s;
+      g.fillStyle = 'rgba(43,79,242,.13)';
+      g.fillRect(gx, gy, gw, gh);
+      g.strokeStyle = BLUE; g.lineWidth = 2;
+      g.strokeRect(gx + 1, gy + 1, gw - 2, gh - 2);
+      g.fillStyle = INK;
+      g.font = '700 ' + Math.max(8, s * .32) + 'px Consolas,monospace';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('GOAL', gx + gw / 2, gy + gh / 2);
+    }
 
     /* 墙：已知实线（黑），未探明点线（浅） */
     function known(cx, cy) { return m.visited[cx + ',' + cy]; }

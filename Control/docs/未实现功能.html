@@ -121,8 +121,8 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td><code>#/params</code> 参数设定</td>
-<td>原型 · 未接线</td>
-<td><code>GET/POST /api/v1/mouse/params/grouped</code>（<strong>41 项 / 四组</strong>，SAVE 页号随数据返回）+ <code>POST …/params/save_group</code>；⚠️ 后端返回是<strong>按组名/项名索引的字典</strong>，与前端要的数组结构不同，接线要转换</td>
+<td><strong>已接</strong>（改版二十九）</td>
+<td><code>GET /api/v1/mouse/params/grouped</code> → 四组 41 项；后端已给 <code>derived</code>（<code>SPEEDL/SPEEDR = TRACKL/TRACKR ÷ 100</code>，只读）与 <code>groups_meta</code>（范围/页号/写入通道），界面不再自己攒。⚠️ <strong>写入（SAVE / 写入改动）还没接</strong>，只接了读</td>
 </tr>
 <tr>
 <td><code>#/race</code> 比赛</td>
@@ -136,23 +136,23 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td><code>#/video</code> 视频会话</td>
-<td><strong>起/取消已接，列表未接</strong></td>
-<td><code>POST /video/run</code>、<code>POST /video/cancel</code>、<code>GET /video/status</code>（1 s 轮询）已接；素材/会话<strong>列表</strong>还没接（<code>GET /video/list</code>、<code>/video/sessions</code> 要喂 <code>S.videoSessions</code>）</td>
+<td><strong>已接</strong>（改版二十九）</td>
+<td><code>POST /video/run</code>、<code>POST /video/cancel</code>、<code>GET /video/status</code>（1 s 轮询）+ <code>GET /video/sessions</code> 喂 <code>S.videoSessions</code>（含 <code>created</code>(HH:MM)/<code>size_bytes</code>/<code>dur_s</code>/<code>invalid_reasons</code>）</td>
 </tr>
 <tr>
 <td><code>#/track</code> 轨迹</td>
-<td>原型 · 未接线</td>
-<td><code>GET /api/v1/video/trajectory/{sid}</code>（只读 <code>trajectory.csv</code>，带时间轴自洽 <code>timebase</code>）；⚠️ 前端要的 <code>rows/sampled/timebase{ok,vfr,fps,n_rows,trust}</code> 与后端<strong>逐字段一致</strong></td>
+<td><strong>已接</strong>（改版二十九）</td>
+<td><code>GET /api/v1/video/trajectory/{sid}</code>：<code>rows/sampled/timebase{ok,vfr,fps,n_rows,trust}</code> 逐字段一致；选中哪个取哪个（一行几千点，列表不带着走）</td>
 </tr>
 <tr>
 <td><code>#/data</code> 比赛记录</td>
-<td>原型 · 未接线</td>
-<td><strong>后端已补齐</strong>（改版二十七）：<code>GET /api/v1/records</code> 给 9 列 + <code>maze_seed</code>/<code>dir</code>/<code>video_sid</code>；<code>POST /api/v1/records/{name}/video</code> 建立/解除关联。⚠️ <code>ledger</code>/<code>maze_seed</code> 可能是 <code>null</code>（判不了/本来就没有）</td>
+<td><strong>已接</strong>（改版二十九）</td>
+<td><code>GET /api/v1/records</code> 给 9 列 + <code>maze_seed</code>/<code>dir</code>/<code>video_sid</code>；<code>POST /api/v1/records/{name}/video</code> 建立/解除关联。<code>ledger</code>/<code>maze_seed</code> 可能是 <code>null</code> ⇒ 界面显示「判不了」（不是「差 N 帧」）。⚠️ <strong>导出 CSV / 打开目录还没接</strong></td>
 </tr>
 <tr>
 <td><code>#/replay</code> 回放</td>
-<td>原型 · 未接线</td>
-<td><strong>还差一块</strong>：迷宫快照与状态有源（记录里的 <code>wall</code> + <code>t_ms</code> + <code>frames</code>），但<strong>「41 参数发车前快照」记录里没有</strong> ⇒ 要新增采集</td>
+<td><strong>已接</strong>（改版二十九）</td>
+<td><code>GET /api/v1/records/{name}/replay</code> 一次取全：迷宫（从帧重放）+ 逐样本 + <strong>发车前参数快照</strong>。⚠️ 参数快照只有改版二十八之后落的记录才有，老记录 <code>params=null</code> ⇒ 显示「未记录」</td>
 </tr>
 </tbody>
 </table>
@@ -258,7 +258,7 @@ li{margin:.28em 0}
 <code>VideoAdapter</code> 的路径检查里 —— <strong>越界路径直接 404</strong>，不是"提示一下"。</p>
 </blockquote>
 <h3 id="22">2.2 记录与回放：还剩哪一块</h3>
-<p>改版二十七把「比赛记录」页要的东西补齐了，<strong>只剩回放的一处</strong>：</p>
+<p>改版二十七补了记录表与关联，改版二十八补了参数快照采集，改版二十九补了回放视图：</p>
 <table>
 <thead>
 <tr>
@@ -280,8 +280,40 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td>41 参数发车前快照</td>
-<td>❌ <strong>还缺</strong>：记录文件顶层 19 个键里<strong>没有</strong> <code>param*</code>（实测）</td>
-<td>这是<strong>新增采集</strong>：发车时把参数冻一次进记录。⚠️ 老记录没有 ⇒ 只能显示「未记录」，<strong>不许拿当前参数冒充</strong></td>
+<td>✅ <strong>已补</strong>：开录时冻一份进 <code>*.maze.json</code> 的 <code>params</code> / <code>params_at_ms</code>（与记录同一份文件，拆两份就会出现"记录在、快照丢了"）。⚠️ 改版二十八之前的老记录没有 ⇒ 回放显示「未记录」</td>
+<td>老记录补不了（当时没采），<strong>不许拿当前参数冒充</strong></td>
+</tr>
+<tr>
+<td>回放视图</td>
+<td>✅ <strong>已补</strong>：<code>GET /api/v1/records/{name}/replay</code>，一次给迷宫 + 逐样本 + 参数快照；迷宫<strong>从帧重放</strong>建</td>
+<td>不用做了</td>
+</tr>
+</tbody>
+</table>
+<p><strong>仍然没接的（都是界面侧没做，不是后端缺）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>现状</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>导出 CSV / 打开目录</td>
+<td>记录页两个按钮还是本地 toast。后端有 <code>GET /api/v1/session/export</code>；<strong>"打开目录"浏览器做不到</strong>，应改成"复制路径"或"下载导出文件"</td>
+</tr>
+<tr>
+<td>参数写入</td>
+<td>参数页只接了<strong>读</strong>；<code>SAVE · page 115</code> / 写入改动仍是假的（后端 <code>POST /mouse/params/grouped</code> 已在）</td>
+</tr>
+<tr>
+<td>维护自检六个 CAL 项</td>
+<td>页面按钮还没接 <code>POST /mouse/maint/{item}</code>；擦除类的二次确认与后端的 409 <code>need_confirm</code> 正好一对</td>
+</tr>
+<tr>
+<td>比赛页迷宫图</td>
+<td>实时重构（<code>GET /mouse/maze/reconstruct</code>）没画；回放页的迷宫已经能画</td>
 </tr>
 </tbody>
 </table>

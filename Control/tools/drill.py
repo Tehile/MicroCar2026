@@ -30,6 +30,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -268,7 +269,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -291,7 +292,7 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
@@ -800,7 +801,6 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"（停等 ⇒ fps 必须是 None，不能拿批式公式算出的 10 Hz 冒充）；"
            f"`caps.mouse.pull` = n={pull_now.get('n')!r} kind={pull_now.get('kind')!r}"
            f"（界面读的就是这一份）")
-
     # ⑦c 记录摘要 / 视频关联 / 逐批明细（改版二十七）—— **正反两面都要点**
     #     ① 摘要要有 9 列，且 `ledger`/`maze_seed` 必须守三态（老记录判不了就是 None）；
     #     ② 关联：合法会话 ⇒ 200 且列表里看得到；解除（显式 null）⇒ 干净删掉；
@@ -875,6 +875,55 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"逐批明细：batches={len(bts) if isinstance(bts, list) else bts!r} 行，"
            f"首行 n={bts[0].get('n') if bts else None} ms={bts[0].get('ms') if bts else None}"
            f" hz={bts[0].get('hz') if bts else None}")
+
+    # ⑦d 回放视图 / 参数派生量（改版二十九）
+    #     ① `GET /records/{name}/replay` 要能直接画：样本非空、迷宫 N≥2、
+    #        `sampled` 自报（抽样了就说出来）、坐标是**格中心**口径（+0.5）；
+    #     ② 不存在的记录 ⇒ **404**（不是 409：换个名字就行 vs 重试也没用）；
+    #     ③ 参数派生量：SPEEDL 必须**恒等于** TRACKL/100，且 `readable=false`
+    #        （让界面自己除就会出现"改了 TRACKL、SPEEDL 还是旧值"）。
+    r_row = None
+    if crec == 200:
+        cand = [x for x in ((rrec.get("data") or {}).get("records") or []) if not x.get("error")]
+        r_row = cand[0] if cand else None
+    rp_ok = False
+    rp_detail = "记录目录里没有可用记录 ⇒ 判不了"
+    if r_row:
+        nm = str(r_row.get("name") or "")
+        rd, crd, _ = api(base, "/api/v1/records/" + quote(nm) + "/replay")
+        rdd = rd.get("data") or {}
+        smp = rdd.get("samples") or []
+        mz = rdd.get("maze") or {}
+        centered = all(
+            (s.get("posX") is None) or (abs(float(s["posX"]) - round(float(s["posX"]) - 0.5) - 0.5) < 1e-6)
+            for s in smp[:20])
+        rp_ok = (crd == 200 and len(smp) > 0 and int(mz.get("N") or 0) >= 2
+                 and int(rdd.get("sampled") or 0) >= 1 and centered)
+        rp_detail = (f"回放：HTTP {crd}、样本 {len(smp)}、迷宫 N={mz.get('N')}、"
+                     f"抽样间隔 {rdd.get('sampled')}、坐标格中心口径={centered}")
+        _, c404, _ = api(base, "/api/v1/records/nope-not-exist.maze.json/replay")
+        rp_ok = rp_ok and c404 == 404
+        rp_detail += f"；不存在的记录 ⇒ HTTP {c404}（应为 404）"
+
+    pd, cpd, _ = api(base, "/api/v1/mouse/params/grouped")
+    pdd = pd.get("data") or {}
+    pg = pdd.get("groups") or {}
+    base_g = pg.get("生产标定") or {}
+    tl, sl = base_g.get("TRACKL") or {}, base_g.get("SPEEDL") or {}
+    der_ok = False
+    if tl.get("value") is not None and sl.get("value") is not None:
+        der_ok = (abs(float(sl["value"]) - float(tl["value"]) / 100.0) < 1e-9
+                  and sl.get("derived") is True and sl.get("readable") is False
+                  and sl.get("derived_from") == "TRACKL")
+    meta_ok = sum(int((v or {}).get("count") or 0)
+                  for v in (pdd.get("groups_meta") or {}).values()) == int(pdd.get("count") or -1)
+    p_ok = (cpd == 200 and der_ok and meta_ok)
+    record("I42", "PASS" if (rp_ok and p_ok) else "FAIL",
+           f"{rp_detail}；参数派生量：SPEEDL={sl.get('value')} 应等于 TRACKL/100="
+           f"{(float(tl['value']) / 100.0) if tl.get('value') is not None else None}"
+           f"、只读={sl.get('readable') is False}、groups_meta 合计与 count 一致={meta_ok}")
+
+
 
     # ⚠️ `ok1` / `relaunch_ok` 允许"**判不了**"这一态：模拟器电池读数抖到阈值以下时，
     #    `ERR_LOWBATT` 会把"要求成功"的那两次发车拦下 —— 那是**环境**，不是产品
@@ -2272,7 +2321,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

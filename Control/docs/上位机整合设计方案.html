@@ -168,6 +168,7 @@ li{margin:.28em 0}
 <li><a href="#1128-n">11.28 改版二十六·批式 N 落地（状态：已落地）</a></li>
 <li><a href="#1129-p2">11.29 改版二十七·P2 后端契约补齐（状态：已落地）</a></li>
 <li><a href="#1130-p4-p5">11.30 改版二十八·P4 接线 + P5 判据重写（状态：已落地）</a></li>
+<li><a href="#1131">11.31 改版二十九·最后四页接真数据（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -706,6 +707,23 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 · 接线时抓到并修掉两个真 bug：<code>post()</code> 拿去做 GET（<code>/health</code> 只挂 GET ⇒ 405 ⇒
   整个实时模式静默不生效）；<code>applyHealth</code> 只改数据不通知外壳 ⇒ 顶栏挂着上一次
   渲染的"已连接 COM7"（V5 就是这条抓出来的）。细节见 §11.30。</p>
+<p><strong>改版记录 2026-10-22（二十九）</strong>：<strong>最后四页也接上真数据</strong>（参数 / 记录 / 回放 / 视频列表），
+顺手挖出并修掉一个<strong>画错位</strong>的老 bug。
+· 参数表：<code>GET /mouse/params/grouped</code> → 界面四组 41 项。<strong>派生量（SPEEDL/SPEEDR =
+  TRACKL/TRACKR ÷ 100）改成后端算</strong>并标 <code>readable=false</code>。为什么不让界面除：
+  一除就有两份真相，改了 TRACKL 而 SPEEDL 还显示旧值，没人看得出哪个对。
+· 记录表：9 列表格直接用 <code>GET /records</code>。<strong><code>ledger</code> 是三态</strong>，老记录判不了就给 <code>null</code>；
+  界面原来写的是 <code>rec.ledger ? 通过 : '差 N 帧'</code> ⇒ <code>null</code> 会显示成"差 null 帧"，
+  等于替设备作证"这一跑丢了帧"。四处显示一并改成「判不了」。
+· 回放：新增 <code>GET /records/{name}/replay</code>，<strong>一条一次取全</strong>（迷宫 + 逐样本 + 参数快照），
+  播放纯在客户端。翻译放在后端，因为①坐标口径（格中心 +0.5）②三态③抽样要自报，
+  这三件让界面各做一遍就会各错一遍。
+· <strong>找到一个静默错（重要）</strong>：<code>maze_rec._STEP</code> 把 <code>dir=0</code> 的 dy 写成了 <code>-1</code>。
+  用 766 次真实跨格移动当铁证（走过去的边一定没墙）对比四种约定：
+  正确约定下"自相矛盾的边"只有 <strong>1 条</strong>，写反的那套则是成片打架。
+  后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
+  ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
+  <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -7900,6 +7918,134 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 跟网络毫无关系。只有抓到那条请求，才叫"接缝接上了"。</p>
 <p><strong>V5 为什么必须双向</strong>：只在"连上"时判，等于假设"界面一定诚实"；
 真正要防的是<strong>假"已连接"</strong>（会让人以为可以去发车）。</p>
+<hr />
+<h3 id="1131">11.31 改版二十九·最后四页接真数据（状态：<strong>已落地</strong>）</h3>
+<blockquote>
+<p>目标：把 <code>未实现功能.md</code> 里剩下的"后端不够 / 形状对不上"清干净。
+做完之后，<strong>九页里除迷宫图的实时重构外，全部读真数据</strong>。</p>
+</blockquote>
+<h4 id="_96">一、三件"让谁算"的判断</h4>
+<table>
+<thead>
+<tr>
+<th>量</th>
+<th>谁算</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SPEEDL/SPEEDR</code> = <code>TRACKL/TRACKR ÷ 100</code></td>
+<td><strong>后端</strong></td>
+<td>界面自己除 = 两份真相。改了 TRACKL 而 SPEEDL 还显示旧值，现场分不清哪个对。后端算还顺带能标 <code>readable=false</code>（写它没有意义）</td>
+</tr>
+<tr>
+<td>回放的 <code>posX/posY</code>（格中心 +0.5）</td>
+<td><strong>后端</strong></td>
+<td>帧里给的是格索引，画车要 +0.5。让界面加，"哪一层加过"就没人说得清，加两次的车会偏半格</td>
+</tr>
+<tr>
+<td>抽样的 <code>sampled</code></td>
+<td><strong>后端自报</strong></td>
+<td>一盘十分钟能到 3000+ 帧，回放上限 1200。抽了不说 = 界面拿"相邻样本"当"相邻帧"算速度，得到"比真实更快"的假数</td>
+</tr>
+</tbody>
+</table>
+<h4 id="get-apiv1recordsnamereplay">二、回放视图（<code>GET /api/v1/records/{name}/replay</code>）</h4>
+<p>一次给全：<code>{maze:{N,goal,v,h}, samples[], params, sampled, dur_s, ledger, video_sid}</code>。
+播放纯在客户端（<code>onTick</code> 推进），拖动不回服务端——<strong>逐帧取会把一次拖动变成几十个请求</strong>。</p>
+<p><strong>迷宫从帧重放建</strong>，不读落盘的 <code>wall_rows</code>：
+后者是位掩码 + 十六进制串，写它时用的是哪套方向约定、老记录是哪套，读的人没法一眼确认；
+而帧里有车的位置与 <code>dir</code>，重放一遍就与画出来的车<strong>自洽</strong>（同一份数据、同一条来路），
+老记录和外部导入的记录都能建。</p>
+<p><code>params</code> 老记录是 <strong><code>null</code></strong>（改版二十八才在开录时冻快照）⇒ 界面写「未记录」。
+拿当前参数顶上就是"发车时的参数"造假。</p>
+<h4 id="_step-dy">三、找到并修掉的静默错：<code>_STEP</code> 的 dy 符号</h4>
+<p><code>maze_rec._STEP</code> 原来写 <code>{0:(0,-1), 2:(0,+1)}</code>，注释说"落盘数组行号是固件 y 的镜像"。
+但 <code>feed()</code> 是直接 <code>self.visited[x][posY] = True</code>（<code>track</code> 也是 <code>[posX, posY]</code>），
+<strong>数组 y 就是固件 y</strong>，没有镜像 —— 于是"向上走"的墙被写到了下面那一格。</p>
+<p>用真实数据定案（<code>records/maze/</code> 67 条历史记录、<strong>766 次真实跨格移动</strong>）：
+车真的从 A 走到 B，这条边一定没墙。按四种约定各建一张图，数两个数：</p>
+<table>
+<thead>
+<tr>
+<th><code>dir=0</code> 的 dy</th>
+<th>左右对调</th>
+<th>走过的边被判成有墙</th>
+<th><strong>同一条边既墙又无墙</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>+1</strong></td>
+<td>否</td>
+<td><strong>86 / 766（11%）</strong></td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td>+1</td>
+<td>是</td>
+<td>317 / 766（41%）</td>
+<td>1</td>
+</tr>
+<tr>
+<td>-1</td>
+<td>否</td>
+<td>159 / 766（21%）</td>
+<td>1</td>
+</tr>
+<tr>
+<td>-1</td>
+<td>是</td>
+<td>240 / 766（31%）</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<p>⇒ <code>dir=0</code> 在索引空间里是 <strong>y+1</strong>，<code>wallLeft/wallRight</code> 不需要对调。
+<strong>"自相矛盾的边只有 1 条"比比例更能定案</strong>：映射错了会成片打架。
+（剩下的 11% 是仿真记录里墙读数滞后于位置跳变，属于源数据噪声。）</p>
+<p>⚠️ 根因值得记：<strong>注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"记成了"数据是镜像的"</strong>。
+显示怎么摆是显示的事；数据下标就是固件 y。这条以后写注释要分开写。</p>
+<h4 id="ledger">四、三态显示：<code>ledger</code> 的四处</h4>
+<p><code>ledger</code> 是 <code>true/false/null</code>（老记录没有 <code>seq_lost_delta</code> ⇒ 判不了）。
+界面原来写 <code>rec.ledger ? '通过' : '差 ' + rec.gap + ' 帧'</code> ⇒ <code>null</code> 显示成 <strong>"差 null 帧"</strong>。
+四处（<code>data.js</code> 表格与详情、<code>replay.js</code> 信息栏）改成三档：通过 / 差 N 帧 / <strong>判不了</strong>。</p>
+<h4 id="_97">五、判据（新增三条，各有正反）</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+<th>反向那一半</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>V7</strong>（浏览器）</td>
+<td>记录页行数 == 后端条数、首行 id 对齐；回放取到样本且 <code>maze.N ≥ 2</code>；老记录账本显示「判不了」</td>
+<td>界面"用了假数据"或"把判不了画成差 N 帧"就红</td>
+</tr>
+<tr>
+<td><strong>V9</strong>（浏览器）</td>
+<td>参数页 4 组 41 项、派生 2 项、SPEEDL 只读</td>
+<td>没连鼠时 SKIP（<strong>不是 FAIL</strong>：参数端点本来就 409）</td>
+</tr>
+<tr>
+<td><strong>I42</strong>（drill）</td>
+<td>回放 200 + 样本非空 + <code>sampled ≥ 1</code> + 坐标格中心；不存在的记录 ⇒ <strong>404</strong>；<code>SPEEDL == TRACKL/100</code> 且 <code>readable=false</code>；<code>groups_meta</code> 合计 == <code>count</code></td>
+<td>派生量算错、404/409 混用就红</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_98">六、实测</h4>
+<p><code>drill --sim</code> <strong>41 PASS / 0 FAIL / 1 SKIP</strong>；<code>browser_check --sim</code> <strong>14 PASS / 0 FAIL</strong>、
+不带 <code>--sim</code> <strong>12 PASS / 0 FAIL / 1 SKIP</strong>（V9）；<code>check_iface_table</code> 5/0（<strong>85 路由</strong>）；
+<code>preflight</code> 21 通过 / 2 警告 / 0 失败。</p>
+<h4 id="_99">七、还没接的（明确记着，不是暗雷）</h4>
+<p><code>#/race</code> 中栏的<strong>迷宫实时重构图</strong>（<code>GET /mouse/maze/reconstruct</code> 的 <code>wall_rows</code>）。
+它和上面第三点是同一类风险：<strong>读落盘的位掩码要先确认那套约定</strong>。现在 <code>_STEP</code> 修好了，
+重建端（<code>maze_reconstruct</code> → <code>to_json</code>）跟着一起对了；界面那一侧还没画。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

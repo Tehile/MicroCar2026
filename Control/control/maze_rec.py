@@ -65,6 +65,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
@@ -86,6 +87,11 @@ AUTO_END_S = 3.0
 #: "发车没成功"或"拉取没开"，而不是"跑了一盘很短的迷宫"。
 MIN_FRAMES = 10
 
+#: 回放视图最多给多少个样本。记录按 4~10 Hz 落盘，一盘十分钟可到 3000+ 帧；
+#: 而回放是**给人眼看**的（拖动轴 4 步/秒）⇒ 超过就等间隔抽，并在 `sampled` 里自报。
+#: ⚠️ 抽样只影响"回放画得顺不顺"，不影响判据与统计（那些读原文件）。
+REPLAY_MAX_SAMPLES = 1200
+
 #: 绝对方向（0=UP/北, 1=RIGHT/东, 2=DOWN/南, 3=LEFT/西）。
 #: 用于把**相对车身**的三面墙转到绝对方向。
 _DIR = {"UP": 0, "RIGHT": 1, "DOWN": 2, "LEFT": 3}
@@ -103,14 +109,27 @@ _FACE = {
     3: {"front": 3, "left": 2, "right": 0},
 }
 
-#: 绝对方向 → (dx, dy)。⚠️ 这里的 y 是**落盘数组的行号**（`rows[y][x]`），
-#: 与上游 `decode_map` 的行主序一致：行号向下增大。而**固件的格 y 向上增大**
-#: （`mouseDirection=0`(UP) 时 `mousePos.cY += num` ⇒ 原点 (0,0) 在左下角），
-#: 所以本表把 UP 映成 `dy=-1`（"上一行"）—— 即数组行号是**固件 y 的镜像**。
-#: 这**不影响拓扑的正确性**（`_FACE`/`_STEP`/`_OPP` 三者自洽），只影响"数组长什么样"：
-#: 显示层必须再翻一次（`draw.js` 的 `PY(y)=(n-1-y)`），才能让 (0,0) 落在画面左下、
-#: 与"车摆在左下角、车头朝上"的现场约定对上。详见 `docs/上位机整合设计方案.md` §11.16。
-_STEP = {0: (0, -1), 1: (1, 0), 2: (0, 1), 3: (-1, 0)}
+#: 绝对方向 → (dx, dy)，**在 `posX/posY` 那个坐标系里**（`wall[x][y][d]` 的 y 与帧里的
+#: `posY` 同一个索引空间 —— 这一点是**实测**出来的，不是照注释推的）。
+#:
+#: 怎么实测的（2026-10-22，`records/maze/` 里 67 条历史记录，766 次真实跨格移动）：
+#: 拿"车真的从 A 走到 B"当铁证 —— 这条边一定**没有**墙。然后按四种约定各建一张图，
+#: 数"走过的边却被判成有墙"的比例，以及"同一条边既被记成有墙又被记成没墙"的条数：
+#:
+#: | dir0 的 dy | 左右对调 | 走过的边被判有墙 | 自相矛盾的边 |
+#: |---|---|---|---|
+#: | **+1** | 否 | **86 / 766（11%）** | **1** |
+#: | +1 | 是 | 317 / 766（41%） | 1 |
+#: | -1 | 否 | 159 / 766（21%） | 1 |
+#: | -1 | 是 | 240 / 766（31%） | 1 |
+#:
+#: ⇒ `dir=0`（UP）在索引空间里是 **y+1**，且 `wallLeft/wallRight` 不需要对调。
+#: （"自相矛盾的边只有 1 条"比比例更能定案：映射错了会成片打架。）
+#:
+#: ⚠️ **这里曾经写反过**（0→-1、2→+1），原因是把"旧前端 `PY(y)=n-1-y` 的显示翻转"
+#: 误当成了"数据是镜像的"。显示怎么摆是显示的事；**数据下标就是固件 y**。
+#: 写反的后果不是崩溃，而是"每道上下方向的墙都记到隔一格去" —— 图上有内容、但错位。
+_STEP = {0: (0, 1), 1: (1, 0), 2: (0, -1), 3: (-1, 0)}
 
 #: 反向。用于"这道墙的另一面属于邻居格"。
 _OPP = {0: 2, 1: 3, 2: 0, 3: 1}
@@ -1416,6 +1435,162 @@ class MazeRecorder:
         if with_map:
             doc["wall"] = doc.get("wall") or {}
         return doc
+
+    # ---------------------------------------------------------------- 回放视图
+    def replay_view(self, name: str, max_samples: int = REPLAY_MAX_SAMPLES) -> Dict[str, Any]:
+        """一条记录 → **回放页直接能画**的视图（迷宫 + 逐样本状态 + 参数快照）。
+
+        为什么在后端做这层翻译（而不是让界面自己读 `frames` + `channels`）：
+
+        1. **坐标口径**。落盘数组的行号是**固件 y 的镜像**（见 `_STEP` 的注释），
+           而帧里的 `posX/posY` 是固件坐标、车画在 `posY` 上。让界面自己翻，
+           迟早会出现"墙画对了、车在镜像位置"这种**看着有内容**的错图。
+        2. **三态**。老记录缺通道时，`wallFront` 之类要给 `None` 而不是 0；
+           0 是"确认没墙"，编出来就等于替设备作证。
+        3. **抽样必须自报**。一盘十分钟能有 3000+ 帧，而回放是给人看的
+           （4 步/秒）⇒ 超过 `max_samples` 就等间隔抽，并在 `sampled` 里说清。
+
+        ⚠️ `params` 只有**新记录**才有（改版二十八起开录时冻一份）。
+        老记录给 `None`，界面显示"未记录"，**不许拿当前参数冒充**。
+        """
+        p = self._safe_path(name)
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        if doc.get("format") != FORMAT:
+            raise ValueError(f"不认识的记录格式：{doc.get('format')!r}（本层支持 {FORMAT}）")
+        ch = [str(c) for c in (doc.get("channels") or [])]
+        pos = {n: i for i, n in enumerate(ch)}
+        frames = doc.get("frames") or []
+        t_ms = doc.get("t_ms") or []
+        n_total = len(frames)
+        step = max(1, int(math.ceil(n_total / float(max_samples)))) if max_samples else 1
+
+        # 逐帧只需要这几个量；缺通道 ⇒ None（**不是 0**）
+        keys = ("posX", "posY", "dir", "mazeTask", "motionTask",
+                "speedL", "speedR", "wallLeft", "wallFront", "wallRight",
+                "battMv", "flags")
+
+        def val(row: Any, k: str) -> Any:
+            j = pos.get(k)
+            if j is None or not isinstance(row, list) or j >= len(row):
+                return None
+            return row[j]
+
+        samples: List[Dict[str, Any]] = []
+        for i in range(0, n_total, step):
+            row = frames[i]
+            t = None
+            if i < len(t_ms):
+                t = round(_i(t_ms[i]) / 1000.0, 3)
+            px, py = val(row, "posX"), val(row, "posY")
+            samples.append({
+                "t": t,
+                "frame": i,
+                # ⚠️ 格中心口径：帧里给的是格索引，画车要 +0.5（与 draw.js 的约定一致）
+                "posX": (round(float(px) + 0.5, 3) if isinstance(px, (int, float)) else None),
+                "posY": (round(float(py) + 0.5, 3) if isinstance(py, (int, float)) else None),
+                "dir": val(row, "dir"),
+                "mazeTask": val(row, "mazeTask"),
+                "motionTask": val(row, "motionTask"),
+                "speedL": val(row, "speedL"),
+                "speedR": val(row, "speedR"),
+                "wallLeft": val(row, "wallLeft"),
+                "wallFront": val(row, "wallFront"),
+                "wallRight": val(row, "wallRight"),
+                "battMv": val(row, "battMv"),
+                "flags": val(row, "flags"),
+            })
+
+        integ = doc.get("integrity") or {}
+        gap = _int_or_none(integ.get("seq_lost_delta"))
+        why = str(doc.get("why") or "")
+        dur_ms = _int_or_none(doc.get("duration_ms"))
+        created_ms = _int_or_none(doc.get("created_ms"))
+        if created_ms is None:
+            created_ms = _int_or_none(doc.get("start_ms"))
+
+        return {
+            "id": p.name[: -len(".maze.json")],
+            "name": p.name,
+            "start": _hhmmss(created_ms),
+            "dur_s": (round(dur_ms / 1000.0, 1) if dur_ms else None),
+            "frames": n_total,
+            "launch": (why == "maze_run"),
+            "launch_at_s": (0.0 if why == "maze_run" else None),
+            "end_why": doc.get("end_why"),
+            "gap": gap,
+            # 三态：老记录没有 `seq_lost_delta` ⇒ 判不了
+            "ledger": (None if gap is None
+                       else bool(not integ.get("tiny") and gap == 0
+                                 and (_int_or_none(integ.get("bad_crc_delta")) or 0) == 0)),
+            "video_sid": self.read_link(p.name),
+            "mazetype": doc.get("mazetype"),
+            "maze": self._maze_for_view(doc),
+            "samples": samples,
+            "n_total": n_total,
+            "sampled": step,
+            "params": doc.get("params"),
+            "params_at_ms": doc.get("params_at_ms"),
+        }
+
+    @staticmethod
+    def _maze_for_view(doc: Dict[str, Any]) -> Dict[str, Any]:
+        """**从帧重放**建一张界面口径的 `{N, goal, v, h}`。
+
+        为什么从帧建、而不是读落盘的 `wall_rows`：
+        `wall_rows` 是位掩码 + 十六进制串，写它的时候用哪套方向映射、老记录是哪套，
+        读的人没法一眼确认；而**帧里有车的位置和 dir**，重放一遍就能和画出来的车
+        自洽（同一份数据、同一条来路）。老记录、外部导入的记录都能建。
+
+        `v[y][x]` = (x,y) 与 (x+1,y) 之间有没有墙；`h[y][x]` = (x,y) 与 (x,y+1)。
+        下标与 `posY` 同一空间（见 `_STEP` 的实测说明）。
+        """
+        ch = [str(c) for c in (doc.get("channels") or [])]
+        pos = {n: i for i, n in enumerate(ch)}
+        n = _i(doc.get("mazetype"), 0)
+        wall_pairs = doc.get("wall") or {}
+        if n < 2:
+            n = _i(wall_pairs.get("n"), 0)
+        if n < 2:
+            return {"N": 0, "goal": [], "v": [], "h": [],
+                    "note": "这条记录没说迷宫尺寸（mazetype 与 wall.n 都缺），不建图"}
+
+        m = MazeWallMap(n)
+        for fr in (doc.get("frames") or []):
+            rec = {}
+            for k in ("posX", "posY", "dir", "wallLeft", "wallFront", "wallRight"):
+                j = pos.get(k)
+                rec[k] = (fr[j] if (isinstance(fr, list) and j is not None
+                                    and j < len(fr)) else None)
+            m.feed(rec)
+
+        def w(x: int, y: int, d: int) -> int:
+            if not (0 <= x < n and 0 <= y < n):
+                return 0
+            return 1 if m.wall[x][y][d] else 0
+
+        v = [[w(x, y, 1) for x in range(n - 1)] for y in range(n)]
+        h = [[w(x, y, 0) for x in range(n - 1)] for y in range(n)]
+        goal = [[x, y] for (x, y) in GOAL_CELLS if x < n and y < n]
+        out: Dict[str, Any] = {"N": n, "goal": goal, "v": v, "h": h}
+        if not goal:
+            # 7×7 时代的老记录：当前终点区是 16×16 的中心 2×2，装不进去。
+            # 如实说，不画一个"看起来像终点"的框。
+            out["note"] = (f"这条记录的迷宫是 {n}×{n}，终点区按 16×16 定在中心 2×2，"
+                           f"这张图上不标终点")
+        return out
+
+    def exists(self, name: str) -> bool:
+        """这条记录**在不在**（顺带防目录穿越）。
+
+        为什么要一个单独的方法：`_safe_path` 把"名字非法"和"文件不存在"都抛
+        `ValueError`，端点**只能靠异常类型区分 400 与 404**。靠 `str(e)` 认字
+        是最脆的一种判据（改一个字就静默变成另一条错误分支）。
+        """
+        try:
+            self._safe_path(name)
+            return True
+        except ValueError:
+            return False
 
     @staticmethod
     def _timeline(doc: Dict[str, Any]) -> List[Dict[str, Any]]:

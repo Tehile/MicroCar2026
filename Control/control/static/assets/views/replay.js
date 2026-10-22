@@ -27,6 +27,14 @@
       this._root = root;
       const rec = C.record(S.recSel);
       if (!rec) { root.innerHTML = '<div class="banner warn">' + C.icon('alert') + '<div class="b-body">没有记录</div></div>'; return; }
+      // 回放数据是**进页时另取**的（一条上千帧）。没取到就如实说，不画一辆停在原点的假车。
+      if (!rec.samples || !rec.samples.length) {
+        root.innerHTML = '<div class="banner warn">' + C.icon('alert') +
+          '<div class="b-body"><b>' + rec.id + ' 还没取到回放数据</b>\n' +
+          '到「比赛记录」页刷新一下，或确认后端在跑</div></div>';
+        C.loadReplay(rec.id);
+        return;
+      }
       if (curId !== rec.id) { curId = rec.id; i = 0; playing = false; speed = 1; }
 
       root.innerHTML =
@@ -131,8 +139,13 @@
       root.querySelector('#rp-marks').innerHTML = marks.map(m =>
         '<i style="left:' + (m.p * 100).toFixed(2) + '%"><em>' + m.t + '</em></i>').join('');
 
-      /* 参数：只在挂载时写一次 */
-      root.querySelector('#rp-rows').innerHTML = rec.params.map(g =>
+      /* 参数：只在挂载时写一次。
+         `rec.params === null` = **这条记录没冻过快照**（改版二十八之前的老记录）。
+         如实写「未记录」—— 拿当前参数顶上就是"发车时的参数"造假。 */
+      root.querySelector('#rp-rows').innerHTML = !rec.params
+        ? '<tr><td colspan="3" class="dim">这条记录没有发车前参数快照（老记录）。' +
+          '新记录会在开录时冻结一份。</td></tr>'
+        : rec.params.map(g =>
         '<tr class="rp-grp"><td colspan="3">' + g.name + ' · id ' + g.range + '</td></tr>' +
         g.items.map(it => '<tr><td class="num dim">' + it.id + '</td>' +
           '<td class="name"><b>' + it.name + '</b></td>' +
@@ -189,7 +202,9 @@
         ['launch', '发车记录', rec.launch ? '有 @' + U.fmt(rec.launchAt, 1) + ' s' : '无'],
         ['video', '视频记录', rec.video || '未关联'],
         ['points', '轨迹点', ses ? String(ses.n_valid) : '—'],
-        ['ledger', '账本', rec.ledger ? '通过' : '差 ' + rec.gap + ' 帧'],
+        ['ledger', '账本', rec.ledger === true ? '通过'
+          : rec.ledger === false ? ('差 ' + (rec.gap == null ? '?' : rec.gap) + ' 帧')
+            : '判不了（这条记录没有丢帧计数）'],
       ].map(r => '<div><dt>' + r[1] + ' <code>' + r[0] + '</code></dt><dd' +
         (r[0] === 'ledger' && !rec.ledger ? ' class="bad"' : '') + '>' + U.esc(r[2]) + '</dd></div>').join('');
 

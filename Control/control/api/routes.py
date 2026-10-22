@@ -165,6 +165,7 @@ def register(app: web.Application, ctx: Any) -> None:
     # 那条只回 `{name,size,mtime_ms}`（**故意**轻，谁都能调），而界面那张表要 9 列。
     # 在旧端点上加列会让"只想知道有几条"的调用也跟着读整份 JSON。
     r.add_get("/api/v1/records", _records)
+    r.add_get("/api/v1/records/{name}/replay", _records_replay)
     r.add_post("/api/v1/records/{name}/video", _records_link)
 
     r.add_get("/ws", ws_handler)
@@ -1570,6 +1571,43 @@ async def _records(request: web.Request) -> web.Response:
     loop = asyncio.get_running_loop()
     rows = await loop.run_in_executor(None, lambda: ctx.maze_rec.summaries(n))
     return ok({"root": str(ctx.maze_rec.root), "records": rows, "n": len(rows)})
+
+
+async def _records_replay(request: web.Request) -> web.Response:
+    """**一条记录的回放视图**（改版二十九）—— 「回放」页一次取全，本地播放。
+
+    `name` 是记录文件名（`*.maze.json`，路由里要 URL 编码）。
+
+    为什么一次给全、而不是"拖动时按需取一帧"：
+    回放是**离线**看的（人拖轴、4 步/秒），逐帧取会把一次拖动变成几十个请求，
+    而且拖回去还要重取。一次取全（默认上限 1200 个样本）之后，播放纯在客户端跑。
+
+    ⚠️ **抽样必须自报**：`sampled` = 每隔多少帧取一个。`sampled > 1` 时
+    `samples` 的帧号是**跳着**的，界面若拿"相邻样本 = 相邻帧"去算速度就是错数。
+
+    ⚠️ `params` 可能为 `null`：只有改版二十八之后落的记录才有发车前参数快照。
+    老记录**如实给 null**，界面显示「未记录」—— 拿当前参数顶上就是造假。
+
+    读盘 + 逐帧重放建图 ⇒ 走 executor。
+    """
+    ctx = request.app["ctx"]
+    name = request.match_info.get("name") or ""
+    # 404 与 409 必须分开：名字不对/文件没了是 404（**换个名字就行**），
+    # 文件在但读不出来是 409（**重试也没用，得去看文件**）。混成一个号，
+    # 现场就会对着一条打不开的记录反复点。
+    if not ctx.maze_rec.exists(name):
+        raise ApiError(404, f"没有这条记录：{name}。"
+                            f"（记录目录 {ctx.maze_rec.root}；到「比赛记录」页刷新看看有哪些。）")
+    loop = asyncio.get_running_loop()
+
+    def _load() -> dict:
+        return ctx.maze_rec.replay_view(name)
+
+    try:
+        data = await loop.run_in_executor(None, _load)
+    except (ValueError, OSError, json.JSONDecodeError) as e:
+        raise ApiError(409, f"这条记录读不出来：{type(e).__name__}: {e}")
+    return ok(data)
 
 
 async def _records_link(request: web.Request) -> web.Response:

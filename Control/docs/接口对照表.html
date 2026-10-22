@@ -440,7 +440,7 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/mouse/params/grouped</code></td>
 <td>A</td>
 <td><code>ParamsAPI.get_all</code>、<code>ParamsAPI.meta</code>、<code>ParamsAPI.get_raw</code></td>
-<td>按「生产标定 / 红外测量 / 电源监控 / 运动控制」<strong>四组</strong>返回（2.5.0 起共 41 项；组名逐项取自上游 <code>PARAM_GROUPS</code>，不写死），并带 <code>flash_page</code> / <code>write_via</code> / <code>desc</code>；老板子上仍会回老组名</td>
+<td>按「生产标定 / 红外测量 / 电源监控 / 运动控制」<strong>四组</strong>返回（2.5.0 起共 41 项；组名逐项取自上游 <code>PARAM_GROUPS</code>，不写死），并带 <code>flash_page</code> / <code>write_via</code> / <code>desc</code>；老板子上仍会回老组名。<strong>改版二十九补</strong>：① 每项 <code>derived</code> / <code>derived_from</code> / <code>derived_div</code>（<code>SPEEDL/SPEEDR = TRACKL/TRACKR ÷ 100</code>，值由<strong>本层算</strong>、<code>readable=false</code>——让界面自己除就会出现"改了 TRACKL、SPEEDL 还是旧值"）；② 顶层 <code>groups_meta</code>（每组的 <code>count</code> / <code>id_min</code> / <code>id_max</code> / <code>flash_page</code> / <code>write_via</code> / <code>n_derived</code>），省得界面从条目里现攒</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/mouse/params/grouped</code></td>
@@ -902,6 +902,12 @@ li{margin:.28em 0}
 <td>—</td>
 <td>—</td>
 <td><strong>改版二十七新增：比赛记录摘要</strong>（界面「比赛记录」页那张表）。<code>?n=50</code>（上限 500，超了按 500 取但响应回<strong>实际条数</strong> <code>n</code>）。每行 9 列 + <code>maze_seed</code>/<code>dir</code>/<code>size</code>/<code>end_why</code>/<code>video_sid</code>。⚠️ 必须 <code>run_in_executor</code>（读盘 + 逐份 <code>json.loads</code>）。⚠️ <strong><code>ledger</code> 与 <code>maze_seed</code> 是本层口径且可能为 <code>null</code></strong>：<code>ledger</code> = <code>not tiny and seq_lost_delta==0 and bad_crc_delta==0</code>，老记录没有 <code>seq_lost_delta</code> ⇒ <code>null</code>（判不了，<strong>不是"不通过"</strong>）；<code>maze_seed</code> 记录里根本没有种子 ⇒ <strong>恒 null</strong>（0 是合法种子，不能拿 0 顶）</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/records/{name}/replay</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>改版二十九新增：一条记录的回放视图</strong>（「回放」页一次取全，本地播放）。给 <code>{maze:{N,goal,v,h}, samples:[{t,frame,posX,posY,dir,mazeTask,…}], params, sampled, dur_s, ledger, video_sid}</code>：迷宫<strong>从帧重放</strong>建（与画出来的车同一份数据，不依赖落盘位掩码的那套约定），坐标是<strong>格中心</strong>口径（已 +0.5）。<code>sampled</code> 自报抽样间隔（默认上限 1200 个样本）。<code>params</code> 老记录为 <strong><code>null</code></strong>（改版二十八前没冻快照）⇒ 界面显示「未记录」。记录不存在 ⇒ <strong>404</strong>（与"文件在但读不出来"的 409 分开：前者换个名字就行，后者重试也没用）</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/records/{name}/video</code></td>

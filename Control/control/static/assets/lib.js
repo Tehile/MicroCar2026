@@ -428,6 +428,45 @@ window.C = (function () {
 
   /* 记录 → 某一时刻的迷宫视图（车在格中心，轨迹只到当前帧） */
   function recordView(rec, i) {
+    if (!rec) return null;
+    // 真记录（后端回放视图）：迷宫来自帧重放，样本是设备给的
+    if (rec.maze && rec.maze.N && rec.samples && rec.samples.length) {
+      return replayViewLive(rec, i);
+    }
+    return recordViewProto(rec, i);
+  }
+
+  /* 真记录：`visited` 与 `trail` **按进度现算**（只算到当前样本）——
+     一上来就把整张图点亮，等于提前告诉观众"车去过哪儿"。 */
+  function replayViewLive(rec, i) {
+    const m = rec.maze;
+    const k = util.clamp(i | 0, 0, rec.samples.length - 1);
+    const visited = {}, trail = [];
+    let last = null;
+    for (let j = 0; j <= k; j++) {
+      const s = rec.samples[j];
+      if (!s || s.posX == null || s.posY == null) continue;
+      const cx = Math.floor(s.posX), cy = Math.floor(s.posY);
+      visited[cx + ',' + cy] = 1;
+      if (!last || last[0] !== cx || last[1] !== cy) {
+        trail.push([cx + .5, cy + .5]);
+        last = [cx, cy];
+      }
+    }
+    const sm = rec.samples[k] || {};
+    return {
+      N: m.N,
+      goal: m.goal || [],
+      v: m.v, h: m.h,
+      visited: visited,
+      trail: trail,
+      car: { x: (sm.posX == null ? .5 : sm.posX),
+             y: (sm.posY == null ? .5 : sm.posY),
+             dir: (sm.dir == null ? 0 : sm.dir) },
+    };
+  }
+
+  function recordViewProto(rec, i) {
     const m = rec.maze;
     const sm = rec.samples[util.clamp(i | 0, 0, rec.samples.length - 1)];
     const visited = {};
@@ -640,6 +679,8 @@ window.C = (function () {
         wsOpen();
         log('control', 'info', '已连后端 · 切到真数据（遥测走 WS）');
         emit('state');
+        // 首屏那几块：参数表、记录、视频会话。一次拉齐之后按页刷新。
+        loadParams(); loadRecords(); loadVideoSessions();
         if (!LIVE.timer) {
           LIVE.timer = setInterval(function () {
             get('/api/v1/health').then(applyHealth).catch(function () {
@@ -661,6 +702,236 @@ window.C = (function () {
       // 原型模式：不吵人，日志里留一条就好（"没起后端"是常态，不是故障）
       log('control', 'info', '后端未连（' + LIVE.err + '）· 按原型数据演示');
     });
+  }
+
+  /* ── 四页数据：参数表 / 比赛记录 / 视频会话 / 回放 ─────────────────────────
+     这一层只做**形状翻译**（后端字段 → 界面字段），**不算任何业务量** ——
+     派生量、三态、口径全部由后端给（铁律 32：一个元素一条真相）。
+
+     ⚠️ 翻译里最容易出错的是"缺值"。后端给 `null` 就是"判不了 / 没记录"，
+     一律**照传 null**，绝不用 `0` / `''` / `false` 顶：
+     那样界面会把"不知道"显示成"没问题"或"没数据"，是最难查的一类错。 */
+
+  // 参数组：**顺序与显示名**是界面的事（后端只保证"有哪些组、每组有哪些项"）。
+  // `key` 只用于前端自己定位，不上后端。
+  const GROUP_UI = [
+    { name: '生产标定', key: 'base' },
+    { name: '红外测量', key: 'ir' },
+    { name: '电源监控', key: 'batt' },
+    { name: '运动控制', key: 'motion' },
+    { name: '课程调参', key: 'lesson' },
+  ];
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  function applyParams(d) {
+    if (!d || !d.groups) return false;
+    const meta = d.groups_meta || {};
+    const out = [];
+    GROUP_UI.forEach(function (g) {
+      const g0 = d.groups[g.name];
+      if (!g0) return;
+      const gm = meta[g.name] || {};
+      const items = [];
+      Object.keys(g0).forEach(function (nm) {
+        const it = g0[nm] || {};
+        items.push({
+          id: (it.id == null ? null : it.id),
+          name: nm,
+          value: (it.value == null ? null : it.value),
+          unit: it.unit || '',
+          desc: it.desc || '',
+          // 派生量只读：后端连 `readable` 都给 false，写它没有意义
+          derived: !!it.derived,
+          derivedFrom: it.derived_from || '',
+          dec: (it.decimals == null ? 0 : it.decimals),
+          // `q16` 是 Q16.16 原值；派生量没有原值（不占 Flash）⇒ null，不是 0
+          q16: (it.derived ? null : (it.q == null ? null : it.q)),
+        });
+      });
+      items.sort(function (a, b) {
+        if (a.id == null) return 1;
+        if (b.id == null) return -1;
+        return a.id - b.id;
+      });
+      const lo = gm.id_min, hi = gm.id_max;
+      out.push({
+        key: g.key,
+        name: g.name,
+        range: (lo != null && hi != null) ? (pad2(lo) + '–' + pad2(hi)) : '',
+        page: (gm.flash_page == null ? null : gm.flash_page),
+        via: (gm.write_via ? String(gm.write_via).replace('mc.', '') + ' + SAVE' : ''),
+        note: '',
+        items: items,
+      });
+    });
+    if (!out.length) return false;
+    S.params = out;
+    S.paramsNote = d.note || '';
+    S.paramsCount = d.count;
+    return true;
+  }
+
+  function loadParams() {
+    if (!LIVE.on) return Promise.resolve(false);
+    return get('/api/v1/mouse/params/grouped').then(function (d) {
+      const okp = applyParams(d);
+      if (okp) emit('state');
+      return okp;
+    }).catch(function (e) {
+      // 没连鼠时这个端点是 409：如实说一句，不把"没连"说成"参数读不到"
+      log('mouse', 'warn', '参数表取不到：' + ((e && (e.detail || e.message)) || e));
+      return false;
+    });
+  }
+
+  function applyRecords(d) {
+    const rows = (d && d.records) || [];
+    const list = rows.filter(function (r) { return !r.error; }).map(function (r) {
+      return {
+        id: r.id,
+        name: r.name,
+        start: r.start || '',
+        dur: (r.dur_s == null ? null : r.dur_s),
+        frames: (r.frames == null ? null : r.frames),
+        launch: !!r.launch,
+        // 无发车记录 ⇒ null（**不是 0**：0 是"发车就在第 0 秒"，那是另一件事）
+        launchAt: (r.launch_at_s == null ? null : r.launch_at_s),
+        video: r.video_sid || '',
+        // 三态：true/false/null（老记录没有 seq_lost_delta ⇒ 判不了）
+        ledger: (r.ledger === true ? true : (r.ledger === false ? false : null)),
+        gap: (r.gap == null ? null : r.gap),
+        seed: null,                    // 记录里没有参数扰动种子 ⇒ 恒 null
+        mazeSeed: (r.maze_seed == null ? null : r.maze_seed),
+        dir: r.dir || '',
+        size: (r.size == null ? null : r.size),
+        endWhy: r.end_why || '',
+        // 回放要用的两块：**按需另取**（一条记录上千帧，列表不该带着走）
+        samples: [], params: null, maze: null,
+      };
+    });
+    S.records.length = 0;
+    Array.prototype.push.apply(S.records, list);
+    if (!S.records.some(function (r) { return r.id === S.recSel; })) {
+      S.recSel = (list.length ? list[0].id : '');
+    }
+    S.recRoot = (d && d.root) || '';
+    return list.length;
+  }
+
+  function loadRecords() {
+    if (!LIVE.on) return Promise.resolve(0);
+    return get('/api/v1/records?n=50').then(function (d) {
+      const n = applyRecords(d);
+      emit('state');
+      return n;
+    }).catch(function (e) {
+      log('control', 'warn', '比赛记录取不到：' + ((e && (e.detail || e.message)) || e));
+      return 0;
+    });
+  }
+
+  function applyVideoSessions(d) {
+    const rows = (d && d.sessions) || [];
+    S.videoSessions = rows.map(function (v) {
+      return {
+        id: v.id,
+        video: v.video_name || '',
+        size: (v.size_bytes == null ? null : v.size_bytes),
+        dur: (v.dur_s == null ? null : v.dur_s),
+        fps: (v.fps == null ? null : v.fps),
+        n_total: (v.n_total == null ? null : v.n_total),
+        n_valid: (v.n_valid == null ? null : v.n_valid),
+        frames: (v.frames == null ? null : v.frames),
+        // ⚠️ 后端给的是 `HH:MM`（界面按 `created.slice(0,5)` 用）；
+        //    给 ISO 就会显示成"最近 2026-"。要完整时间用 `createdAt`。
+        created: v.created || '',
+        createdAt: v.created_at || '',
+        state: 'done',
+        flags: Array.isArray(v.flags) ? v.flags : [],
+        invalid_reasons: v.invalid_reasons || null,
+        maze: null,
+        out_dir: v.out_dir || '',
+        hasTrajectory: !!v.has_trajectory,
+        // 轨迹与时间轴：选中时再取（一行几千点，列表不该带着走）
+        rows: [], timebase: null,
+      };
+    });
+    if (!S.videoSessions.some(function (v) { return v.id === S.videoSel; })) {
+      S.videoSel = (S.videoSessions.length ? S.videoSessions[0].id : '');
+    }
+    S.videoRoot = (d && d.root) || S.videoRoot || '';
+    return S.videoSessions.length;
+  }
+
+  function loadVideoSessions() {
+    if (!LIVE.on) return Promise.resolve(0);
+    return get('/api/v1/video/sessions').then(function (d) {
+      const n = applyVideoSessions(d);
+      emit('state');
+      return n;
+    }).catch(function (e) {
+      log('video', 'warn', '视频会话列表取不到：' + ((e && (e.detail || e.message)) || e));
+      return 0;
+    });
+  }
+
+  /* 轨迹页要的 `rows` + `timebase`：**选中哪个取哪个**（一次一条）。
+     `sampled > 1` 时帧号是跳着的，界面上要能说出来（后端在 `sampled` 里自报）。 */
+  function loadTrajectory(sid) {
+    if (!LIVE.on || !sid) return Promise.resolve(null);
+    const ses = S.videoSessions.find(function (v) { return v.id === sid; });
+    if (!ses) return Promise.resolve(null);
+    if (ses.rows && ses.rows.length) return Promise.resolve(ses);
+    return get('/api/v1/video/trajectory/' + encodeURIComponent(sid)).then(function (d) {
+      ses.rows = (d && d.rows) || [];
+      ses.timebase = (d && d.timebase) || null;
+      ses.sampled = (d && d.sampled) || 1;
+      emit('state');
+      return ses;
+    }).catch(function (e) {
+      log('video', 'warn', '轨迹取不到：' + ((e && (e.detail || e.message)) || e));
+      return null;
+    });
+  }
+
+  /* 回放：**一条一次取全**（含迷宫、逐样本状态、发车前参数快照）。
+     取回之前 `samples` 是空数组 —— 界面必须显示"还没取到"，不许画一辆假车。 */
+  function loadReplay(id) {
+    if (!LIVE.on) return Promise.resolve(null);
+    const rec = S.records.find(function (r) { return r.id === id; });
+    if (!rec) return Promise.resolve(null);
+    if (rec.samples && rec.samples.length) return Promise.resolve(rec);
+    return get('/api/v1/records/' + encodeURIComponent(rec.name) + '/replay').then(function (d) {
+      rec.dur = (d.dur_s == null ? rec.dur : d.dur_s);
+      rec.frames = (d.frames == null ? rec.frames : d.frames);
+      rec.launch = !!d.launch;
+      rec.launchAt = (d.launch_at_s == null ? null : d.launch_at_s);
+      if (d.video_sid) rec.video = d.video_sid;
+      rec.ledger = (d.ledger === true ? true : (d.ledger === false ? false : null));
+      rec.gap = (d.gap == null ? null : d.gap);
+      rec.maze = d.maze || null;
+      rec.mazeNote = (d.maze && d.maze.note) || '';
+      rec.samples = d.samples || [];
+      rec.params = d.params || null;          // 老记录 → null（界面显示"未记录"）
+      rec.paramsAtMs = d.params_at_ms;
+      rec.sampled = d.sampled || 1;
+      emit('state');
+      return rec;
+    }).catch(function (e) {
+      log('control', 'warn', '回放取不到：' + ((e && (e.detail || e.message)) || e));
+      return null;
+    });
+  }
+
+  /* 一页要用什么，进页时才拉（一次进入最多一到两个请求）。 */
+  function needPage(id) {
+    if (!LIVE.on) return;
+    if (id === 'params' && !S.params) loadParams();
+    else if (id === 'data') loadRecords();
+    else if (id === 'video') loadVideoSessions();
+    else if (id === 'track') loadVideoSessions().then(function () { loadTrajectory(S.videoSel); });
+    else if (id === 'replay') loadRecords().then(function () { loadReplay(S.recSel); });
   }
 
   /* ── 日志 ─────────────────────────────────────────────────────────────── */
@@ -1335,6 +1606,8 @@ window.C = (function () {
       if (location.hash !== h) history.pushState({ id }, '', h);
     }
     emit('route', id);
+    // 进页才拉这一页要的数据（连不上后端时 `needPage` 自己什么都不做）
+    needPage(id);
   }
 
   let timer = null;
@@ -1360,6 +1633,9 @@ window.C = (function () {
     recomputeLeds, pullBatch,
     // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
     startLive, LIVE,
+    // 四页数据（按页拉取 + 形状翻译）
+    loadParams, loadRecords, loadVideoSessions, loadTrajectory, loadReplay, needPage,
+    replayViewLive,
     channels: { groups: GROUPS, text: valText, dirs: DIRS, tasks: TASKS, motions: MOTIONS, spurt: SPURT, front: FRONT },
     records: S.records,
     record(id) { return S.records.find(r => r.id === id) || S.records[0] || null; },
