@@ -164,6 +164,7 @@ li{margin:.28em 0}
 <li><a href="#1124-210-212-v9">11.24 跟上游 2.10 ~ 2.12（协议 v9 帧重排）（改版二十二）</a></li>
 <li><a href="#1125">11.25 下线「无记忆走迷宫」+ 地图预览迁入比赛 + 终点锁死（改版二十三）</a></li>
 <li><a href="#1126-auto-locate-2130">11.26 改版二十四·设计稿：手机摄像头下线 + 视频复盘（Auto Locate 视频会话）+ 上游 2.13.0 四灯</a></li>
+<li><a href="#1127">11.27 改版二十五·前端重设计移植方案（状态：方案已出，未实施）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -622,6 +623,26 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   "相机不可达降级路"那一整套（约 570 行）；<code>drill.py</code> 删掉合成帧生成器、离线导入、
   赛后批量、定位精度五节。<strong>不给已删除的功能留空壳判据</strong> —— 留着只会一直 SKIP。
 细节（含逐条改法与四条拍板的原文）见 §11.26。</p>
+<p><strong>改版记录 2026-10-22（二十五）</strong>：<strong>前端整体重设计</strong>（外部提交 <code>18c180a</code>，32 文件
++4765 −5741）。旧前端 14 文件 + <code>app.js</code> + <code>wsproto.js</code> 整体删除，换成
+<code>index.html</code> + <code>assets/{lib,shell,draw,style}</code> + <code>assets/views/</code> 九页面。
+这不是本层发起的改版，所以先把三件要紧的事实钉下来：
+· 新前端目前是<strong>纯前端原型</strong>：全目录 <code>fetch</code> 零出现、零 WebSocket，所有数字来自
+  <code>lib.js</code> 里 250 ms 的模拟 tick。而<strong>后端一行未改</strong>（81 路由 + <code>/ws</code> + 二进制通道
+  都在；实测 <code>/</code> 与 <code>/static/assets/*</code> 全 200）。
+· 契约<strong>大部分已经对得上</strong>：视频会话与轨迹两页要的 <code>rows / sampled /
+  timebase{ok,vfr,fps,n_rows,trust}</code>、<code>/health</code> 的 <code>readiness.items</code>
+  （<code>key/name/blocking/ok/state/action</code>）<strong>逐字段一致</strong> —— 那些是改版二十四照着真后端做的，
+  这套重设计把它们认领了。真正缺的是<strong>记录页、回放页、以及帧率的"批"口径</strong>。
+· 被打断的是<strong>验收工具</strong>：<code>browser_check.py</code> 2471 行全部钉在旧 DOM 上
+  （<code>#nav-sys</code> / <code>#rail-mouse</code> / <code>#wm-kv</code> / <code>#dev-modal</code> …），新前端里一个都不存在；
+  <code>drill.py</code> I20 探的 <code>/static/wsproto.js</code> 已删 ⇒ 实测 404 ⇒ <strong>I20 必然 FAIL</strong>。</p>
+<p><strong>边界</strong>：<strong>前端不再由本层维护</strong> —— <code>control/static/**</code> 只读不改，要改行为走"提契约需求"。
+本层只负责四件事：后端契约、验收工具、后端文案、文档。接线点只有<strong>四处接缝</strong>
+（<code>lib.js</code> 的 <code>act()</code> / <code>pullBatch()</code> / <code>videoStart()</code> / <code>videoCancel()</code>）：
+换掉这四个函数的实现，九个页面一行都不用动。
+另有一处<strong>要交接给前端侧</strong>的前后端不一致（<code>flags</code> 急停位、通道数 29 vs 33）。
+完整落地清单、六批顺序与判据处置见 <strong>§11.27</strong>（状态：<strong>方案已出，未实施</strong>）。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -6854,6 +6875,514 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <ul>
 <li>4 灯在 <strong>fw 310 真机</strong>上读出来是不是 <code>None</code>（而不是"4 个灭"）：需要一台没升级的老固件。§12.2 的 B46/I37 已经用注入帧把三态判死了，但"真的老固件送上来什么"只能到现场看（与 §11.8 同类，如实标注）。</li>
 </ul>
+<hr />
+<h3 id="1127">11.27 改版二十五·前端重设计移植方案（状态：方案已出，未实施）</h3>
+<blockquote>
+<p>状态：<strong>方案已出，代码一行未改。</strong> 本节写的是"新前端接真数据要动什么、谁动、怎么验"。
+下面每个结论都带 <code>文件:行号</code>，是<strong>实测与读码</strong>得来的，不是推测。</p>
+</blockquote>
+<h4 id="_79">一、现状：三句话</h4>
+<table>
+<thead>
+<tr>
+<th>事实</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新前端是<strong>纯前端原型</strong>，不碰后端</td>
+<td>全目录 <code>fetch</code> / <code>XMLHttpRequest</code> / <code>/api/v1</code> 实测零出现（唯二命中是 <code>views/video.js:151</code>、<code>views/track.js:133</code> 打进日志的端点名）；数据来自 <code>lib.js</code> 250 ms 模拟 tick（<code>lib.js:865</code> 起 <code>S.caps = {unified_channels:29, led:true}</code>）</td>
+</tr>
+<tr>
+<td>后端一字未改，且完好</td>
+<td>提交 <code>18c180a</code> 只碰 <code>control/static/**</code>；实测 <code>/</code> 200、<code>/static/assets/lib.js</code> 200、<code>/api/v1/health</code> 200、<code>/api/v1/video/list</code> 200</td>
+</tr>
+<tr>
+<td>旧静态资源确实没了</td>
+<td>实测 <code>/static/wsproto.js</code> <strong>404</strong>、<code>/static/app.js</code> <strong>404</strong></td>
+</tr>
+</tbody>
+</table>
+<p>新前端骨架：<code>index.html</code> + <code>assets/{lib.js 926, shell.js 378, draw.js 273, style.css 901}</code>
++ <code>assets/views/{overview,live,params,race,maint,video,track,data,replay}.js</code>，
+路由 <code>#/overview|live|params|race|maint|video|track|data|replay</code>（非法 hash 回退 <code>overview</code>）。</p>
+<h4 id="_80">二、边界：谁负责什么</h4>
+<blockquote>
+<p>⚠️ <strong>先把话说正</strong>：新前端目前是原型（零网络请求），所以"后端适配新前端"<strong>不是</strong>
+"改后端去迁就界面"，而是<strong>新前端要从原型态变成真实数据态</strong> —— 下面那 81 条 REST 与
+21 个 WS 主题就是它要接的清单。这一节把"谁改什么"分清楚，免得两边都以为对方在改。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>归谁</th>
+<th>具体</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>后端契约</td>
+<td><strong>本层</strong></td>
+<td>端点、返回字段、三态、错误码</td>
+</tr>
+<tr>
+<td>验收工具</td>
+<td><strong>本层</strong></td>
+<td><code>preflight</code> / <code>drill</code> / <code>check_iface_table</code> / <code>browser_check</code></td>
+</tr>
+<tr>
+<td>后端文案与注释</td>
+<td><strong>本层</strong></td>
+<td>后端输出里说错的话（见 §八）</td>
+</tr>
+<tr>
+<td>文档</td>
+<td><strong>本层</strong></td>
+<td>README / 接口对照表 / 未实现功能 / 本节</td>
+</tr>
+<tr>
+<td><code>control/static/**</code></td>
+<td><strong>前端侧</strong></td>
+<td>本层<strong>只读不改</strong>；要改行为走"提契约需求"，不直接编辑</td>
+</tr>
+</tbody>
+</table>
+<p><strong>接缝只有四处</strong>（<code>assets/lib.js</code>）——接线时只换这四个函数的实现，九个页面一行不用动：</p>
+<table>
+<thead>
+<tr>
+<th>行</th>
+<th>函数</th>
+<th>现在做什么</th>
+<th>接线后调什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lib.js:502</code></td>
+<td><code>act(name, arg)</code></td>
+<td><code>switch</code> 改 <code>S.*</code> + <code>log/toast</code>（estop/unlock/launch/mazeStop/rescue/tare/raw/saveRecord）</td>
+<td><code>POST /mouse/estop</code>、<code>/session/close</code>、<code>/mouse/maze/{stop,launch,clear,reset}</code>、<code>/mouse/tare</code>、<code>/mouse/raw</code></td>
+</tr>
+<tr>
+<td><code>lib.js:572</code></td>
+<td><code>pullBatch(n)</code></td>
+<td>只改 <code>S.pullN</code></td>
+<td><strong>见 §六 P3：需先拍板</strong>（默认不接）</td>
+</tr>
+<tr>
+<td><code>lib.js:583</code></td>
+<td><code>videoStart(source)</code></td>
+<td>置 <code>S.videoRun</code></td>
+<td><code>POST /video/run</code></td>
+</tr>
+<tr>
+<td><code>lib.js:592</code></td>
+<td><code>videoCancel()</code></td>
+<td>置 <code>state='cancelled'</code></td>
+<td><code>POST /video/cancel</code></td>
+</tr>
+</tbody>
+</table>
+<p>启动链的接缝是 <code>shell.js</code> 的 <code>boot()</code>：现在是 <code>setInterval(tick)</code>，接线后加一条
+<code>new WebSocket('ws://'+location.host+'/ws')</code> + <code>sub</code> 订阅 + 二进制解码器
+（<strong>旧 <code>wsproto.js</code> 已删，新前端目前没有二进制解码能力</strong>）。</p>
+<h4 id="_81">三、契约核对：九页对后端</h4>
+<p><strong>已对齐（不用动）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>页</th>
+<th>需求</th>
+<th>后端</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>视频复盘</td>
+<td><code>GET /video/list</code> <code>GET /video/sessions</code> <code>POST /video/run</code> <code>POST /video/cancel</code></td>
+<td>七端点全在（<code>routes.py:140-146</code>）</td>
+</tr>
+<tr>
+<td>轨迹</td>
+<td><code>rows{sampled,frame,t_video_s,valid,x,y}</code>、<code>timebase{ok,vfr,fps,n_rows,trust}</code>、<code>maze</code></td>
+<td><code>adapters/video.py:313</code> <code>trajectory()</code> 返回 <code>{n_total,n_valid,sampled,rows,timebase,id}</code>；<code>:303</code> <code>session()</code> 返回 <code>{id,out_dir,video,frames,maze,flags,timebase}</code>；<code>timebase_check</code>（<code>video_io.py:296</code>）字段<strong>逐个对得上</strong></td>
+</tr>
+<tr>
+<td>总览</td>
+<td><code>readiness.items{key,name,blocking,ok,state,manual,action,detail}</code></td>
+<td><code>ctx.py:143</code> <code>readiness()</code> <strong>同字段</strong></td>
+</tr>
+<tr>
+<td>维护自检</td>
+<td><code>POST /mouse/maint/{item}</code>，不带 <code>confirm</code> ⇒ 409 <code>need_confirm</code></td>
+<td><code>routes.py</code> 已实现，<code>maint.js</code> 的 <code>arm()</code> 两阶段确认与它<strong>天然吻合</strong></td>
+</tr>
+<tr>
+<td>实时状态</td>
+<td><code>S.tel</code> 31 个键 + <code>S.leds</code> 4 灯</td>
+<td>上游 <code>UNIFIED_CHANNELS</code> 实测 <strong>33</strong> = 29 + <code>led1..led4</code>；前端 31 = 29 + <code>frontNear</code> + <code>irSwitch</code>，两个派生键上游都给（<code>frontNear</code> 由 <code>irF1/irF2+wallFront</code> 派生、<code>irSwitch</code> = <code>flags &amp; 0x10</code>）</td>
+</tr>
+<tr>
+<td>迷宫码表</td>
+<td><code>TASKS/MOTIONS/DIRS/SPURT/FRONT</code></td>
+<td><code>GET /mouse/meas/meta</code> 一次给全（<code>adapters/mouse.py:1769</code>）⇒ 前端那份硬编码可以删</td>
+</tr>
+</tbody>
+</table>
+<p><strong>要补字段（后端加，纯增量、不改已有键）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>前端要</th>
+<th>现在给什么</th>
+<th>处置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>视频列表项 <code>created</code></td>
+<td><strong>没有</strong></td>
+<td><code>list_sessions()</code>（<code>video_io.py:304</code>）加 <code>created</code> + <code>created_at</code>。⚠️ 前端写的是 <code>s.created.slice(0,5)</code> 当"最近 21:04"用 ⇒ <strong><code>created</code> 必须是 <code>HH:MM</code> 形态</strong>；给 ISO 会显示成"最近 2026-"</td>
+</tr>
+<tr>
+<td>视频列表项 <code>out_dir</code>/<code>size</code>/<code>dur</code>/<code>invalid_reasons</code></td>
+<td>在 <code>session/{sid}</code> 里，不在列表里</td>
+<td>列表项补齐（扫盘已在 executor 里，多读 5 个键不新增 IO 轮次）；或者前端接受"点开再拉一次"</td>
+</tr>
+<tr>
+<td><code>caps.unified_channels</code> / <code>fw</code> / <code>fwInt</code></td>
+<td><code>mouse.health()</code> 给 <code>firmware</code>、<code>unified_channels</code>，<strong>没有 <code>fwInt</code></strong></td>
+<td><code>health</code> 加 <code>fw_int</code>（1 行）。前端 <code>lib.js:565</code> 用 <code>m.fwInt &gt;= 311</code> 判三态，没有这个字段就永远判不出</td>
+</tr>
+</tbody>
+</table>
+<p><strong>要补能力（后端新增，工作量最大的两处）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>前端页</th>
+<th>需求</th>
+<th>现状</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>比赛记录</strong></td>
+<td>9 列：<code>id/start/dur/frames/launch/launchAt/video/ledger/gap</code> + <code>mazeSeed</code> + <code>dir</code>，还要「关联/解除关联视频」</td>
+<td><code>GET /mouse/maze/records</code> 只回 <code>{name,size,mtime_ms}</code>（<code>maze_rec.py:1194</code>）。<code>dur/frames/launch/ledger/gap</code> 全在记录文件里（<code>duration_ms</code>/<code>integrity.frames</code>/<code>start_ms</code>/<code>integrity.seq_lost_delta</code>/<code>integrity.evq_seen</code>），<strong>只是没被列出来</strong>；<code>video</code> 关联<strong>后端完全没有</strong></td>
+</tr>
+<tr>
+<td><strong>回放</strong></td>
+<td>逐时刻迷宫快照 + 状态 KV + <strong>41 参数发车前快照</strong> + 发车/收车刻度</td>
+<td>迷宫与状态有源（记录里的 <code>wall{n,known_rows,wall_rows,visited,track}</code> + <code>t_ms</code> + <code>frames</code> + <code>timeline</code>，走 <code>maze_rec.load()</code>）；<strong>参数快照记录里没有</strong>（实测记录顶层 19 个键，无 <code>param*</code>）⇒ 这是<strong>新增采集</strong>，不是加个读端点就完</td>
+</tr>
+</tbody>
+</table>
+<p><strong>口径冲突（需拍板）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>前端</th>
+<th>后端</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>帧率"批"</td>
+<td><code>rateLog</code> 逐批 <code>{seq,n,ms,hz}</code>，按<strong>批</strong>切分（<code>live.js:34-49</code>）</td>
+<td><code>rate.unified</code> 是<strong>窗口快照</strong> <code>{hz,nominal,age_ms,samples,stalled,pull,stream_mode}</code>（<code>mouse.py:2426</code>）；"批"只在 <code>pull</code> 里面，且 <code>pull</code> 会<strong>整个退化成 <code>{}</code></strong></td>
+<td>后端加 <code>rate.unified.batches</code>：窗口内逐批 <code>{seq,n,ms,hz}</code> + 一条"该批是否被服务端丢弃"；<code>pull</code> 缺失时给 <code>None</code> 而不是 <code>{}</code></td>
+</tr>
+<tr>
+<td>批式 N 输入框</td>
+<td><code>pullBatch(n)</code>，n∈[1,32]</td>
+<td>无端点；上游<strong>有</strong> <code>stream.tune(n=,t_ms=)</code>，但改版十九③刻意"n/t 不开放，10 Hz 是压测出的安全档"</td>
+<td><strong>P3 单独拍板</strong>，默认不接</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_82">四、要交接给前端侧的三处不一致（本层不改）</h4>
+<ol>
+<li><strong><code>flags</code> 位画错了一位</strong>：前端 <code>lib.js:339-344</code> 把 <code>1/16/128</code> 画成"自由/IR/急停"，
+   上游是 <code>FLAG_FREEMODE=0x01</code> ✅、<code>FLAG_IR_SWITCH=0x10</code> ✅、<strong><code>FLAG_ESTOP_LOCK=0x40</code>（64）</strong>
+   —— 前端那个 128 是 <code>0x80</code>，<strong>急停锁存永远画不出来</strong>，还漏了 0x40 这一位。</li>
+<li><strong>通道数 29 vs 33</strong>：前端 <code>lib.js:113/865</code> 写死 <code>unified_channels: 29</code>。
+   把 4 灯单列成一条状态行<strong>是对的</strong>，但那个数字该显示 33（或写"29 + 4 灯"）——
+   接真数据后它会与 <code>/health</code> 的 <code>mouse.unified_channels</code> 打架。</li>
+<li><strong>前端自己重算了一遍后端已经算好的东西</strong>：<code>lib.js:560</code> <code>recomputeLeds()</code> 按
+   "固件会不会填这 4 位 + 流里有没有这 4 个通道"算三态，<code>mouse.py:2323-2334</code> 已经算好并下发
+   <code>mouse.telemetry.leds</code>；<code>lib.js:297-334</code> 那份码表与 29 通道 + 6 组分组也该换成
+   <code>/mouse/meas/meta</code> 与 <code>/health</code> 的 <code>mouse.unified_channels</code>。<strong>接线时必须删前端那份</strong>，
+   否则同一件事有两个真相（且"旧固件灯未知"那条 warn 会出现两处）。</li>
+</ol>
+<p>另：新前端有 <strong>5 个哑控件 + 1 个哑按钮</strong>（<code>params.js</code> 的 SETQ/SAVE 整排、<code>race.js</code> 冲测试探、
+<code>live.js</code> 手动 dpad 四向、<code>data.js</code> 关联/导出/打开目录/改关联、<code>data.js</code> 详情头「回放」按钮），
+外加 <code>data.js:138</code> 的 <code>recSel</code> 改完没 <code>emit('state')</code>（回放页读不到新选中项）。
+这些要么接端点、要么删控件，<strong>不能留"点了没反应"的按钮</strong>。</p>
+<h4 id="_83">五、后端要补的六件事（汇总，按代价从小到大）</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>事</th>
+<th>落点</th>
+<th>代价</th>
+<th>铁律约束</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>health</code> 补 <code>fw_int</code></td>
+<td><code>adapters/mouse.py:1014</code> 旁</td>
+<td>1 行</td>
+<td>能力判定仍看通道，不退回信版本号</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>list_sessions</code> 补 <code>created</code>(<code>HH:MM</code>)/<code>created_at</code>/<code>out_dir</code>/<code>size_bytes</code></td>
+<td><code>video_io.py:320</code></td>
+<td>约 6 行</td>
+<td>已在 executor，不新增 IO 轮次</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>rate.unified</code> 补 <code>batches[]</code>；<code>pull</code> 缺失给 <code>None</code></td>
+<td><code>adapters/mouse.py:2426</code></td>
+<td>约 20 行</td>
+<td>三态：判不了 ≠ 0</td>
+</tr>
+<tr>
+<td>4</td>
+<td>记录摘要端点 <code>GET /api/v1/records</code>（9 列 + <code>maze_seed</code> + <code>dir</code>）</td>
+<td>新增，扫盘走 executor</td>
+<td>约 40 行</td>
+<td>铁律 3；派生值后端算，不让前端攒</td>
+</tr>
+<tr>
+<td>5</td>
+<td>关联视频 <code>POST /api/v1/records/{sid}/video</code>（body <code>{video_sid|null}</code>）</td>
+<td>关联写进 <code>sessions/&lt;sid&gt;/meta.json</code> 的 <code>video_sid</code></td>
+<td>约 25 行</td>
+<td>一元素一条真相，不另建库；空值用 <code>null</code> 不用 <code>""</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>回放数据源：① <code>GET /api/v1/session/snapshot?sid=&amp;t_ms=</code>（迷宫快照 + 状态 KV）② <strong>发车时把 41 参数冻结进迷宫记录</strong></td>
+<td>① 复用 <code>maze_rec.load()</code>；② 在 <code>maze_rec</code> 起录时拍一次 <code>/mouse/params/grouped</code></td>
+<td>①约 30 行 ②约 15 行</td>
+<td>②是<strong>新增采集</strong>：老记录没有 ⇒ 老记录这一栏只能显示"未记录"，<strong>不许补 0</strong></td>
+</tr>
+</tbody>
+</table>
+<p>第 6 件的②必须说清：它是"以后新记录才有"的字段。老记录回放时"41 参数发车前快照"
+只能显示「未记录」—— 拿当前参数冒充发车时参数是<strong>造假</strong>（铁律：三态不涂红）。</p>
+<h4 id="_84">六、六批顺序与每批验收</h4>
+<table>
+<thead>
+<tr>
+<th>批</th>
+<th>内容</th>
+<th>谁做</th>
+<th>验收</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P0</strong></td>
+<td>文档对齐：① README §3 页表与入口页图（6 视图 → <strong>9 页</strong>）、<code>:48-52</code> 首屏落点、§4 逐步、§6 逐页流程、§7 故障表、<code>:594</code> 那条已失效的"47 PASS"；② <code>未实现功能.md</code> 5 处；③ <code>接口对照表.md</code> 说明列 8 处 + 补新端点；④ <strong>preflight 锚点</strong>：保留旧布局那 5 条作为史实，<strong>补一条</strong>"改版二十五起布局为左轨 + 九页面"；⑤ 本节转"已落地"</td>
+<td>本层</td>
+<td><code>preflight</code> 全绿</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td><strong>工具止血</strong>：① <code>drill.py</code> I20 重钉 —— 探一个<strong>真实存在</strong>的新资源（<code>/static/assets/lib.js</code>），别探已删文件；② <code>browser_check.py</code> <strong>验收工具停用</strong>：文件头写明停用日期、原因（前端为纯原型，47 条判据全部无对象）、恢复条件（接线完成），<strong>不删文件</strong>（留证据）</td>
+<td>本层</td>
+<td><code>drill --sim</code> 恢复全绿</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>上面六件事的 ①~⑤（后端契约补齐，纯增量）</td>
+<td>本层</td>
+<td><code>drill --sim</code>、<code>check_iface_table</code>、<code>preflight</code> 全绿</td>
+</tr>
+<tr>
+<td><strong>P3</strong></td>
+<td><strong>拍板</strong>：批式 N 接不接（默认不接）。理由：改版十九③的"不开放"是实测结论，而新 UI 那个输入框是评审用的</td>
+<td>用户拍板</td>
+<td>拍板写进本节</td>
+</tr>
+<tr>
+<td><strong>P4</strong></td>
+<td>接线配合：给前端侧一份《契约差异表》（= §三 两张表 + §四 三条），必要时陪跑</td>
+<td>前端侧主导，本层陪跑</td>
+<td>前端自测</td>
+</tr>
+<tr>
+<td><strong>P5</strong></td>
+<td>判据重写：<code>browser_check.py</code> 第二版（按新 DOM）。<strong>必须含一条负向判据</strong>：断开后端 / 拔掉视频源时，界面必须显示"未连接/未知"，<strong>不许显示旧值或假装正常</strong></td>
+<td>本层</td>
+<td>四套全绿</td>
+</tr>
+</tbody>
+</table>
+<h4 id="browser_checkpy">七、判据处置：<code>browser_check.py</code> 怎么办</h4>
+<p>它 2471 行、47 条判据，<strong>全部</strong>钉在旧 DOM 上（<code>#nav-sys</code> / <code>#rail-mouse</code> / <code>#wm-kv</code> /
+<code>#dev-modal</code> / <code>#top</code> / <code>#sys</code> / <code>#quickbar</code> …），新前端里一个都不存在。
+处置分三步，<strong>不许一步跳到重写</strong>：</p>
+<ol>
+<li><strong>P1 停用</strong>：文件头加停用说明（为什么停、什么时候恢复）。保留文件 ——
+   它记录了"界面确实消费了后端数据"这件事的取证方式，删了就没人知道当初怎么验的。</li>
+<li><strong>P2 期间</strong>：<code>drill.py</code> + <code>check_iface_table.py</code> + <code>preflight.py</code> 三套继续守后端。
+   这三套与前端无关（<code>drill</code> 只有 I20/I21 两处碰静态资源）。</li>
+<li><strong>P5 重写</strong>：按新 DOM 重钉，且<strong>判据的落点要换</strong>。旧判据验的是"界面把后端数据显示对了"；
+   接线后要验的是"<strong>接缝真的接上了</strong>"——例如：点【发车】必须发出 <code>POST /mouse/maze/launch</code>
+   且 <code>mouse.maze</code> 事件回来；把视频源改成不存在的路径必须显示 404 的中文错而不是空列表。</li>
+</ol>
+<p><strong>停用前先看清哪些判据会"假绿"</strong>（这是最容易踩的坑 —— 报 PASS 不代表还在验东西）：</p>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>现在的状态</th>
+<th>危险在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>B10</strong></td>
+<td>前端零网络请求 ⇒ 请求数恒 0 ⇒ <strong>恒 PASS</strong></td>
+<td><strong>语义反转</strong>：它本来是"点了 8 个按钮至少发出 N 个请求"，现在变成"什么都没做也算过"</td>
+</tr>
+<tr>
+<td><strong>B11</strong> "页面还活着"</td>
+<td>仍在 <code>#mod</code> 里找 <code>.view</code> ⇒ 新前端没有 ⇒ 会红</td>
+<td>但重写时<strong>没有等价物</strong>：新前端是单页 hash 换内容，"活着"该验什么要重新定义（建议：切 9 个路由各挂一次不抛错）</td>
+</tr>
+<tr>
+<td><strong>B13 / B23</strong></td>
+<td>"扫 DOM 断言不含机制词"，且靠 <code>#log:not(.empty)</code> <strong>跳过日志区</strong></td>
+<td>新前端<strong>没有 <code>#log:not(.empty)</code> 这个排除机制</strong> ⇒ 跳过失效 ⇒ 判据会把<strong>日志内容</strong>（<code>lib.js:508</code> 写着"锁存中"）当成界面文案扫，然后报假红</td>
+</tr>
+<tr>
+<td><strong>B37</strong> 前墙双档</td>
+<td>对象已消失（<code>race</code> 页按评审意见去掉，<code>draw.js</code> 也删了 <code>frontWall</code>）</td>
+<td>旧对象没了，判据要么删、要么改成"<strong>确认它不再出现</strong>"的负向判据</td>
+</tr>
+<tr>
+<td><strong>B38 / B40</strong></td>
+<td><code>C.toast(msg, kind, ms)</code> → 新签名 <code>toast(kind, title, body, ms)</code>；<code>draw.maze(cv, M)</code> → 新签名 <code>M={N,v,h,visited,goal}</code>，配色全变（白底 <code>#FFFFFF</code> + 浅灰 <code>#EFEEE8</code>、16×16）</td>
+<td>探针按老签名写 ⇒ <strong>必假红</strong>。P5 要连签名带配色一起重钉（B40 是像素级判据）</td>
+</tr>
+</tbody>
+</table>
+<p><code>GATE_CHECKS</code> 8 条与 <code>PAGE_PROBES</code> 里 5/6 条整体作废；模块常量 <code>TAB_MOUSE</code> / <code>DOCK_VIEWS</code> /
+<code>RAIL_OF_PY</code> / <code>PAGE_PROBES</code> 的 <code>("arena","场地")</code> <code>("capture","采集")</code> <code>("depart","发车")</code>
+<code>("exp","实验")</code> <code>("console","调试台")</code> <code>("scope","示波")</code> <code>("data","数据")</code> <strong>全部对不上新路由</strong>
+（新路由是 <code>overview/live/params/race/maint/video/track/data/replay</code>）。</p>
+<blockquote>
+<p>⚠️ 另有一条<strong>方向性隐患</strong>：<code>preflight.py</code> 的锚点表里有 5 条正是<strong>旧前端的布局形态</strong>
+（"入口页只做导航"、"单开一个整屏模块界面"、"不设选项卡、不切页"、"子系统子页面"、
+"子系统与模块（冻结）"），还跟着一条显式约束"此后所有任务不得改变这里的方向"。
+它们现在<strong>仍然全绿</strong> —— 因为校验的是<strong>方案文档的文本</strong>，而那些文本作为历史改版记述
+仍然存在。<strong>这意味着锚点在守一个已经作废的方向</strong>。处置见 §六 P0：
+保留它们作为史实（不许删，删了就是篡改历史），但<strong>必须补一条新锚点</strong>
+写清"改版二十五起布局为左轨 + 九页面"，让两张时代并存、各自可查。</p>
+</blockquote>
+<h4 id="_85">八、本层自己要清的文案与注释（相机/旧前端时代的静默错）</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>现在的话</th>
+<th>为什么是错的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/clock.py:231</code></td>
+<td><code>"which": "手机侧(wall_clock_ns) 相对 PC 的偏移"</code></td>
+<td>相机已下线，时间基不再来自手机</td>
+</tr>
+<tr>
+<td><code>control/clock.py:234</code></td>
+<td><code>"…场地页的 Δt 读数会因此失真"</code></td>
+<td>场地页已删</td>
+</tr>
+<tr>
+<td><code>control/ctx.py:67/78</code></td>
+<td>"供<strong>场地页</strong>的 Δ 读数直接取用"</td>
+<td>同上</td>
+</tr>
+<tr>
+<td><code>control/api/routes.py:1287</code></td>
+<td>"本端点还在页面启动路径上（⑨<strong>数据页</strong>与底栏都要它）"</td>
+<td>旧编号 ⑨ 与旧页面名</td>
+</tr>
+<tr>
+<td><code>app.py:37</code></td>
+<td>docstring 举例 <code>#nav-sys</code> / <code>mod_*.js</code> / <code>wsproto.js</code></td>
+<td>三个文件都不在了；<strong>这个缓存教训本身仍然成立</strong>，只换例子</td>
+</tr>
+<tr>
+<td><code>app.py:68</code></td>
+<td>启动告警"鼠模块不可用 —— <strong>波形/参数/标定/调试台</strong>会打不开"</td>
+<td>新前端没有波形/标定/调试台这三页</td>
+</tr>
+<tr>
+<td><code>control/adapters/mouse.py:1018</code></td>
+<td>"统一帧 53 B / <strong>39 个扁平通道</strong>"</td>
+<td>v9 是 30 B / <strong>33</strong> 通道</td>
+</tr>
+<tr>
+<td><code>control/adapters/mouse.py:1776</code></td>
+<td>"2.0.0 是 39 个、2.3.0 起是 <strong>49 个</strong>扁平通道"</td>
+<td>v9 重排后是 <strong>33</strong></td>
+</tr>
+<tr>
+<td><code>control/api/ws.py:31-34</code></td>
+<td><code>subs = {...}</code> 声明了 13 个主题，<strong>全文件再无引用</strong>（死代码），且<strong>漏了 8 个实际在发的主题</strong>（<code>mouse.estop</code>/<code>mouse.timesync</code>/<code>mouse.lesson</code>/<code>lab.list</code>/<code>lab.plan</code>…）</td>
+<td>一份会误导人的"主题清单"。它现在既不完整也不被使用 ⇒ 要么删，要么改成由 <code>bus.SOURCES</code> 派生</td>
+</tr>
+<tr>
+<td><code>config.yaml:8</code></td>
+<td>注释里写"仅本层使用；不会占用 PhoneCamera 的 8765"</td>
+<td>8765 已下线</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>后两条是<strong>判据同源问题</strong>（铁律 50①）：注释与常量里的数字/清单会被人当依据，
+而它们已经落后两个改版。数字要么跟着改，要么就别写。</p>
+</blockquote>
+<p><strong>连带要清的文档（前端重设计后已过时，但这一轮只登记不批量改）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>README.md</code></td>
+<td>§3 页表与入口页 ASCII（6 视图 → 9 页）、<code>:48-52</code> "首屏默认落点"、<code>:118-152</code> §4 逐步（锚点已删）、<code>:373-380</code> §6 逐页截图流程、<code>:392</code> <code>§6b 上游代启</code>、<code>:420-456</code> §7 故障表 <code>:422</code>、<code>:544-560</code> §8 纪律 <code>:555</code>、<code>:594</code> "<strong>47 PASS / 0 FAIL</strong>"（已失效）、<code>:600</code> 帧率表的 <code>[OK]</code> 条件</td>
+</tr>
+<tr>
+<td><code>docs/未实现功能.md</code></td>
+<td><code>:18</code> "相机仅在调试模式"、<code>:24</code> "视频入口两处待完善"、<code>:38</code> "记录缺发车/帧数/关联"、<code>:52</code> "回放只有无头浏览器冒烟"、<code>:64</code> "迷宫结构解析整节待重写"（相机已下线）</td>
+</tr>
+<tr>
+<td><code>docs/接口对照表.md</code></td>
+<td>§说明列 8 处旧界面行为：<code>:15</code> "每动作一条判据"、<code>:112</code> 收尾步骤、<code>:164</code> 迷宫表"一并注入前端"、<code>:196</code> <code>:204</code> <code>:212</code> 传感器/电池/电机、<code>:274</code> 删相机项的说明、<code>:288</code> "页面按需拉取"</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>
