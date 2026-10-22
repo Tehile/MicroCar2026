@@ -1053,6 +1053,63 @@ def _mouse_sections(base: str, args, sim) -> None:
            + ("" if i44_ok else
               " ⇒ **点开始记录时没有帧 ⇒ 一条记录也存不出来**（改版三十三之前就是这样）"))
 
+    # ---- I49：**发车前先把拉取拉起来，并等到一帧新帧**（改版三十七）
+    # 真机实证（记录 20261022_162108 / 162357）：`maze.run` 在上游是 **urgent** 命令，
+    # `send_cmd()` 在整段往返里 `suspend()`…`resume()`（`RATE OFF` 等应答 + `MAZE RUN`
+    # 同步等应答 + `RATE PULL` 重发），实测 **0.9~2.4 s 零帧**，恢复时车已经在跑。
+    # 更隐蔽的一种：**发车时拉取本来就没在跑**（`auto_stream:false`，拉取按页开门）
+    # ⇒ `suspend()` 直接返回、`resume()` 成空操作 ⇒ 发完车仍然不拉，只能等切页。
+    # 这正是 162357 开头的形状：帧 0/1 正常、帧 1→2 断 949 ms，两帧都还是待机值。
+    #
+    # 所以这条判据钉**两件事**（正反两面）：
+    #   ① 先把流关掉（旧帧龄 ≥1.2 s）再发车 ⇒ 应答里 `pull.started=True` 且
+    #      `frame_age_ms ≤ 350` —— **等的必须是新帧**：若实现拿旧帧充数，读数会是
+    #      ≥1200 ms，这条立刻红（这就是负向）。
+    #   ② 这一跑记录的**头两帧间隔 ≤250 ms**（= 开录时链路已经在出帧，
+    #      不是"开录之后再慢慢把流拉起来"）。
+    # ⚠️ 用 `launch_checked`：模拟器电池读数会抖，直接 `api()` 断言 200 会假红。
+    api(base, "/api/v1/mouse/stream", "POST", {"on": False})
+    time.sleep(1.2)
+    off_before49 = not _stream_on()
+    rr49, cc49, msg49, ok49, low49 = launch_checked(base)
+    pv49 = ((rr49.get("data") or {}).get("pull") or {})
+    age49 = pv49.get("frame_age_ms")
+    started_ok = bool(pv49.get("started")) and isinstance(age49, int) and age49 <= 350
+    name49 = ((rr49.get("data") or {}).get("record") or {}).get("name")
+    head_gap49 = None
+    # ⚠️ 记录**正在写**时磁盘上还没有文件（名字在 `stop()` 落盘时才生成），
+    #    所以不能指望应答里带 name（`status()` 也没这个键）。这里先收车+存盘，
+    #    再从"最新一条记录"读回头两帧 —— 这才是**真的**验记录开头。
+    api(base, "/api/v1/mouse/maze/stop", "POST", {}, timeout=25)
+    api(base, "/api/v1/mouse/maze/record/stop", "POST", {}, timeout=25)
+    rl49, cl49, _ = api(base, "/api/v1/records?n=1")
+    rows49 = ((rl49.get("data") or {}).get("records") or [])
+    if cl49 == 200 and rows49:
+        name49 = name49 or str(rows49[0].get("name") or "")
+    if name49:
+        rp49, _, _ = api(base, f"/api/v1/records/{quote(name49)}/replay", timeout=20)
+        s49 = ((rp49.get("data") or {}).get("samples") or [])
+        if (len(s49) >= 2 and isinstance(s49[0].get("t"), (int, float))
+                and isinstance(s49[1].get("t"), (int, float))):
+            head_gap49 = int(round((s49[1]["t"] - s49[0]["t"]) * 1000))
+    # 把流开回来：后面 I45 要看实时帧。
+    api(base, "/api/v1/mouse/stream", "POST", {"on": True})
+    time.sleep(0.8)
+    if low49 or not ok49:
+        # 低电被拦 = 这一次**判不了**（不是不通过）；如实标 SKIP 并带上原话。
+        record("I49", "SKIP", f"发车没成（{msg49 or cc49}）⇒ 发车前保活判不了")
+    else:
+        i49_ok = bool(off_before49 and started_ok
+                      and head_gap49 is not None and head_gap49 <= 250)
+        record("I49", "PASS" if i49_ok else "FAIL",
+               f"发车前流是关的={off_before49}；应答 pull.started={pv49.get('started')!r}、"
+               f"frame_age_ms={age49!r}（应 ≤350：**必须是新帧**，拿旧帧充数会 ≥1200）、"
+               f"waited_ms={pv49.get('waited_ms')!r}；记录 {name49} 的头两帧间隔="
+               f"{head_gap49!r} ms（应 ≤250）"
+               + ("" if i49_ok else
+                  " ⇒ 发车前没有确认拉取在跑：这一跑记录的开头会是缺口"
+                  "（真机 162357 就是这样断 949 ms），且发完后可能一直不拉到切页为止"))
+
     # ---- I45：实时墙图**不依赖环形缓冲窗口**（改版三十三）
     # `?seconds=1` 连着调三次：如果实现是"每次重放最近 1 s"，
     # `covered_s` 永远 ≤1、`frames_total` 每次归零重算 ⇒ 这条会红。

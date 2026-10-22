@@ -175,6 +175,7 @@ li{margin:.28em 0}
 <li><a href="#1135">11.35 改版三十三·真机跑起来之后才暴露的五个静默错（状态：已落地）</a></li>
 <li><a href="#1136">11.36 改版三十四·地图对齐固件坐标 + 清空 + 远近墙 + 测试提速（状态：已落地）</a></li>
 <li><a href="#1137">11.37 改版三十五·记录的主时间轴改成设备时基（每帧唯一）（状态：已落地）</a></li>
+<li><a href="#1138-124-s">11.38 改版三十七·发车前先拉取（那 1~2.4 s 缺口的成因与"对轴"设计）（状态：前半已落地，后半是设计）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -730,6 +731,20 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
   ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
   <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
+<p><strong>改版记录 2026-10-22（三十七）</strong>：<strong>发车前先拉取</strong>（先拉流并等到一帧，再开记录，最后发车）。
+· 现场：第一次发车后隔一段时间数据才跟上，中间<strong>缺数据 + 数据不变</strong>。
+  两条真机记录里缺口是 <strong>2398 ms / 949 ms</strong>，且<strong>正好卡在"待机 → 开跑"</strong>——
+  恢复采样时车已经在 (3,7) 跑了。这是 <strong>1~2.4 s 零帧</strong>，不是丢帧。
+· 根因两层：① <code>MAZE RUN</code> 在上游是 <code>urgent</code> 命令，<code>send_cmd()</code> 整段 <code>suspend()</code> 拉取
+  （<code>RATE OFF</code> 等应答 + 命令同步等应答 + <code>RATE PULL</code> 重发），<strong>上游机制，本层不绕过</strong>；
+  ② 发车时若拉取<strong>本来没在跑</strong>，<code>suspend()</code> 直接返回、<code>resume()</code> 成空操作 ⇒
+  发完车仍然不拉，只能等切页 —— 这才是"过一会儿才跟上"。
+· 改法（已落地）：<code>MouseAdapter.ensure_pull()</code> 先开流并<strong>等到一帧新帧</strong>（帧龄 ≤350 ms，
+  最多等 1.5 s），等不到就 <strong>409 拒绝发车</strong>（车不动）；顺序固定
+  <strong>先拉取 → 再开记录 → 最后发车</strong>；账本加 <code>maze_run.sent/.ack</code> 两条锚点。
+· 设计（未落地）：缺口<strong>不补帧</strong>，只在 <code>integrity.gaps</code> / <code>integrity.launch</code> 里标注，
+  并用<strong>设备侧运动起点</strong>对轴；彻底缩短要上游把"写命令"与"等应答"拆开。
+细节见 §11.38。</p>
 <p><strong>改版记录 2026-10-22（三十五）</strong>：<strong>记录的主时间轴改用设备时基</strong>（每帧唯一）。
 · 现场发现"1-2 帧的时刻一样"，一查是<strong>结构性</strong>的：<code>t_ms</code> 记的是"主机处理时刻"
   （<code>int(time.time()*1000)</code> 每帧现取），批式一次回 2~3 帧 ⇒ 同批挤进同一毫秒。
@@ -8888,6 +8903,196 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 <td><code>S1: 服务 60 s 内没起来</code></td>
 <td>① 8899 被<strong>小米电脑管家的 <code>MiPCAudio.exe</code></strong> 占着；② 我在 I47 里把测试帧字典命名为 <code>base</code>，<strong>遮蔽了外层的 URL 变量</strong> ⇒ <code>wait_up</code> 拿到一个 dict</td>
 <td>起服务前试绑端口（<strong>绑 <code>0.0.0.0</code> 且不用 <code>SO_REUSEADDR</code></strong> —— Windows 上它会把"已占用"误判为可用），被占就换端口并说清；<code>wait_up</code> 失败时打印<strong>最后一次异常</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1138-124-s">11.38 改版三十七·<strong>发车前先拉取</strong>（那 1~2.4 s 缺口的成因与"对轴"设计）（状态：<strong>前半已落地，后半是设计</strong>）</h3>
+<h4 id="_127">一、现场（用户报的）</h4>
+<blockquote>
+<p>"第一次发出发车命令后间隔了一段时间后实时记录的数据才跟上记录，中间有一段时间的数据
+缺失和数据不变了。应当<strong>先拉取再发车</strong>。"</p>
+</blockquote>
+<p>两条真机记录（10 Hz，<code>t_ms</code> 是设备时基）：</p>
+<table>
+<thead>
+<tr>
+<th>记录</th>
+<th>缺口</th>
+<th>缺口前最后一帧</th>
+<th>缺口后第一帧</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>20261022_162108</code></td>
+<td>帧3→4 <strong>2398 ms</strong></td>
+<td>(0,0) 待机 <code>mz=0 / mtask=0</code></td>
+<td><strong>(3,7)</strong> <code>mz=2 SEARCH</code>、<code>mtask=32</code>、75 cm/s</td>
+</tr>
+<tr>
+<td><code>20261022_162357</code></td>
+<td>帧1→2 <strong>949 ms</strong></td>
+<td>(0,0) 待机</td>
+<td>仍待机，但 1148 ms 就 <code>mtask=35</code> 起步</td>
+</tr>
+</tbody>
+</table>
+<p>⇒ 缺口<strong>正好卡在"待机 → 开跑"</strong>：恢复采样时车已经在迷宫里跑了 3~4 格。
+"数据不变"不是界面卡死，而是<strong>没有新帧</strong>，只能继续显示最后一帧（待机值）。</p>
+<h4 id="maze-run">二、根因：<code>MAZE RUN</code> 独占链路（<strong>上游机制，本层不改</strong>）</h4>
+<p><code>maze.run</code> 在上游登记表是 <code>urgent=True</code>（<code>host/registry.py</code>），于是 <code>send_cmd()</code>
+（<code>host/api/client.py</code>）在<strong>整段往返</strong>里 <code>stream.suspend()</code> … <code>stream.resume()</code>：</p>
+<table>
+<thead>
+<tr>
+<th>步</th>
+<th>内容</th>
+<th>上限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td>批式档先发 <code>RATE OFF</code> 并<strong>等应答</strong>，再等尾帧静默（<code>_drop_pending("SUSPEND")</code>）</td>
+<td>2.0 s + 0.3 s</td>
+</tr>
+<tr>
+<td>②</td>
+<td>发 <code>MAZE RUN</code> 后<strong>同步等应答</strong>（RACE 要先读 Flash 地图选档，实测 ~2.4 s）</td>
+<td>3.0 s</td>
+</tr>
+<tr>
+<td>③</td>
+<td><code>resume()</code> 重发 <code>RATE PULL</code>（<code>CMD_TRIES=3</code>，<strong>首条常丢</strong>）</td>
+<td>——</td>
+</tr>
+</tbody>
+</table>
+<p>⇒ 这段窗口 <strong>1~2.4 s 零帧</strong>。这是上游为"命令不被拉取挤掉"付的代价（固件 <code>link.c</code>
+每 1 ms 只消费一行、其余直接丢；<code>ESTOP</code> 不独占时实测 3220 ms 才停 vs 751 ms），
+<strong>本层不该也不能绕过</strong>。⇒ <strong>"先拉取再发车"消不掉这一段</strong>，只能消掉下面那一半。</p>
+<h4 id="_128">三、本层能消掉的那一半：发车时拉取<strong>本来就没在跑</strong></h4>
+<p><code>auto_stream: false</code>（拉取按页开门）⇒ 若发车那一刻拉取不在跑：
+<code>suspend()</code> 直接 <code>return</code>、<code>resume()</code> 因为 <code>_was_running=False</code> <strong>成为空操作</strong>
+⇒ <strong>发完车仍然不拉</strong>。而前端 <code>syncPull()</code> 只在启动/切页调用（没有周期兜底）
+⇒ 现场就是"过一会儿（切页）数据才跟上"。</p>
+<p><code>20261022_162357</code> 开头的形状正是这个：帧 0/1 正常，帧 1→2 断 <strong>949 ms</strong>，两帧都还是待机值。</p>
+<h4 id="_129">四、改法（已落地）：先拉取 → 等到一帧 → 再开记录 → 最后发车</h4>
+<table>
+<thead>
+<tr>
+<th>件</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MouseAdapter.ensure_pull()</code></td>
+<td>拉取没跑就按本层档 <code>_pull_n</code> 开流，然后<strong>等到一帧新帧</strong>（帧龄 ≤ <code>FRESH_FRAME_S=0.35 s</code>，最多等 <code>ENSURE_PULL_WAIT_S=1.5 s</code>）</td>
+</tr>
+<tr>
+<td><code>_timesync_maze_run</code> 顺序</td>
+<td>预检 → <strong><code>ensure_pull()</code></strong> → <code>maze_rec.start()</code> → <code>reset_live_map</code> → <code>maze_run()</code></td>
+</tr>
+<tr>
+<td>等不到帧</td>
+<td><strong>409 拒绝发车</strong>（车没动），文案给排查次序（串口 → 实时页有没有帧 → 断开重连）</td>
+</tr>
+<tr>
+<td>账本</td>
+<td>新增 <code>mouse.maze_run.sent</code> / <code>mouse.maze_run.ack</code>（带往返耗时），缺口两端都有锚</td>
+</tr>
+<tr>
+<td>应答</td>
+<td>多带 <code>pull: {was_on, started, n, waited_ms, frame_age_ms}</code>（"这一跑发车前到底在不在拉"可查）</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 顺序不能换成"先开记录再拉取"：记录器<strong>只在收到帧时才写文件</strong>，而文件头决定
+"开录那一刻链路的状态"——先拉取，帧 0/1 才是"已经在出帧"的帧（I49 验的就是这个）。</p>
+<h4 id="_130">五、设计（<strong>未落地</strong>）：缺口怎么"对轴"</h4>
+<p>原则：<strong>缺口不补帧</strong> —— 插值出来的帧没有设备时基依据，会把"没采到"变成"看起来采到了"
+（比缺一段更坏）。只<strong>标注</strong>、不造假：</p>
+<table>
+<thead>
+<tr>
+<th>落点</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>integrity.gaps</code></td>
+<td><code>[{t_ms_from, t_ms_to, ms, why:"launch_cmd", frames_est}]</code>（<code>frames_est</code> 按 100 ms 网格推算，<strong>只是估算</strong>）</td>
+</tr>
+<tr>
+<td><code>integrity.launch</code></td>
+<td><code>{sent_pc_ms, ack_pc_ms, ack_ms, first_run_t_ms, run_lag_ms}</code>（<code>first_run_t_ms</code> 取<strong>设备侧</strong>运动起点）</td>
+</tr>
+<tr>
+<td>运动起点判据</td>
+<td><code>mazeTask ≥ 2</code>（SEARCH）<strong>或</strong> <code>motionTask</code> 由 0 → 非 0 的第一帧；两者不同时到时<strong>都记</strong>，不挑一个</td>
+</tr>
+<tr>
+<td>回放/曲线</td>
+<td>缺口画<strong>竖虚线带</strong> + 文案"发车命令占用链路 2.4 s（无采样，非丢帧）"；帧率曲线在缺口处<strong>断开</strong>，不许连成平滑线</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 派生字段不进帧区（铁律 15）：<code>gaps</code>/<code>launch</code> 是<strong>元信息</strong>，帧数组不动。</p>
+<h4 id="_131">六、设计（<strong>未落地，需上游同意</strong>）：把"写命令"和"等应答"拆开</h4>
+<pre><code class="language-python">if spec.urgent:
+    self.stream.suspend()
+try:
+    p = self.cmd.send(line, wait=False, no_retry=spec.no_retry)
+finally:
+    if spec.urgent:
+        self.stream.resume()          # 命令已经上线 ⇒ 拉取可以立刻回来
+ok = self._wait_pending(p, to)        # ACK 异步等
+</code></pre>
+<ul>
+<li><strong>只对"长等待且非安全关键"的命令</strong>（<code>maze.run</code>、<code>calib.cal</code>）这么走；
+  <code>ESTOP</code> / <code>STOP</code> / <code>MOVE*</code> 保持整段独占——那正是 <code>suspend()</code> 存在的理由。</li>
+<li>风险：应答与拉取帧<strong>交错</strong> ⇒ 必须重测 ① <code>MAZE RUN</code> 的 ACK 仍能被捕获、
+  ② 急停延迟不退化（当前中位 751 ms）、③ 固件"1 ms 只消费一行"下命令不被挤掉
+  （<code>MAZE RUN</code> 行先发，拉取在其后）。</li>
+<li>本层不改上游 ⇒ 短期内靠"四、已落地"+"五、标注"兜底。</li>
+</ul>
+<h4 id="_132">七、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>验什么</th>
+<th>为什么必须这样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I49</strong></td>
+<td>先把流<strong>关掉</strong>（旧帧龄 ≥1.2 s）→ 发车 → ① 应答 <code>pull.started=True</code> 且 <code>frame_age_ms ≤ 350</code>；② 这一跑记录<strong>头两帧间隔 ≤250 ms</strong></td>
+<td>① 是<strong>正反两面</strong>：若实现拿旧帧充数，读数会 ≥1200 ms ⇒ 立刻红；② 验的是"开录时链路已经在出帧"，正是 162357 断 949 ms 的那一处</td>
+</tr>
+</tbody>
+</table>
+<p>低电被拦 ⇒ 这条记 <strong>SKIP</strong>（判不了 ≠ 不通过）。</p>
+<h4 id="_133">八、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>I49（<code>--sim</code>）</td>
+<td><code>started=True</code>、<code>frame_age_ms=11</code>、<code>waited_ms=20</code>、记录头两帧间隔 <strong>19 ms</strong></td>
+</tr>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>48 PASS / 0 FAIL / 1 SKIP</strong></td>
 </tr>
 </tbody>
 </table>

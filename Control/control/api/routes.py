@@ -1205,6 +1205,15 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
     # `send_cmd` 的登记表层（脚本/CLI 也绕不开）；这里只是让"电池不够"这件事
     # 在界面上**提前**可见，而不是等人点了发车才吃一个 ERR_LOWBATT。
     precheck = await loop.run_in_executor(None, ctx.mouse.launch_precheck)
+    # ⚠️ **先拉取，再开记录，最后发车**（改版三十七）—— 顺序不能换：
+    #    ① `ensure_pull()`：确认拉取在跑并**等到一帧新帧**。发车时若拉取本来没在跑，
+    #       上游 `suspend()` 会直接返回、`resume()` 成空操作 ⇒ 发完车仍然不拉，
+    #       只能等切页（前端 `syncPull()` 只在切页/启动调用）——现场就是
+    #       "发完车过一会儿数据才跟上"。等不到就 409 拒绝发车（车不动）。
+    #    ② `start()`：记录从"链路已经在出帧"的状态开始，帧 0/1 不再是待机空档。
+    #    ③ `maze_run()`：命令本身会让拉取让路 0.9~2.4 s（上游 urgent 语义），
+    #       这段缺口消不掉 —— 但**两端都已有锚点**（见下面 sent/ack 两条 mark）。
+    pull = await loop.run_in_executor(None, ctx.mouse.ensure_pull)
     rec_note = ""
     #: 这一次调用**新开了一段记录吗**（`start()` 的 `fresh_epoch`）。
     #: 它是下面"发车被拒时怎么收场"的唯一依据：只有新开的那一段才该被丢掉。
@@ -1222,9 +1231,18 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
     except Exception as e:                                    # noqa: BLE001
         rec_note = f"（记录未能开始：{type(e).__name__}）"
         ctx.bus.log("warn", f"实验 8 记录没能开始：{type(e).__name__}: {e}", source="mouse")
+    # 发车命令的两端锚点：`sent` 是命令发出的墙钟，`ack` 是设备应答回来。
+    # 为什么必须记：命令期间拉取让路 ⇒ 记录里必有一段无采样；这两条锚点让
+    # "缺口有多长、车在这段里跑了多远"以后能算（对轴用），而不是靠猜。
+    t_sent = time.time()
+    ctx.store.mark("mouse", "mouse.maze_run.sent", target,
+                   f"pull_n={pull.get('n')} pull_started={pull.get('started')} "
+                   f"frame_age_ms={pull.get('frame_age_ms')}")
     try:
         res = await loop.run_in_executor(None, lambda: ctx.mouse.maze_run(target))
     except Exception:
+        ctx.store.mark("mouse", "mouse.maze_run.fail", target,
+                       f"耗时 {int((time.time() - t_sent) * 1000)} ms（这段拉取是停的）")
         # 发车被拒（`ERR_LOWBATT` / `ERR_ESTOP` / `ERR_BUSY` / 其他）⇒ 这一段根本没开始。
         #
         # ⚠️ 判据是 **`fresh`（这一请求新开的段）**，不是"收到几帧"。
@@ -1245,7 +1263,10 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
         except Exception:                                     # noqa: BLE001
             pass
         raise
-    return ok({**res, "precheck": precheck,
+    ctx.store.mark("mouse", "mouse.maze_run.ack", target,
+                   f"耗时 {int((time.time() - t_sent) * 1000)} ms（这段拉取是停的，"
+                   f"记录里必然有一个缺口）")
+    return ok({**res, "precheck": precheck, "pull": pull,
                "record": ctx.maze_rec.status(), "record_note": rec_note})
 
 

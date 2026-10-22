@@ -1213,6 +1213,83 @@ class MouseAdapter:
                 # 判据取"拉取器在不在跑"，与门面 `mode` 同源（mode=='off' ⇔ 没跑）。
                 "effective": bool(getattr(mc.stream, "is_on", False))}
 
+    # ------------------------------------------------------- 发车前的拉取保活
+    #: 发车前"等到一帧新帧"的上限（秒）。10 Hz 拉取下最迟 ~100 ms 到；
+    #: 但刚开流时上游要重发 `RATE PULL`（首条常丢、带 3 次重试）⇒ 留 1.5 s。
+    ENSURE_PULL_WAIT_S = 1.5
+    #: 判定"手上这一帧是新的"的门槛（秒）。10 Hz = 0.1 s ⇒ >0.35 s 就是旧的。
+    FRESH_FRAME_S = 0.35
+
+    def ensure_pull(self, wait_s: Optional[float] = None) -> Dict[str, Any]:
+        """**发车/长动作前**：确认拉取在跑，并等到一帧新帧落地（改版三十七）。
+
+        ## 为什么必须做（2026-10-22 两条真机记录的实证）
+
+        `maze.run` 在上游登记表是 `urgent=True`（`host/registry.py`）⇒ `send_cmd()`
+        在**整段往返**里 `stream.suspend()` … `resume()`：
+
+        1. 批式档先发 `RATE OFF` 并**等应答**（超时 2.0 s）+ 等尾帧静默（≤0.3 s）；
+        2. 发 `MAZE RUN` 后**同步等应答**（`timeout=3.0`；RACE 要先读 Flash 地图选档，
+           实测 ~2.4 s）；
+        3. `resume()` 重发 `RATE PULL`（`CMD_TRIES=3`，首条常丢）。
+
+        ⇒ **这段窗口一帧都拉不到**。真机记录里就是 `t_ms` 跳 2398 ms / 949 ms，
+        恢复时的第一帧车已经在 (3,7)、`mazeTask=2`、75 cm/s。
+        这是上游为"命令不被拉取挤掉"付的代价（固件每 1 ms 只消费一行、其余直接丢，
+        见 `TelemetryPuller.suspend()` 的注释），**本层不该也不能绕过**。
+
+        ## 但有一个本层能消掉的坑
+
+        发车时如果拉取本来就**没在跑**（`auto_stream: false`，拉取按页开门）：
+        `suspend()` 直接返回、`resume()` 成为空操作 ⇒ 发完车**仍然不拉**，
+        要等页面切走再切回（前端 `syncPull()` 只在切页/启动调用，没有周期兜底）。
+        记录 `20261022_162357` 开头正是这样：帧 0/1 正常，帧 1→2 断了 **949 ms**，
+        而两帧都还是待机值 —— 不是发车命令占链路，是**开录时根本没在拉**。
+
+        ## 做法
+
+        先开流（带本层的档 `_pull_n`，`n≥2` 就是批式），再**真的等到一帧**
+        （帧龄 ≤ `FRESH_FRAME_S`）。等不到就抛 `MouseError`（端点报 409）：
+        宁可不发车，也不发出去让记录开头空着。
+        """
+        mc = self._ensure()
+        wait = self.ENSURE_PULL_WAIT_S if wait_s is None else float(wait_s)
+        try:
+            was_on = bool(mc.stream.is_on)
+        except Exception:                                     # noqa: BLE001
+            was_on = False
+        started = False
+        if not was_on:
+            r = self.set_stream(True)
+            started = True
+            if not r.get("ok"):
+                raise MouseError(
+                    f"发车前拉取没能开起来（上游回 {r.get('status') or '未知'}）⇒ "
+                    "已中止，**车没动**。\n"
+                    "  ⇒ 先到【实时】页看能不能出帧；不行就【断开】再【连接】。")
+        t0 = time.time()
+        age: Optional[float] = None
+        while time.time() - t0 < wait:
+            try:
+                age = mc.telemetry.last_frame_age()
+            except Exception:                                 # noqa: BLE001
+                age = None
+            if age is not None and age <= self.FRESH_FRAME_S:
+                break
+            time.sleep(0.02)
+        waited_ms = int((time.time() - t0) * 1000)
+        if age is None or age > self.FRESH_FRAME_S:
+            last = "从未收到过一帧" if age is None else f"最后一帧已是 {age * 1000:.0f} ms 前"
+            raise MouseError(
+                f"发车前拉取没等到数据：{wait:.1f} s 内没有新帧（{last}）⇒ "
+                "已中止，**车没动**。\n"
+                "  ⇒ 这次硬发只会得到一段**开头就是缺口**的记录，所以不发。\n"
+                "  ⇒ 排查顺序：串口还在不在（【维护】页看链路）→ 【实时】页有没有帧 → "
+                "断开重连。")
+        return {"ok": True, "was_on": was_on, "started": started,
+                "n": self._pull_n, "waited_ms": waited_ms,
+                "frame_age_ms": int(age * 1000)}
+
     # ------------------------------------------------------------ 会话
     def open_session(self, name: str) -> str:
         """开鼠侧会话。`name` 用 `<sid>/mouse` ⇒ 目录落在整合层会话里（§5.1）。"""
