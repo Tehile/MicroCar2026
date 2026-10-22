@@ -86,6 +86,7 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_get("/api/v1/mouse/launch_precheck", _mouse_launch_precheck)
     # 实验 8 的「从发车到停止」记录与复盘（详见 control/maze_rec.py 的模块 docstring）
     r.add_get("/api/v1/mouse/maze/reconstruct", _maze_reconstruct)
+    r.add_post("/api/v1/mouse/maze/reconstruct/clear", _maze_reconstruct_clear)
     r.add_get("/api/v1/mouse/maze/record", _maze_record_status)
     # 实时决策流 + 实时快照：右栏时间线与"边跑边回放"各自的数据源。
     # 两者都**零设备访问**（只读记录器内存），所以可以跟着界面刷新走。
@@ -703,6 +704,24 @@ async def _maze_reconstruct(request: web.Request) -> web.Response:
     return ok(out)
 
 
+async def _maze_reconstruct_clear(request: web.Request) -> web.Response:
+    """**清空比赛页的实时墙图**（改版三十四）—— 从这一刻重新累积。
+
+    为什么需要它：墙图是**本层增量累积**的（改版三十三），一旦攒进去就会一直留着。
+    换了一盘迷宫、或者图上明显被某一帧的错误值弄脏了，人需要能说"从这里重新来"。
+    没有这个按钮，唯一的办法是**拔掉重连**（把设备状态也一起丢了）。
+
+    ⚠️ 只清**显示用的那张图**：不碰记录、不碰设备、不等价于"重连"。
+    ⚠️ 清零基线是**现在**（不是 0）：否则下一轮会把环形缓冲里**上一盘**的 30 秒
+       全喂进来，图上又是一张"看着正常、其实来自上一盘"的图。
+    """
+    ctx = request.app["ctx"]
+    ctx.mouse.reset_live_map("界面清空")
+    ctx.store.mark("mouse", "maze.live.clear", "", "界面清空")
+    return ok({"cleared": True,
+               "note": "实时墙图已清空，从下一帧重新累积（记录与设备都没动）"})
+
+
 async def _maze_decisions(request: web.Response) -> web.Response:
     """**实时决策流**（右栏那条时间线）+ 运行状态。
 
@@ -808,9 +827,33 @@ async def _maze_record_start(request: web.Request) -> web.Response:
     why = str(d.get("why") or "manual")
     # 没显式给就用**设备报的**尺寸（不是上游 ring 那个恒为 7 的字段，见 adapter.mazetype()）
     mazetype = d.get("mazetype") or ctx.mouse.mazetype()
+    # ⚠️ **先保证有帧**。记录器只在收到帧时才写文件（空记录不落盘），所以"拉了但流没开"
+    #    的结果是：界面说已开始记录、跑完一条记录也没有。这个坑与 `session_open`
+    #    同源（改版三十一在那里补了兜底，这里漏了）。开流失败不阻断开始记录 ——
+    #    但要如实告诉调用方"现在没有帧"，否则空记录无从解释。
+    loop = asyncio.get_running_loop()
+    pull_note = ""
+    # `auto_pull: false` = **别动链路**（调用方自己已经安排好，或刻意要造一段没有帧的记录）。
+    # 默认 true：人点【开始记录】时不该得到一条空记录。
+    want_pull = d.get("auto_pull", True) is not False
+    if not want_pull:
+        pull_note = "按调用方要求未动拉取"
+    elif ctx.mouse.connected and not ctx.mouse.stream_on:
+        try:
+            r = await loop.run_in_executor(None, lambda: ctx.mouse.set_stream(True))
+            applied = (r or {}).get("applied_n")
+            pull_note = f"已自动开流（档 n={applied}）"
+            ctx.bus.log("info", f"开始记录前自动开流：{pull_note}", source="mouse")
+        except Exception as e:                                # noqa: BLE001
+            pull_note = f"拉取没能开起来：{type(e).__name__}: {e}"
+            ctx.bus.log("warn", f"{pull_note} ⇒ 这条记录可能没有帧", source="mouse")
+    elif not ctx.mouse.connected:
+        pull_note = "未连接设备：这条记录不会有帧"
     out = ctx.maze_rec.start(why=why, mazetype=mazetype)
     if out.get("ok"):
         ctx.store.mark("mouse", "maze.record.start", "", f"why={why}")
+    if pull_note:
+        out["pull_note"] = pull_note
     return ok(out)
 
 
@@ -1173,6 +1216,9 @@ async def _timesync_maze_run(request: web.Request) -> web.Response:
         else:
             fresh = bool(out.get("fresh_epoch"))
             ctx.store.mark("mouse", "maze.record.start", "", "why=maze_run")
+            # 新一跑 ⇒ 比赛页的墙图从零攒。上一跑探到的墙若留在图上，
+            # 那一片"看起来有墙"其实来自别的跑法（静默错，图上无从分辨）。
+            ctx.mouse.reset_live_map("发车")
     except Exception as e:                                    # noqa: BLE001
         rec_note = f"（记录未能开始：{type(e).__name__}）"
         ctx.bus.log("warn", f"实验 8 记录没能开始：{type(e).__name__}: {e}", source="mouse")

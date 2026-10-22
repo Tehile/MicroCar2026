@@ -111,7 +111,14 @@
         this.paint();
       };
       root.querySelector('#rp-play').onclick = () => {
-        if (!rec.launch) { C.toast('warn', '没有发车记录', '这段只有空闲遥测'); return; }
+        /* ⚠️ 门控看**有没有样本**，不是"有没有发车记录"。
+           `launch` 只说明这条记录是发车自动开的还是人手动开的；手动开的记录
+           帧里照样有 posX/posY，也能回放。以前拿 `launch` 当门，手动记录一律
+           点不动 —— 而界面上给出的理由是"只有空闲遥测"，那是在替数据下结论。 */
+        if (!rec.samples || rec.samples.length < 2) {
+          C.toast('warn', '回放不了', '这条记录不足两帧');
+          return;
+        }
         if (i >= rec.samples.length - 1) i = 0;
         playing = !playing;
         this.paint();

@@ -238,12 +238,32 @@ class MazeWallMap:
             if len(self.track) < 240:
                 self.track.append([x, y])
         # 三面墙：值 1 = **有墙**（上游 `wallLeft/Front/Right` 的语义）
-        for key, has in (("front", rec.get("wallFront")),
-                         ("left", rec.get("wallLeft")),
+        # ⚠️ **前墙分两档**（改版三十四），别把远墙画成近墙：
+        #   `wallFront=1 & frontFar=0` ⇒ 近墙（贴脸，`min(f1,f2) < thrFrontNear`），
+        #                                墙在**本格**前方；
+        #   `wallFront=1 & frontFar=1` ⇒ 远墙（提前量），墙在**外一格**前方
+        #                                （= 本格前方那格的**再前一格**）。
+        #   两档画在**不同位置**（差一格），这正是"近墙/远墙"在图上能分辨的唯一依据。
+        #   同时必须给本格写 `front=False`：远墙意味着**贴脸那格是空的**，
+        #   不写的话界面会以为"这里还没探过"，而决策靠的就是这个"空"。
+        for key, has in (("left", rec.get("wallLeft")),
                          ("right", rec.get("wallRight"))):
             if has is None:
                 continue          # 这一路没给 ⇒ **不写**（"没读到"不是"没有"）
             self._set(x, y, f[key], bool(_i(has)))
+
+        fw = rec.get("wallFront")
+        if fw is not None:
+            has = bool(_i(fw))
+            far = bool(_i(rec.get("frontFar"))) if rec.get("frontFar") is not None else False
+            if has and far:
+                dx, dy = _STEP[f["front"]]
+                nx2, ny2 = x + dx, y + dy
+                self._set(x, y, f["front"], False)      # 贴脸这格：确认**没有**墙
+                if 0 <= nx2 < n and 0 <= ny2 < n:
+                    self._set(nx2, ny2, f["front"], True)   # 远墙落在下一格的前沿
+            else:
+                self._set(x, y, f["front"], has)
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -1467,7 +1487,7 @@ class MazeRecorder:
         # 逐帧只需要这几个量；缺通道 ⇒ None（**不是 0**）
         keys = ("posX", "posY", "dir", "mazeTask", "motionTask",
                 "speedL", "speedR", "wallLeft", "wallFront", "wallRight",
-                "battMv", "flags")
+                "frontFar", "battMv", "flags")
 
         def val(row: Any, k: str) -> Any:
             j = pos.get(k)
@@ -1496,6 +1516,8 @@ class MazeRecorder:
                 "wallLeft": val(row, "wallLeft"),
                 "wallFront": val(row, "wallFront"),
                 "wallRight": val(row, "wallRight"),
+                # 前墙两档：近墙/远墙在图上画在隔一格的位置，回放也必须带上
+                "frontFar": val(row, "frontFar"),
                 "battMv": val(row, "battMv"),
                 "flags": val(row, "flags"),
             })
@@ -1581,7 +1603,8 @@ class MazeRecorder:
         m = MazeWallMap(n)
         for fr in (doc.get("frames") or []):
             rec = {}
-            for k in ("posX", "posY", "dir", "wallLeft", "wallFront", "wallRight"):
+            for k in ("posX", "posY", "dir", "wallLeft", "wallFront", "wallRight",
+                      "frontFar"):
                 j = pos.get(k)
                 rec[k] = (fr[j] if (isinstance(fr, list) and j is not None
                                     and j < len(fr)) else None)

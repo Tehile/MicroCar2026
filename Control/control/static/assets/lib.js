@@ -750,8 +750,11 @@ window.C = (function () {
 
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
-  function applyParams(d) {
-    if (!d || !d.groups) return false;
+  /* 分组字典 → 界面用的分组数组。**回放快照与实时参数表共用这一份**
+     （`rec.params` 以前直接拿去 `.map`，而它其实是 `{groups:{...}}` 字典 ⇒
+      `rec.params.map is not a function`，整页渲染失败）。 */
+  function paramsToArray(d) {
+    if (!d || !d.groups) return null;
     const meta = d.groups_meta || {};
     const out = [];
     GROUP_UI.forEach(function (g) {
@@ -791,10 +794,15 @@ window.C = (function () {
         items: items,
       });
     });
-    if (!out.length) return false;
+    return out.length ? out : null;
+  }
+
+  function applyParams(d) {
+    const out = paramsToArray(d);
+    if (!out) return false;
     S.params = out;
-    S.paramsNote = d.note || '';
-    S.paramsCount = d.count;
+    S.paramsNote = (d && d.note) || '';
+    S.paramsCount = (d && d.count);
     return true;
   }
 
@@ -939,7 +947,8 @@ window.C = (function () {
       rec.maze = d.maze || null;
       rec.mazeNote = (d.maze && d.maze.note) || '';
       rec.samples = d.samples || [];
-      rec.params = d.params || null;          // 老记录 → null（界面显示"未记录"）
+      // 老记录 → null（界面显示「未记录」）；有快照就转成**分组数组**
+      rec.params = d.params ? paramsToArray(d.params) : null;
       rec.paramsAtMs = d.params_at_ms;
       rec.sampled = d.sampled || 1;
       emit('state');
@@ -1045,8 +1054,14 @@ window.C = (function () {
     return get('/api/v1/mouse/maze/reconstruct').then(function (d) {
       if (d && d.mazetype) S.mazeN = d.mazetype;
       const v = (d && d.view) || null;
-      S.mazeView = (v && (d.frames_used || 0) > 0)
-        ? Object.assign({ frames_used: d.frames_used, window_s: d.window_s }, v)
+      /* 有没有内容看 **`frames_total`（这张图一共攒了多少帧）**，不是 `frames_used`。
+         `frames_used` 是"这一轮新喂了几帧"——车停着 1.2 s 内没有新帧时它是 0，
+         拿它判断就会让图每 1.2 s 闪成一次空白（把"没动"误读成"没有数据"）。 */
+      S.mazeView = (v && (d.frames_total || 0) > 0)
+        ? Object.assign({
+          frames_used: d.frames_used, frames_total: d.frames_total,
+          covered_s: d.covered_s, window_s: d.window_s,
+        }, v)
         : null;
       emit('health');                     // 只重画，不整页重挂
       return S.mazeView;
@@ -1054,6 +1069,25 @@ window.C = (function () {
       log('mouse', 'warn', '迷宫重构取不到：' + ((e && (e.detail || e.message)) || e));
       return null;
     });
+  }
+
+  /* 清空比赛页的实时墙图（只清这张图；记录 / 设备 / 拉取都不动）。 */
+  function clearMazeView() {
+    if (!LIVE.on) { S.mazeView = null; emit('health'); return Promise.resolve(true); }
+    return post('/api/v1/mouse/maze/reconstruct/clear', {})
+      .then(function () {
+        S.mazeView = null;
+        log('mouse', 'info', '实时墙图已清空 · 从下一帧重新累积');
+        toast('', '已清空', '记录与设备都没动，继续跑就会重新画出来');
+        emit('health');
+        return true;
+      })
+      .catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('mouse', 'warn', '清空失败：' + msg);
+        toast('bad', '清空失败', String(msg).slice(0, 120));
+        return false;
+      });
   }
 
   let raceTimer = null;
@@ -1117,6 +1151,13 @@ window.C = (function () {
     if (!LIVE.on) return Promise.resolve(false);
     return del('/api/v1/records/' + encodeURIComponent(rec.name)).then(function () {
       log('control', 'warn', '记录已删除 · ' + rec.id);
+      /* 先**就地摘掉**这一条，再重拉列表。
+         只重拉的话，只要这次请求失败（或慢），界面上那条记录会一直留着，
+         用户就会再点一次删除 —— 而后端已经 404 了，于是"按了没反应"。 */
+      const i = S.records.findIndex(function (r) { return r.id === id; });
+      if (i >= 0) S.records.splice(i, 1);
+      if (S.recSel === id) S.recSel = (S.records[0] ? S.records[0].id : '');
+      emit('state');
       return loadRecords();
     }).catch(function (e) {
       const msg = (e && (e.detail || e.message)) || String(e);
@@ -1958,7 +1999,7 @@ window.C = (function () {
     videoStart, videoCancel, videoTick,
     recomputeLeds, pullBatch,
     setPull, syncPull,
-    loadMazeView, startRaceTick, stopRaceTick, deleteRecord, linkVideo,
+    loadMazeView, clearMazeView, startRaceTick, stopRaceTick, deleteRecord, linkVideo,
     // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
     startLive, LIVE,
     // 四页数据（按页拉取 + 形状翻译）

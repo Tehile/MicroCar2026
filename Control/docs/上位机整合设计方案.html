@@ -172,6 +172,8 @@ li{margin:.28em 0}
 <li><a href="#1132-1">11.32 改版三十·「提示已连接、1 秒后断开」（状态：已修）</a></li>
 <li><a href="#1133">11.33 改版三十一·按页拉取（省链路）+ 开流带档（状态：已落地）</a></li>
 <li><a href="#1134">11.34 改版三十二·真机四连修（状态：已落地）</a></li>
+<li><a href="#1135">11.35 改版三十三·真机跑起来之后才暴露的五个静默错（状态：已落地）</a></li>
+<li><a href="#1136">11.36 改版三十四·地图对齐固件坐标 + 清空 + 远近墙 + 测试提速（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -727,6 +729,35 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
   ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
   <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
+<p><strong>改版记录 2026-10-22（三十四）</strong>：地图显示对齐固件坐标 + 可清空 + 能分清远近墙；
+并把测试从"5 分钟干等"整成"30 秒出结论"。
+· <strong>原点在左下角、y 向上</strong>：<code>draw.maze</code> 的 <code>Y(y)=pad+(N-y)*s</code>（收的是<strong>格线</strong>坐标）。
+  车在 <code>(0,0)</code> 时像素落在左下（实测 <code>cx=0.24, cy=0.76</code>）。<strong>只是显示翻转</strong>，
+  数据下标里的 y 仍是固件 y（混淆过一次，代价是整张墙图错位）。
+· <strong>比赛页加【清空】</strong>：<code>POST /mouse/maze/reconstruct/clear</code> ⇒ <code>reset_live_map()</code>。
+  只清这张图，记录/设备/拉取都不动；清零基线是<strong>现在</strong>（不是 0，否则会把上一盘
+  的 30 秒喂回来）。
+· <strong>远近墙分开画</strong>：<code>wallFront=1 &amp; frontFar=0</code> ⇒ 近墙落<strong>本格</strong>前沿；
+  <code>frontFar=1</code> ⇒ 远墙落<strong>外一格</strong>前沿（并给本格写 <code>front=False</code>，因为"贴脸是空的"
+  本身就是决策依据）。两档差一格位置，这就是"能分辨"的依据（与旧版一致）。
+· <strong>测试提速</strong>：<code>browser_check</code> 加<strong>线程级看门狗</strong>（<code>--timeout</code> 默认 150 s，
+  到点打印"卡在哪一段"再 <code>os._exit</code>）与 <code>--only V12,V13</code>（段级跳过）。
+  实测 5 分钟 → <strong>30 s</strong>。
+细节见 §11.36。</p>
+<p><strong>改版记录 2026-10-22（三十三）</strong>：比赛页、记录页、回放页的<strong>五个静默错</strong>。
+上一版（三十二）修的是"图不出来"，这一轮在真机上<strong>真的跑起来之后</strong>才暴露的是：
+· <strong>实时图会越跑越少</strong>：<code>maze/reconstruct</code> 每次都从<strong>环形缓冲</strong>（默认 30 s）重放，
+  跑过 30 s 之后早期探到的墙被挤出窗口 ⇒ 图上凭空多出几块"还没探过"的空白。
+  图上仍有墙有路，所以看不出错。改成<strong>本层增量累积</strong>（按帧时间戳去重），整场不丢。
+· <strong><code>record/start</code> 不开流</strong>：拉取没开时"开始记录"，界面上已开始、跑完一条记录也没有
+  （空记录不落盘）。与 <code>session_open</code> 同源，在这里补兜底，并把"没帧的原因"回给界面。
+· <strong>手动开的记录回放按钮是灰的</strong>：前端拿 <code>launch</code>（"是不是发车自动开的"）当
+  "有没有位置"。手动记录帧里照样有 <code>posX/posY</code>，<code>disabled</code> 让人以为记录坏了。
+· <strong>回放页整页崩</strong>：<code>rec.params.map is not a function</code> —— 后端给的是
+  <code>{groups:{...}}</code> 字典，前端按数组用。改成与实时参数表<strong>共用一份</strong>转换。
+· <strong>删除"点了没反应"</strong>：其实删成功了，但列表没更新、确认文案被 1 s 轮询重绘抹掉，
+  于是人会再点一次（后端已 404）⇒ 看起来永远删不掉。
+细节见 §11.35。</p>
 <p><strong>改版记录 2026-10-22（三十二）</strong>：真机（COM7 / fw311）四连修。
 · <strong>比赛页地图不对</strong>：原来画的是<strong>原型那张静态迷宫</strong>（<code>C.maze</code>，一进来就有路径），
   真实帧从来没进过图。改成：初始 = <strong>空白 N×N 网格</strong>，进页每 1.2 s 取
@@ -8429,6 +8460,280 @@ C.toast('ok', '已连接', val + ' · proto 9 · 状态 WAIT');   // 只弹窗
 <tr>
 <td><code>check_iface_table</code></td>
 <td>5/0（<strong>86 路由</strong>）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1135">11.35 改版三十三·真机跑起来之后才暴露的五个静默错（状态：<strong>已落地</strong>）</h3>
+<p>改版三十二把"图出不来"修了；这一轮在真机（COM7 / fw311 / 16×16）上<strong>真的让数据流起来</strong>
+之后，暴露出的是另一类问题：<strong>图能出来，但内容是错的/会退化</strong>，或者<strong>按钮看起来正常、
+其实什么都没做</strong>。五个都记在这里，因为它们的共同点是"界面上看不出错"。</p>
+<h4 id="_116">一、实时图会越跑越少（滑动窗口 ≠ 整场）</h4>
+<p><strong>现象</strong>：比赛页的图一开始有墙，跑久了图上多出几块"还没探过"的空白。</p>
+<p><strong>根因</strong>：<code>maze_reconstruct</code> 每次都 <code>telemetry.history_dict(seconds=30)</code> 取<strong>最近 30 秒</strong>的帧，
+重建一张全新的 <code>MazeWallMap</code>。跑过 30 秒后，早期探到的墙被<strong>挤出环形缓冲</strong> ⇒ 重放出来
+只剩"最近 30 秒走过的部分"。图上仍然有墙有路（所以完全看不出错），少掉的那部分是假的空白。</p>
+<p><strong>改法</strong>：本层<strong>常驻一张图</strong>（<code>_live_map</code>），每次只喂<strong>新帧</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>点</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>去重</td>
+<td>按帧时间戳 <code>t</code> 比 <code>_live_t</code>，只喂更大的（滑动窗口重叠部分跳过）</td>
+</tr>
+<tr>
+<td>归零</td>
+<td><code>reset_live_map()</code>：<strong>重新连接</strong>、<strong>新一跑发车</strong>、<strong>尺寸变化</strong>三处</td>
+</tr>
+<tr>
+<td>归零基线</td>
+<td><code>_live_t = time.time()</code>，<strong>不是 0</strong> —— 置 0 会让清零后第一轮把上一跑 30 秒全喂进来</td>
+</tr>
+<tr>
+<td>尺寸变化</td>
+<td>换设备/重新标定 ⇒ 旧图直接作废（16 的坐标写进 7 的图 = 错位图）</td>
+</tr>
+<tr>
+<td>自报</td>
+<td><code>frames_used</code>（这一轮新帧）、<code>frames_total</code>（整场累计）、<code>covered_s</code>（覆盖多久）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>顺手纠正一个语义</strong>：<code>frames_total</code> 一开始写成了 <code>len(m.track)</code>（走过的<strong>格子数</strong>），
+名字与内容不符；改成真正的累计帧数。界面文案也从"N 帧重建"改成"N 帧"（报整场）。
+<strong>前端的"有没有内容"判据必须换成 <code>frames_total</code></strong> —— 用 <code>frames_used</code> 的话，车停着
+1.2 s 内没有新帧就是 0，图会每 1.2 s 闪一次空白（把"没动"误读成"没数据"）。</p>
+<h4 id="recordstart">二、<code>record/start</code> 不开流 ⇒ 记录一条也没有</h4>
+<p><strong>现象</strong>：点【开始记录】→ 界面说已开始 → 跑完，「比赛记录」里没有这一跑。</p>
+<p><strong>根因</strong>：记录器<strong>只在收到帧时才写文件</strong>（空记录不落盘）。而拉取改"按页开门"之后
+（改版三十一），后端连上<strong>不再自动开流</strong>。<code>session_open</code> 那里补过兜底，
+<code>POST /mouse/maze/record/start</code> 这条<strong>漏了</strong>。</p>
+<p><strong>改法</strong>：<code>record/start</code> 先判 <code>connected &amp;&amp; !stream_on</code> ⇒ 自动开流（带档），
+并把结果写进 <code>pull_note</code> 回给界面（"已自动开流（档 n=…）"/"拉取没能开起来：…"/
+"未连接设备：这条记录不会有帧"）。<strong>开流失败不阻断开始记录</strong>，但必须说清楚，
+否则"空记录"无从解释。</p>
+<h4 id="_117">三、手动开的记录，回放按钮是灰的</h4>
+<p><strong>现象</strong>：一堆记录的回放按钮 <code>disabled</code>，点不动。</p>
+<p><strong>根因</strong>：前端拿 <code>launch</code> 当门。而 <code>launch</code> 的定义是<strong>"这条记录是不是发车自动开的"</strong>
+（<code>why == "maze_run"</code>），与"有没有位置"是两件事：手动开的记录帧里照样有 <code>posX/posY</code>。</p>
+<p><strong>改法</strong>：门控改成<strong>帧数</strong>（<code>r.frames &gt; 0</code>），播放按钮改成"样本 ≥ 2"；
+详情面板里那句"没有发车记录，回放无位置"改成"这条记录没有帧"。
+<code>launch</code> 只保留<strong>展示</strong>用途（"发车 @1.2 s" / "无发车记录"标签）。</p>
+<h4 id="recparamsmap-is-not-a-function">四、回放页整页崩：<code>rec.params.map is not a function</code></h4>
+<p><strong>根因</strong>：后端 <code>replay</code> 的 <code>params</code> 是快照原样 <code>{groups:{组名:{项名:{…}}}, at_ms, source}</code>，
+前端按<strong>分组数组</strong>用（<code>rec.params.map(g =&gt; …)</code>）。形状不一致 ⇒ 挂载即抛，整页白掉。</p>
+<p><strong>改法</strong>：把 <code>applyParams</code> 里"分组字典 → 分组数组"的那段抽成 <code>paramsToArray(d)</code>，
+<strong>实时参数表与回放快照共用这一份</strong>（两份转换 = 两套口径，迟早对不上）。
+老记录 <code>params === null</code> 照旧显示「未记录」。</p>
+<h4 id="_118">五、删除"点了没反应"（其实删成功了）</h4>
+<p>三个小问题叠在一起，每个都让用户以为"功能没做"：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>后果</th>
+<th>改法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>删除成功后只重拉列表</td>
+<td>请求失败/慢时那条记录还在 ⇒ 再点一次（后端已 404）</td>
+<td>先 <code>splice</code> 就地摘掉，再重拉</td>
+</tr>
+<tr>
+<td>确认文案被 1 s 轮询重绘抹掉</td>
+<td>点一次看不到"确认删除？"，以为没反应</td>
+<td>按钮文本由 <code>delArmed(id)</code> 决定，重绘后仍在</td>
+</tr>
+<tr>
+<td>两步确认只比时间</td>
+<td>点 A 的删除 → 再点 B 的删除，B 被立刻删掉（一次都没确认）</td>
+<td>判定用 <strong>(时间, 记录 id) 一对</strong></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_119">六、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>验什么</th>
+<th>为什么必须这样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>V12</strong></td>
+<td>比赛页进页后 <code>mazeView.frames_total</code> 在<strong>两次 5 s 采样之间增长</strong>，且 <code>N==设备 mazetype</code></td>
+<td>只验"图有内容"会把<strong>静态原型</strong>判成通过（三十二之前就是这样）</td>
+</tr>
+<tr>
+<td><strong>V13</strong></td>
+<td>手动开的记录（<code>launch=false</code>）回放按钮<strong>可点</strong>、<code>samples&gt;0</code>、无报错横幅、<code>ink&gt;0</code></td>
+<td>用 <code>launch</code> 当门时这条会 PASS（按钮存在）却点不动</td>
+</tr>
+<tr>
+<td><strong>V14</strong></td>
+<td>删除：一步只改文案且 <strong>0 条 DELETE</strong>；两步只发 <strong>1 条</strong> DELETE 且<strong>首行变化</strong></td>
+<td>只验"文件没了"会把"连点两次删两条"放过</td>
+</tr>
+<tr>
+<td><strong>I44</strong></td>
+<td><code>record/start</code> 在流关时自动开流并回 <code>pull_note</code>；<code>frames&gt;0</code> 才落盘</td>
+<td>只验"接口 200"会把空记录放过</td>
+</tr>
+<tr>
+<td><strong>I45</strong></td>
+<td><code>maze/reconstruct?seconds=1</code> 连续调用：<code>frames_total</code> 单调增长、<code>covered_s</code> 能超过 1 s</td>
+<td>这条<strong>专门守"滑动窗口退化成 30 s"</strong>：旧实现每次只重放 1 s，<code>covered_s</code> 永远 ≤1</td>
+</tr>
+</tbody>
+</table>
+<h4 id="com7-fw311">七、实测（真机 COM7 / fw311）</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>累积</td>
+<td>连续 <code>?seconds=1</code> 调用：<code>used 5 / total 5 → 10</code>、<code>covered_s 0.9 → 3.3</code>（&gt;1 s ⇒ 已跨窗口）</td>
+</tr>
+<tr>
+<td>比赛页</td>
+<td><code>N=16</code>、<code>frames_total=169</code>、<code>covered_s=98</code>、<code>ink=8568</code>、<code>pulling=true</code></td>
+</tr>
+<tr>
+<td>看门狗</td>
+<td>手动关流 ⇒ <code>t+1s</code> 关、<code>t+2s</code> 重新 <code>stream_on=true</code>、页面 <code>pulling=true</code></td>
+</tr>
+<tr>
+<td><code>record/start</code></td>
+<td>流关 ⇒ <code>pull_note=已自动开流</code>、<code>stop</code> 写出 39 帧</td>
+</tr>
+<tr>
+<td>手动记录回放</td>
+<td><code>回放</code> 可点、<code>samples=19</code>、<code>N=16</code>、无 banner、<code>ink=8890</code></td>
+</tr>
+<tr>
+<td>删除</td>
+<td>一步 <code>0</code> 条 DELETE + 文案变红；两步 <code>1</code> 条 DELETE + 首行从 133649 变成 162328</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1136">11.36 改版三十四·地图对齐固件坐标 + 清空 + 远近墙 + 测试提速（状态：<strong>已落地</strong>）</h3>
+<h4 id="y">一、原点在左下角、y 轴向上</h4>
+<p><strong>要求</strong>：地图示意以左下角为 <code>(0,0)</code>，起始方向向上 —— 即<strong>与固件坐标系一致</strong>。</p>
+<p><strong>改法</strong>（只在显示层）：<code>draw.maze</code> 里</p>
+<pre><code class="language-js">const X = x =&gt; pad + x * s;
+const Y = y =&gt; pad + (N - y) * s;   // y 是**格线**坐标 0..N
+</code></pre>
+<p>于是格 <code>y</code> 的屏幕纵向范围是 <code>[Y(y+1), Y(y)]</code>（上沿 <code>Y(y+1)</code>）。跟随改动的三处：
+终点区上沿从 <code>Y(minY)</code> → <code>Y(maxY+1)</code>；外框矩形 y 起点从 <code>Y(0)</code> → <code>Y(N)</code>；
+x 轴刻度从顶部挪到底部（原点在左下）。</p>
+<p>⚠️ <strong>这只是显示翻转</strong>：<code>v/h/visited/trail</code> 里的 y 仍然是固件 y。
+这条纪律是拿代价换来的 —— 改版二十九之前有一次把"显示翻转"当成"数据镜像"，
+结果每道上下方向的墙都记到隔一格（图上"有内容"但错位，比空白更难发现）。
+同时 <code>DIR_V[0] = [0,-1]</code>（屏幕向上）在新坐标下才真正对上车头朝向。</p>
+<p><strong>实测</strong>：车在 <code>posX=0, posY=0</code> 时，画布上车的蓝色像素质心 <code>cx=0.237 / cy=0.762</code>
+（相对画布），即<strong>左下</strong>。旧坐标下同一状态是左上。</p>
+<h4 id="_120">二、比赛页【清空】</h4>
+<p><code>POST /api/v1/mouse/maze/reconstruct/clear</code> ⇒ <code>reset_live_map("界面清空")</code>。</p>
+<p>为什么需要：墙图是<strong>本层增量累积</strong>的（改版三十三），一旦攒进去就一直留着。
+换了一盘迷宫、或图上被某一帧的错误值弄脏，人得能说"从这里重来"——
+否则唯一的办法是拔掉重连（把设备状态也一起丢了）。</p>
+<p>三条纪律：
+* 只清<strong>显示用的那张图</strong>：不碰记录、不碰设备、不等价于重连；
+* 清零基线是<strong>现在</strong>（<code>_live_t = time.time()</code>），<strong>不是 0</strong> —— 置 0 会让下一轮
+  把环形缓冲里上一盘的 30 秒全喂回来，图上又是"看着正常、其实来自上一盘"；
+* 不二次确认：它<strong>可重建</strong>（继续跑几秒就回来了），而且清的不是任何落盘的东西。</p>
+<p><strong>实测</strong>：点【清空】⇒ 页面 <code>mazeView=null</code>、后端 <code>frames_total</code> 3259 → 0，
+再取一次是 33（清空之后新累积的），<code>source=ring+cumulative</code>。</p>
+<h4 id="_121">三、近墙 / 远墙分开画（与旧版一致）</h4>
+<p>上游 v9 的前墙是<strong>两档</strong>（<code>RemoteControl/docs/算法详解.md</code>）：</p>
+<pre><code>frontFar  = wallSns.front &amp;&amp; min(f1,f2) &gt;= irCfg.thrFrontNear   /* 提前量 */
+frontNear = wallFront &amp;&amp; !frontFar                               /* 贴脸 */
+恒等式：frontNear | frontFar == wallFront
+</code></pre>
+<p><code>MazeWallMap.feed</code> 原来把 <code>wallFront=1</code> 一律当"本格前沿有墙"⇒ <strong>远墙被画成近墙</strong>，
+图上少一格距离。现场后果很具体：看着"前面一格就是墙"，实际还有一格能走。</p>
+<p>改法（<code>feed</code> 里）：
+| 输入 | 落点 |
+|---|---|
+| <code>wallFront=1, frontFar=0</code> | <code>_set(x, y, front, True)</code> —— 本格前沿 |
+| <code>wallFront=1, frontFar=1</code> | <code>_set(x, y, front, **False**)</code> + <code>_set(x+dx, y+dy, front, True)</code> |
+| <code>wallFront=0</code> | <code>_set(x, y, front, False)</code> |</p>
+<p>远墙那条同时要写 <code>False</code>：<strong>"贴脸那格是空的"本身就是决策依据</strong>，
+不写的话界面会以为"这里还没探过"。若下一格出界（本格已贴边）则不写远墙。</p>
+<p><code>frontFar</code> 一并加进取帧的 <code>keys</code>（实时 <code>maze_reconstruct</code>、回放的样本字段、
+<code>rebuild_map</code> 三处）—— 少一处，回放的图就和实时的不一样。</p>
+<p><code>frontFar</code> 缺通道（老固件/老记录）时按 <code>False</code> 处理（当近墙）：宁可把墙画近一点
+（人不会往那儿走），也不要把贴脸的墙画到一格之外。</p>
+<h4 id="5-30">四、测试提速：5 分钟 → 30 秒</h4>
+<p>这一轮最贵的不是写代码，是<strong>两次"跑了 3~5 分钟还没动静"</strong>。两个真凶：</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>改法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--timeout 90</code> 不生效，照跑 3 分钟</td>
+<td><code>asyncio.wait_for</code> <strong>中断不了同步阻塞</strong>（脚本里大量 <code>urllib</code>、<code>subprocess.readline</code>）。事件循环停住，计时器也跟着停</td>
+<td>改成<strong>线程看门狗</strong> + <code>os._exit(3)</code>，到点打印 <code>CUR["head"]</code>（卡在哪一段、停了多久）</td>
+</tr>
+<tr>
+<td>卡在"主区文案"32 s（那一段只读一行 innerText）</td>
+<td>收尾里 <code>_rmtree_quiet(profile)</code> 删 Chrome profile（几十~几百 MB，Windows + 杀软实测 30 s+）</td>
+<td>profile 改用<strong>系统临时目录</strong>，退出路径上<strong>不删</strong>（项目目录不留产物才是要守的那条）</td>
+</tr>
+<tr>
+<td>V9/V11/V12/V13 全 SKIP</td>
+<td>脚本开头<strong>无条件 <code>disconnect</code></strong> 求"确定起点"，把要设备的判据全废了</td>
+<td>开头只<strong>记录</strong>连接状态；只有真正需要"未连接"的 V10 才判（它本来就有"真机连着就 SKIP"的保护）</td>
+</tr>
+<tr>
+<td>V5 在连着设备时误红</td>
+<td>它写死"应未连"</td>
+<td>改成<strong>界面与后端一致</strong>（假绿灯/假红灯都抓）</td>
+</tr>
+</tbody>
+</table>
+<p>另外加 <code>--only V12,V13</code>：<strong>段级</strong>跳过（连等待一起省），改一处前端就只跑相关那几条。</p>
+<p><strong>实测</strong>：<code>--only V12</code> 从"5 分钟无输出"变成 <strong>30 s、15 PASS / 0 FAIL / 3 SKIP</strong>。</p>
+<h4 id="_122">五、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>验什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>V12</strong>（改版三十三新增，本轮修正）</td>
+<td>比赛页 <code>N == 设备 mazetype</code> <strong>且</strong> 4 s 内 <code>frames_total</code> 在涨</td>
+</tr>
+<tr>
+<td><strong>V15</strong>（本轮新增）</td>
+<td>【清空】⇒ 后端 <code>frames_total</code> 归零、页面 <code>mazeView=null</code>；随后继续涨（不是永久空）</td>
+</tr>
+<tr>
+<td><strong>I46</strong>（本轮新增）</td>
+<td><code>frontFar=1</code> 的帧 ⇒ 墙落在<strong>下一格</strong>前沿、本格前方是 <code>False</code>（负向：<code>frontFar=0</code> 时落在本格）</td>
 </tr>
 </tbody>
 </table>

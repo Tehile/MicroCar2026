@@ -31,7 +31,13 @@ C.draw = (function () {
     const { g, w } = fit(cv, 1);
     const pad = 20;
     const s = (w - pad * 2) / N;
-    const X = x => pad + x * s, Y = y => pad + y * s;
+    /* 坐标：**左下角是 (0,0)，y 轴向上**（= 固件坐标系）。
+       `X/Y` 收的是**格线**坐标（0..N），不是格中心；格 y 的屏幕纵向范围是
+       `[Y(y+1), Y(y)]`（上沿 `Y(y+1)`、下沿 `Y(y)`）。
+       ⚠️ 这只是**显示翻转**：数据下标（`v/h/visited/trail`）里的 y 就是固件 y，
+          不动它 —— 早先就是因为把"显示翻转"当成"数据镜像"，把墙记错了隔一格。 */
+    const X = x => pad + x * s;
+    const Y = y => pad + (N - y) * s;
 
     g.fillStyle = '#FFFFFF';
     g.fillRect(0, 0, w, w);
@@ -50,7 +56,7 @@ C.draw = (function () {
     if (gm.length) {
       const minX = Math.min.apply(null, gm.map(p => p[0])), maxX = Math.max.apply(null, gm.map(p => p[0]));
       const minY = Math.min.apply(null, gm.map(p => p[1])), maxY = Math.max.apply(null, gm.map(p => p[1]));
-      const gx = X(minX), gy = Y(minY), gw = (maxX - minX + 1) * s, gh = (maxY - minY + 1) * s;
+      const gx = X(minX), gy = Y(maxY + 1), gw = (maxX - minX + 1) * s, gh = (maxY - minY + 1) * s;
       g.fillStyle = 'rgba(43,79,242,.13)';
       g.fillRect(gx, gy, gw, gh);
       g.strokeStyle = BLUE; g.lineWidth = 2;
@@ -79,7 +85,7 @@ C.draw = (function () {
       }
     }
     g.strokeStyle = INK; g.lineWidth = 2.4;
-    g.beginPath(); g.rect(X(0), Y(0), N * s, N * s); g.stroke();
+    g.beginPath(); g.rect(X(0), Y(N), N * s, N * s); g.stroke();
 
     /* 全程路径：浅蓝虚线。
        ⚠️ `path` 可能**没有**（实时重构/回放只给"走过的 trail"，不给规划路径）——
@@ -137,7 +143,7 @@ C.draw = (function () {
     g.fillStyle = MUTED;
     g.font = '9px Consolas,monospace';
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    for (let i = 0; i < N; i += 3) g.fillText(String(i), X(i + .5), pad - 9);
+    for (let i = 0; i < N; i += 3) g.fillText(String(i), X(i + .5), Y(0) + 9);
     g.textAlign = 'right';
     for (let i = 0; i < N; i += 3) g.fillText(String(i), pad - 7, Y(i + .5));
   }

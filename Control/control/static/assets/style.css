@@ -536,6 +536,9 @@ h1,h2,h3,h4,p{margin:0}
 .legend{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted)}
 .legend i{width:14px;height:0;border-top:2px solid var(--ink);display:inline-block}
 .legend i.dash{border-top:1px dotted var(--line-2)}
+/* 远墙：图上画在**隔一格**的位置（本格前方那格的再前一格）。
+   图例这里用"细一号 + 半透明"暗示它比近墙远，与画布上的位置差一起表达。 */
+.legend i.far{border-top:2px solid var(--muted);opacity:.55}
 .legend i.goal{width:10px;height:10px;border:1.5px solid var(--blue);background:rgba(43,79,242,.13);opacity:1}
 .race-side .card + .card{margin-top:12px}
 

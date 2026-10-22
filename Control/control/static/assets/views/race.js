@@ -31,12 +31,15 @@
                 '<span class="tag blue">16 × 16</span>' +
                 '<span class="tag" id="rc-vtag">已探明 0 格</span>' +
                 '<span class="hint mono" id="rc-trail">—</span>' +
+                '<button class="btn btn-sm btn-ghost" id="rc-clear"' +
+                  ' title="只清这张图，记录与设备都不动">清空</button>' +
               '</div>' +
             '</div>' +
             '<div class="card-body" style="padding:10px">' +
               '<div class="maze-box"><canvas id="rc-maze"></canvas></div>' +
               '<div class="maze-foot">' +
-                '<span class="legend"><i></i>已知墙</span>' +
+                '<span class="legend"><i></i>近墙（贴脸）</span>' +
+                '<span class="legend"><i class="far"></i>远墙（隔一格）</span>' +
                 '<span class="legend"><i class="dash"></i>未探明</span>' +
                 '<span class="legend"><i class="goal"></i>终点 2×2</span>' +
               '</div>' +
@@ -89,6 +92,17 @@
       root.querySelector('#rc-mstop').onclick = () => { C.act('mazeStop'); this.paint(true); };
       root.querySelector('#rc-rescue').onclick = () => { C.act('rescue'); this.paint(true); };
       root.querySelector('#rc-recstop').onclick = () => { C.act('saveRecord'); };
+      /* 清空：只清**这张图**（后端 `reset_live_map`），记录、设备、拉取都不动。
+         凭什么敢直接删（不二次确认）：它**可重建**——继续跑几秒图就回来了，
+         而且清的只是"我看到了什么"，不是任何落盘的东西。 */
+      const cl = root.querySelector('#rc-clear');
+      if (cl) cl.onclick = () => {
+        C.clearMazeView().then((okc) => {
+          if (!okc) return;
+          S.mazeView = null;
+          this.paint(true);
+        });
+      };
       const rf = actions && actions.querySelector('[data-r="refresh"]');
       if (rf) rf.onclick = () => {
         C.log('mouse', 'info', '→ GET maze/state');
@@ -186,8 +200,10 @@
       };
       const nv = Object.keys(view.visited || {}).length;
       root.querySelector('#rc-vtag').textContent = '已探明 ' + nv + ' 格';
+      /* 文案报的是"这张图一共攒了多少帧 + 覆盖多久"。**不报 `frames_used`** ——
+         那是"上一轮新喂了几帧"，车停着就是 0，看起来像"没在采"。 */
       root.querySelector('#rc-trail').textContent = mv
-        ? ('轨迹 ' + (view.trail || []).length + ' 点 · ' + (mv.frames_used || 0) + ' 帧重建')
+        ? ('轨迹 ' + (view.trail || []).length + ' 点 · ' + (mv.frames_total || 0) + ' 帧')
         : '等设备帧';
       const cv = root.querySelector('#rc-maze');
       if (cv && cv.clientWidth) {

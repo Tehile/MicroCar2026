@@ -305,6 +305,14 @@ class MouseAdapter:
         #: 但**越界一律夹回合法区间**并留日志 —— 配置写错不该让服务起不来，
         #: 也不该悄悄按一个设备不肯接受的数去发。
         self._pull_n = self._cfg_pull_n()
+        #: 比赛页的**常驻**墙图（增量累积）。上游环形缓冲只有 30 s（`telemetry_window_s`），
+        #: 整场跑下来早期探到的墙会被**滚出窗口** ⇒ 图上越跑越少，而界面上仍有内容
+        #: （静默错）。所以这里自己攒：只喂"上次之后的新帧"（按帧时间戳 `t` 去重）。
+        #: 归零点在 `reset_live_map()`：重新连接、新一跑发车、界面主动清空。
+        self._live_map: Optional[Any] = None
+        self._live_n: int = 0
+        self._live_t: float = 0.0
+        self._live_lock = threading.Lock()
         self._load()
 
     def _cfg_pull_n(self) -> int:
@@ -950,6 +958,8 @@ class MouseAdapter:
         if not ok:
             raise MouseError(_enhance(mc.state_detail or "连接失败，但上游没给原因"))
         self._last_advice = None
+        # 换了设备（或重连）⇒ 上一张墙图作废：尺寸可能不同，坐标也可能换了迷宫
+        self.reset_live_map("重新连接")
         # 设备自述可能因为"PING 与首条 TELEM 背靠背被丢"而空 ⇒ 这里补一次，
         # 否则界面拿不到 fw / mazetype（后者决定地图按几乘几建）
         out = {"ok": True, "target": _t(mc.link.target),
@@ -2235,14 +2245,35 @@ class MouseAdapter:
     # ⚠️ 差分的**前提是相邻帧连续**：`SEQ` 跳变时该段边沿不可信，`task_changes()`
     # 内部已按"未知"处理，本层不伪造。
 
+    def reset_live_map(self, why: str = "") -> None:
+        """把比赛页的常驻墙图清零（下一帧从零开始攒）。
+
+        必须在三个地方调：**重新连接**（换设备/换了迷宫）、**新一跑发车**（上一跑的墙
+        不能带进来）、**界面主动清空**。少一处就会"图上还留着上一跑的墙"——那种图
+        看起来完全正常，只是其中的格子是假的。
+        """
+        with self._live_lock:
+            self._live_map = None
+            self._live_n = 0
+            # ⚠️ 不能用 0 —— 0 意味着"ring 里所有帧都算新帧"，于是清零之后第一轮
+            #    会把**上一跑的 30 秒**全喂进来（图上一片来自上一跑的墙，看着很正常）。
+            #    设为"现在"：只有此刻之后到达的帧才算。
+            self._live_t = time.time()
+            self._live_start_t = 0.0        # `covered_s` 的零点（第一帧的时间戳）
+            self._live_fed = 0              # 累计喂了几帧（整场，不是"这一轮"）
+        if why:
+            self.bus.log("info", f"实时墙图已清零（{why}）", source="mouse")
+
     def maze_reconstruct(self, seconds: float = 30.0) -> dict:
-        """把**最近一段**帧重建成墙图 —— 界面中栏的"重构示意"实时版。
+        """比赛页中栏的墙图：**本层增量累积**的整场图（不是"最近 30 s"）。
 
-        数据来自**上游的环形缓冲**（默认 30 s），按需算、**零常驻开销**：
-        不在记录时也随时能点一下看"它最近走过哪儿、认为哪儿有墙"。
+        ⚠️ 为什么不能每帧只重放环形缓冲：上游 `telemetry_window_s` 默认 30 s，跑过
+        30 s 后早期的帧被挤掉 ⇒ 重放出来的是"最近 30 秒走过的部分"，早期探明的墙
+        **凭空消失**。图上仍然有墙有路（所以看不出错），但少掉的那部分是假的空白。
+        这里改成：首帧按当前尺寸建图，之后**只喂新帧**（按 `t` 去重），整场不丢。
 
-        为什么不在这里自己常驻攒帧：那等于让服务端**为了没人看的数据一直做功**。
-        整盘的完整重建归复盘（`maze_rec.rebuild_map` 从记录文件重放）。
+        首次调用能拿到的历史仍受环形缓冲限制（最多 `seconds`），返回里 `covered_s`
+        如实说明"这张图覆盖了多久"——不够长时界面自己知道。
         """
         mc = self._mc
         if mc is None or not mc.is_connected:
@@ -2251,7 +2282,7 @@ class MouseAdapter:
             arr = mc.telemetry.history_dict(seconds=float(seconds))
         except Exception as e:                                # noqa: BLE001
             return {"n": 0, "error": f"{type(e).__name__}: {e}"}
-        keys = ("posX", "posY", "dir", "wallLeft", "wallFront", "wallRight")
+        keys = ("posX", "posY", "dir", "wallLeft", "wallFront", "wallRight", "frontFar")
         n_frames = 0
         for k in keys:
             v = arr.get(k)
@@ -2268,19 +2299,53 @@ class MouseAdapter:
             return {"n": 0, "mazetype": None, "frames_used": 0,
                     "window_s": float(seconds), "source": "ring",
                     "note": "设备没报迷宫尺寸（mazetype）⇒ 不重建"}
-        m = MazeWallMap(n)
-        if n_frames:
-            # 逐帧喂。⚠️ **不能用 `latest()`**：重建要的是**序列**（走过的每一格），
-            # 而不是最后那一帧的瞬时值 —— 用 latest 会得到"只有终点一格"的图。
-            for i in range(n_frames):
-                m.feed({k: (arr[k][i] if k in arr and i < len(arr[k]) else None)
-                        for k in keys})
-        out = m.to_json()
-        out.update({"frames_used": n_frames, "window_s": float(seconds),
-                    "mazetype": n, "source": "ring"})
+
+        ts = arr.get("t")
+        with self._live_lock:
+            # 尺寸变了（换了设备 / 重新标定过迷宫）⇒ 旧图作废，不能拿 16 的坐标往 7 里写
+            if self._live_map is None or self._live_n != n:
+                if self._live_map is not None:
+                    self.bus.log("warn", f"实时墙图尺寸变了 {self._live_n}→{n} ⇒ 重新建图",
+                                 source="mouse")
+                self._live_map = MazeWallMap(n)
+                self._live_n = n
+                # 同 reset：尺寸变了就只认"此刻之后"的帧，别把旧尺寸的帧喂进新图
+                self._live_t = time.time()
+                self._live_start_t = 0.0
+                self._live_fed = 0
+            m = self._live_map
+            fed = 0
+            if n_frames:
+                # 逐帧喂，**只喂上次之后的新帧**。⚠️ 不能用 `latest()`：重建要的是
+                # 序列（走过的每一格），用 latest 只会得到"最后那一格"。
+                for i in range(n_frames):
+                    if ts is not None and i < len(ts):
+                        t_i = float(ts[i])
+                        if t_i <= self._live_t:
+                            continue                     # 已经喂过（滑动窗口重叠部分）
+                    else:
+                        t_i = 0.0
+                    if not self._live_start_t and t_i:
+                        self._live_start_t = t_i
+                    m.feed({k: (arr[k][i] if k in arr and i < len(arr[k]) else None)
+                            for k in keys})
+                    fed += 1
+                    if t_i > self._live_t:
+                        self._live_t = t_i
+            self._live_fed += fed
+            total = self._live_fed          # 整场累计帧数（不是"这一轮"）
+            covered = (round(max(0.0, self._live_t - self._live_start_t), 1)
+                       if self._live_start_t else 0.0)
+            out = m.to_json()
+        # `frames_used` = **这一轮新喂的帧数**（不是总帧数）：界面据此判断"有没有在动"。
+        out.update({"frames_used": fed, "frames_total": total,
+                    "window_s": float(seconds), "mazetype": n,
+                    "source": "ring+cumulative", "covered_s": covered})
         # 界面直接能画的形状（v/h/visited/trail）—— 位掩码 + 十六进制串那套是**落盘**用的，
         # 让界面自己解位、自己决定 y 方向 = 又多一处"方向约定"的复制品。
         out["view"] = _wallmap_view(m)
+        out["view"]["frames_used"] = fed
+        out["view"]["covered_s"] = covered
         # 固件自述的那份（对账用）—— 只是本地缓存读，不发命令
         try:
             fm = mc.maze.last()
@@ -2292,6 +2357,13 @@ class MouseAdapter:
                                "pos": [fm.get("posX"), fm.get("posY")],
                                "dir": fm.get("direction")}
         return out
+
+    def _live_t0(self) -> float:
+        """这张常驻图是从哪一帧时间戳开始攒的（`covered_s` 的零点）。"""
+        return float(getattr(self, "_live_start_t", 0.0) or 0.0)
+
+    # -- 比赛页墙图的归零点：连接 / 发车 -----------------------------------
+
 
     def maze_view(self) -> dict:
         """当前迷宫状态 + 位置 + **迁移序列**。**这一条不发任何命令**（全是本地缓存）。"""

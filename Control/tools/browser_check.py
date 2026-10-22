@@ -40,6 +40,7 @@ import argparse
 import asyncio
 import base64
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -80,7 +81,13 @@ def record(cid: str, verdict: str, note: str) -> None:
     print(f"  [{verdict:<4}] {cid:<4} {note}")
 
 
+#: 当前跑到哪一段（全局超时时用它指出**卡在哪**）。见 `main()` 的 wait_for。
+CUR = {"head": "(还没开始)", "t": 0.0}
+
+
 def head(t: str) -> None:
+    CUR["head"] = t
+    CUR["t"] = time.time()
     print(f"\n── {t} " + "─" * max(4, 74 - len(t)))
 
 
@@ -226,27 +233,16 @@ async def run(args) -> int:
         record("S0", "FAIL", f"{base} 不可达：{e}（先 python app.py）")
         return 1
 
-    # 确定的起点：主动断一次，等 connected 连续两次为 False。
-    # 不这么做的话，"上一轮模拟器被杀、服务端还认为连着"那一小段窗口里，
-    # 页面的门控会按"已连"渲染，而检查器稍后读到"未连" ⇒ 断言随机红。
-    head("0a. 确定起点")
-    stable, broke = False, False
-    try:
-        _req(base + "/api/v1/mouse/disconnect", {})
-        prev = None
-        for _ in range(15):
-            cur = bool((read_health(base).get("mouse") or {}).get("connected"))
-            if cur is False and prev is False:
-                stable = True
-                break
-            prev = cur
-            await asyncio.sleep(0.4)
-    except Exception as e:                                    # noqa: BLE001
-        broke = True
-        record("S0e", "SKIP", f"清理残留连接失败（不影响后续）：{e}")
-    if not broke:
-        record("S0e", "PASS" if stable else "SKIP",
-               "鼠标已断开且状态稳定" if stable else "6 s 内未稳定 —— 连接类断言可能不准")
+    # 起点：**只记录**当前连接状态，不主动断开。
+    # ⚠️ 以前这里无条件 `disconnect`，理由是要一个"确定起点"。代价是：
+    #    所有需要活链路的判据（V9 参数 / V11 按页开门 / V12 实时图 / V13 回放）
+    #    全都因为"没连设备"而 SKIP —— 看着像"功能没实现"，其实是检查器自己断的。
+    #    现在只有真正需要"未连接"的那条（V10）在它自己那一段里断开。
+    head("0a. 起点：记下当前连接状态")
+    _hc = read_health(base).get("mouse") or {}
+    conn0 = bool(_hc.get("connected"))
+    record("S0e", "PASS",
+           f"起点：connected={conn0}（{'活链路，需要设备的判据能跑' if conn0 else '未连接，需要设备的判据会 SKIP'}）")
 
     sim_proc = None
     if args.sim:
@@ -430,19 +426,20 @@ async def run(args) -> int:
                     record("V5", "SKIP",
                            f"前端在原型模式（LIVE.on=false）⇒ 连接状态是演示值，不判；"
                            f"界面 conn={ui.get('conn')}、设备片 {ui.get('chipTxt')!r}")
-                elif args.sim:
-                    ok5 = (api_mouse.get("connected") is True and ui.get("conn") is True
-                           and chip_ok)
-                    record("V5", "PASS" if ok5 else "FAIL",
-                           f"应连上：后端={api_mouse.get('connected')}、"
-                           f"界面={ui.get('conn')}、设备片 {ui.get('chipTxt')!r}")
                 else:
-                    ok5 = (api_mouse.get("connected") is False and ui.get("conn") is False
-                           and not chip_ok)
+                    # 判据是**两边一致**，不是"必须未连"。
+                    # ⚠️ 以前这里是"起点一律未连"（脚本开头会强制 disconnect），
+                    #    于是"连着设备"这一态被判成 FAIL —— 而"连着设备"恰恰是
+                    #    现场最常见的一态。真正的静默错是**不一致**：
+                    #    后端没连而界面说已连接（假绿灯），或反过来（假红灯）。
+                    be = api_mouse.get("connected")
+                    ok5 = (bool(ui.get("conn")) == bool(be)) and (chip_ok == bool(be))
                     record("V5", "PASS" if ok5 else "FAIL",
-                           f"**应未连**：后端={api_mouse.get('connected')}、"
-                           f"界面={ui.get('conn')}、设备片 {ui.get('chipTxt')!r}"
-                           f"（假'已连接'比不显示更坏）")
+                           f"后端 connected={be}、界面={ui.get('conn')}、"
+                           f"设备片标 ok={chip_ok}（{ui.get('chipTxt')!r}）⇒ "
+                           f"两边{'一致' if ok5 else '**不一致**'}"
+                           + ("" if ok5 else
+                              "：假'已连接'比不显示更坏，假'未连接'会让人去查串口"))
 
                 # ---------------- V6 接缝（核心）
                 head("8. 接缝：改 N 之后拉取真的按新档开起来了")
@@ -592,7 +589,230 @@ async def run(args) -> int:
                            + ("" if ok9 else " ⇒ **参数页没吃上后端数据，或派生量被当成了可写项**"))
 
                 # ---------------- V10 连接按钮必须真的去连（本版新增，专治"连上又断开"）
+                head("11b. 切页开关拉取：不看的页面不该占链路")
+                # 拉取是唯一持续占链路的动作（停等 1 条/往返、批式 10 Hz）。
+                # 这里验两件事：**切到不需要帧的页面要停**、**切回要拉的页面要开**。
+                # 需要活链路才验得出来（没设备时 `syncPull` 直接跳过）。
+                if not (ui.get("live") and api_mouse.get("connected")):
+                    record("V11", "SKIP", "没连设备（或没进真数据模式）⇒ 按页开关无从验起")
+                else:
+                    await cdp.eval("window.C.go('live')")
+                    await asyncio.sleep(1.5)
+                    on_live = bool((read_health(base).get("mouse") or {}).get("stream_on"))
+                    await cdp.eval("window.C.go('data')")          # 只读盘，不需要帧
+                    await asyncio.sleep(1.6)
+                    off_data = bool((read_health(base).get("mouse") or {}).get("stream_on"))
+                    await cdp.eval("window.C.go('params')")        # 参数表要 GET ALL，必须拉
+                    await asyncio.sleep(2.0)
+                    on_params = bool((read_health(base).get("mouse") or {}).get("stream_on"))
+                    pcount = await cdp.eval(
+                        "(()=>((window.C.S.params||[]).reduce((a,g)=>a+g.items.length,0)))()")
+                    ok11 = on_live and (not off_data) and on_params and (pcount == 41)
+                    await cdp.eval("window.C.go('live')")          # 收尾回到要拉的页面
+                    await asyncio.sleep(1.2)
+                    record("V11", "PASS" if ok11 else "FAIL",
+                           f"进 live ⇒ 拉={on_live}；切 data ⇒ 拉={off_data}"
+                           f"（应为 False）；切 params ⇒ 拉={on_params}"
+                           f"（参数 {pcount} 项）"
+                           + ("" if ok11 else
+                              " ⇒ **切走了还在拉（白占链路），或者该拉的页面没开"
+                              "（参数表就会是 0 组）**"))
+
+                # ---------------- V12 比赛页的图必须**跟着设备走**（改版三十三）
+                head("11c. 比赛页：图是设备给的，而且会随帧增长")
+                # 三十二之前这里画的是前端原型那盘静态迷宫：**一进页就有路径**，
+                # 所以"图上有内容"根本不能判通过。要验的是：
+                #   ① 尺寸等于设备报的 mazetype；② **一段时间后帧数在涨**。
+                # 只验①会把"静态原型 + 正确尺寸"放过；只验②会把"每 1.2 s 闪成空白"放过
+                # （空白时 frames_total 也是 0 → 增长也可能成立），所以两条一起验。
+                if not pick("V12"):
+                    record("V12", "SKIP", "--only 未选中")
+                elif not (ui.get("live") and api_mouse.get("connected")):
+                    record("V12", "SKIP", "没连设备 ⇒ 实时图无从验起")
+                else:
+                    await cdp.eval("window.C.go('race')")
+                    await asyncio.sleep(3.0)
+                    m1 = await cdp.eval(
+                        "(()=>{const v=window.C.S.mazeView;const S=window.C.S;"
+                        "return JSON.stringify({N:v?v.N:null,total:v?v.frames_total:0,"
+                        "cov:v?v.covered_s:0,cells:v?Object.keys(v.visited||{}).length:0,"
+                        "want:S.mazeN||null});})()")
+                    j1 = json.loads(m1 or "{}")
+                    await asyncio.sleep(4.0)
+                    m2 = await cdp.eval(
+                        "(()=>{const v=window.C.S.mazeView;"
+                        "return JSON.stringify({N:v?v.N:null,total:v?v.frames_total:0,"
+                        "cov:v?v.covered_s:0});})()")
+                    j2 = json.loads(m2 or "{}")
+                    n_ok = (j1.get("N") is not None and j1.get("N") == j1.get("want"))
+                    grew = (j2.get("total") or 0) > (j1.get("total") or 0)
+                    ok12 = bool(n_ok and grew)
+                    record("V12", "PASS" if ok12 else "FAIL",
+                           f"比赛页：N={j1.get('N')}（设备 {j1.get('want')}，一致={n_ok}）、"
+                           f"4 s 内 frames_total {j1.get('total')}→{j2.get('total')}"
+                           f"（在涨={grew}）、覆盖 {j2.get('cov')} s、已探明 {j1.get('cells')} 格"
+                           + ("" if ok12 else
+                              " ⇒ **要么画的是原型那盘图（不在跟设备），"
+                              "要么帧根本没进来**"))
+
+                # ---------------- V15 比赛页【清空】（改版三十四）
+                head("11e. 比赛页【清空】：图归零，然后继续涨")
+                # 为什么不能只验"归零"：`reset_live_map` 把清零基线设成**现在**
+                # 才对。设成 0 的话，下一轮会把环形缓冲里**上一盘**的 30 秒全喂回来
+                # —— 图立刻又满了，而内容来自别的跑法（看起来完全正常）。
+                # 所以必须验两步：① 点完立刻是 0；② 再等几秒**能重新涨起来**。
+                if not pick("V15"):
+                    record("V15", "SKIP", "--only 未选中")
+                elif not (ui.get("live") and api_mouse.get("connected")):
+                    record("V15", "SKIP", "没连设备 ⇒ 清空无从验起")
+                else:
+                    await cdp.eval("window.C.go('race')")
+                    await asyncio.sleep(2.5)
+                    b4 = await cdp.eval(
+                        "(()=>{const v=window.C.S.mazeView;return v?(v.frames_total||0):0;})()")
+                    await cdp.eval("(()=>{const b=document.getElementById('rc-clear');"
+                                   "if(b)b.click();})()")
+                    await asyncio.sleep(1.5)
+                    z = await cdp.eval(
+                        "(()=>{const v=window.C.S.mazeView;"
+                        "return JSON.stringify({tot:v?(v.frames_total||0):0,has:!!v});})()")
+                    jz = json.loads(z or "{}")
+                    await asyncio.sleep(3.5)
+                    b5 = await cdp.eval(
+                        "(()=>{const v=window.C.S.mazeView;return v?(v.frames_total||0):0;})()")
+                    # ⚠️ 判据不能要求"立刻等于 0"：点按钮到读值之间隔了 1.5 s，
+                    #    这期间的帧本来就该算进新图（10 Hz × 1.5 s ≈ 15 帧）。
+                    #    真正要抓的是"**没清掉**（值还在原地涨）"与
+                    #    "**清完立刻被上一盘的旧帧填满**（值回到 b4 附近）"。
+                    tot_after = int(jz.get("tot") or 0)
+                    zero_ok = (not jz.get("has")) or (
+                        tot_after <= 60 and tot_after < max(1, int(b4 or 0)))
+                    regrow = int(b5 or 0) > 0
+                    ok15 = bool((b4 or 0) > 0 and zero_ok and regrow)
+                    record("V15", "PASS" if ok15 else "FAIL",
+                           f"清空前 frames_total={b4}；点【清空】后页面 "
+                           f"{'无图' if not jz.get('has') else 'frames_total=' + str(jz.get('tot'))}"
+                           f"（归零={zero_ok}）；再等 3.5 s 涨到 {b5}（重新累积={regrow}）"
+                           + ("" if ok15 else
+                              " ⇒ **要么没清掉，要么清完立刻又被上一盘的旧帧填满**"))
+
+                # ---------------- V13/V14 记录的回放与删除（改版三十三）
+                head("11d. 记录：手动开的也能回放，删除点两次才删一条")
+                # 造一条**手动开的**记录（`launch=false`）：以前前端拿 `launch` 当
+                # "有没有位置"，这种记录回放按钮就是灰的。造完立刻验、验完就删。
+                made = ""
+                if not pick("V13", "V14"):
+                    record("V13", "SKIP", "--only 未选中")
+                    record("V14", "SKIP", "--only 未选中")
+                elif not ui.get("live"):
+                    record("V13", "SKIP", "没进真数据模式 ⇒ 记录页无从验起")
+                    record("V14", "SKIP", "同上")
+                else:
+                    try:
+                        # **不传 `auto_pull:false`**：让它自己把拉取开起来 ——
+                        # 这正是人点【开始记录】的路径。传 false 的话流是关的，
+                        # 0 帧 ⇒ 记录器不落盘 ⇒ 造不出记录，V13/V14 只能 SKIP
+                        # （"没造出来"和"功能坏了"看起来一样，这是判据自己骗自己）。
+                        _req(base + "/api/v1/mouse/maze/record/start",
+                             {"why": "browser-check"}, timeout=20)
+                        await asyncio.sleep(2.2)
+                        # ⚠️ `_req` 回的是 **(dict, code) 二元组**，不是 dict。
+                        #    当 dict 用会 AttributeError，被下面的 except 吞成
+                        #    "没造出来" —— 于是 V13/V14 永远 SKIP，而人以为
+                        #    "回放功能没实现"（判据自己把自己关掉了）。
+                        sp, sp_code = _req(base + "/api/v1/mouse/maze/record/stop",
+                                           {}, timeout=20)
+                        made = str(((sp.get("data") or {}).get("name")) or "")
+                        if sp_code != 200:
+                            log_line = f"record/stop HTTP {sp_code}"
+                            print("    " + log_line)
+                    except Exception:                            # noqa: BLE001
+                        made = ""
+                    await cdp.eval("window.C.go('data')")
+                    await asyncio.sleep(2.5)
+                    has = await cdp.eval(
+                        "(()=>{const S=window.C.S;const i=(S.records||[]).findIndex(r=>r.name==="
+                        + json.dumps(made) + ");return i;})()")
+                    if not made or has is None or has < 0:
+                        record("V13", "SKIP", f"这条记录没造出来（{made!r}）⇒ 回放无从验起")
+                        record("V14", "SKIP", "同上")
+                    else:
+                        await cdp.eval(f"(()=>{{const t=document.querySelectorAll('#view tbody tr')"
+                                       f"[{has}];if(t)t.click();}})()")
+                        await asyncio.sleep(1.0)
+                        btn = await cdp.eval(
+                            "(()=>{const b=document.querySelector('[data-rp=go]');"
+                            "return JSON.stringify({has:!!b,dis:b?b.disabled:null});})()")
+                        jb = json.loads(btn or "{}")
+                        await cdp.eval("(()=>{const b=document.querySelector('[data-rp=go]');"
+                                       "if(b&&!b.disabled)b.click();})()")
+                        await asyncio.sleep(3.5)
+                        rp = await cdp.eval(
+                            "(()=>{const S=window.C.S;const r=window.C.record(S.recSel);"
+                            "const cv=document.getElementById('rp-maze');let ink=0;"
+                            "if(cv){const g=cv.getContext('2d');"
+                            "const d=g.getImageData(0,0,cv.width,cv.height).data;"
+                            "for(let i=0;i<d.length;i+=4){"
+                            "if(d[i]<200||d[i+1]<200||d[i+2]<200)ink++;}}"
+                            "return JSON.stringify({samples:r?(r.samples||[]).length:null,"
+                            "N:r&&r.maze?r.maze.N:null,launch:r?r.launch:null,ink:ink,"
+                            "banner:((document.querySelector('#view .banner'))||{}).textContent||''});})()")
+                        jr = json.loads(rp or "{}")
+                        ok13 = bool((jb.get("dis") is False) and (jr.get("samples") or 0) > 0
+                                    and (jr.get("ink") or 0) > 0
+                                    and not str(jr.get("banner") or "").strip())
+                        record("V13", "PASS" if ok13 else "FAIL",
+                               f"手动开的记录 {made}：回放按钮 disabled={jb.get('dis')}"
+                               f"（应 False）、samples={jr.get('samples')}、N={jr.get('N')}、"
+                               f"墨迹={jr.get('ink')} 像素、报错={jr.get('banner')!r}"
+                               + ("" if ok13 else
+                                  " ⇒ **要么按钮还是灰的（拿 launch 当门），"
+                                  "要么回放页挂了**"))
+
+                        # V14：删除的两步确认
+                        await cdp.eval("window.C.go('data')")
+                        await asyncio.sleep(2.2)
+                        await cdp.eval(f"(()=>{{const t=document.querySelectorAll('#view tbody tr')"
+                                       f"[{has}];if(t)t.click();}})()")
+                        await asyncio.sleep(0.8)
+                        first_before = await cdp.eval("(window.C.S.records[0]||{}).id")
+                        await cdp.eval("window.__calls.length=0")
+                        await cdp.eval("(()=>{const b=document.querySelector('[data-rp=del]');"
+                                       "if(b)b.click();})()")
+                        await asyncio.sleep(1.3)      # 跨过一次 1 s 轮询
+                        s1 = await cdp.eval(
+                            "(()=>{const b=document.querySelector('[data-rp=del]');"
+                            "return JSON.stringify({txt:b?b.textContent:'',"
+                            "calls:(window.__calls||[]).filter(c=>c.m==='DELETE').length});})()")
+                        j1s = json.loads(s1 or "{}")
+                        await cdp.eval("(()=>{const b=document.querySelector('[data-rp=del]');"
+                                       "if(b)b.click();})()")
+                        await asyncio.sleep(2.5)
+                        dels = await cdp.eval(
+                            "(window.__calls||[]).filter(c=>c.m==='DELETE').map(c=>c.u)") or []
+                        gone = await cdp.eval(
+                            "(()=>{const S=window.C.S;return (S.records||[]).some(r=>r.name==="
+                            + json.dumps(made) + ");})()")
+                        first_after = await cdp.eval("(window.C.S.records[0]||{}).id")
+                        step1_ok = ("确认" in str(j1s.get("txt"))) and int(j1s.get("calls") or 0) == 0
+                        ok14 = bool(step1_ok and len(dels) == 1 and (gone is False)
+                                    and first_after != first_before)
+                        record("V14", "PASS" if ok14 else "FAIL",
+                               f"删除：点一次只有文案变化={step1_ok}"
+                               f"（文本 {j1s.get('txt')!r}、DELETE {j1s.get('calls')} 条）；"
+                               f"点两次发了 {len(dels)} 条 DELETE、列表里还在={gone}、"
+                               f"首行 {first_before}→{first_after}"
+                               + ("" if ok14 else
+                                  " ⇒ **要么一次点击就删了（没确认），要么删完列表不更新**"))
+
+                # ⚠️ V10 会**把设备断开**（它要验"点不存在的端口不许说已连接"），
+                #    所以必须排在所有"需要活链路"的判据（V9/V11/V12/V13/V14）**之后**。
+                #    放在前面时它们会全 SKIP —— 看着像"没实现"，其实是被 V10 断了。
                 head("11. 连接按钮：点一个不存在的端口，界面不许说「已连接」")
+                # ⚠️ 这条**只在"本来就没连"时跑**（见下面的 `api_mouse.get("connected")`
+                #    分支）：点连接会先断开再打开新端口，拿真机试错等于把现场拆了。
+                #    所以这里**不主动断开** —— 断开的只有"全局开头那一次"，
+                #    而那个也已经删了（就是它让 V9/V11/V12 全 SKIP 的）。
                 # 只在**后端本来就没连**时跑：① 这正是 bug 复现的条件（界面自己编一个"已连接"，
                 # 1 s 后 /health 把真话拉回来）；② 不去动用户已经连着的真机
                 # （点连接会先断开再打开新端口，乱试等于把现场拆了）。
@@ -648,35 +868,6 @@ async def run(args) -> int:
                               "1 秒后断开」），或者连不上时还敢说已连接"))
 
                 # ---------------- V11 按页开关拉取（改版三十一）
-                head("11b. 切页开关拉取：不看的页面不该占链路")
-                # 拉取是唯一持续占链路的动作（停等 1 条/往返、批式 10 Hz）。
-                # 这里验两件事：**切到不需要帧的页面要停**、**切回要拉的页面要开**。
-                # 需要活链路才验得出来（没设备时 `syncPull` 直接跳过）。
-                if not (ui.get("live") and api_mouse.get("connected")):
-                    record("V11", "SKIP", "没连设备（或没进真数据模式）⇒ 按页开关无从验起")
-                else:
-                    await cdp.eval("window.C.go('live')")
-                    await asyncio.sleep(1.5)
-                    on_live = bool((read_health(base).get("mouse") or {}).get("stream_on"))
-                    await cdp.eval("window.C.go('data')")          # 只读盘，不需要帧
-                    await asyncio.sleep(1.6)
-                    off_data = bool((read_health(base).get("mouse") or {}).get("stream_on"))
-                    await cdp.eval("window.C.go('params')")        # 参数表要 GET ALL，必须拉
-                    await asyncio.sleep(2.0)
-                    on_params = bool((read_health(base).get("mouse") or {}).get("stream_on"))
-                    pcount = await cdp.eval(
-                        "(()=>((window.C.S.params||[]).reduce((a,g)=>a+g.items.length,0)))()")
-                    ok11 = on_live and (not off_data) and on_params and (pcount == 41)
-                    await cdp.eval("window.C.go('live')")          # 收尾回到要拉的页面
-                    await asyncio.sleep(1.2)
-                    record("V11", "PASS" if ok11 else "FAIL",
-                           f"进 live ⇒ 拉={on_live}；切 data ⇒ 拉={off_data}"
-                           f"（应为 False）；切 params ⇒ 拉={on_params}"
-                           f"（参数 {pcount} 项）"
-                           + ("" if ok11 else
-                              " ⇒ **切走了还在拉（白占链路），或者该拉的页面没开"
-                              "（参数表就会是 0 组）**"))
-
                 # ---------------- V8 界面文案纪律
                 head("12. 主区文案：不放机制说明")
                 txt = await cdp.eval(
@@ -691,11 +882,15 @@ async def run(args) -> int:
         if proc is not None:
             proc.terminate()
             try:
-                proc.wait(timeout=8)
+                proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 proc.kill()
         if profile is not None:
-            _rmtree_quiet(profile)
+            # ⚠️ **不在退出路径上删 Chrome profile**：它有几十到几百 MB，
+            #    Windows 上删一个带杀软扫描的目录实测能拖 30 s+（超时报的
+            #    "卡在主区文案"其实是卡在这里）。它是系统临时目录下的东西，
+            #    交给系统清；项目目录里不留产物才是真正要守的那条。
+            pass
         if sim_proc is not None:
             sim_proc.terminate()
             try:
@@ -722,6 +917,17 @@ async def run(args) -> int:
     return 1 if n_fail else 0
 
 
+#: `--only` 选中的判据（空集 = 全跑）。见 `pick()`。
+ONLY: set = set()
+
+
+def pick(*ids: str) -> bool:
+    """这一段要不要跑。`--only` 没给 ⇒ 全跑；给了 ⇒ 段内**任一条**被选中就跑。"""
+    if not ONLY:
+        return True
+    return any(str(i).upper() in ONLY for i in ids)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8770)
@@ -731,9 +937,19 @@ def main(argv=None) -> int:
     ap.add_argument("--wait", type=float, default=4.0,
                     help="首页打开后等多久（等 WS + 首轮 health）")
     ap.add_argument("--shots", default="")
+    ap.add_argument("--timeout", type=float, default=150.0,
+                    help="整轮上限（秒）。超时直接报**卡在哪一段**，别再干等。")
+    ap.add_argument("--only", default="",
+                    help="只跑这几条判据（逗号分隔，如 V12,V13）。"
+                         "未选中的段**整段跳过**（连等待一起省），输出记 SKIP。"
+                         "改一处前端就只跑相关的那几条，别再等全套。")
     ap.add_argument("--width", type=int, default=1680)
     ap.add_argument("--height", type=int, default=1000)
     args = ap.parse_args(argv)
+    #: `--only` 的判据集合（空 = 全跑）。**段级**跳过：段内所有判据都没选中就连
+    #: 等待一起不做 —— 光在输出上过滤等于白等（这工具一半时间在 sleep 上）。
+    global ONLY
+    ONLY = {x.strip().upper() for x in str(args.only or "").split(",") if x.strip()}
     try:
         sys.stdout.reconfigure(line_buffering=True)
     except Exception:                                         # noqa: BLE001
@@ -741,6 +957,26 @@ def main(argv=None) -> int:
     print("=" * 74)
     print("Control 前端无头实测（第三版：九页面 + 接缝）")
     print("=" * 74)
+    # ⚠️ **超时必须是线程级的，不能用 `asyncio.wait_for`**。
+    #    这个脚本里大量用的是**同步** `urllib`（`_req` / `read_health`）和
+    #    `subprocess` 的 `readline`：它们阻塞时事件循环整个停住，
+    #    `wait_for` 的计时器也跟着停摆 —— 于是"90 s 超时"能变成 3 分钟干等
+    #    （实测踩过两次）。线程 + `os._exit` 不受事件循环影响，说 40 s 就 40 s。
+    def _watchdog(sec: float) -> None:
+        time.sleep(sec)
+        try:
+            import sys as _s
+            _s.stdout.write(
+                f"\n[超时] {sec:.0f} s 没跑完 —— **卡在**：{CUR['head']}"
+                f"（该段已停留 {time.time() - CUR['t']:.0f} s）\n"
+                "      先看这一段要等的东西在不在（服务 / 模拟器 / 浏览器 / 串口），"
+                "或把 --timeout 调大。\n")
+            _s.stdout.flush(); _s.stderr.flush()
+        finally:
+            os._exit(3)
+
+    import threading as _th
+    _th.Thread(target=_watchdog, args=(float(args.timeout),), daemon=True).start()
     return asyncio.run(run(args))
 
 

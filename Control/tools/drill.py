@@ -269,7 +269,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43", "I44", "I45"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -292,7 +292,7 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43", "I44", "I45"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
@@ -642,9 +642,14 @@ def _mouse_sections(base: str, args, sim) -> None:
     # 负向 B：空记录（**一帧都没有**）不许落盘。
     # ⚠️ 光"立刻 start→stop"造不出空记录 —— 拉取开着时帧随时在来。
     #    必须**先把拉取关掉**，让记录器真的收不到任何帧，这才是"空"。
+    # ⚠️ 还必须 `auto_pull: false`（改版三十三）：`record/start` 默认会**自动开流**
+    #    （否则人点【开始记录】得到一条空记录）。不显式关掉的话，这里刚关的流
+    #    会被 start**重新打开**，0.6 s 里就有帧 ⇒ 这段变成"一条正常记录落盘"，
+    #    而判据还写着"应 ok=False"。那不是产品坏了，是这段测试的前提被改了。
     api(base, "/api/v1/mouse/stream", "POST", {"on": False})
     time.sleep(1.5)                     # 等在途那一条落定（否则会算进帧数 ⇒ 假绿）
-    api(base, "/api/v1/mouse/maze/record/start", "POST", {"why": "drill-empty"})
+    api(base, "/api/v1/mouse/maze/record/start", "POST",
+        {"why": "drill-empty", "auto_pull": False})
     time.sleep(0.6)
     empty_r, _, _ = api(base, "/api/v1/mouse/maze/record/stop", "POST", {})
     empty_saved_ok = not (empty_r.get("data") or {}).get("ok")   # 应回 ok=False
@@ -1009,6 +1014,59 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"记录中自动停被扣留={rec_kept}（reason={d_k.get('reason')}）；"
            f"空闲时自动停真停={idle_ok}"
            + ("" if i43_ok else " ⇒ **要么没按 N 开流，要么把'自动停'当成了'人工停'**"))
+
+    # ---- I44：`record/start` 自己会把拉取开起来（改版三十三）
+    # 为什么单列一条：记录器**只在收到帧时才写文件**，所以"界面说已开始记录、跑完一条
+    # 记录也没有"这个现象，根因不在记录器，而在它前面少了一次开流。判据必须验
+    # **两件事**：① 流本来是关的 ② start 之后真在跑、且真落了盘。
+    # ⚠️ `stream_on` 在 **/health**（状态），不在 `/caps`（能力族）。
+    #    钉错端点的后果是"恒 None"——看着像"功能没实现"，其实是判据自己读错了地方。
+    api(base, "/api/v1/mouse/stream", "POST", {"on": False})
+    time.sleep(1.2)
+    off_before = not _stream_on()
+    st_r, _, _ = api(base, "/api/v1/mouse/maze/record/start", "POST", {"why": "drill-auto"})
+    st_d = st_r.get("data") or {}
+    note_ok = "自动开流" in str(st_d.get("pull_note") or "")
+    time.sleep(1.5)
+    on_after = _stream_on()
+    sp_r, _, _ = api(base, "/api/v1/mouse/maze/record/stop", "POST", {})
+    sp_d = sp_r.get("data") or {}
+    saved_frames = sp_d.get("frames")
+    i44_ok = bool(off_before and note_ok and on_after
+                  and sp_d.get("ok") and (saved_frames or 0) > 0)
+    record("I44", "PASS" if i44_ok else "FAIL",
+           f"开始记录前流是关的={off_before}；start 回 pull_note={st_d.get('pull_note')!r}"
+           f"（含\"自动开流\"={note_ok}）；之后 stream_on={on_after}；"
+           f"stop 落盘 {saved_frames} 帧 ok={sp_d.get('ok')}"
+           + ("" if i44_ok else
+              " ⇒ **点开始记录时没有帧 ⇒ 一条记录也存不出来**（改版三十三之前就是这样）"))
+
+    # ---- I45：实时墙图**不依赖环形缓冲窗口**（改版三十三）
+    # `?seconds=1` 连着调三次：如果实现是"每次重放最近 1 s"，
+    # `covered_s` 永远 ≤1、`frames_total` 每次归零重算 ⇒ 这条会红。
+    # 增量累积才对：`frames_total` 单调不减、`covered_s` 能超过 1 s。
+    api(base, "/api/v1/mouse/stream", "POST", {"on": True})
+    api(base, "/api/v1/mouse/maze/record/start", "POST", {"why": "drill-live", "auto_pull": False})
+    seen = []
+    for _k in range(4):
+        time.sleep(1.2)
+        rr, _, _ = api(base, "/api/v1/mouse/maze/reconstruct?seconds=1")
+        dd = rr.get("data") or {}
+        seen.append((int(dd.get("frames_total") or 0),
+                     float(dd.get("covered_s") or 0.0),
+                     int(dd.get("frames_used") or 0)))
+    api(base, "/api/v1/mouse/maze/record/stop", "POST", {})
+    totals = [x[0] for x in seen]
+    covs = [x[1] for x in seen]
+    grows = all(totals[i] >= totals[i - 1] for i in range(1, len(totals))) and \
+        totals[-1] > totals[0]
+    over_window = max(covs) > 1.2          # 窗口只有 1 s，超过它就证明是累积出来的
+    i45_ok = bool(grows and over_window)
+    record("I45", "PASS" if i45_ok else "FAIL",
+           f"连续 ?seconds=1 取样：frames_total={totals}（单调增={grows}）、"
+           f"covered_s={covs}（最大超过 1 s 窗口={over_window}）"
+           + ("" if i45_ok else
+              " ⇒ **每次都在重放滑动窗口**：跑过窗口长度后，早期探到的墙会消失"))
 
 
 
@@ -1458,6 +1516,37 @@ def main(argv=None) -> int:
     print("=" * 78)
     print("Control 端到端演练（无鼠 / 无视频素材 / 无场地）")
     print("=" * 78)
+
+    # ---------------------------------------------------------------- 0 纯本地：远近墙
+    head("0. 墙图：近墙落本格、远墙落外一格（纯内存，不碰服务）")
+    # 为什么单列一条**不依赖链路**的判据：模拟器的 `frontFar` 恒 0，
+    # 所以"远墙画在一格之外"这件事在联调里**永远验不到**。而它错了也不会崩，
+    # 只是图上少一格距离（照图判断"还有一格能走"就撞了）。
+    try:
+        from control.maze_rec import MazeWallMap
+        # dir=0 是 +y（向上）。本格 (2,2) 前方 (2,3) 有远墙 ⇒
+        #   本格 (2,2) 的 front 必须是 False（贴脸是空的）
+        #   (2,3) 的 front 必须是 True （墙在再前一格的边上）
+        m_far = MazeWallMap(16)
+        m_far.feed({"posX": 2, "posY": 2, "dir": 0, "wallFront": 1, "frontFar": 1,
+                    "wallLeft": 0, "wallRight": 0})
+        far_ok = (m_far.wall[2][2][0] is False and m_far.wall[2][3][0] is True
+                  and m_far.known[2][2][0] is True)
+        # 负向：frontFar=0（近墙）⇒ 墙就在本格前沿，下一格必须是 False
+        m_near = MazeWallMap(16)
+        m_near.feed({"posX": 2, "posY": 2, "dir": 0, "wallFront": 1, "frontFar": 0,
+                     "wallLeft": 0, "wallRight": 0})
+        near_ok = (m_near.wall[2][2][0] is True and m_near.wall[2][3][0] is False)
+        i46_ok = bool(far_ok and near_ok)
+        record("I46", "PASS" if i46_ok else "FAIL",
+               f"frontFar=1 ⇒ 本格 front={m_far.wall[2][2][0]}（应 False）、"
+               f"下一格 front={m_far.wall[2][3][0]}（应 True）={far_ok}；"
+               f"frontFar=0 ⇒ 本格={m_near.wall[2][2][0]}（应 True）、"
+               f"下一格={m_near.wall[2][3][0]}（应 False）={near_ok}"
+               + ("" if i46_ok else
+                  " ⇒ **远墙被当成近墙画了**：图上少一格距离（照图判断会撞）"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I46", "FAIL", f"墙图单测没跑起来：{type(e).__name__}: {e}")
 
     # ---------------------------------------------------------------- 1 起服务
     head("1. 起服务")
@@ -2408,7 +2497,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41", "I42", "I43", "I44", "I45"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

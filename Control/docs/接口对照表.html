@@ -543,7 +543,13 @@ li{margin:.28em 0}
 <td><code>GET /api/v1/mouse/maze/reconstruct</code></td>
 <td>A</td>
 <td><code>—</code>（<strong>零上游调用</strong>：读上游环形缓冲 + 本层 <code>MazeWallMap</code>）</td>
-<td><strong>实时</strong>墙图重建（中栏"重构示意"）：取最近 <code>seconds</code>（默认 30 s）帧，按 <code>dir</code> 把 <code>wallLeft/Front/Right</code> 转到<strong>绝对方向</strong>后累积。为什么不用上面那条"拉墙图"端点（固件那份墙图）：那是<strong>命令往返</strong>（真机 ≈1.21 s），跑动中拉会占掉一次拉取机会。固件那份作为<strong>对账基准</strong>一并返回（<code>firmware</code>），不发命令</td>
+<td><strong>实时</strong>墙图重建（中栏"重构示意"）：<strong>本层增量累积</strong>（改版三十三起；以前是每次重放最近 <code>seconds</code> 帧，跑过窗口长度后早期探到的墙会消失），按 <code>dir</code> 把 <code>wallLeft/Front/Right</code> 转到<strong>绝对方向</strong>后累积；<code>wallFront</code> 分两档（<code>frontFar</code> 决定落本格还是外一格，改版三十四）。返回 <code>frames_used</code>（本轮新帧）/ <code>frames_total</code>（整场累计）/ <code>covered_s</code> / <code>view={N,goal,v,h,visited,trail}</code>。为什么不用上面那条"拉墙图"端点（固件那份墙图）：那是<strong>命令往返</strong>（真机 ≈1.21 s），跑动中拉会占掉一次拉取机会。固件那份作为<strong>对账基准</strong>一并返回（<code>firmware</code>），不发命令</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/mouse/maze/reconstruct/clear</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>改版三十四新增：清空比赛页的实时墙图</strong>（<code>reset_live_map</code>）。body 空 <code>{}</code>。只清<strong>显示用的那张累积图</strong>：不碰记录、不碰设备、不等价于重连。清零基线是<strong>现在</strong>（不是 0 —— 置 0 会把环形缓冲里上一盘的 30 秒喂回来）。返回 <code>{cleared:true, note}</code></td>
 </tr>
 <tr>
 <td><code>GET /api/v1/mouse/maze/decisions</code></td>

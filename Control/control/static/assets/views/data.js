@@ -3,7 +3,16 @@
   const S = C.S, U = C.util;
   let selId = '';
   let assoc = false;
-  let delArm = 0;      // 删除的两步确认：第一次点击的时刻
+  let delArm = 0;      // 删除的**两步确认**：第一次点击的时刻（0 = 没在等确认）
+  let delArmId = '';   // 等的是哪一条（不然点 A 再点 B 会被当成确认 B）
+
+  /* 这一条是否正"等第二次点击"。**必须按 id 判**：只按时间判的话，
+     用户点 A 的删除 → 又点 B 的删除，B 会被立刻删掉（一次都没确认过）。
+     而 paint 会重画按钮（看门狗 2 s 一次 `emit('health')`），所以文本也要靠它恢复，
+     否则第一次点击后那 0.6 s 里文本会被重绘回"删除记录" ⇒ 用户看不出要再点一次。 */
+  function delArmed(id) {
+    return !!delArm && delArmId === id && (Date.now() - delArm) <= 5000;
+  }
 
   function dur(s) {
     const m = Math.floor(s / 60), r = Math.round(s % 60);
@@ -114,16 +123,18 @@
               '<div><dt>目录</dt><dd style="font-size:10px">' + r.dir + '</dd></div>' +
             '</dl>' +
             '<div class="dt-acts">' +
-              '<button class="btn btn-primary" data-rp="go"' + (r.launch ? '' : ' disabled') + '>' +
+              '<button class="btn btn-primary" data-rp="go"' + (r.frames > 0 ? '' : ' disabled') + '>' +
                 C.icon('play') + '回放</button>' +
               '<button class="btn" data-rp="csv">' + C.icon('download') + '导出 CSV</button>' +
               '<button class="btn" data-rp="dir">打开目录</button>' +
               '<button class="btn btn-ghost" data-rp="assoc">' + C.icon('link') + (r.video ? '改关联' : '关联视频') + '</button>' +
-              '<button class="btn btn-ghost" data-rp="del">删除记录</button>' +
+              '<button class="btn btn-ghost' + (delArmed(r.id) ? ' btn-danger' : '') +
+              '" data-rp="del">' + (delArmed(r.id) ? '确认删除？（5 s 内再点）' : '删除记录') +
+              '</button>' +
             '</div>' +
           '</div>' +
-          (r.launch ? '' : '<div class="banner warn" style="margin-top:12px">' + C.icon('alert') +
-            '<div class="b-body"><b>没有发车记录</b>回放无位置。</div></div>') +
+          (r.frames > 0 ? '' : '<div class="banner warn" style="margin-top:12px">' + C.icon('alert') +
+            '<div class="b-body"><b>这条记录没有帧</b>回放没有位置可画。</div></div>') +
           (assoc ? this.assocHtml(r) : '') +
         '</div>';
 
@@ -140,15 +151,18 @@
           else if (k === 'assoc') { assoc = !assoc; this.paint(); }
           else if (k === 'del') {
             /* 两步确认（与维护页同一套口径）：点一次变红写着"确认删除"，
-               5 s 内再点才真删。**不可逆**，所以不做"点了就删"。 */
-            const now = Date.now();
-            if (!delArm || now - delArm > 5000) {
-              delArm = now;
+               5 s 内再点才真删。**不可逆**，所以不做"点了就删"。
+               ⚠️ 判定按 **(时间, 记录 id) 一对**：只看时间的话，点完 A 的删除
+                  再去点 B 的删除，B 会被当成"第二次点击"立刻删掉。 */
+            if (!delArmed(r.id)) {
+              delArm = Date.now();
+              delArmId = r.id;
               b.textContent = '确认删除？（5 s 内再点）';
               b.classList.add('btn-danger');
               return;
             }
             delArm = 0;
+            delArmId = '';
             b.disabled = true; b.textContent = '删除中…';
             C.deleteRecord(r.id).then(() => {
               C.toast('warn', '已删除', r.id + ' 及其关联文件');
