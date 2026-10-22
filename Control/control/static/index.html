@@ -3,197 +3,112 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Control · 电脑鼠整合上位机</title>
-<!-- 内联一个极小 favicon：不写它浏览器就会去要 /favicon.ico，然后每次都 404 ——
-     在"看控制台找问题"的时候，这种每次刷新都出现的红字最烦人。 -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20rx='3'%20fill='%230d1117'/%3E%3Cpath%20d='M4%209V5m4%208V3m4%206V6'%20stroke='%2358a6ff'%20stroke-width='1.6'%20fill='none'%20stroke-linecap='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css">
+<title>Control · 电脑鼠整合上位机（重设计原型 · 扁平）</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23121316'/%3E%3Cpath d='M8 24V11h4v13zm6 0V7h4v17zm6 0v-8h4v8z' fill='%232B4FF2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/assets/style.css">
 </head>
 <body>
 
-<!-- 顶栏只放**设备状态**，而且每个状态本身就是入口：点它开对应设备的窗口，
-     在窗口里设参数、连接。
-     改版二十四：相机与场地定位两路随手机相机下线 ⇒ 四灯变两灯（电脑鼠 / 时钟）。
-     "视频复盘"不是一路设备：它没有"现在通不通"这种状态（离线批处理），
-     所以不进顶栏，只在入口页做分组。 -->
-<header id="top">
-  <div class="lights">
-    <button class="lamp" id="lamp-mouse" data-dev="mouse" title="电脑鼠 · 连接 / 断开"><i></i><b>电脑鼠</b><em>未连接</em></button>
-    <button class="lamp" id="lamp-clock" data-dev="clock" title="时间基 · 偏移（手动填写）"><i></i><b>时钟</b><em>未标定</em></button>
-  </div>
-  <div class="sessline">
-    <span id="session-state">●无会话</span>
-  </div>
-  <div class="actions">
-    <button id="btn-open" class="primary">开始记录</button>
-    <button id="btn-close">停止</button>
-    <button id="btn-estop" class="danger">急停</button>
-    <span id="ws-dot" class="ws offline" title="实时通道状态">WS</span>
-  </div>
-</header>
-
-<!-- 主区 = **入口页 + 模块界面**两级。
-     入口页（#nav）**只做导航**：三个分组各一组，组内一排模块卡片，不放任何控件。
-     点卡片**单开一个整屏的模块界面**（#mod）做那一个实验，点【← 返回】回入口。
-     段落标题 / 卡片 / 模块**只有一处真相**：app.js 的 SYS_DEF。 -->
-<div id="sys">
-  <div id="nav">
-    <section class="nav-sec" data-sys="mouse">
-      <div class="sec-head"><b></b></div>
-      <div class="mods" id="mods-mouse"></div>
-    </section>
-    <section class="nav-sec" data-sys="vid">
-      <div class="sec-head"><b></b></div>
-      <div class="mods" id="mods-vid"></div>
-    </section>
-    <section class="nav-sec" data-sys="all">
-      <div class="sec-head"><b></b></div>
-      <div class="mods" id="mods-all"></div>
-    </section>
-  </div>
-
-  <div id="mod">
-    <div id="mod-head">
-      <button class="mini" data-back>← 返回</button>
-      <b id="mod-title"></b>
-      <span class="sec-sub" id="mod-sub"></span>
-    </div>
-    <div id="mod-body">
-      <div class="ws" id="ws-mouse"></div>
-      <div class="ws" id="ws-vid"></div>
-      <div class="ws" id="ws-all">
-      <!-- 「综合运动」的界面就是原有的单栏五页 + 底部整合栏（见下）。 -->
-      <div class="view mod-all" data-mod="@all">
-    <div id="body">
-  <!-- 单栏 = 小车控制侧（改版二十四：左栏"场地 · 相机"随相机下线） -->
-  <section class="col" id="col-mouse">
-    <nav class="rail-tabs" id="rail-mouse">
-      <span class="rail-name">小车 · 控制</span>
-      <button data-tab="params" class="on">① 参数</button>
-      <button data-tab="depart">② 发车</button>
-      <button data-tab="exp">③ 实验</button>
-      <button data-tab="scope">④ 波形</button>
-      <button data-tab="console">⑤ 调试台</button>
-    </nav>
-    <div class="quickbar" id="quickbar">
-      <span class="qb-name">快捷</span>
-      <button class="mini" data-quick="TELEM">TELEM</button>
-      <button class="mini" data-quick="PING">PING</button>
-      <button class="mini" data-quick="STOP">STOP</button>
-      <button class="mini" data-quick="TARE">TARE</button>
-      <button class="mini" data-quick="MAP">MAP</button>
-      <button class="mini" data-quick="GET ALL">GET ALL</button>
-      <span class="hint" id="quick-note"></span>
-    </div>
-    <div class="rail-views" data-rail="mouse"></div>
-    <div class="ctx" id="ctx-mouse"></div>
-  </section>
-    </div><!-- /#body -->
-
-<!-- 底部「整合」栏：**跨模块共有的产物**才放这里（准备清单、会话、⑥数据）。
-     收纳起来只留一行摘要 —— 平时它挡地方，收工时才需要它。
-     ⚠️ 改版二十四：「已验帧 / 投递账本」两格是**相机帧**的核对，随相机下线整格删掉。 -->
-<section id="dock" class="off">
-  <button id="dock-head">
-    <span class="dh-arrow">▸</span>
-    <span class="dh-title">整合</span>
-    <span id="prep-summary" class="tag">读取中…</span>
-  </button>
-  <div id="dock-body">
-    <div class="dock-col">
-      <h3>准备</h3>
-      <div id="prep-list" class="prep"></div>
-    </div>
-    <div class="dock-col">
-      <h3>会话</h3>
-      <div id="session-info" class="hint">无进行中的会话</div>
-      <div id="session-warn" class="warnbox"></div>
-    </div>
-    <div class="dock-col wide">
-      <div class="rail-views" data-rail="dock"></div>
-    </div>
-  </div>
-</section>
-      </div><!-- /.view[data-mod="@all"] -->
-      </div><!-- /#ws-all -->
-    </div><!-- /#mod-body -->
-  </div><!-- /#mod -->
-</div><!-- /#sys -->
-
-<footer id="bottom">
-  <div id="info-bar">
-    <span class="ib-label">来源</span>
-    <span id="ib-src" class="seg"></span>
-    <span class="ib-label">级别</span>
-    <span id="ib-lvl" class="seg"></span>
-    <span class="ib-count" id="ib-count"></span>
-    <span style="margin-left:auto">
-      <button class="mini" id="ib-clear">清空</button>
+<!-- ═══ 左轨：品牌 + 导航 + 情景模拟 ═══════════════════════════════════════ -->
+<aside class="rail" id="rail">
+  <div class="brand">
+    <span class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+        <path d="M5 17v-6M12 17V7M19 17v-4"/>
+      </svg>
     </span>
+    <span class="brand-text"><b>CONTROL</b><i>电脑鼠整合上位机</i></span>
   </div>
-  <div id="info-log" data-log="1"></div>
-</footer>
-
-<!-- 设备窗口：两个面板共用一层遮罩，点顶栏标签切到对应面板。
-     参数设完就地连接，连上后就地读回状态 —— 关掉窗口也算数（不靠 toast 记忆）。 -->
-<div id="dev-modal" class="modal">
-  <div class="modal-box">
-    <h3>
-      <span id="dev-title">设备</span>
-      <span id="dev-sub" class="tag"></span>
-      <button class="mini" id="dev-close">关闭</button>
-    </h3>
-
-    <!-- ── 电脑鼠 ───────────────────────────────────────────── -->
-    <div class="dev-pane" data-pane="mouse">
-      <div class="kv" id="dm-state"></div>
-      <div class="warnbox" id="dm-warn"></div>
-      <div class="scroll" style="max-height:150px;margin:6px 0">
-        <div id="dm-targets" class="list">读取中…</div>
-      </div>
-      <div class="row">
-        <input id="dm-manual" placeholder="或手动输入 COM7 / tcp://127.0.0.1:5555">
-      </div>
-      <div class="row">
-        <button class="mini primary" id="dm-connect">连接</button>
-        <button class="mini" id="dm-disconnect">断开</button>
-        <button class="mini" id="dm-refresh">刷新端口列表</button>
-        <button class="mini warn" id="dm-rescue">复位（软复位）</button>
-      </div>
-      <div class="gatehint" id="dm-hint"></div>
-      <div class="kv" id="dm-confirm"></div>
-    </div>
-
-    <!-- ── 时间基 ───────────────────────────────────────────── -->
-    <div class="dev-pane" data-pane="clock">
-      <div class="kv" id="dk-state"></div>
-      <div class="row wrap">
-        <button class="mini" id="dk-mark">记录同步点</button>
-        <button class="mini" id="dk-refresh">刷新</button>
-      </div>
-      <div class="hint" id="dk-note"></div>
-    </div>
+  <nav class="nav" id="nav"></nav>
+  <div class="rail-foot">
+    <label class="scene-pick">
+      <span>情景</span>
+      <select id="scene" title="只在原型里有效：切换可演示的状态组合">
+        <option value="ready">就绪 · 待发车</option>
+        <option value="run">运行中 · 冲刺</option>
+        <option value="estop">急停 · 锁存</option>
+        <option value="down">断连 · 两路都空</option>
+        <option value="oldfw">旧固件 310 · 4 灯未知</option>
+        <option value="novideo">无视频 · 只跑小车</option>
+      </select>
+    </label>
+    <div class="rail-meta"><span>原型 · 纯前端</span><span>v9 / PROTO 9</span></div>
   </div>
+</aside>
+
+<!-- ═══ 主区 ═══════════════════════════════════════════════════════════════ -->
+<div class="app">
+  <header class="topbar">
+    <div class="crumb" id="crumb"></div>
+    <div class="devices" id="devices"></div>
+    <div class="top-actions">
+      <span class="ws" id="ws"><i></i>实时</span>
+      <button class="btn" id="btn-record">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/></svg>
+        <span>开始记录</span>
+      </button>
+      <button class="btn btn-estop" id="btn-estop" title="急停（任何时候都可按）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="3" fill="currentColor" stroke="none"/></svg>
+        <span>急停</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="main" id="main"></main>
+
+  <!-- 底部日志坞：收起只占一行，收起时也有"最近一条"可扫 -->
+  <footer class="dock" id="dock">
+    <button class="dock-head" id="dock-toggle">
+      <span class="dock-caret">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+      </span>
+      <span class="dock-title">活动</span>
+      <span class="dock-last" id="dock-last"></span>
+      <span class="dock-count" id="dock-count"></span>
+    </button>
+    <div class="dock-body" id="dock-body">
+      <div class="dock-tools">
+        <div class="seg" id="log-src"></div>
+        <div class="seg" id="log-lvl"></div>
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>
+          <input id="log-q" placeholder="过滤关键字">
+        </label>
+        <button class="btn btn-sm btn-ghost" id="log-clear">清空</button>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+  </footer>
 </div>
 
-<div id="toast"></div>
+<!-- ═══ 设备抽屉：点顶栏设备片打开 ═══════════════════════════════════════ -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <header class="drawer-head">
+    <div>
+      <div class="eyebrow" id="dr-eyebrow">设备</div>
+      <h2 id="dr-title">电脑鼠</h2>
+    </div>
+    <button class="icon-btn" id="dr-close" aria-label="关闭">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="drawer-body" id="dr-body"></div>
+</aside>
 
-<script src="/static/wsproto.js"></script>
-<script src="/static/views/draw.js"></script>
-<script src="/static/views/params.js"></script>
-<script src="/static/views/depart.js"></script>
-<script src="/static/views/exp.js"></script>
-<script src="/static/views/scope.js"></script>
-<script src="/static/views/console.js"></script>
-<script src="/static/views/data.js"></script>
-<!-- 子系统模块：每个是一个「可验证的最小实验」，各自 mount 到所属子系统的 ws 容器 -->
-<script src="/static/views/mod_params.js"></script>
-<script src="/static/views/mod_motion.js"></script>
-<script src="/static/views/part_wallmap.js"></script>
-<script src="/static/views/mod_race.js"></script>
-<script src="/static/views/mod_maint.js"></script>
-<script src="/static/views/mod_video.js"></script>
-<script src="/static/views/mod_track.js"></script>
-<script src="/static/app.js"></script>
+<div class="toasts" id="toasts"></div>
+
+<script src="/static/assets/lib.js"></script>
+<script src="/static/assets/draw.js"></script>
+<script src="/static/assets/views/overview.js"></script>
+<script src="/static/assets/views/live.js"></script>
+<script src="/static/assets/views/params.js"></script>
+<script src="/static/assets/views/race.js"></script>
+<script src="/static/assets/views/maint.js"></script>
+<script src="/static/assets/views/video.js"></script>
+<script src="/static/assets/views/track.js"></script>
+<script src="/static/assets/views/data.js"></script>
+<script src="/static/assets/views/replay.js"></script>
+<script src="/static/assets/shell.js"></script>
 </body>
 </html>
