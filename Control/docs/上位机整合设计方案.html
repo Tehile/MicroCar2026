@@ -167,6 +167,7 @@ li{margin:.28em 0}
 <li><a href="#1127">11.27 改版二十五·前端重设计移植方案（状态：部分落地）</a></li>
 <li><a href="#1128-n">11.28 改版二十六·批式 N 落地（状态：已落地）</a></li>
 <li><a href="#1129-p2">11.29 改版二十七·P2 后端契约补齐（状态：已落地）</a></li>
+<li><a href="#1130-p4-p5">11.30 改版二十八·P4 接线 + P5 判据重写（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -689,6 +690,22 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 · 判据 <strong>I41</strong>（8 段：摘要 9 列 / <code>ledger</code> 与 <code>maze_seed</code> 的三态 / 关联写入 /
   解除干净 / 空 body⇒400 / 不存在的会话⇒404 / 逐批明细有行）。
 <code>drill --sim</code> <strong>40 PASS / 0 FAIL / 1 SKIP</strong>。细节见 §11.29。</p>
+<p><strong>改版记录 2026-10-22（二十八）</strong>：<strong>P4 接线 + P5 判据重写</strong>（前端首次真的连后端）。
+· <strong>接线原则是一条</strong>：能连上后端就用真数据，连不上退回原型；切换只发生在
+  <code>LIVE.on</code> 一处。<code>tick()</code> 在真机模式下<strong>不再伪造遥测</strong>（一边收真帧一边造假，
+  没人分得清哪一半是真的）。
+· <strong>接上的</strong>：<code>/health</code>（1 s）+ <code>/caps</code>（一次）+ WS <code>mouse.telemetry</code>（遥测/4 灯/
+  逐批帧率）+ 8 个动作（急停/解锁/发车/收车/复位/TARE/raw/存记录）+ 会话开收 +
+  视频起/取消（并轮询 <code>/video/status</code>）。
+· <strong>没接的</strong>（要 shape 转换，见 §11.30）：参数表、比赛记录表、回放、迷宫图。
+  这几页在真机模式下仍显示原型数据。
+· <strong><code>browser_check.py</code> 重写为第三版</strong>（9 条判据，<code>--sim</code> 12 PASS / 不带 11 PASS，
+  均 0 FAIL）。判据落点从"界面把数据显示对了"换成"<strong>接缝真的接上了</strong>"：
+  注入 <code>fetch</code> 记录器，点【应用】后去请求记录里找 <code>POST /mouse/stream/batch</code>。
+  <strong>负向</strong>：没连鼠时界面不许说连上（<code>--sim</code> 与不带两种方向都跑）。
+· 接线时抓到并修掉两个真 bug：<code>post()</code> 拿去做 GET（<code>/health</code> 只挂 GET ⇒ 405 ⇒
+  整个实时模式静默不生效）；<code>applyHealth</code> 只改数据不通知外壳 ⇒ 顶栏挂着上一次
+  渲染的"已连接 COM7"（V5 就是这条抓出来的）。细节见 §11.30。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -6924,7 +6941,7 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <hr />
 <h3 id="1127">11.27 改版二十五·前端重设计移植方案（状态：<strong>部分落地</strong>）</h3>
 <blockquote>
-<p>状态：<strong>P0（文档对齐）/ P1（工具止血）/ P2（后端契约）/ P3（批式 N）已落地，P4/P5 未做。</strong>
+<p>状态：<strong>全部落地</strong>（P0 文档对齐 / P1 工具止血 / P2 后端契约 / P3 批式 N / P4 接线 / P5 判据重写）。
 本节写的是"新前端接真数据要动什么、谁动、怎么验"，下面每个结论都带 <code>文件:行号</code>，
 是<strong>实测与读码</strong>得来的，不是推测。</p>
 <p><strong>现行布局（改版二十五起）</strong>：<strong>左轨 + 九页面</strong>（<code>#/overview</code> <code>#/live</code> <code>#/params</code>
@@ -7269,16 +7286,16 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <td><code>drill --sim</code> 的 I40 正反两面</td>
 </tr>
 <tr>
-<td><strong>P4</strong></td>
-<td>接线配合：给前端侧一份《契约差异表》（= §三 两张表 + §四 三条），必要时陪跑</td>
-<td>前端侧主导，本层陪跑</td>
-<td>前端自测</td>
+<td><strong>P4</strong> ✅</td>
+<td>接线：<code>LIVE.on</code> 一处开关，<code>/health</code> + <code>/caps</code> + WS 遥测 + 8 个动作 + 会话 + 视频起停。<strong>参数表 / 记录 / 回放 / 迷宫图未接</strong>（要 shape 转换）。见 §11.30</td>
+<td>本层</td>
+<td><code>browser_check</code> 的 V5/V6</td>
 </tr>
 <tr>
-<td><strong>P5</strong></td>
-<td>判据重写：<code>browser_check.py</code> 第二版（按新 DOM）。<strong>必须含一条负向判据</strong>：断开后端 / 拔掉视频源时，界面必须显示"未连接/未知"，<strong>不许显示旧值或假装正常</strong></td>
+<td><strong>P5</strong> ✅</td>
+<td><code>browser_check.py</code> <strong>第三版</strong>：V0~V8 九条，落点换成"接缝真的接上了"（注入 fetch 记录器抓请求）。<strong>负向 V5</strong>：没连鼠时界面不许说连上，<code>--sim</code> 与不带两种方向都跑。见 §11.30</td>
 <td>本层</td>
-<td>四套全绿</td>
+<td>不带 <code>--sim</code> 11 PASS、<code>--sim</code> 12 PASS，均 0 FAIL；<code>drill</code> 40/0/1、<code>preflight</code> 21/2/0、<code>check_iface</code> 5/0</td>
 </tr>
 </tbody>
 </table>
@@ -7745,6 +7762,144 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 不存在的会话 ⇒ <strong>404</strong> / <code>/mouse/state</code> 的 <code>batches</code> 有行且首行含 <code>seq,n,ms,hz</code>。</p>
 <p>⚠️ 这条判据自己会<strong>造一个临时视频会话目录再删掉</strong>（<code>records/video/drill-link-tmp</code>），
 <code>finally</code> 里清理 —— 判据不许留产物（铁律 24）。</p>
+<hr />
+<h3 id="1130-p4-p5">11.30 改版二十八·P4 接线 + P5 判据重写（状态：<strong>已落地</strong>）</h3>
+<h4 id="_94">一、接线：一条原则，一个开关</h4>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LIVE.on === true</code></td>
+<td>用真数据：<code>/health</code> 1 s、<code>/caps</code> 一次、WS <code>mouse.telemetry</code>；<code>tick()</code> <strong>不再伪造</strong></td>
+</tr>
+<tr>
+<td><code>LIVE.on === false</code></td>
+<td>保持原型（250 ms 模拟 tick），界面仍可脱离设备做视觉评审</td>
+</tr>
+</tbody>
+</table>
+<p>切换<strong>只发生在 <code>LIVE.on</code> 这一处</strong>。为什么不做"真假混合"（缺什么补什么）：
+两边都往 <code>S.tel</code> 写，最后没人分得清哪个数是设备给的、哪个是造的 ——
+而这类错误<strong>不会报错</strong>，只会让人对着假帧率调参。</p>
+<h4 id="_95">二、接上了什么 / 没接什么</h4>
+<table>
+<thead>
+<tr>
+<th>通路</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/health</code>（连接 / 急停 / 准备清单 / 会话）</td>
+<td>✅ 1 s 轮询</td>
+</tr>
+<tr>
+<td><code>/caps</code>（固件、通道清单、拉取档）</td>
+<td>✅ 启动时一次</td>
+</tr>
+<tr>
+<td>WS <code>mouse.telemetry</code>（遥测 / 4 灯 / 逐批帧率）</td>
+<td>✅ 4 灯<strong>直取</strong>后端三态，前端那份 <code>recomputeLeds()</code> 在真机模式下不再走</td>
+</tr>
+<tr>
+<td>8 个动作：急停 / 解锁(<code>STOP</code>) / 发车(<code>timesync/maze_run</code>) / 收车 / 复位 / TARE / raw / 存记录</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>会话开 / 收</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>视频起 / 取消 + <code>/video/status</code> 轮询</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><strong>参数表</strong></td>
+<td>❌ 后端按"组名→项名"索引，前端要数组 ⇒ 需转换</td>
+</tr>
+<tr>
+<td><strong>比赛记录表 / 回放</strong></td>
+<td>❌ 记录形状与前端 <code>C.record</code> 不同（<code>recordView</code> 要 <code>samples[]</code>）</td>
+</tr>
+<tr>
+<td><strong>迷宫图</strong></td>
+<td>❌ 后端 <code>wall{n,known_rows,wall_rows,visited,track}</code> ≠ 前端 <code>Maze</code></td>
+</tr>
+<tr>
+<td>动作失败时的"不假装"</td>
+<td>✅ 一律 <code>bad</code> toast + 日志；<strong>不先改本地状态再假装成功</strong></td>
+</tr>
+</tbody>
+</table>
+<h4 id="bug">三、抓到并修掉的两个真 bug（都不是"设计问题"，是接线错）</h4>
+<ol>
+<li><strong><code>post()</code> 被拿去发 GET</strong>：<code>/api/v1/health</code> 只挂了 GET，用 POST 打过去是 405，
+   而前端 <code>.catch</code> 只是把 <code>LIVE.on</code> 留成 <code>false</code> ⇒ <strong>整个实时模式静默不生效</strong>，
+   页面看起来"还是原型数据"。修法：<code>get()</code> / <code>post()</code> 分开，读用 <code>get()</code>。</li>
+<li><strong><code>applyHealth</code> 只改数据、不通知外壳</strong>：数据更新了，但顶栏还挂着上一次渲染的
+   "已连接 COM7" ⇒ "后端说没连、界面写着 COM7"。修法：加一条轻量 <code>health</code> 事件，
+   只重画外壳（顶栏/设备片/准备清单），<strong>不用 <code>emit('state')</code></strong> —— 那个会整页重挂，
+   每秒一次会把参数页正在输入的框清掉。</li>
+</ol>
+<blockquote>
+<p>第 2 条是 P5 的 V5 抓出来的。这就是"判据的落点要换"的价值：
+旧的界面判据查"文字对不对"，查不出"数据对了但 DOM 没跟上"。</p>
+</blockquote>
+<h4 id="browser_checkpy_1">四、<code>browser_check.py</code> 第三版：判据落点换了</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>V0</strong></td>
+<td>外壳齐（rail / main / dock / log / drawer）；报 <code>LIVE.on</code></td>
+</tr>
+<tr>
+<td><strong>V1</strong></td>
+<td>九页逐页真挂载：内容非空 + 页签高亮与路由一致</td>
+</tr>
+<tr>
+<td><strong>V2</strong></td>
+<td>导航四组九项与 <code>NAV</code> 一致（<code>#nav .nav-group</code> / <code>.nav-item[data-route]</code>）</td>
+</tr>
+<tr>
+<td><strong>V3</strong></td>
+<td>整轮零未捕获异常（<code>Runtime.exceptionThrown</code> + <code>window.onerror</code>）</td>
+</tr>
+<tr>
+<td><strong>V4</strong></td>
+<td>4 灯 4 格且标记合法（<code>on/off/unknown</code>）；帧率大字与通道卡有值</td>
+</tr>
+<tr>
+<td><strong>V5</strong></td>
+<td><strong>连接状态不许造假</strong>：<code>--sim</code> 时界面必须说连上、不带时必须说没连（双向）</td>
+</tr>
+<tr>
+<td><strong>V6</strong></td>
+<td><strong>接缝</strong>：注入 <code>fetch</code> 记录器 → 点【应用】n=3 → 必须在请求记录里看到 <code>POST /mouse/stream/batch</code> 且 <code>body.n==3</code></td>
+</tr>
+<tr>
+<td><strong>V8</strong></td>
+<td>主区文案不含机制/判据编号（沿用第一版思路，落点换到 <code>#main</code>）</td>
+</tr>
+</tbody>
+</table>
+<p>实测：<strong>不带 <code>--sim</code> 11 PASS / 0 FAIL</strong>（V5 走"应未连"一侧）、
+<strong><code>--sim</code> 12 PASS / 0 FAIL</strong>（V5 翻过来）。</p>
+<p><strong>V6 为什么要注入 <code>fetch</code> 而不是看界面</strong>：界面上一句"已下发"是本地 toast，
+跟网络毫无关系。只有抓到那条请求，才叫"接缝接上了"。</p>
+<p><strong>V5 为什么必须双向</strong>：只在"连上"时判，等于假设"界面一定诚实"；
+真正要防的是<strong>假"已连接"</strong>（会让人以为可以去发车）。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

@@ -537,12 +537,16 @@ class MazeRecorder:
 
     def __init__(self, root: Path, get_channels=None,
                  codes: Optional[Dict[str, Any]] = None,
-                 get_link_stats=None) -> None:
+                 get_link_stats=None, get_params=None) -> None:
         self.root = Path(root)
         self._get_channels = get_channels or (lambda: [])
         # 完整性差量的取数（可缺）：回**上位机本地**链路统计 dict（含
         # `seq_lost` / `bad_crc`）。为什么必须从外面拿，见 `_probe_losses`。
         self._get_link_stats = get_link_stats
+        #: 参数快照的取数（可缺）：**开录那一刻冻一份**，给回放页的"发车前参数"用。
+        #: 为什么由外面注入：参数在鼠适配器（要能力探测、要缓存），记录器不该再摸上游。
+        #: 取不到就存 `None` —— 回放页显示「未记录」，**绝不拿当前参数冒充发车时的**。
+        self._get_params = get_params
         self._lock = threading.RLock()
         self._rec: Optional[Dict[str, Any]] = None      # 在记的一段（None = 没在记）
         self.start_ms: Optional[int] = None
@@ -742,6 +746,11 @@ class MazeRecorder:
                 # `changes` 只有任务机迁移，而这里是**超集**（含 ROAD/TURN/STRAIGHT/
                 # JUNC/CELL/HEAD/GOAL）。见 `MazeDecisions` 的 docstring。
                 "decisions": [],
+                # ---- 发车时的**参数快照**（改版二十八）：回放页要显示"这一跑用的是
+                # 哪套参数"。**开录这一刻冻一次**，之后不再刷新 —— 中途改参数不会
+                # 回头改这份，否则"回放看到的"与"当时用的"就不是一回事了。
+                # 取不到就是 `None`（界面显示「未记录」），不拿当前值冒充。
+                "params": self._params_snapshot(),
                 # 这一段**自己的**差分器与零点 —— **不复用常驻那个**。
                 # 虽然 `start()` 已经把常驻环清成同一纪元（两者现在会算出同一串），
                 # 但常驻环是**环形缓冲**（超 `DEC_RING` 就丢最老的），而落盘那份必须
@@ -1051,6 +1060,21 @@ class MazeRecorder:
             return v
         return str(v)
 
+    def _params_snapshot(self) -> Optional[Dict[str, Any]]:
+        """开录那一刻的参数快照；取不到 ⇒ `None`。**绝不抛异常**。
+
+        为什么容错到这个程度：记录能不能起来是**主线**，参数快照是**附件**。
+        为一个附件让"这一跑没记下来"是本末倒置 —— 所以这里任何异常都吞成 `None`，
+        回放页显示「未记录」（那是诚实的），而不是整段记录丢帧。
+        """
+        if self._get_params is None:
+            return None
+        try:
+            snap = self._get_params()
+        except Exception:                                    # noqa: BLE001
+            return None
+        return snap or None
+
     def _build_doc(self, r: Dict[str, Any], why: str = "manual",
                    firmware_map: Optional[Dict[str, Any]] = None,
                    text: Optional[str] = None, end_at: Optional[int] = None,
@@ -1138,6 +1162,11 @@ class MazeRecorder:
             # 见 `MazeDecisions` 的 docstring（每一类的判据与上游依据都在那儿）。
             "decisions": dec,
             "decisions_have_codes": has_codes,
+            # 发车时的参数快照（改版二十八）。**与帧数据放在同一个文件里** ——
+            # 回放要的是"这一跑的全部数据"，拆成两个文件就会出现"记录在、快照丢了"
+            # 却没人发现的情况。老记录这个键不存在 ⇒ 读的时候按 None 处理。
+            "params": r.get("params"),
+            "params_at_ms": ((r.get("params") or {}).get("at_ms")),
             "integrity": {
                 "frames": len(frames),
                 "t0_pc_ms": t0,

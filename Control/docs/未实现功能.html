@@ -111,13 +111,13 @@ li{margin:.28em 0}
 <tbody>
 <tr>
 <td><code>#/overview</code> 总览</td>
-<td>原型 · 未接线</td>
-<td><code>GET /api/v1/health</code> 的 <code>readiness.items</code>（<code>key/name/blocking/ok/state/action</code>）<strong>字段已完全对上</strong>，接上就能用</td>
+<td><strong>已接</strong>（改版二十八）</td>
+<td><code>GET /api/v1/health</code> 的 <code>readiness.items</code> 已喂进 <code>S.readiness</code>；急停/发车/开会话等动作与 <code>#/live</code> 同一套通路</td>
 </tr>
 <tr>
 <td><code>#/live</code> 实时状态</td>
-<td><strong>部分接通</strong>：只有「每批帧数 N」</td>
-<td><code>POST /api/v1/mouse/stream/batch</code>（改版二十六）；其余（帧率、4 灯、通道卡）读 WS <code>mouse.telemetry</code> 的 <code>rate</code> / <code>leds</code> / <code>unified</code>，<strong>尚未接</strong></td>
+<td><strong>已接</strong>（改版二十八）</td>
+<td><code>/health</code>（1 s）+ <code>/caps</code> + WS <code>mouse.telemetry</code>（遥测 / 4 灯 / 逐批帧率）+ <code>POST /mouse/stream/batch</code>。动作：急停 / 解锁(<code>STOP</code>) / TARE / raw 都已接</td>
 </tr>
 <tr>
 <td><code>#/params</code> 参数设定</td>
@@ -126,8 +126,8 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td><code>#/race</code> 比赛</td>
-<td>原型 · 未接线</td>
-<td><code>POST /api/v1/timesync/maze_run</code>（含"先开记录再发车"）、<code>POST …/mouse/maze/stop</code>、<code>POST …/mouse/rescue</code>、<code>GET …/mouse/launch_precheck</code>、<code>GET …/mouse/maze/reconstruct</code></td>
+<td><strong>动作已接、迷宫图未接</strong></td>
+<td>发车 <code>timesync/maze_run</code>、收车、复位、急停/解锁都已接；<strong>中栏迷宫图还没接</strong>（后端 <code>wall</code> 结构与前端 <code>Maze</code> 不同，要转换）</td>
 </tr>
 <tr>
 <td><code>#/maint</code> 维护自检</td>
@@ -136,8 +136,8 @@ li{margin:.28em 0}
 </tr>
 <tr>
 <td><code>#/video</code> 视频会话</td>
-<td>原型 · 未接线</td>
-<td>七个 <code>/api/v1/video/*</code> 全在；解析由上游 <code>python -m aruco_locator.session</code> 子进程做，本层只转交配置并读产物</td>
+<td><strong>起/取消已接，列表未接</strong></td>
+<td><code>POST /video/run</code>、<code>POST /video/cancel</code>、<code>GET /video/status</code>（1 s 轮询）已接；素材/会话<strong>列表</strong>还没接（<code>GET /video/list</code>、<code>/video/sessions</code> 要喂 <code>S.videoSessions</code>）</td>
 </tr>
 <tr>
 <td><code>#/track</code> 轨迹</td>

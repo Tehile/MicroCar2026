@@ -346,6 +346,12 @@
       renderPage();
     });
     C.on('log', renderLog);
+    /* 每秒一次的 health 只重画**外壳**（顶栏/设备片/准备清单/底栏计数），
+       不重挂页面 —— 重挂会把参数页正在输入的框清掉。 */
+    C.on('health', function () {
+      try { refreshChrome(); } catch (e) { console.error(e); }
+      try { renderTop(); } catch (e) { console.error(e); }
+    });
     C.on('route', function () {
       renderNav();
       renderTop();
@@ -372,6 +378,11 @@
     if (dv) setTimeout(function () { openDev(dv); }, 120);
 
     C.boot();
+
+    /* 真后端接入（改版二十八 · P4）：连上就切真数据，连不上保持原型。
+       ⚠️ 必须放在 `C.boot()` **之后** —— 它要读 `S.health` 与 `S.readiness`，
+       那两样在 boot 里才初始化完。 */
+    try { C.startLive(); } catch (e) { console.error(e); }
   }
 
   window.addEventListener('DOMContentLoaded', boot);

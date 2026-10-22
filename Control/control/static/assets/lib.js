@@ -475,6 +475,194 @@ window.C = (function () {
     });
   }
 
+  /* ── 真后端接入（改版二十八 · P4）───────────────────────────────────────
+     **一条原则：能连上后端就用真数据，连不上就退回原型。**
+     切换只发生在 `LIVE.on` 这一处 —— 否则真值与假值会互相覆盖，
+     而且没人看得出哪一半是真的。
+
+     · `LIVE.on === false`（默认 / 后端没起）：250 ms 模拟 tick 照旧，
+       界面仍可脱离设备做视觉评审（这是这版界面原本的用途）。
+     · `LIVE.on === true`：`tick()` 不再伪造遥测，`S.tel` / `S.leds` / `S.rateLog`
+       全部来自 WS `mouse.telemetry`；动作走 REST。
+
+     ⚠️ **已经接上的**：health/caps、WS 遥测与 4 灯、8 个动作、视频起/取消、
+     会话开/收。
+     ⚠️ **还没接的**（要按 shape 转换，见设计方案 §11.30）：参数表
+     （后端按"组名→项名"索引，前端要数组）、比赛记录表、回放（要 `recordView`）、
+     迷宫图（后端 `wall` 结构 ≠ 前端 `Maze`）。这些页面在 live 模式下会显示
+     原型数据 —— **看它们之前先看左轨那句"原型 · 纯前端"**。 */
+  const LIVE = { on: false, err: '', ws: null, caps: null, timer: null, vtimer: null };
+
+  function liveCleanup() {
+    if (LIVE.timer) { clearInterval(LIVE.timer); LIVE.timer = null; }
+    if (LIVE.vtimer) { clearInterval(LIVE.vtimer); LIVE.vtimer = null; }
+  }
+
+  function unwrap(res) {
+    const b = res.body || {};
+    if (res.ok && b.ok) return b.data || {};
+    const e = new Error((b.error && (b.error.message || b.error.type))
+      || ('HTTP ' + res.status));
+    e.status = res.status;
+    e.detail = (b.error && b.error.message) || '';
+    throw e;
+  }
+
+  /* ⚠️ `post()` 一定会发 **POST**。第一次接线时拿它去打 `/api/v1/health`
+     （只挂了 GET）⇒ 405 ⇒ 整个实时模式没起来，而页面上只表现为"还是原型数据"。
+     ⇒ 读用 `get()`、写用 `post()`，别混。 */
+  function post(path, body) {
+    return api(path, body === undefined ? {} : body).then(unwrap);
+  }
+
+  function get(path) {
+    return api(path).then(unwrap);
+  }
+
+  function applyCaps(d) {
+    if (!d) return;
+    LIVE.caps = d;
+    const m = S.health.mouse;
+    if (d.firmware != null) m.fw = String(d.firmware);
+    if (d.fw_int != null) m.fwInt = Number(d.fw_int);
+    if (d.unified_channels) {
+      m.caps = m.caps || {};
+      m.caps.unified_channels = d.unified_channels.length;
+      m.caps.led = true;
+      S.ledSupported = d.unified_channels.indexOf('led1') >= 0;
+    }
+    if (d.pull && d.pull.n != null) { S.pullN = Number(d.pull.n); S.tel.batchN = S.pullN; }
+  }
+
+  /* ⚠️ `/health` 的形状：`{ok, all_ready, readiness:{items}, mouse:{...}, video:{...},
+     clock:{...}, session: <to_dict|null>, ...}` —— **`connected` 在 `mouse` 底下**，
+     不是顶层。写错过一次：把 `d.connected` 读成顶层，结果永远 `false`，
+     而界面上只表现为"一直未连接"（不报错）。 */
+  function applyHealth(d) {
+    if (!d) return;
+    const mo = d.mouse || {};
+    const m = S.health.mouse;
+    m.available = mo.available !== false;
+    m.connected = !!mo.connected;
+    m.port = mo.port || '';
+    if (mo.device && mo.device.fw != null) m.fw = String(mo.device.fw);
+    m.detail = mo.detail || '';
+    m.streamMode = mo.stream_mode || m.streamMode || '';
+    S.estop = !!mo.estop_locked;
+    if (d.clock) {
+      S.health.clock.calibrated = !!d.clock.calibrated;
+      if (d.clock.offset_ms != null) S.health.clock.offsetMs = d.clock.offset_ms;
+    }
+    const v = d.video || {};
+    S.health.video.state = v.state || 'idle';
+    S.health.video.running = v.state === 'running';
+    // 准备清单：字段与后端 `readiness.items` 一一对应（key/name/blocking/ok/state/action）
+    const rd = (d.readiness && d.readiness.items) || null;
+    if (rd) {
+      S.readiness = rd.map(function (it) {
+        return { key: it.key, name: it.name, ok: !!it.ok, blocking: !!it.blocking,
+                 state: it.state || '', action: it.action || '' };
+      });
+    }
+    // 会话：`null` = 没开（这是后端给的权威三态，不是"没读到"）
+    if (d.session && d.session.session_id) {
+      S.session.active = true;
+      S.session.id = d.session.session_id;
+    } else if (d.session === null) {
+      S.session.active = false;
+    }
+    /* ⚠️ **必须通知外壳重画**（只重画顶栏/设备片/准备清单，不重挂页面）。
+       踩过：数据更新了但顶栏还挂着上一次渲染的"已连接 COM7"，
+       于是"后端说没连、界面上还写着 COM7"——判据 V5 就是这么抓到的。
+       为什么不用 `emit('state')`：那个会**整页重挂**，每秒一次会把参数页
+       正在输入的框清掉。 */
+    emit('health');
+  }
+
+  /* WS 遥测 → S。**4 灯直接取后端的 `leds`，不再前端重算**（铁律 54：
+     接线时删前端那份，否则同一件事两个真相）。 */
+  function applyTelemetry(msg) {
+    const u = msg.unified || {};
+    Object.keys(u).forEach(function (k) { if (k in S.tel) S.tel[k] = u[k]; });
+    if (msg.leds) S.leds = msg.leds;
+    const r = (msg.rate && msg.rate.unified) || {};
+    if (r.hz != null) S.tel.rate = r.hz;
+    if (r.age_ms != null) S.tel.ageMs = r.age_ms;
+    if (Array.isArray(r.batches) && r.batches.length) {
+      S.rateLog = r.batches.map(function (b) {
+        return { seq: b.seq, n: b.n, ms: b.ms, hz: b.hz };
+      });
+      const last = r.batches[r.batches.length - 1];
+      S.tel.batchN = last.n; S.tel.batchMs = last.ms;
+    }
+    // 状态位：`mazeTask >= 2` 才算"在跑"（速度过零会闪，任务机是状态不是瞬时量）
+    S.running = (S.tel.mazeTask | 0) >= 2;
+  }
+
+  function applyMaze(msg) {
+    const st = msg.state || msg;
+    if (!st) return;
+    S.mazeLive = st;
+    if (st.task != null) S.tel.mazeTask = st.task;
+  }
+
+  function wsOpen() {
+    if (LIVE.ws) { try { LIVE.ws.close(); } catch (e) { /* 已关 */ } LIVE.ws = null; }
+    let ws;
+    try {
+      ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
+        + location.host + '/ws');
+    } catch (e) { return; }
+    LIVE.ws = ws;
+    ws.onmessage = function (ev) {
+      // 二进制帧（`mouse.wave`）本版没有解码器，也没有波形页 ⇒ 直接忽略
+      if (typeof ev.data !== 'string') return;
+      let m;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === 'mouse.telemetry') applyTelemetry(m);
+      else if (m.type === 'mouse.maze') applyMaze(m);
+      else if (m.type === 'hello' && m.health) applyHealth(m.health);
+      else if (m.type === 'log') log(m.source || 'control', m.level || 'info', m.text || '');
+    };
+    ws.onclose = function () { LIVE.ws = null; };
+  }
+
+  /* 连上后端就切到真数据；连不上什么都不改（保持原型）。只试一次 + 定频轮询。 */
+  function startLive() {
+    const tryOnce = function () {
+      // 读一律用 `get()`：`post()` 会发 POST，而 `/health` 只挂了 GET（405 ⇒ 静默不生效）
+      return get('/api/v1/health').then(function () {
+        return get('/api/v1/caps').then(function (c) {
+          applyCaps((c && c.mouse) || null);
+        });
+      }).then(function () {
+        LIVE.on = true; LIVE.err = '';
+        wsOpen();
+        log('control', 'info', '已连后端 · 切到真数据（遥测走 WS）');
+        emit('state');
+        if (!LIVE.timer) {
+          LIVE.timer = setInterval(function () {
+            get('/api/v1/health').then(applyHealth).catch(function () {
+              LIVE.on = false;
+              if (LIVE.ws) { try { LIVE.ws.close(); } catch (e) { /* 已关 */ } }
+              liveCleanup();
+              log('control', 'warn', '与后端的连接断了 · 退回原型数据');
+              emit('state');
+            });
+          }, 1000);
+        }
+      });
+    };
+    tryOnce().then(function () {
+      return get('/api/v1/health');
+    }).then(applyHealth).catch(function (e) {
+      LIVE.on = false;
+      LIVE.err = (e && (e.detail || e.message)) || String(e);
+      // 原型模式：不吵人，日志里留一条就好（"没起后端"是常态，不是故障）
+      log('control', 'info', '后端未连（' + LIVE.err + '）· 按原型数据演示');
+    });
+  }
+
   /* ── 日志 ─────────────────────────────────────────────────────────────── */
   const SRC = { mouse: '电脑鼠', video: '视频', control: '本层' };
   function log(src, level, text) {
@@ -507,6 +695,23 @@ window.C = (function () {
       toast('warn', '开不了记录', '只有电脑鼠这一路拦记录：先到顶栏连上串口。');
       return;
     }
+    if (LIVE.on) {                      // 真机：真开会话（失败会说话，不假装开着）
+      post('/api/v1/session/open', {}).then(function (d) {
+        S.session.active = true;
+        S.session.t0 = Date.now();
+        S.session.frames = 0;
+        S.session.id = (d && d.session_id) || '';
+        S.session.warnings = (d && d.warnings) || [];
+        log('control', 'info', '会话已开 · ' + S.session.id);
+        toast('ok', '会话已开', S.session.id + ' · 遥测入库');
+        emit('state');
+      }).catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('control', 'warn', '开会话失败：' + msg);
+        toast('bad', '开会话失败', String(msg).slice(0, 120));
+      });
+      return;
+    }
     S.session.active = true;
     S.session.t0 = Date.now();
     S.session.frames = 0;
@@ -518,6 +723,22 @@ window.C = (function () {
   }
   function sessionStop() {
     if (!S.session.active) return;
+    if (LIVE.on) {                      // 真机：真收会话（账本结论由后端给）
+      post('/api/v1/session/close', {}).then(function (d) {
+        S.session.active = false;
+        S.session.ledger = (d && d.ledger) || 'unknown';
+        const gaps = (d && d.gap !== undefined) ? d.gap : null;
+        log('control', 'info', '会话已收 · ' + S.session.id
+          + (gaps === null ? '' : ' · 帧缺口 ' + gaps));
+        toast('ok', '会话已收', S.session.id + (gaps === null ? '' : ' · 帧缺口 ' + gaps));
+        emit('state');
+      }).catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('control', 'warn', '收会话失败：' + msg);
+        toast('bad', '收会话失败', String(msg).slice(0, 120));
+      });
+      return;
+    }
     S.session.active = false;
     S.session.ledger = 'pass';
     log('control', 'info', '会话已收 · ' + S.session.id + ' · 账本通过');
@@ -527,6 +748,8 @@ window.C = (function () {
 
   /* ── 动作 ─────────────────────────────────────────────────────────────── */
   function act(name, arg) {
+    // 真机模式：走后端（下面那套 switch 是原型的本地状态机，只在连不上时用）
+    if (LIVE.on) { actLive(name, arg); return; }
     switch (name) {
       case 'estop':
         S.estop = true; S.running = false;
@@ -577,6 +800,83 @@ window.C = (function () {
         break;
     }
     emit('state');
+  }
+
+  /* ── 真机动作（改版二十八 · P4）──────────────────────────────────────
+     只在 `LIVE.on` 时走这里。**失败一律说出来**（`bad` toast + 日志），
+     绝不先改本地状态再假装成功 —— 那样界面会显示"已发车"而车没动。 */
+  function actLive(name, arg) {
+    const fail = function (e) {
+      const msg = (e && (e.detail || e.message)) || String(e);
+      log('mouse', 'warn', '动作没下发（' + name + '）：' + msg);
+      toast('bad', '没下发：' + name, String(msg).slice(0, 120));
+    };
+    switch (name) {
+      case 'estop':
+        post('/api/v1/mouse/estop').then(function () {
+          S.estop = true; S.running = false;
+          log('mouse', 'warn', '急停已下发 · 锁存中，需【解锁】才能再发车');
+          toast('bad', '急停已下发', '电机断电并锁存。');
+          emit('state');
+        }).catch(fail);
+        return;
+      case 'unlock':
+        // 解锁发的是 STOP —— 上游语义：`STOP` 会解锁急停锁存
+        post('/api/v1/mouse/stop').then(function () {
+          S.estop = false;
+          log('mouse', 'info', '急停已解锁（STOP）');
+          toast('ok', '急停已解锁', '现在可以发车。');
+          emit('state');
+        }).catch(fail);
+        return;
+      case 'launch':
+        post('/api/v1/timesync/maze_run', { target: 'RACE' }).then(function (d) {
+          S.running = true; S.estop = false;
+          log('mouse', 'info', '→ MAZE RUN RACE · 已发车'
+            + (d && d.record && d.record.name ? ' · 记录 ' + d.record.name : ''));
+          toast('ok', '已发车（RACE）', '记录器自动开录 · 目标锁定中心 2×2');
+          emit('state');
+        }).catch(fail);
+        return;
+      case 'mazeStop':
+        post('/api/v1/mouse/maze/stop').then(function (d) {
+          S.running = false;
+          log('mouse', 'info', '→ MAZE STOP · 已收车'
+            + (d && d.reliable === false ? '（⚠ 运动中来不及，如实报告）' : ''));
+          toast('ok', '已收车', '任务机回 WAIT。');
+          emit('state');
+        }).catch(fail);
+        return;
+      case 'rescue':
+        post('/api/v1/mouse/rescue').then(function () {
+          S.running = false; S.estop = false;
+          log('mouse', 'warn', '→ MCU RESET · 整机软复位，约 3 s 后首帧');
+          toast('warn', '已复位', '物理位置不变，发车前请放回起点角。');
+          emit('state');
+        }).catch(fail);
+        return;
+      case 'tare':
+        post('/api/v1/mouse/tare').then(function () {
+          log('mouse', 'info', '→ TARE · 陀螺角与里程基准清零');
+          toast('ok', '已清零', '');
+        }).catch(fail);
+        return;
+      case 'raw':
+        post('/api/v1/mouse/raw', { line: String(arg || '') }).then(function () {
+          log('mouse', 'info', '→ ' + arg);
+          toast('', arg, '已下发，等待设备应答');
+        }).catch(fail);
+        return;
+      case 'saveRecord':
+        post('/api/v1/mouse/maze/record/stop').then(function (d) {
+          log('mouse', 'info', '记录已保存 · ' + ((d && d.name) || ''));
+          toast('ok', '记录已保存', ((d && d.name) || ''));
+        }).catch(fail);
+        return;
+      default:
+        log('control', 'warn', '这个动作还没有后端通路：' + name);
+        return;
+    }
   }
 
   /* ── 4 灯三态 ─────────────────────────────────────────────────────────── */
@@ -649,6 +949,24 @@ window.C = (function () {
   function videoStart(source) {
     if (S.videoRun.state === 'running') return;
     if (!source) { toast('warn', '先选一个视频', '列表里挑一个，或在下面填服务器绝对路径。'); return; }
+    if (LIVE.on) {                      // 真机：起真子进程，并开始轮询状态
+      log('video', 'info', '→ POST /video/run · ' + source);
+      post('/api/v1/video/run', { source: source }).then(function (d) {
+        S.videoRun = { state: 'running', id: (d && d.id) || '', elapsed: 0,
+                       error: '', t0: Date.now(), source: source };
+        S.health.video.running = true;
+        toast('', '解析已起', '子进程在读帧；上游没有进度回调，这里只报已用时间。');
+        pollVideo();
+        emit('state');
+      }).catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        S.videoRun.error = msg;
+        log('video', 'warn', '解析没起来：' + msg);
+        toast('bad', '解析没起来', String(msg).slice(0, 120));
+        emit('state');
+      });
+      return;
+    }
     S.videoRun = { state: 'running', id: '', elapsed: 0, error: '', t0: Date.now(), source: source };
     S.health.video.running = true;
     log('video', 'info', '→ aruco_locator.session · ' + source);
@@ -657,11 +975,59 @@ window.C = (function () {
   }
   function videoCancel() {
     if (S.videoRun.state !== 'running') return;
+    if (LIVE.on) {                      // 真机：只 kill 本次起的那个子进程
+      post('/api/v1/video/cancel', {}).then(function () {
+        log('video', 'warn', '解析已取消 · 产物可能不完整');
+        toast('warn', '已取消', '产物目录里可能留下半份 trajectory.csv。');
+      }).catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('video', 'warn', '取消失败：' + msg);
+        toast('bad', '取消失败', String(msg).slice(0, 120));
+      });
+      return;
+    }
     S.videoRun.state = 'cancelled';
     S.health.video.running = false;
     log('video', 'warn', '解析已取消 · 产物可能不完整');
     toast('warn', '已取消', '产物目录里可能留下半份 trajectory.csv。');
     emit('state');
+  }
+
+  /* 解析进度：**只轮询 `/video/status`（纯内存、零 IO）**。
+     上游没有进度回调，所以我们能报的只有"已用时间"和状态机——
+     别自己编百分比。 */
+  function pollVideo() {
+    if (LIVE.vtimer) clearInterval(LIVE.vtimer);
+    LIVE.vtimer = setInterval(function () {
+      get('/api/v1/video/status').then(function (d) {
+        const st = String(d.state || 'idle');
+        if (st === 'running') {
+          S.videoRun.elapsed = Math.round(Number(d.elapsed_s || 0) * 10) / 10;
+          emit('tick', S.tel);
+          return;
+        }
+        clearInterval(LIVE.vtimer); LIVE.vtimer = null;
+        S.health.video.running = false;
+        if (st === 'done') {
+          S.videoRun.state = 'done';
+          S.videoRun.id = d.id || '';
+          log('video', 'info', '解析完成 · ' + (d.id || '')
+            + '（点【刷新列表】看产物）');
+          toast('ok', '解析完成', (d.id || '') + ' · 产物已落盘');
+        } else if (st === 'cancelled') {
+          S.videoRun.state = 'cancelled';
+          log('video', 'warn', '解析已取消 · 产物可能不完整');
+        } else if (st === 'failed') {
+          S.videoRun.state = 'failed';
+          S.videoRun.error = d.error || '上游失败（看产物目录里的 run.log）';
+          log('video', 'warn', '解析失败：' + S.videoRun.error);
+          toast('bad', '解析失败', String(S.videoRun.error).slice(0, 120));
+        }
+        emit('state');
+      }).catch(function () {
+        clearInterval(LIVE.vtimer); LIVE.vtimer = null;
+      });
+    }, 1000);
   }
   function videoTick() {
     const v = S.videoRun;
@@ -716,6 +1082,9 @@ window.C = (function () {
   let tickN = 0;
   function tick() {
     tickN++;
+    /* 真机模式：遥测由 WS 写入，这里**只负责让视图刷新** ——
+       绝不能一边收真帧一边伪造，那种混合数据没人分得清哪一半是真的。 */
+    if (LIVE.on) { emit('tick', S.tel); return; }
     const t = S.tel;
 
     if (S.running) {
@@ -989,6 +1358,8 @@ window.C = (function () {
     sessionStart, sessionStop, setScene,
     videoStart, videoCancel, videoTick,
     recomputeLeds, pullBatch,
+    // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
+    startLive, LIVE,
     channels: { groups: GROUPS, text: valText, dirs: DIRS, tasks: TASKS, motions: MOTIONS, spurt: SPURT, front: FRONT },
     records: S.records,
     record(id) { return S.records.find(r => r.id === id) || S.records[0] || null; },

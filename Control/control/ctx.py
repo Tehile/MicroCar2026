@@ -50,7 +50,11 @@ class Ctx:
             # 完整性差量的取数：本机链路统计（`seq_lost`/`bad_crc`）。
             # 设备侧 `dropCnt` v9 已删 ⇒ 只能退化为本机口径，见
             # `maze_rec._probe_losses`（不许在记录器里自己比 seq）。
-            get_link_stats=self.mouse.link_stats)
+            get_link_stats=self.mouse.link_stats,
+            # 发车时的参数快照（改版二十八）。走 `refresh=False` ⇒ **纯读缓存、
+            # 不碰设备**：开录这一步绝不能因为"读参数"而多一次串口往返（发车时序
+            # 本来就在等一条命令）。缓存空着就回 None ⇒ 回放显示「未记录」。
+            get_params=self._rec_params)
         # 决策差分的**码表**（上游的路口分类器与名字表）—— 从鼠适配器取，不在这里
         # import 上游（路径注入、能力探测都在适配器里，这一层不该再摸一遍）。
         # 适配器那时**可能还没装载完**（`ctx` 先于 `_load()` 的某些时机）⇒ 取不到就不注入，
@@ -121,6 +125,25 @@ class Ctx:
         self.mouse.close()
 
     # ------------------------------------------------------------ 健康 / 能力
+    def _rec_params(self) -> Optional[dict]:
+        """给记录器用的**参数快照**（开录那一刻冻一次）。
+
+        `refresh=False` ⇒ 只读适配器的缓存，**零设备访问**。为什么这么苛求：
+        它是在"发车/开录"这条路径上被调用的，而那条路径正在等设备回话 ——
+        多一次串口往返就等于把发车推迟一截，且失败时没人知道是被这个拖的。
+
+        返回 `{groups, at_ms, source}`；缓存空着 ⇒ `None`（回放页显示「未记录」）。
+        **绝不拿当前参数去补一份历史记录的快照** —— 那是造假。
+        """
+        try:
+            g = self.mouse.params_grouped(refresh=False) or {}
+        except Exception:                                    # noqa: BLE001
+            return None
+        groups = g.get("groups") or {}
+        if not groups:
+            return None
+        return {"groups": groups, "at_ms": now_ms(), "source": "cache"}
+
     def health(self) -> dict:
         m = self.mouse.health()
         cl = self.clock.snapshot()
