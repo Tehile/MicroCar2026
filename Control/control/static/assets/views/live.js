@@ -26,6 +26,7 @@
           '<section class="card">' +
             '<div class="card-head"><h2>实时帧率</h2>' +
               '<div class="card-head-r"><span class="tag blue">批式</span>' +
+                '<span class="pill mono sm" id="lv-pull-state">拉取中</span>' +
                 '<span class="hint mono" id="lv-age"></span></div></div>' +
             '<div class="card-body">' +
               '<div class="rate-row">' +
@@ -35,16 +36,11 @@
               '</div>' +
               '<div class="pull-row">' +
                 '<span class="pu-k">拉取</span>' +
-                '<span class="tag">批式</span>' +
                 '<label class="pu-n">N <input class="input sm" id="lv-n" value="1" inputmode="numeric"></label>' +
-                '<button class="btn btn-sm" id="lv-n-apply">应用</button>' +
-                '<span class="hint mono" id="lv-n-note"></span>' +
+                '<button class="btn btn-sm btn-primary" id="lv-pull-on">' + C.icon('play') + '开始拉取</button>' +
+                '<button class="btn btn-sm" id="lv-pull-off">' + C.icon('stop') + '结束拉取</button>' +
+                '<span class="hint mono pu-note" id="lv-n-note"></span>' +
               '</div>' +
-              '<table class="tbl rate-tbl"><thead><tr>' +
-                '<th style="width:44px">#</th><th style="width:64px">帧/批</th>' +
-                '<th style="width:86px">往返 ms</th><th style="width:86px">帧率 Hz</th>' +
-                '<th style="width:64px">Δ</th></tr></thead>' +
-                '<tbody id="lv-rate-rows"></tbody></table>' +
             '</div>' +
           '</section>' +
 
@@ -92,21 +88,31 @@
       root.querySelector('#lv-ch').innerHTML = CH.groups.map(g =>
         '<section class="card"><div class="card-head"><h2>' + g.name + '</h2>' +
         '<div class="card-head-r"><span class="hint mono">' + g.keys.length + '</span></div></div>' +
-        '<div class="card-body" style="padding-top:4px"><dl class="kv compact">' + g.keys.map(k =>
+        '<div class="card-body" style="padding-top:4px"><dl class="kv compact'
+        + (g.keys.length >= 6 ? ' pair2' : '') + '">' + g.keys.map(k =>
           '<div><dt>' + k[1] + ' <code>' + k[0] + '</code></dt>' +
           '<dd data-k="' + k[0] + '">—</dd></div>').join('') + '</dl></div></section>').join('');
 
       const tare = actions && actions.querySelector('[data-act="tare"]');
       if (tare) tare.onclick = () => C.act('tare');
 
+      /* 切 N 的正确姿势：**结束拉取 → 改 N → 开始拉取**。
+         开流前上游会 `configure(1, t_ms)`，档没在位就开流 ⇒ 设备按 n=1 发、
+         界面写着 n=3，现场看不出来。所以「开始」里先落档再开流。 */
       const nin = root.querySelector('#lv-n');
-      const apply = () => {
-        const v = C.pullBatch(nin.value);
-        nin.value = v;
-        this.paint(true);
+      const onBtn = root.querySelector('#lv-pull-on');
+      const offBtn = root.querySelector('#lv-pull-off');
+      onBtn.onclick = () => {
+        onBtn.disabled = true;
+        C.setPull(true, nin.value).then(() => { this.paint(true); });
       };
-      root.querySelector('#lv-n-apply').onclick = apply;
-      nin.onkeydown = e => { if (e.key === 'Enter') apply(); };
+      offBtn.onclick = () => {
+        offBtn.disabled = true;
+        C.setPull(false).then(() => { this.paint(true); });
+      };
+      nin.onkeydown = e => {
+        if (e.key === 'Enter' && !S.pulling) { e.preventDefault(); onBtn.click(); }
+      };
 
       /* 手动运动 */
       let dir = 'fwd';
@@ -145,13 +151,17 @@
       const t = S.tel;
 
       /* 帧率 */
+      const pulling = S.pulling;
       const rateEl = root.querySelector('#lv-rate');
-      if (rateEl) rateEl.textContent = U.fmt(t.rate, 1);
+      if (rateEl) {
+        rateEl.textContent = pulling ? U.fmt(t.rate, 1) : '—';
+        rateEl.classList.toggle('off', !pulling);
+      }
       const log = S.rateLog;
       const last = log[log.length - 1], prev = log[log.length - 2];
       const dEl = root.querySelector('#lv-delta');
       if (dEl) {
-        if (!last || !prev) { dEl.className = 'rate-delta'; dEl.textContent = '—'; }
+        if (!pulling || !last || !prev) { dEl.className = 'rate-delta'; dEl.textContent = '—'; }
         else {
           const d = last.hz - prev.hz;
           dEl.className = 'rate-delta ' + (d > .05 ? 'up' : d < -.05 ? 'down' : 'flat');
@@ -160,29 +170,28 @@
       }
       const ageEl = root.querySelector('#lv-age');
       if (ageEl) ageEl.textContent = '最新一帧 ' + U.fmt(t.ageMs, 0) + ' ms 前';
+      const stEl = root.querySelector('#lv-pull-state');
+      if (stEl) {
+        stEl.textContent = pulling ? '拉取中' : '已结束';
+        stEl.className = 'pill mono sm ' + (pulling ? 'ok' : 'idle');
+      }
       const noteEl = root.querySelector('#lv-n-note');
       if (noteEl) {
-        noteEl.textContent = 'n=' + S.pullN + ' · 往返 ' + U.fmt(t.batchMs, 0) + ' ms · ' +
-          U.fmt(t.rate * 30, 0) + ' B/s';
+        noteEl.textContent = pulling
+          ? 'n=' + S.pullN + ' · 往返 ' + U.fmt(t.batchMs, 0) + ' ms · '
+            + U.fmt(t.rate * 30, 0) + ' B/s'
+          : '已结束 · 档 n=' + S.pullN + ' · 改 N 后按【开始拉取】';
       }
+      /* 门控：拉取中锁住 N（切档必须先停），停了只放【开始拉取】 */
       const nin = root.querySelector('#lv-n');
-      if (nin && document.activeElement !== nin) nin.value = S.pullN;
-
-      const rows = log.slice().reverse().map((r, i) => {
-        const j = log.length - 1 - i;
-        const p = log[j - 1];
-        const d = p ? r.hz - p.hz : null;
-        return '<tr' + (i === 0 ? ' class="sel"' : '') + '>' +
-          '<td class="num dim">' + String(r.seq).padStart(3, '0') + '</td>' +
-          '<td class="num">' + r.n + '</td>' +
-          '<td class="num dim">' + r.ms + '</td>' +
-          '<td class="num" style="color:var(--ink);font-weight:600">' + U.fmt(r.hz, 1) + '</td>' +
-          '<td class="num ' + (d === null ? 'dim' : d > 0 ? 'up' : d < 0 ? 'down' : 'dim') + '">' +
-            (d === null ? '—' : (d > 0 ? '+' : '') + U.fmt(d, 1)) + '</td>' +
-          '</tr>';
-      }).join('');
-      root.querySelector('#lv-rate-rows').innerHTML = rows ||
-        '<tr><td colspan="5"><div class="empty"><b>等待第一批</b></div></td></tr>';
+      if (nin) {
+        nin.disabled = pulling;
+        if (document.activeElement !== nin) nin.value = S.pullN;
+      }
+      const onB = root.querySelector('#lv-pull-on');
+      if (onB) onB.disabled = pulling;
+      const offB = root.querySelector('#lv-pull-off');
+      if (offB) offB.disabled = !pulling;
 
       const sp = root.querySelector('#lv-spark');
       if (sp && sp.clientWidth) C.draw.spark(sp, [{ data: S.hist.rate, color: '#2B4FF2' }], {});
@@ -221,7 +230,9 @@
       const arr = [];
       if (S.estop) arr.push(banner('bad', '急停锁存', '电机已断电'));
       if (!S.health.mouse.connected) arr.push(banner('warn', '未连接电脑鼠', '读数为最后一帧'));
-      if (S.health.mouse.connected && !S.running && t.ageMs > 1500) {
+      if (!pulling) {
+        arr.push(banner('', '拉取已结束', '没有新帧 · 改 N 后按【开始拉取】'));
+      } else if (S.health.mouse.connected && !S.running && t.ageMs > 1500) {
         arr.push(banner('', '无数据', '最新一帧 ' + U.fmt(t.ageMs / 1000, 1) + ' s 前'));
       }
       root.querySelector('#lv-banners').innerHTML = arr.join('');

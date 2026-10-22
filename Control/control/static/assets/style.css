@@ -426,6 +426,9 @@ h1,h2,h3,h4,p{margin:0}
 .kv dd.bad{color:var(--red)}
 .kv dd.dim{color:var(--muted)}
 .kv.compact > div{padding:3.5px 0}
+/* 通道卡：项多的组排双列 —— 一行放两组，密度上去了、卡片高度砍半 */
+.kv.pair2{grid-template-columns:1fr 1fr;column-gap:18px}
+.kv.pair2 > div{padding:3px 0}
 
 .tbl{width:100%;border-collapse:collapse;font-size:11.5px}
 .tbl th{
@@ -815,11 +818,12 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 }
 
 /* ═══ 实时状态：帧率 + 4 灯 + 统一帧通道 ══════════════════════════════════ */
-.lv-top{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:12px;align-items:stretch}
+.lv-top{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:12px;align-items:start}
 
-.rate-row{display:flex;align-items:flex-end;gap:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.rate-row{display:flex;align-items:flex-end;gap:14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
 .rate-big{display:flex;align-items:baseline;gap:4px;flex:none}
-.rate-big b{font-family:var(--mono);font-size:46px;line-height:.95;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.rate-big b{font-family:var(--mono);font-size:40px;line-height:.95;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.rate-big b.off{color:var(--muted)}
 .rate-big span{font-size:11px;color:var(--muted)}
 .rate-delta{
   font-family:var(--mono);font-size:12px;padding:2px 6px;border:1px solid var(--line);
@@ -827,20 +831,15 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 }
 .rate-delta.up{color:var(--green);border-color:#9CCBB8;background:#EDF7F2}
 .rate-delta.down{color:var(--red);border-color:#EAB4AF;background:#FBEDEC}
-.rate-spark{flex:1;min-width:120px;height:64px}
+.rate-spark{flex:1;min-width:120px;height:56px}
 .rate-spark canvas{width:100%;height:100%;display:block}
 
-.pull-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.pull-row{display:flex;align-items:center;gap:8px;padding:8px 0 0;flex-wrap:wrap}
 .pull-row .pu-k{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .pull-row .pu-n{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
 .pull-row .pu-n .input{width:62px;text-align:right}
-
-.rate-tbl{min-width:0}
-.rate-tbl th{position:static;background:none;border-bottom:1px solid var(--line);padding:6px 8px}
-.rate-tbl td{padding:4px 8px}
-.rate-tbl tr.sel td{background:#EEF1FE}
-.rate-tbl .up{color:var(--green)}
-.rate-tbl .down{color:var(--red)}
+.pull-row .pu-n .input:disabled{background:var(--panel-2);color:var(--muted);cursor:not-allowed}
+.pull-row .pu-note{margin-left:auto}
 
 /* ═══ 记录：列表 + 关联 ═════════════════════════════════════════════════ */
 .dt-split{display:grid;grid-template-columns:minmax(0,1fr) 196px;gap:18px;align-items:start}
@@ -884,6 +883,9 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 @media (max-width:1420px){
   .race-grid{grid-template-columns:272px minmax(0,1fr) 306px}
   .replay-grid{grid-template-columns:minmax(0,1fr) 340px}
+  /* 窄屏：通道卡双列里塞不下"中文标签 + 原始字段名"，标签会被折断成
+     "迷宫任"/"务"这种 ⇒ 整段通道区隐去 code，只留中文标签与读数 */
+  #lv-ch .kv > div code{display:none}
 }
 @media (max-width:1220px){
   .lv-top{grid-template-columns:1fr}

@@ -81,6 +81,9 @@ window.C = (function () {
     /* 拉取只有批式：一次往返取 N 帧，N 决定帧率 */
     pullMode: 'batch',
     pullN: 1,
+    /* 拉取开关（人工刹车）。默认开着 —— 页面一进来就该有东西看。
+       停了 ⇒ 不再有新帧 ⇒ 帧龄往上走、读数停在最后一帧（不接着假造）。 */
+    pulling: true,
     rateLog: [],
     recSel: '',
     params: null,
@@ -1244,13 +1247,13 @@ window.C = (function () {
         所以"n 设回 1"= 回停等，不是"批式但每批 1 帧"。
      ⚠️ 区间 1~16 与后端 / 上游同源（固件 RATE PULL 上限）。原来这里夹 1..32 ——
         多出来的那一半**设备一律拒**，而界面会显示"已设成 24"。 */
-  function pullBatch(n) {
+  function pullBatch(n, quiet) {
     const v = util.clamp(Number(n) | 0, PULL_N_MIN, PULL_N_MAX);
-    if (v === S.pullN) { S.tel.batchN = v; return S.pullN; }
+    if (v === S.pullN) { S.tel.batchN = v; return Promise.resolve({ ok: true, n: v, effective: true, msg: '' }); }
     S.pullN = v;
     S.tel.batchN = v;
     log('mouse', 'info', '→ RATE PULL n=' + v + ' t=' + PULL_T_MS + ' ms');
-    api('/api/v1/mouse/stream/batch', { n: v, t_ms: PULL_T_MS })
+    return api('/api/v1/mouse/stream/batch', { n: v, t_ms: PULL_T_MS })
       .then(function (res) {
         const b = res.body || {};
         const d = b.data || {};
@@ -1258,34 +1261,111 @@ window.C = (function () {
           /* 后端回了**实际**的 n（可能被它夹过）⇒ 以它为准，别拿本地的想当然 */
           S.pullN = (d.n === 0 || d.n) ? Number(d.n) : v;
           S.tel.batchN = S.pullN;
+          /* ⚠️ `effective=false` = **档已记下、设备侧还没变**（流没开）——
+             这不是失败，但也不是"生效了"。两件事要分开说。 */
+          const eff = d.effective !== false;
           log('mouse', 'info', '拉取档已生效 · n=' + S.pullN
             + (d.fps != null ? ' · 目标 ' + util.fmt(d.fps, 1) + ' Hz' : '')
             + (d.mode ? ' · 模式 ' + d.mode : '')
-            + (d.effective === false ? ' · ⚠ 流没开：档位已记下，设备侧还没变' : ''));
-          if (d.effective === false) {
-            toast('warn', '档位已记下 · n=' + S.pullN,
-                  '流没开 ⇒ 设备侧还没变。开流后才按这个 n 发帧。');
-          } else {
-            toast('ok', 'n=' + S.pullN, '一次往返取 ' + S.pullN + ' 帧'
-              + (d.fps != null ? '，目标 ' + util.fmt(d.fps, 1) + ' Hz' : ''));
+            + (eff ? '' : ' · ⚠ 流没开：档位已记下，设备侧还没变'));
+          if (!quiet) {
+            if (!eff) {
+              toast('warn', '档位已记下 · n=' + S.pullN,
+                    '流没开 ⇒ 设备侧还没变。开流后才按这个 n 发帧。');
+            } else {
+              toast('ok', 'n=' + S.pullN, '一次往返取 ' + S.pullN + ' 帧'
+                + (d.fps != null ? '，目标 ' + util.fmt(d.fps, 1) + ' Hz' : ''));
+            }
           }
-        } else {
-          const msg = (b.error && (b.error.message || b.error.type))
-            || ('HTTP ' + res.status);
-          log('mouse', 'warn', '拉取档没下发：' + msg);
-          toast('bad', '没生效 · n=' + v, String(msg).slice(0, 120));
+          emit('health');
+          return { ok: true, n: S.pullN, effective: eff, msg: '' };
         }
-        emit('state');
+        const msg = (b.error && (b.error.message || b.error.type))
+          || ('HTTP ' + res.status);
+        log('mouse', 'warn', '拉取档没下发：' + msg);
+        if (!quiet) toast('bad', '没生效 · n=' + v, String(msg).slice(0, 120));
+        emit('health');
+        return { ok: false, n: v, effective: false, msg: String(msg) };
       })
       .catch(function (e) {
         const msg = (e && e.message) ? e.message : String(e);
         log('mouse', 'warn', '拉取档没下发（后端未连）：' + msg);
-        toast('warn', '没连上后端',
-              'n 只改在界面上了；后端起来后再点一次【应用】。');
-        emit('state');
+        if (!quiet) toast('warn', '没连上后端',
+              'n 只改在界面上了；后端起来后再点一次【开始拉取】。');
+        emit('health');
+        return { ok: false, n: v, effective: false, msg: msg };
       });
-    emit('state');
-    return v;
+  }
+
+  /* ── 拉取开关（人工刹车）────────────────────────────────────────────────
+     **顺序不能反**：开拉取 = 先落 N（`/stream/batch`）再开流（`/stream`）——
+     上游 `stream.on()` 每次都 `configure(1, t_ms)`，档没在位就开流 ⇒
+     设备按 n=1 发、界面写着 n=3，现场看不出来。
+     结束拉取 = 关流。上游 v2.1 的 `off()` **立刻丢弃在途请求**，是排空蓝牙
+     透传缓冲的唯一手段 ⇒ 它是**排障手段**，不是省流量开关。
+     三态纪律：没生效就说没生效，不许让界面继续显示"已生效"。 */
+  function setPull(on, n) {
+    if (!on) {
+      if (!LIVE.on) {
+        S.pulling = false;
+        log('mouse', 'info', '拉取已结束（原型）· 档 n=' + S.pullN);
+        emit('health');
+        return Promise.resolve(false);
+      }
+      return post('/api/v1/mouse/stream', { on: false }).then(function () {
+        S.pulling = false;
+        log('mouse', 'info', '→ 拉取器已关 · 在途已丢弃');
+        toast('', '拉取已结束', '档位保留 n=' + S.pullN);
+        emit('health');
+        return true;
+      }).catch(function (e) {
+        const msg = (e && e.message) ? e.message : String(e);
+        log('mouse', 'warn', '拉取器没关掉：' + msg);
+        toast('bad', '没关掉', String(msg).slice(0, 120));
+        emit('health');
+        return false;
+      });
+    }
+    /* 开：N 先落，再开流
+       ⚠️ 原型模式（后端没起 ⇒ `LIVE.on=false`）**不打后端**：打过去必然失败，
+          只会每次都弹"没连上后端"，而开关还起不来。原型里 N 与开关都只改本地。 */
+    if (!LIVE.on) {
+      const v = util.clamp(Number(n) | 0, PULL_N_MIN, PULL_N_MAX);
+      S.pullN = v;
+      S.tel.batchN = v;
+      S.pulling = true;
+      log('mouse', 'info', '拉取已开始（原型）· n=' + v);
+      toast('ok', '拉取已开始', '档 n=' + v + ' · '
+        + (v === 1 ? '停等（一帧一答）' : '批式（一次 ' + v + ' 帧）'));
+      emit('health');
+      return Promise.resolve(true);
+    }
+    return pullBatch(n, true).then(function (r) {
+      if (!r.ok) {
+        toast('bad', '拉取没开起来', String(r.msg).slice(0, 120));
+        return false;
+      }
+      if (S.pulling) {   /* 流本来就是开的 ⇒ 这次只换了 N */
+        toast('ok', '已切到 n=' + r.n, '一次往返取 ' + r.n + ' 帧');
+        emit('health');
+        return true;
+      }
+      return post('/api/v1/mouse/stream', { on: true }).then(function (d) {
+        S.pulling = true;
+        log('mouse', 'info', '→ 拉取器已开 · n=' + r.n
+          + (d && d.hz != null ? ' · 实测 ' + util.fmt(d.hz, 1) + ' Hz' : ''));
+        toast('ok', '拉取已开始', '档 n=' + r.n
+          + (d && d.hz != null ? ' · 实测 ' + util.fmt(d.hz, 1) + ' Hz' : ''));
+        emit('health');
+        return true;
+      }).catch(function (e) {
+        const msg = (e && e.message) ? e.message : String(e);
+        log('mouse', 'warn', '拉取没开起来：' + msg);
+        toast('bad', '拉取没开起来', String(msg).slice(0, 120));
+        emit('health');
+        return false;
+      });
+    });
   }
 
   /* ── 视频会话动作 ─────────────────────────────────────────────────────── */
@@ -1430,6 +1510,15 @@ window.C = (function () {
     if (LIVE.on) { emit('tick', S.tel); return; }
     const t = S.tel;
 
+    /* 拉取停了 ⇒ **没有新帧**：读数全停在最后一帧，只让帧龄往上走。
+       别一边说"没有新帧"一边照旧刷新通道 —— 那是在编数据。 */
+    if (!S.pulling) {
+      t.ageMs = util.clamp(t.ageMs + 8, 60, 1400);
+      videoTick();
+      emit('tick', t);
+      return;
+    }
+
     if (S.running) {
       const before = maze.car.dir;
       stepMaze();
@@ -1463,7 +1552,6 @@ window.C = (function () {
       t.goOrBack = 0;
     } else {
       t.speedL = 0; t.speedR = 0;
-      t.ageMs = util.clamp(t.ageMs + 8, 60, 1400);
     }
     /* 批式拉取：一次往返取 N 帧 ⇒ 帧率 ≈ N / 单批往返。
        ⚠️ 夹的是 1..16（与 `pullBatch` / 后端 / 上游同源）；原来写 32，
@@ -1473,7 +1561,15 @@ window.C = (function () {
     t.batchN = N;
     t.batchMs = 232 + (N - 1) * 16 + Math.random() * 12;
     t.rate = N * 1000 / t.batchMs;
-    t.ageMs = S.running ? 100 + Math.round(Math.random() * 60) : t.ageMs;
+    t.ageMs = S.running ? 100 + Math.round(Math.random() * 60)
+      : util.clamp(t.ageMs + 8, 60, 1400);
+    if (tickN % 4 === 0) {
+      const h = S.hist;
+      h.rate.push(+t.rate.toFixed(2));
+      if (h.rate.length > 60) h.rate.shift();
+      S.rateLog.push({ seq: ++rateSeq, n: N, ms: Math.round(t.batchMs), hz: +t.rate.toFixed(2) });
+      if (S.rateLog.length > 8) S.rateLog.shift();
+    }
     t.ms8 = (tickN * 37) % 256;
     t.flags = S.estop ? 129 : (S.running ? 17 : 1);
     t.irF1 = 62 + Math.round(Math.sin(tickN / 9) * 8 + Math.random() * 3);
@@ -1486,14 +1582,6 @@ window.C = (function () {
     if (S.health.mouse.connected && S.ledSupported && S.health.mouse.fwInt >= 311) {
       const on = Math.floor(tickN / 4) % 2 === 0;
       S.leds = { led1: true, led2: on, led3: !on, led4: S.running };
-    }
-
-    if (tickN % 4 === 0) {
-      const h = S.hist;
-      h.rate.push(+t.rate.toFixed(2));
-      if (h.rate.length > 60) h.rate.shift();
-      S.rateLog.push({ seq: ++rateSeq, n: N, ms: Math.round(t.batchMs), hz: +t.rate.toFixed(2) });
-      if (S.rateLog.length > 8) S.rateLog.shift();
     }
 
     if (S.session.active) {
@@ -1690,7 +1778,7 @@ window.C = (function () {
 
   /* 初始日志 */
   [
-    ['control', 'info', '服务已起 · 127.0.0.1:8770 · 协议 v9（30 B 统一帧 / 29 通道）'],
+    ['control', 'info', '服务已起 · 127.0.0.1:8770 · 协议 v9（30 B 统一帧 / 33 通道）'],
     ['mouse', 'info', '串口 COM7 已连接 · fw 2.13.0 · proto 9'],
     ['video', 'info', '视频目录 D:\\video · 3 个 mp4 · 最近解析 21:04'],
     ['control', 'warn', '时间基：设备侧未发车（ARM 未置位），跨机对齐按 assumed 记录'],
@@ -1702,7 +1790,7 @@ window.C = (function () {
     S, util, icon, on, emit, log, toast, go, boot, act,
     sessionStart, sessionStop, setScene,
     videoStart, videoCancel, videoTick,
-    recomputeLeds, pullBatch,
+    recomputeLeds, pullBatch, setPull,
     // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
     startLive, LIVE,
     // 四页数据（按页拉取 + 形状翻译）
