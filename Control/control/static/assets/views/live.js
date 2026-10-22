@@ -58,7 +58,7 @@
           '</section>' +
         '</div>' +
 
-        '<div class="sec-title">统一帧通道 <span class="mono" style="letter-spacing:0">· 29</span></div>' +
+        '<div class="sec-title">统一帧通道 <span class="mono" style="letter-spacing:0">· 33</span></div>' +
         '<div class="grid g3" id="lv-ch"></div>' +
 
         '<section class="card" style="margin-top:12px">' +

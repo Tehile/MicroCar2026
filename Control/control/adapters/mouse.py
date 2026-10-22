@@ -118,6 +118,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import sys
 import threading
 import time
 from pathlib import Path
@@ -128,7 +129,7 @@ from ..bus import Bus, f32_2d
 from ..clock import mono_to_ms, now_ms
 # 4 灯三态（改版二十四 / 上游 2.13.0）：判定只在这一处（铁律 32）——
 # 前端拿到的是 True/False/**None**，"未知不是灭"这件事由这里保证。
-from ..leds import led_states
+from ..leds import _fw_int as _led_fw_int, led_states
 # 墙图重建（实验 8 的中栏"重构示意"）。复用**同一个类**：实时从环形缓冲重建、
 # 复盘从记录文件重放 —— 两边走同一套方向转换，才不会"实时看到的图与复盘的不一样"。
 from ..maze_rec import MazeWallMap
@@ -171,6 +172,33 @@ FLASH_PAGE_LESSON = 116    # 课程调参：id 8–21
 #: 两处各写一个字符串，就是"配置文件丢了/少了这个键，模式悄悄换一种"的静默降级。
 #: 默认停等：在途恒 1 条请求、帧率 = 1/RTT，现场出任何异常都能当场归因。
 DEFAULT_STREAM_MODE = "stopwait"
+
+#: 每批帧数 n 的合法区间。**照抄上游 `TelemetryPuller.configure()` 的校验**
+#: （`if not 1 <= n <= 16: raise ValueError("n 须在 1..16(固件 RATE PULL 上限)")`）——
+#: 本层不另立一套数字，否则上游改了这里就成了"界面收下了、设备拒了"。
+#: ⚠️ `n == 1` 在上游**字面退化为停等**（`TELEM`，`t_ms` 被忽略）：N 不是一个
+#:    "批内帧数"的修饰符，**它就是拉取档** —— 1 = 停等，≥2 = 批式。这条口径必须
+#:    在界面上说清，否则"设成 1 还是那么慢"会被当成没生效。
+PULL_N_MIN, PULL_N_MAX = 1, 16
+
+#: 批内节拍（ms）。上游默认 100 ms ⇒ n=3 时 10 Hz。**不在界面上开放**：`t_ms`
+#: 与 `n` 一起决定帧率，两个都能调就等于让人直接撞 13.3 Hz 那个"只活 176 s"的顶格。
+PULL_T_MS = 100
+
+#: 默认每批帧数。与 `config.yaml: mouse.pull_n` 和小节里的兜底**同源**（铁律 17）。
+#: 默认 1 = 停等，即改版二十一那个"稳定优先"的结论；要批式必须由人显式抬上去。
+DEFAULT_PULL_N = 1
+
+
+def _fw_int(fw: Any) -> Optional[int]:
+    """`device["fw"]` → int；取不到/认不出 ⇒ `None`（**不是 0**）。
+
+    实现**只有一份**（`control/leds.py:_fw_int`），这里只是转出去给 `/health` 用。
+    为什么不在此处另写一遍 `int(str(fw).strip())`：`None` 与 `0` 在 4 灯三态上
+    是**相反**的结论（`None` = 判不了，`0` = 老固件），两处各写一遍，
+    迟早会有一处把"没读到"写成"很老的固件"。
+    """
+    return _led_fw_int(fw)
 
 
 def _enhance(detail: str) -> str:
@@ -227,7 +255,33 @@ class MouseAdapter:
         #: ⇒ 只报量出来的。
         self._rate_hist: Dict[str, Any] = {}
         self._unified_hz_nominal: Optional[float] = None
+        #: 本层想用的每批帧数（见 `apply_pull_n`）。配置给了就认配置，
+        #: 但**越界一律夹回合法区间**并留日志 —— 配置写错不该让服务起不来，
+        #: 也不该悄悄按一个设备不肯接受的数去发。
+        self._pull_n = self._cfg_pull_n()
         self._load()
+
+    def _cfg_pull_n(self) -> int:
+        """从配置读 `mouse.pull_n`，夹到 `PULL_N_MIN..PULL_N_MAX`。"""
+        raw = self.cfg.get("mouse.pull_n", DEFAULT_PULL_N)
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            self._early_warn(f"配置 mouse.pull_n={raw!r} 不是整数 ⇒ 按 {DEFAULT_PULL_N}（停等）用")
+            return DEFAULT_PULL_N
+        if v < PULL_N_MIN or v > PULL_N_MAX:
+            c = max(PULL_N_MIN, min(PULL_N_MAX, v))
+            self._early_warn(f"配置 mouse.pull_n={v} 超出 {PULL_N_MIN}~{PULL_N_MAX} "
+                             f"⇒ 按 {c} 用")
+            return c
+        return v
+
+    def _early_warn(self, text: str) -> None:
+        """装载期（`bus` 可能还没接上）的告警出口：先试 bus，再退 print。"""
+        try:
+            self.bus.log("warn", text, source="mouse")
+        except Exception:                                    # noqa: BLE001
+            print(f"[mouse] {text}", file=sys.stderr)
 
     # ------------------------------------------------------------ 装载
     def _load(self) -> None:
@@ -869,6 +923,20 @@ class MouseAdapter:
             except Exception as e:                            # noqa: BLE001
                 self.bus.log("warn", f"批式拉取切换失败，继续用停等："
                                      f"{type(e).__name__}: {e}", source='mouse')
+        # ---- 重连后**恢复**上一次设的每批帧数（改版二十六）
+        # 为什么必须在这里再做一遍：`mc.stream.on()` 每次都 `configure(1, t_ms)`，
+        # 停等一开就把 n 归 1 —— 不补这一步，"设了 N、掉一次线"就悄悄回到停等，
+        # 而现场只会看到"帧率又变慢了"，且**没有任何一处报错**。
+        # ⚠️ 只在 `_pull_n ≥ 2` 时做：n=1 就是停等，上游已经把流开成停等了，
+        #    再 tune 一次纯属多余的命令往返。失败**不阻断连接**（同上面的 pace）。
+        if self._pull_n >= 2 and self._features.get("pace_pull"):
+            try:
+                mc.stream.tune(n=self._pull_n, t_ms=PULL_T_MS)
+                out["stream_mode"] = _safe(lambda: str(mc.stream.mode)) or "off"
+                out["pull_n"] = self._pull_n
+            except Exception as e:                            # noqa: BLE001
+                self.bus.log("warn", f"每批帧数 n={self._pull_n} 没恢复，仍按停等跑："
+                                     f"{type(e).__name__}: {e}", source='mouse')
         return out
 
     def disconnect(self) -> dict:
@@ -876,6 +944,79 @@ class MouseAdapter:
             return {"ok": True, "note": "未连接"}
         self._mc.disconnect()
         return {"ok": True, "state": self._mc.state}
+
+    # ------------------------------------------------------------ 拉取档位（批式 N）
+    #: 本层**当前**想用的每批帧数（在 `__init__` 里由配置初始化）。之后由
+    #: `POST /mouse/stream/batch` 改，断线重连时由 `connect()` 重新应用 ——
+    #: 否则"设了 N、掉一次线就回停等"，而现场只会看到"帧率又变慢了"。
+    #: ⚠️ 必须自己记着，不能只信上游：`mc.stream.on()` 每次都 `configure(1, t_ms)`，
+    #:    停等一开就把 n 归 1，N 会被一次重连悄悄吃掉。
+
+    def _pull_snapshot(self, mc: Any) -> Optional[Dict[str, Any]]:
+        """拉取档位快照 `{n, t_ms, T_ms, fps}`；判不了 ⇒ `None`。
+
+        `mc.stream.tune()` **不带参数**时是纯读（不重启、不动档位），拿它当快照。
+        返回 `None` 的三种情况都**不是** "n=1"：没连接、上游没有 `tune`、读的时候抛了。
+        """
+        if mc is None or not mc.is_connected:
+            return None
+        try:
+            pace = dict(mc.stream.tune().get("pace") or {})
+        except Exception:                                    # noqa: BLE001
+            return None
+        if not pace:
+            return None
+        # ⚠️ `n == 1` 时上游的 `fps` 是**按批式公式算出来的假数**（n/t_ms ⇒ 10 Hz），
+        #    而 n=1 走的是 `TELEM` 停等，真机只有 4.4~6.5 Hz（=1/RTT）。
+        #    把这个数原样交出去，界面就会在停等状态下显示"目标 10 Hz"——
+        #    一个**看起来有依据**的错数。所以 n≤1 时把 fps 抹成 None，并标明 kind。
+        n = int(pace.get("n") or 0)
+        pace["kind"] = "stopwait" if n <= 1 else "pace"
+        if n <= 1:
+            pace["fps"] = None
+        return pace
+
+    def apply_pull_n(self, n: Any, t_ms: Any = None) -> Dict[str, Any]:
+        """设置**每批帧数**并立即生效。同步等 ACK ⇒ 调用方必须放 executor。
+
+        `n` 就是拉取档：`1` = 停等（`TELEM`，`t_ms` 被忽略），`≥2` = 批式
+        （`RATE PULL n t`）。上游 `tune()` 在 kind 变化时会自己 stop/start，
+        所以这里**不用**先关流再开流（多关一次就多一次排空等待）。
+
+        返回 `{ok, n, t_ms, fps, mode, effective}`：
+        `effective` 说的是"**这一刻**设备真的在用这个 n 吗"——流关着时为 `False`
+        （值已记下，开流时才生效）。这一位必须有，否则界面上"改了没反应"无从解释。
+        """
+        mc = self._ensure()
+        if not self._features.get("pace_pull"):
+            raise MouseError(
+                "这份上游没有批式拉取（`mc.stream.tune` 不存在）⇒ 每批帧数改不了。"
+                "换停等模式，或升级上游。")
+        try:
+            v = int(n)
+        except (TypeError, ValueError):
+            raise MouseError(f"每批帧数必须是整数，收到 {n!r}")
+        if not (PULL_N_MIN <= v <= PULL_N_MAX):
+            raise MouseError(
+                f"每批帧数 n 只接受 {PULL_N_MIN}~{PULL_N_MAX}（固件 RATE PULL 的上限），"
+                f"收到 {v}。n=1 就是停等，不必设 0。")
+        vt = PULL_T_MS if t_ms is None else int(t_ms)
+        if vt < 1:
+            raise MouseError(f"批内节拍 t_ms 必须 ≥1，收到 {vt}")
+        cfg = mc.stream.tune(n=v, t_ms=vt) or {}
+        self._pull_n = v
+        try:
+            mode = str(mc.stream.mode or "off")
+        except Exception:                                    # noqa: BLE001
+            mode = "off"
+        pace = dict(cfg.get("pace") or {})
+        return {"ok": True, "n": pace.get("n", v), "t_ms": pace.get("t_ms", vt),
+                # n=1 是停等：上游给的 fps 是按批式公式算的假数，抹掉（同 `_pull_snapshot`）
+                "fps": (None if v <= 1 else pace.get("fps")),
+                "kind": ("stopwait" if v <= 1 else "pace"), "mode": mode,
+                # 流没开 ⇒ `tune` 只把档位记进上游（`_pace_n`），**设备侧还没变**。
+                # 判据取"拉取器在不在跑"，与门面 `mode` 同源（mode=='off' ⇔ 没跑）。
+                "effective": bool(getattr(mc.stream, "is_on", False))}
 
     # ------------------------------------------------------------ 会话
     def open_session(self, name: str) -> str:
@@ -1012,6 +1153,12 @@ class MouseAdapter:
             "launch_min_mv": self._launch_min_mv,
             "protocol": dev.get("proto"),
             "firmware": dev.get("fw"),
+            # 固件号的**数字形态**（改版二十六）。界面判"这 4 个 LED 位到底在不在报"
+            # 要拿它跟 311 比（`control/leds.py` 的 `LED_MIN_FW`），而 `firmware`
+            # 是原样的字符串/null ⇒ 直接比会 TypeError。
+            # ⚠️ 认不出就给 None，**绝不给 0**：0 会被读成"很老的固件"，
+            #    而真相是"没读到"。这条与 `leds.py` 的三态判据同源。
+            "fw_int": _fw_int(dev.get("fw")),
             "mazetype": dev.get("mazetype"),
             # 只有**一条流**（2.0.0）：统一帧 53 B / 39 个扁平通道。
             # 没连接也要答得出通道清单（能力探测时已从协议层取到 `_unified_channels`），
@@ -1057,6 +1204,13 @@ class MouseAdapter:
             # 没连接时答 "off"（三态纪律：没探过就不是 stopwait）。
             "stream_mode": (_safe(lambda: str(mc.stream.mode))
                             if (mc is not None and mc.is_connected) else "off"),
+            # 拉取档位（改版二十六）：**所有"拉取"界面读的就是这一份**。
+            # `n` 不是一个可选的显示参数，它决定设备怎么发帧（1=停等，≥2=批式），
+            # 所以只能有一个来路：上游拉取器自己的 `(n, t_ms)`。
+            # ⚠️ `tune()` 不带参数时是**纯读**（不动档位、不重启），拿它当快照用。
+            # ⚠️ 老上游没有 `tune` ⇒ 整个键给 `None`（判不了），**不是**给 `{n:1}`
+            #    冒充停等：那会让"读不到"和"确实是 n=1"变成同一件事。
+            "pull": self._pull_snapshot(mc),
             # 2.7.0：按键菜单远程化。**摊平到顶层**（同 `pace_pull` 的套路）——
             # 界面据此画/不画「维护与自检」整块；端点据此回 501。
             "menu_remote": bool(self._features.get("menu_remote")),

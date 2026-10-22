@@ -268,7 +268,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -291,7 +291,7 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
@@ -771,6 +771,35 @@ def _mouse_sections(base: str, args, sim) -> None:
     pv = rp.get("data") or {}
     pre_ok = (cp == 200 and pv.get("level") in ("ok", "warn", "unknown")
               and pv.get("min_mv") == 7000)
+
+    # ⑦b 拉取档 n（改版二十六）—— **正反两面都要点**（铁律 46）：
+    #     合法值必须真的落到上游档位上；越界必须 **400**，**不许夹值**
+    #     （夹了就是"界面说成功、设备按别的值跑"，比报错难查得多）。
+    #     最后**恢复 n=1（停等）**：后面的判据看帧率相对量，留在批式档会把读数改掉。
+    rb1, cb1, _ = api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 3}, timeout=25)
+    bv1 = rb1.get("data") or {}
+    batch_pos = (cb1 == 200 and bv1.get("n") == 3 and bv1.get("mode") == "pace")
+    rb2, cb2, _ = api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 99}, timeout=15)
+    batch_neg = (cb2 == 400)
+    rb3, cb3, _ = api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 1}, timeout=25)
+    bv3 = rb3.get("data") or {}
+    batch_back = (cb3 == 200 and bv3.get("n") == 1)
+    # 再核一次"这个 n 是**唯一来路**"：`caps.mouse.pull` 要跟着变。
+    # ⚠️ 读的是 `/api/v1/caps`（**不是** `/health`）：`pull` 是**能力/参数**，
+    #    与 `firmware`/`unified_channels`/`stream_mode` 同一族，就住在 caps 里。
+    #    先前把判据钉在 `/health` 上，实测拿到 None —— 那是判据写错了地方，不是产品没实现。
+    cr, cc, _ = api(base, "/api/v1/caps")
+    pull_now = (((cr.get("data") or {}).get("mouse") or {}).get("pull") or {})
+    pull_aligned = (cc == 200 and pull_now.get("n") == 1 and pull_now.get("fps") is None)
+    i40_ok = batch_pos and batch_neg and batch_back and pull_aligned
+    record("I40", "PASS" if i40_ok else "FAIL",
+           f"每批帧数 n：设 3 ⇒ HTTP {cb1}、档位 n={bv1.get('n')}、"
+           f"门面 mode={bv1.get('mode')!r}（应为 pace）、fps={bv1.get('fps')!r}；"
+           f"越界 n=99 ⇒ HTTP {cb2}（应为 **400**，不许夹到 16）；"
+           f"恢复 n=1 ⇒ HTTP {cb3}、n={bv3.get('n')}、fps={bv3.get('fps')!r}"
+           f"（停等 ⇒ fps 必须是 None，不能拿批式公式算出的 10 Hz 冒充）；"
+           f"`caps.mouse.pull` = n={pull_now.get('n')!r} kind={pull_now.get('kind')!r}"
+           f"（界面读的就是这一份）")
 
     # ⚠️ `ok1` / `relaunch_ok` 允许"**判不了**"这一态：模拟器电池读数抖到阈值以下时，
     #    `ERR_LOWBATT` 会把"要求成功"的那两次发车拦下 —— 那是**环境**，不是产品
@@ -1260,14 +1289,18 @@ def main(argv=None) -> int:
         # ------------------------------------------------------------ I20 / I21
         head("2b. 判据 I20 / I21：界面资源不许被浏览器自行缓存、引用的文件都可达")
         h_root, c_root = head_of(base, "/")
-        h_js, c_js = head_of(base, "/static/wsproto.js")
+        # ⚠️ 探的必须是**真实存在**的静态资源。原来写 `/static/wsproto.js` ——
+        #    改版二十五前端重设计把这个文件删了，于是 c_js 恒 404、I20 恒 FAIL，
+        #    而报出来的文案是"界面资源会被启发式缓存"（**假红 + 误导**）。
+        #    换成一个一定在的文件：`assets/lib.js`（新前端的唯一数据层）。
+        h_js, c_js = head_of(base, "/static/assets/lib.js")
         cc = ((h_root.get("Cache-Control") or "") + " " +
               (h_js.get("Cache-Control") or "")).lower()
         ok_cc = (c_root == 200 and c_js == 200
                  and ("no-cache" in cc or "no-store" in cc))
         record("I20", "PASS" if ok_cc else "FAIL",
                f"Cache-Control：/ = {h_root.get('Cache-Control')!r}、"
-               f"/static/wsproto.js = {h_js.get('Cache-Control')!r}"
+               f"/static/assets/lib.js = {h_js.get('Cache-Control')!r}"
                + ("" if ok_cc else " ⇒ **界面资源会被启发式缓存，可能新旧混用**"))
 
         html = get_text(base, "/")
@@ -2164,7 +2197,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

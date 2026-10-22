@@ -33,7 +33,7 @@ TOP_KEYS = {
 SCHEMA: Dict[str, Optional[set]] = {
     "server": {"host", "port", "session_root", "log_ring"},
     "mouse": {"target", "baud", "auto_stream", "scheduler_hz", "telemetry_window_s",
-              "wave_window_ms", "auto_reconnect", "stream_mode"},
+              "wave_window_ms", "auto_reconnect", "stream_mode", "pull_n"},
     # `arena` 只剩几何（画轨迹的背景网格）。原来的相机外参四项
     # （`fw_to_arena` / `calibrated` / `nadir_xy` / `camera_height_mm`）随相机下线删掉：
     # 视觉标定现在归上游 Auto Locate 的配置，本层不该再持有一份没人写的副本。

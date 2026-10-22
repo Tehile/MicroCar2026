@@ -110,7 +110,7 @@ window.C = (function () {
   S.health = {
     mouse: {
       available: true, connected: true, port: 'COM7', fw: '2.13.0', fwInt: 313, proto: 9,
-      link: 'uart 115200', detail: '', caps: { unified_channels: 29, led: true },
+      link: 'uart 115200', detail: '', caps: { unified_channels: 33, led: true },
     },
     clock: { calibrated: true, offsetMs: 3.2, uncertaintyMs: 1.4, source: 'visual', method: 'rls', samples: 214 },
     timesync: { armed: true, armUpMs: 1420, driftPpm: 12.5, samples: 64 },
@@ -337,10 +337,16 @@ window.C = (function () {
     if (v === null || v === undefined) return '—';
     if (CODE[k]) return CODE[k](v);
     if (k === 'flags') {
+      /* 位定义**照抄上游** `host/protocol/codec.py`（改版二十六修正）：
+           FLAG_FREEMODE   = 0x01  (1)   自由模式（电机停）
+           FLAG_IR_SWITCH  = 0x10  (16)  红外采样轮在跑
+           FLAG_ESTOP_LOCK = 0x40  (64)  急停**锁存**（新的 MOVE/CAL 会被拒）
+         原来这里把急停写成 128（0x80）——那一位上游没有，于是"急停锁存中"
+         这个最该看见的状态**永远画不出来**，而 0x40 又被漏掉 ⇒ 两个错同时存在。 */
       const bits = [];
       if (v & 1) bits.push('自由');
       if (v & 16) bits.push('IR');
-      if (v & 128) bits.push('急停');
+      if (v & 64) bits.push('急停锁存');
       return (bits.length ? bits.join('+') : '无') + ' (' + v + ')';
     }
     if (typeof v === 'boolean') return v ? '是' : '否';
@@ -447,6 +453,27 @@ window.C = (function () {
   const bus = {};
   function on(evt, fn) { (bus[evt] = bus[evt] || []).push(fn); }
   function emit(evt, payload) { (bus[evt] || []).forEach(fn => { try { fn(payload); } catch (e) { console.error(e); } }); }
+
+  /* ── 后端调用（改版二十六：**全前端唯一一处网络**）───────────────────────
+     为什么只开这一个口：其余数字仍是本地造的（迷宫、记录、轨迹），但"每批帧数 N"
+     不是一个能假装的量 —— 它改的是**设备怎么发帧**。假装就等于"界面显示 10 Hz、
+     设备还在 4 Hz"，而现场看不出来（最坏的一种静默错）。
+
+     ⚠️ 失败一律**说出来**（后端没起 / 没连鼠 / 上游不支持），不许吞掉之后
+        让界面继续维持"已生效"的样子。三态纪律：判不了就说判不了。 */
+  const PULL_N_MIN = 1, PULL_N_MAX = 16, PULL_T_MS = 100;
+
+  function api(path, body) {
+    const opt = body === undefined
+      ? { method: 'GET' }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body) };
+    return fetch(path, opt).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (j) {
+        return { status: r.status, ok: r.ok, body: j };
+      });
+    });
+  }
 
   /* ── 日志 ─────────────────────────────────────────────────────────────── */
   const SRC = { mouse: '电脑鼠', video: '视频', control: '本层' };
@@ -568,13 +595,52 @@ window.C = (function () {
     return out;
   }
 
-  /* ── 批式拉取：N = 一次往返取几帧 ─────────────────────────────────────── */
+  /* ── 拉取档：N = 一次往返取几帧 ─────────────────────────────────────────
+     ⚠️ **N 就是拉取档，不是"批内帧数"的修饰符**（上游 `TelemetryPuller` 的 `kind`
+        由它决定）：`1` = 停等（TELEM，一帧一答），`≥2` = 批式（RATE PULL n t）。
+        所以"n 设回 1"= 回停等，不是"批式但每批 1 帧"。
+     ⚠️ 区间 1~16 与后端 / 上游同源（固件 RATE PULL 上限）。原来这里夹 1..32 ——
+        多出来的那一半**设备一律拒**，而界面会显示"已设成 24"。 */
   function pullBatch(n) {
-    const v = util.clamp(Number(n) | 0, 1, 32);
-    if (v === S.pullN) return S.pullN;
+    const v = util.clamp(Number(n) | 0, PULL_N_MIN, PULL_N_MAX);
+    if (v === S.pullN) { S.tel.batchN = v; return S.pullN; }
     S.pullN = v;
-    log('mouse', 'info', '→ TELEM BATCH n=' + v);
-    toast('', '批式 n=' + v, '目标 ' + util.fmt(v * 1000 / (232 + (v - 1) * 16), 1) + ' Hz');
+    S.tel.batchN = v;
+    log('mouse', 'info', '→ RATE PULL n=' + v + ' t=' + PULL_T_MS + ' ms');
+    api('/api/v1/mouse/stream/batch', { n: v, t_ms: PULL_T_MS })
+      .then(function (res) {
+        const b = res.body || {};
+        const d = b.data || {};
+        if (res.ok && b.ok) {
+          /* 后端回了**实际**的 n（可能被它夹过）⇒ 以它为准，别拿本地的想当然 */
+          S.pullN = (d.n === 0 || d.n) ? Number(d.n) : v;
+          S.tel.batchN = S.pullN;
+          log('mouse', 'info', '拉取档已生效 · n=' + S.pullN
+            + (d.fps != null ? ' · 目标 ' + util.fmt(d.fps, 1) + ' Hz' : '')
+            + (d.mode ? ' · 模式 ' + d.mode : '')
+            + (d.effective === false ? ' · ⚠ 流没开：档位已记下，设备侧还没变' : ''));
+          if (d.effective === false) {
+            toast('warn', '档位已记下 · n=' + S.pullN,
+                  '流没开 ⇒ 设备侧还没变。开流后才按这个 n 发帧。');
+          } else {
+            toast('ok', 'n=' + S.pullN, '一次往返取 ' + S.pullN + ' 帧'
+              + (d.fps != null ? '，目标 ' + util.fmt(d.fps, 1) + ' Hz' : ''));
+          }
+        } else {
+          const msg = (b.error && (b.error.message || b.error.type))
+            || ('HTTP ' + res.status);
+          log('mouse', 'warn', '拉取档没下发：' + msg);
+          toast('bad', '没生效 · n=' + v, String(msg).slice(0, 120));
+        }
+        emit('state');
+      })
+      .catch(function (e) {
+        const msg = (e && e.message) ? e.message : String(e);
+        log('mouse', 'warn', '拉取档没下发（后端未连）：' + msg);
+        toast('warn', '没连上后端',
+              'n 只改在界面上了；后端起来后再点一次【应用】。');
+        emit('state');
+      });
     emit('state');
     return v;
   }
@@ -687,8 +753,11 @@ window.C = (function () {
       t.speedL = 0; t.speedR = 0;
       t.ageMs = util.clamp(t.ageMs + 8, 60, 1400);
     }
-    /* 批式拉取：一次往返取 N 帧 ⇒ 帧率 ≈ N / 单批往返 */
-    const N = util.clamp(S.pullN | 0, 1, 32);
+    /* 批式拉取：一次往返取 N 帧 ⇒ 帧率 ≈ N / 单批往返。
+       ⚠️ 夹的是 1..16（与 `pullBatch` / 后端 / 上游同源）；原来写 32，
+          于是 n=24 时这里照样算出"看着合理"的 Hz，把"设备根本不会按这个 n 发"
+          这件事盖住了。 */
+    const N = util.clamp(S.pullN | 0, PULL_N_MIN, PULL_N_MAX);
     t.batchN = N;
     t.batchMs = 232 + (N - 1) * 16 + Math.random() * 12;
     t.rate = N * 1000 / t.batchMs;
@@ -862,7 +931,12 @@ window.C = (function () {
     const ms = 232 + Math.round(Math.random() * 12);
     S.rateLog.push({ seq: ++rateSeq, n: S.pullN, ms: ms, hz: +(S.pullN * 1000 / ms).toFixed(2) });
   }
-  S.caps = { unified_channels: 29, led: true };
+  /* 统一帧通道数 = 33（上游 2.13.0：29 + `led1..led4`，改版二十六修正）。
+     ⚠️ 原来写 29 —— 那是 2.12.0 的口径。4 个灯单列在状态行（`S.leds`）**不代表**
+        它们不在帧里；写 29 会与后端 `/health` 的 `mouse.unified_channels` 打架。
+     ⚠️ 通道卡按 `GROUPS` 渲染 31 行 = 29 个真通道 + `frontNear`/`irSwitch` 两个
+        上游派生键。三个数字各有含义，别互相替代。 */
+  S.caps = { unified_channels: 33, led: true };
 
   /* ── 路由 ─────────────────────────────────────────────────────────────── */
   const NAV = [

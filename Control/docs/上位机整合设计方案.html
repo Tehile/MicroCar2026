@@ -165,6 +165,7 @@ li{margin:.28em 0}
 <li><a href="#1125">11.25 下线「无记忆走迷宫」+ 地图预览迁入比赛 + 终点锁死（改版二十三）</a></li>
 <li><a href="#1126-auto-locate-2130">11.26 改版二十四·设计稿：手机摄像头下线 + 视频复盘（Auto Locate 视频会话）+ 上游 2.13.0 四灯</a></li>
 <li><a href="#1127">11.27 改版二十五·前端重设计移植方案（状态：方案已出，未实施）</a></li>
+<li><a href="#1128-n">11.28 改版二十六·批式 N 落地（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -643,6 +644,32 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 换掉这四个函数的实现，九个页面一行都不用动。
 另有一处<strong>要交接给前端侧</strong>的前后端不一致（<code>flags</code> 急停位、通道数 29 vs 33）。
 完整落地清单、六批顺序与判据处置见 <strong>§11.27</strong>（状态：<strong>方案已出，未实施</strong>）。</p>
+<p><strong>改版记录 2026-10-22（二十六）</strong>：<strong>批式 N 打通</strong>（用户拍板：N 要真的调用，且所有
+拉取界面共用这一个参数）+ 顺手修掉三处"不涉及界面"的前端错。
+· <strong>N 就是拉取档，不是修饰符</strong>：上游 <code>TelemetryPuller</code> 的 <code>kind</code> 由 n 决定 ——
+  <code>1</code> = 停等（<code>TELEM</code>，<code>t_ms</code> 被忽略）、<code>≥2</code> = 批式（<code>RATE PULL n t</code>）。
+  所以"n 设回 1"= 回停等，不是"批式但每批 1 帧"。这条口径不写清，
+  "设了还是那么慢"就会被当成没生效。
+· <strong>新端点 <code>POST /api/v1/mouse/stream/batch</code></strong>（<code>{"n":1..16,"t_ms":100}</code>）：
+  区间 <strong>照抄上游 <code>configure()</code> 的 1~16</strong>，越界 <strong>400 不夹值</strong>；
+  必须 <code>run_in_executor</code>（kind 变化时上游内部 stop+start，最坏 6 s 级）；
+  应答带 <code>effective</code>（流没开时 <code>tune</code> 只记档位、设备侧还没变）。
+  ⚠️ <strong>顺带纠正一处旧不一致</strong>：<code>/mouse/stream/mode</code> 原来写 1~8，
+  同一条链路两个上限 ⇒ 统一到 1~16。
+· <strong>重连会恢复 N</strong>：<code>mc.stream.on()</code> 每次都 <code>configure(1, …)</code>，所以 <code>connect()</code>
+  里重放一次；不重放的话掉一次线就悄悄回停等，<strong>且没有任何一处报错</strong>。
+· <strong><code>n=1</code> 没有"目标帧率"</strong>：上游仍按批式公式给 <code>fps=10.0</code>，那是假数
+  （停等真机 4.4~6.5 Hz）⇒ <code>caps.mouse.pull.fps</code> 在 n≤1 时一律 <code>null</code>。
+· <strong>只放开 n，不放开 t</strong>：改版十九③"n/t 不开放"的结论没有被推翻一半 ——
+  <code>t_ms</code> 仍由后端写死 100 ms，界面上不开口子（两个都能调就等于让人直接撞
+  13.3 Hz 那个"只活 176 s"的顶格）。
+· <strong>前端三处"不涉及界面"的错</strong>（用户授权直接改）：<code>flags</code> 把急停画成
+  <code>128(0x80)</code> 而上游是 <code>0x40(64)</code>（急停锁存永远画不出来，且漏了 0x40 那位）；
+  <code>unified_channels</code> 写死 29 而实际 33（29 + <code>led1..led4</code>）；批式夹到 32 而上游上限 16。
+· <strong>判据</strong>：新增 <strong>I40</strong>（正反两面：n=3 落到档位 / n=99 必须 400 / 恢复 1 时
+  <code>fps is None</code>）；<strong>I20 重钉</strong>到 <code>/static/assets/lib.js</code>（原来探的 <code>wsproto.js</code>
+  随改版二十五删除 ⇒ 恒红且文案误导）。<code>drill --sim</code> 从 38/2/1 回到 <strong>39/0/1</strong>。
+细节见 §11.28。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -6970,7 +6997,7 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <td><code>lib.js:572</code></td>
 <td><code>pullBatch(n)</code></td>
 <td>只改 <code>S.pullN</code></td>
-<td><strong>见 §六 P3：需先拍板</strong>（默认不接）</td>
+<td><code>POST /mouse/stream/batch</code>（<strong>已落地，改版二十六</strong>，见 §11.28）</td>
 </tr>
 <tr>
 <td><code>lib.js:583</code></td>
@@ -7054,8 +7081,8 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 </tr>
 <tr>
 <td><code>caps.unified_channels</code> / <code>fw</code> / <code>fwInt</code></td>
-<td><code>mouse.health()</code> 给 <code>firmware</code>、<code>unified_channels</code>，<strong>没有 <code>fwInt</code></strong></td>
-<td><code>health</code> 加 <code>fw_int</code>（1 行）。前端 <code>lib.js:565</code> 用 <code>m.fwInt &gt;= 311</code> 判三态，没有这个字段就永远判不出</td>
+<td><strong>都在 <code>caps()</code> 里，不在 <code>health()</code></strong>：<code>/api/v1/caps → data.mouse</code> 有 <code>firmware</code>、<code>unified_channels</code>（实测 33）、<code>stream_mode</code>、<code>pace_pull</code>，<strong>没有 <code>fw_int</code></strong></td>
+<td><code>caps</code> 加 <code>fw_int</code>（与 <code>firmware</code> 同一处）。前端 <code>lib.js:565</code> 用 <code>m.fwInt &gt;= 311</code> 判三态，没有这个字段就永远判不出。⚠️ 实测教训：这里一开始写成"<code>health</code> 缺"，落地时才发现 <code>firmware</code>/<code>unified_channels</code> 一直在 <code>caps()</code> 里 —— <strong>判据钉在 <code>/health</code> 上会永远拿到 None</strong></td>
 </tr>
 </tbody>
 </table>
@@ -7101,8 +7128,8 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <tr>
 <td>批式 N 输入框</td>
 <td><code>pullBatch(n)</code>，n∈[1,32]</td>
-<td>无端点；上游<strong>有</strong> <code>stream.tune(n=,t_ms=)</code>，但改版十九③刻意"n/t 不开放，10 Hz 是压测出的安全档"</td>
-<td><strong>P3 单独拍板</strong>，默认不接</td>
+<td>无端点；上游<strong>有</strong> <code>stream.tune(n=,t_ms=)</code></td>
+<td><strong>已拍板：接</strong>（用户 2026-10-22）⇒ 新增 <code>POST /mouse/stream/batch</code>，n 统一为 <strong>1~16</strong>（顺带纠正前端夹 32）。改版十九③"n/t 不开放"这条<strong>只放开 n，不放开 t</strong>：<code>t_ms</code> 固定 100 ms，仍由后端写死（见 §11.28）</td>
 </tr>
 </tbody>
 </table>
@@ -7138,8 +7165,8 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <tbody>
 <tr>
 <td>1</td>
-<td><code>health</code> 补 <code>fw_int</code></td>
-<td><code>adapters/mouse.py:1014</code> 旁</td>
+<td><code>caps</code> 补 <code>fw_int</code>（<strong>不是 <code>health</code></strong>，见 §三 的实测教训）</td>
+<td><code>adapters/mouse.py</code> 的 <code>caps()</code>（<code>firmware</code> 旁）</td>
 <td>1 行</td>
 <td>能力判定仍看通道，不退回信版本号</td>
 </tr>
@@ -7213,9 +7240,9 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 </tr>
 <tr>
 <td><strong>P3</strong></td>
-<td><strong>拍板</strong>：批式 N 接不接（默认不接）。理由：改版十九③的"不开放"是实测结论，而新 UI 那个输入框是评审用的</td>
-<td>用户拍板</td>
-<td>拍板写进本节</td>
+<td><strong>已拍板并落地</strong>（2026-10-22）：批式 N 接，且所有拉取界面共用这一个参数。落点见 §11.28</td>
+<td>本层</td>
+<td><code>drill --sim</code> 的 I40 正反两面</td>
 </tr>
 <tr>
 <td><strong>P4</strong></td>
@@ -7383,6 +7410,177 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 </tr>
 </tbody>
 </table>
+<hr />
+<h3 id="1128-n">11.28 改版二十六·批式 N 落地（状态：<strong>已落地</strong>）</h3>
+<blockquote>
+<p>用户拍板原文：「批式 N 需要调用，且涉及到的全部拉取界面都要用这个参数。」
+这条把 §11.27 里 P3 那个"待拍板"变成了"要接"，并且定义了它的<strong>范围</strong>：
+不是"某一页有个输入框"，而是<strong>全应用共用一个档位</strong>。</p>
+</blockquote>
+<h4 id="n">一、口径：n 是什么</h4>
+<table>
+<thead>
+<tr>
+<th>n</th>
+<th>是什么</th>
+<th>帧率</th>
+<th><code>t_ms</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1</strong></td>
+<td>停等（<code>TELEM</code>，一帧一答）</td>
+<td>1/RTT，真机 <strong>4.4~6.5 Hz</strong></td>
+<td>被上游忽略</td>
+</tr>
+<tr>
+<td><strong>2~16</strong></td>
+<td>批式（<code>RATE PULL n 100ms</code>）</td>
+<td>≈ n/T，n=3 ⇒ 目标 10 Hz</td>
+<td>参与计算</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>kind</code> 由 n 决定</strong>（上游 <code>TelemetryPuller.start()</code>：<code>n==1 → telem</code>，<code>≥2 → pull</code>）。
+这不是本层的约定，是上游的实现 —— 所以界面上说"把 n 调回 1"必须说成<strong>回到停等</strong>，
+而不是"批式但每批 1 帧"。</p>
+<h4 id="n_1">二、为什么 N 必须全局（"全部拉取界面"的落法）</h4>
+<p><code>n</code> 改的是<strong>设备怎么发帧</strong>，不是某一页怎么显示。所以它只能有一个来路、一个存处：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>落点</th>
+<th>谁读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>上游拉取器</td>
+<td><code>TelemetryPuller.n</code>（<code>tune()</code> 写入）</td>
+<td>设备侧的发帧节奏</td>
+</tr>
+<tr>
+<td>本层适配器</td>
+<td><code>MouseAdapter._pull_n</code>（重连时重放）</td>
+<td><code>connect()</code></td>
+</tr>
+<tr>
+<td>只读快照</td>
+<td><code>GET /api/v1/caps → data.mouse.pull</code> = <code>{n, t_ms, T_ms, fps, kind}</code></td>
+<td><strong>所有界面</strong>（一份，不各算）</td>
+</tr>
+<tr>
+<td>写</td>
+<td><code>POST /api/v1/mouse/stream/batch</code></td>
+<td>界面的 N 输入框</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 为什么不放 <code>/health</code>：<code>firmware</code>/<code>unified_channels</code>/<code>stream_mode</code>/<code>pull</code> 这一族
+<strong>本来就在 <code>caps()</code> 里</strong>（<code>/health</code> 是"现在连没连、状态如何"）。§11.27 的表里曾把
+<code>fw_int</code> 写成"要加到 health"—— 落地时实测才发现位置错了，判据钉在 <code>/health</code> 上
+永远拿到 <code>None</code>。<strong>"我记错了"比"产品没做"更值得记一笔</strong>。</p>
+<h4 id="_86">三、端点契约</h4>
+<p><code>POST /api/v1/mouse/stream/batch</code></p>
+<pre><code class="language-json">{&quot;n&quot;: 3, &quot;t_ms&quot;: 100}          // t_ms 可省 ⇒ 100
+→ {&quot;ok&quot;: true, &quot;data&quot;: {&quot;ok&quot;: true, &quot;n&quot;: 3, &quot;t_ms&quot;: 100, &quot;fps&quot;: 10.0,
+                        &quot;kind&quot;: &quot;pace&quot;, &quot;mode&quot;: &quot;pace&quot;, &quot;effective&quot;: true}}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>情形</th>
+<th>状态码</th>
+<th>为什么这么定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>n</code> 缺失 / 非整数 / 越界</td>
+<td><strong>400</strong></td>
+<td>请求本身不对。<strong>先于</strong> <code>_need_mouse</code> 判 —— 否则一条写错的 body 会被报成"未连接电脑鼠"，现场去查串口，查一辈子也查不出来</td>
+</tr>
+<tr>
+<td>上游没有 <code>tune</code>（老版本）</td>
+<td><strong>501</strong></td>
+<td>"这份上游根本做不到"，不是"现在做不了"</td>
+</tr>
+<tr>
+<td>没连鼠</td>
+<td><strong>409</strong></td>
+<td>现在做不了</td>
+</tr>
+</tbody>
+</table>
+<p><strong>不夹值</strong>：越界一律 400。夹到边界的话，界面会显示"设置成功"而设备按别的值跑 ——
+这是最难查的一类静默错（与"三态不涂红"同一条纪律：判不了就说判不了）。</p>
+<p><code>effective</code> 这个字段是必须的：流没开时 <code>tune()</code> 只把档位记进上游 <code>_pace_n</code>，
+<strong>设备侧还没变</strong>。没有它，"改了没反应"就无从解释。</p>
+<h4 id="_87">四、两条踩过的坑</h4>
+<ol>
+<li><strong><code>n=1</code> 的 <code>fps</code> 是假数</strong>。上游 <code>configure()</code> 一律按 <code>n/t_ms</code> 算 <code>fps</code>，
+   所以 <code>n=1</code> 也给出 <code>10.0</code>。而那一路走的是 <code>TELEM</code> 停等，真机只有 4.4~6.5 Hz。
+   ⇒ <code>caps.mouse.pull.fps</code> 在 <code>n≤1</code> 时<strong>一律 <code>null</code></strong>，并给 <code>kind: "stopwait"</code>。
+   一个"看起来有依据"的错数比没有数更坏。</li>
+<li><strong>重连会把 N 吃掉</strong>。<code>mc.stream.on()</code> 每次都 <code>configure(1, t_ms)</code> ⇒ 停等一开就归 1。
+   所以本层自己记 <code>_pull_n</code> 并在 <code>connect()</code> 重放。不重放的话，表现是
+   "设了 N、掉一次线，帧率又变慢了"，而且<strong>没有任何一处报错</strong>。</li>
+</ol>
+<h4 id="_88">五、同批落地的三处前端修正（用户授权：不涉及界面）</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>原来</th>
+<th>改成</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lib.js</code> <code>valText('flags')</code></td>
+<td>急停判 <code>v &amp; 128</code>（0x80）</td>
+<td><code>v &amp; 64</code>（<code>FLAG_ESTOP_LOCK</code>）</td>
+<td>原来<strong>急停锁存永远画不出来</strong>（0x80 上游不存在），且漏了 0x40 那一位</td>
+</tr>
+<tr>
+<td><code>lib.js</code> <code>caps.unified_channels</code> ×2</td>
+<td><code>29</code></td>
+<td><code>33</code>（29 + <code>led1..led4</code>）</td>
+<td>与 <code>/caps</code> 的 <code>mouse.unified_channels</code> 打架；4 灯单列<strong>不代表</strong>它们不在帧里</td>
+</tr>
+<tr>
+<td><code>lib.js</code> <code>pullBatch</code> / tick 的夹取</td>
+<td><code>1..32</code></td>
+<td><code>1..16</code></td>
+<td>多出来的那一半设备一律拒，而界面会显示"已设成 24"</td>
+</tr>
+</tbody>
+</table>
+<p><strong>通道卡的三个数字各有含义，不许互相替代</strong>：帧里 <strong>33</strong> 个通道；卡片渲染 <strong>31</strong> 行
+（29 个真通道 + <code>frontNear</code>/<code>irSwitch</code> 两个上游派生键）；4 灯单列在状态行（<code>S.leds</code>）。</p>
+<h4 id="_89">六、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I40</strong>（新增）</td>
+<td>正反两面：n=3 ⇒ 200 且 <code>pull.n==3</code>、<code>mode=="pace"</code>；n=99 ⇒ <strong>400</strong>（不许夹到 16）；恢复 n=1 ⇒ 200 且 <code>pull.fps is None</code>、<code>kind=="stopwait"</code>；读的是 <code>/api/v1/caps</code>（不是 <code>/health</code>）</td>
+</tr>
+<tr>
+<td><strong>I20</strong>（重钉）</td>
+<td>探的样例文件从 <code>/static/wsproto.js</code>（已删 ⇒ 恒红）换成 <code>/static/assets/lib.js</code>；判据语义不变</td>
+</tr>
+</tbody>
+</table>
+<p><code>drill --sim</code>：<strong>39 PASS / 0 FAIL / 1 SKIP</strong>（SKIP 仍是 V1：真视频端到端）。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

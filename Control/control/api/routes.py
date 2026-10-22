@@ -19,6 +19,7 @@ import aiohttp
 from aiohttp import web
 
 from .. import __version__
+from ..adapters.mouse import PULL_N_MAX, PULL_N_MIN
 from ..clock import anchor_snapshot, mono_to_ms, now_ms
 from ..maze_rec import GOAL_CELLS
 from ..store import new_session_id
@@ -60,6 +61,10 @@ def register(app: web.Application, ctx: Any) -> None:
     # 与 /stream 分开是因为两者语义不同：/stream 是"流开不开"（人工刹车），
     # /stream/mode 是"怎么拉"（速率形态）。合并会让"关流"和"停等"变成一件事。
     r.add_post("/api/v1/mouse/stream/mode", _mouse_stream_mode)
+    # 每批帧数 n（改版二十六）。与 `/stream/mode` 分开的**唯一**理由：
+    # `/stream/mode` 是"开/关/哪种"三态，`n` 是"一次往返取几帧"的**连续量**；
+    # 合成一条会让"只想调 n"的人不得不重发一遍 mode，等于一次请求改两件事。
+    r.add_post("/api/v1/mouse/stream/batch", _mouse_stream_batch)
     # 维护与自检：v2.7 按键菜单 2/4/5/6/7/8 的远程化（一条端点对上游一个 CAL 命令族）
     r.add_post("/api/v1/mouse/maint/{item}", _mouse_maint)
     r.add_get("/api/v1/mouse/maze", _mouse_maze)
@@ -417,8 +422,12 @@ async def _mouse_stream_mode(request: web.Request) -> web.Response:
     t_ms = d.get("t_ms")
     if n is not None:
         n = int(n)
-        if not (1 <= n <= 8):
-            raise ApiError(400, "每批帧数 n 只接受 1~8（上游 PacePull 的约束）。")
+        # ⚠️ 区间与 `POST /mouse/stream/batch` **同源**（`adapters/mouse.py` 的
+        # `PULL_N_MIN/PULL_N_MAX` = 上游 `configure()` 的 1..16）。这里原来写 1~8，
+        # 结果"同一条链路两个上限"：n=10 走这条被拒、走 batch 端点能过。
+        if not (PULL_N_MIN <= n <= PULL_N_MAX):
+            raise ApiError(400, f"每批帧数 n 只接受 {PULL_N_MIN}~{PULL_N_MAX}"
+                                f"（固件 RATE PULL 的上限）。")
     if t_ms is not None:
         t_ms = int(t_ms)
         if not (50 <= t_ms <= 1000):
@@ -441,6 +450,65 @@ async def _mouse_stream_mode(request: web.Request) -> web.Response:
         now_mode = "off"
     return ok({"result": _res(r), "mode": now_mode,
                "pull": _pull_stats(mc)})
+
+
+async def _mouse_stream_batch(request: web.Request) -> web.Response:
+    """**每批帧数 n**（改版二十六）—— 「拉取」这条链上**唯一**的档位来路。
+
+    body：`{"n": 1..16, "t_ms": 100}`（`t_ms` 可省，省了用协议默认 100 ms）。
+
+    ⚠️ **n 不是"批内帧数"的修饰符，它就是拉取档**（上游 `TelemetryPuller` 的
+    `kind` 由它决定）：`n == 1` ⇒ 停等（`TELEM`，`t_ms` 被忽略）；`n ≥ 2` ⇒ 批式
+    （`RATE PULL n t`）。所以"把 n 设成 1"= 回到停等，**不是**"批式但每批 1 帧"。
+    界面上不写清这一条，"设了还是那么慢"就会被当成没生效。
+
+    ⚠️ 区间 **1~16 照抄上游** `configure()` 的校验（固件 `RATE PULL` 上限）。
+    越界**必须 400**，不许在这里夹到边界：夹了之后界面显示"设置成功"、
+    而设备按别的值跑，是最难查的一类静默错。
+
+    ⚠️ 必须 `run_in_executor`：`tune()` 在 kind 变化时会 stop + start，
+    `start()` 里要 `cmd.send(wait=True, timeout=2.0)`（试 3 次 ⇒ 最坏 6 s级）。
+
+    ⚠️ 返回里的 `effective` 说"**这一刻**设备真的在用这个 n 吗"：流没开时 `tune`
+    只把档位记进上游 `_pace_n`，设备侧还没变 ⇒ `false`。这一位不给，
+    "改了没反应"就无从解释（三态纪律：判不了/没生效 ≠ 成功）。
+
+    ⚠️ 本层**自己记着**这个 n（`MouseAdapter._pull_n`），并在 `connect()` 里重放：
+    `mc.stream.on()` 每次都 `configure(1, t_ms)`，不重放的话掉一次线就悄悄回停等。
+    """
+    ctx = request.app["ctx"]
+    d = await body_json(request)
+    # ⚠️ 校验次序是有意的：**400（请求本身不对）→ 501（这份上游根本做不到）
+    #    → 409（现在做不了）**。反过来先判 `_need_mouse` 的话，一条写错的 body
+    #    会被报成"未连接电脑鼠"，现场会去查串口 —— 查一辈子也查不出来。
+    if "n" not in d:
+        raise ApiError(400, "要指定每批帧数 n（1~16；n=1 就是停等）。")
+    try:
+        n = int(d["n"])
+    except (TypeError, ValueError):
+        raise ApiError(400, f"每批帧数 n 必须是整数，收到 {d.get('n')!r}。")
+    if not (PULL_N_MIN <= n <= PULL_N_MAX):
+        raise ApiError(400, f"每批帧数 n 只接受 {PULL_N_MIN}~{PULL_N_MAX}"
+                            f"（固件 RATE PULL 的上限），收到 {n}。n=1 就是停等，不必设 0。")
+    t_ms = d.get("t_ms")
+    if t_ms is not None:
+        try:
+            t_ms = int(t_ms)
+        except (TypeError, ValueError):
+            raise ApiError(400, f"批内节拍 t_ms 必须是整数，收到 {d.get('t_ms')!r}。")
+        if t_ms < 1:
+            raise ApiError(400, f"批内节拍 t_ms 必须 ≥1（毫秒），收到 {t_ms}。")
+    # 能力位：老上游没有 `mc.stream.tune` ⇒ 明说改不了，不让现场以为"设成功了"。
+    if not ctx.mouse.features.get("pace_pull"):
+        raise ApiError(501, "当前上游没有批式拉取（`mc.stream.tune` 不存在）⇒ "
+                            "每批帧数改不了。换停等模式，或升级上游。")
+    _need_mouse(ctx)
+    loop = asyncio.get_running_loop()
+    r = await loop.run_in_executor(None, lambda: ctx.mouse.apply_pull_n(n, t_ms))
+    ctx.store.mark("mouse", "mouse.stream.batch", str(n),
+                   f"t_ms={r.get('t_ms')} mode={r.get('mode')} "
+                   f"effective={r.get('effective')}")
+    return ok(r)
 
 
 async def _mouse_maint(request: web.Request) -> web.Response:

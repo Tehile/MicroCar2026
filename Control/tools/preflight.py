@@ -366,6 +366,12 @@ def main(argv=None) -> int:
         "四处接缝",                          #   （act/pullBatch/videoStart/videoCancel，页面层不用动）
         "验收工具停用",                       #   （browser_check 2471 行全钉旧 DOM；停用留证据，不删）
         "I20 必然 FAIL",                #   （drill I20 探的 /static/wsproto.js 已删 ⇒ 实测 404）
+        # 2026-10-22 改版（二十六）：批式 N 打通（用户拍板：N 要调用、且所有拉取界面共用）。
+        # 锚点取"口径"与"两条坑"——这一版最容易在半年后被改错的正是这三件：
+        "批式 N 打通",                       #   （新增 POST /mouse/stream/batch，n 统一 1~16）
+        "N 就是拉取档",                      #   （n=1 停等 / ≥2 批式，kind 由上游按 n 决定）
+        "不夹值",                            #   （越界 400；夹值＝界面说成功、设备按别的跑）
+        "重连会把 N 吃掉",                    #   （stream.on() 每次 configure(1,…) ⇒ connect 里重放）
         "此后所有任务不得改变这里的方向",       # 显式约束
     ]
     try:
