@@ -548,6 +548,12 @@ $PY tools/neg_i30.py                # I30 的变异验证：撤掉"开新纪元"
   恢复 `n=1` ⇒ 200 且 `pull.fps is None`、`kind == "stopwait"`（停等没有"目标帧率"，
   上游按批式公式给出的 10 Hz 是假数）。⚠️ 读的是 `/api/v1/caps`，**不是** `/health` ——
   `pull`/`firmware`/`unified_channels` 都属于 caps。
+- **I41** **记录摘要 + 视频关联 + 逐批明细**（链路级，`--sim` 才跑，见 §11.29）：
+  `GET /records` 的行要有 9 列；`ledger` 只许 `True/False/None`、`maze_seed` **恒 `None`**
+  （记录里没有种子，0 是合法种子，不许拿 0 顶）；关联写入后**列表里看得到**、
+  解除后**文件真没了**；**空 body ⇒ 400**（不等于"解除"）、不存在的会话 ⇒ **404**；
+  `/mouse/state` 的 `rate.unified.batches` 要有行且含 `seq,n,ms,hz`。
+  ⚠️ 这条判据自己会造一个临时视频会话目录再删掉（`finally` 清理），不留产物。
 
 
 判据 **I20 / I21** 管"界面资源本身对不对"（都不需要硬件）：

@@ -65,8 +65,10 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -131,6 +133,26 @@ def _i(v: Any, default: int = 0) -> int:
         return int(v)
     except (TypeError, ValueError):
         return default
+
+
+def _int_or_none(v: Any) -> Optional[int]:
+    """整数或 `None`。**取不到就是 None，不给 0** —— 0 在帧数/缺口上是合法值。"""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hhmmss(ms: Optional[int]) -> Optional[str]:
+    """epoch 毫秒 → 本地 `HH:MM:SS`。判不了给 `None`（不是 `--:--:--`）。"""
+    if ms is None or ms <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(ms / 1000.0).strftime("%H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 class MazeWallMap:
@@ -1192,6 +1214,144 @@ class MazeRecorder:
             except OSError:
                 continue
             out.append({"name": p.name, "size": st.st_size, "mtime_ms": int(st.st_mtime * 1000)})
+        return out
+
+    # ---------------------------------------------------------------- 摘要与关联（改版二十七）
+    #
+    # 为什么加这两样：新界面的「比赛记录」页是**一张表**（9 列）+ 行内「关联视频」。
+    # 而原来只有 `records()`（只回 name/size/mtime）和 `load()`（整份 + 时间线）。
+    # 表要的列**散在记录文件里**，一条记录读一次就有了 —— 但**不能**让界面为了 9 列
+    # 对每行拉一次整份记录（那是 N 次几万行的 JSON）。所以在这里一次读完、只取摘要。
+
+    #: 关联文件的后缀：`<记录名>.maze.json` → `<记录名>.link.json`。
+    #: 为什么不写回 `*.maze.json` 本体：那份是**产物**（可归档、可导入导出），
+    #: 而"关联哪个视频"是**本层的判断**，改产物会让它和上游/别的工具对不上。
+    LINK_SUFFIX = ".link.json"
+
+    def _link_path(self, name: str) -> Path:
+        """关联文件路径。先过 `_safe_path`（记录必须存在，顺带防穿越）。"""
+        p = self._safe_path(name)
+        return self.root / (p.name[: -len(".maze.json")] + self.LINK_SUFFIX)
+
+    def read_link(self, name: str) -> Optional[str]:
+        """这条记录关联的视频会话 id；没关联/读不出来 ⇒ `None`。
+
+        ⚠️ 读坏了也回 `None` 而不是抛：关联是**附加信息**，它坏掉不该让整张记录表打不开。
+        """
+        try:
+            lp = self._link_path(name)
+        except ValueError:
+            return None
+        if not lp.is_file():
+            return None
+        try:
+            d = json.loads(lp.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        sid = d.get("video_sid")
+        return str(sid) if sid else None
+
+    def write_link(self, name: str, video_sid: Optional[str]) -> Dict[str, Any]:
+        """建立/解除「记录 ↔ 视频会话」关联。同步写小文件 ⇒ 调用方放 executor。
+
+        `video_sid` 为空（`None` / `""`）⇒ **删掉关联文件**，不是写一个空值：
+        "文件里写着 null" 和 "没有这个文件" 在别处会被读成两件事（铁律：空值用 null，
+        但这里连"有记录"都不该有 —— 解除关联就是没有关联）。
+
+        原子写：先写 `.tmp` 再 `os.replace`，避免半个 JSON 被下一次读进来。
+        """
+        p = self._safe_path(name)                       # 记录必须存在
+        lp = self._link_path(name)
+        sid = (str(video_sid).strip() if video_sid else "")
+        if not sid:
+            try:
+                lp.unlink()
+            except FileNotFoundError:
+                pass
+            return {"name": p.name, "video_sid": None, "changed": True}
+        body = {"record": p.name, "video_sid": sid,
+                "updated_at": datetime.now().isoformat(timespec="seconds")}
+        tmp = lp.with_name(lp.name + ".tmp")
+        tmp.write_text(json.dumps(body, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, lp)
+        return {"name": p.name, "video_sid": sid, "changed": True}
+
+    def summaries(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """**列表用的摘要**（界面「比赛记录」表的数据源）。同步读盘 ⇒ 调用方放 executor。
+
+        每行 9 列 + 几个辅助字段。口径逐条写清，因为有一半是**本层的定义**，不是上游事实：
+
+        | 字段 | 来源 |
+        |---|---|
+        | `id` / `name` | 文件名（去掉 `.maze.json`） |
+        | `start` | `created_ms` → 本地 `HH:MM:SS` |
+        | `dur_s` | `duration_ms / 1000` |
+        | `frames` | `integrity.frames`，没有就数 `frames` 数组 |
+        | `launch` | **`why == "maze_run"`** —— 记录是"发车自动开的"还是"人手动开的" |
+        | `launch_at_s` | 自动开的 ⇒ `0.0`（记录起点就是发车点）；手动的 ⇒ `None`（判不了，不是 0） |
+        | `ledger` | **本层定义**：`not tiny and seq_lost_delta == 0 and bad_crc_delta == 0`；**老记录没有 `seq_lost_delta` ⇒ `None`（判不了，不是"不通过"）** |
+        | `gap` | `integrity.seq_lost_delta` |
+        | `maze_seed` | **恒 `None`** —— 记录里没有种子这个东西（迷宫由固件/上游定），别编一个 |
+        | `video_sid` | 关联文件（`read_link`） |
+        | `dir` | 记录所在目录（相对 Control 根，取不到就给绝对路径） |
+
+        ⚠️ `ledger` 与 `maze_seed` 这两行最重要：前者是**我们**说的"账本平"，后者根本不存在。
+        界面上要能看出这两个的区别 —— 一个是判断，一个是空的。
+        """
+        out: List[Dict[str, Any]] = []
+        try:
+            files = sorted(self.root.glob("*.maze.json"), reverse=True)
+        except OSError:
+            return out
+        for p in files[: max(1, int(limit))]:
+            stem = p.name[: -len(".maze.json")]
+            row: Dict[str, Any] = {"id": stem, "name": p.name}
+            try:
+                doc = json.loads(p.read_text(encoding="utf-8"))
+                st = p.stat()
+            except (OSError, json.JSONDecodeError) as e:
+                row["error"] = f"记录读不出来（{type(e).__name__}）"
+                out.append(row)
+                continue
+            integ = doc.get("integrity") or {}
+            created_ms = _int_or_none(doc.get("created_ms"))
+            if created_ms is None:
+                created_ms = _int_or_none(doc.get("start_ms"))
+            dur_ms = _int_or_none(doc.get("duration_ms"))
+            why = str(doc.get("why") or "")
+            frames = _int_or_none(integ.get("frames"))
+            if frames is None:
+                fl = doc.get("frames")
+                frames = len(fl) if isinstance(fl, list) else None
+            gap = _int_or_none(integ.get("seq_lost_delta"))
+            bad_crc = _int_or_none(integ.get("bad_crc_delta")) or 0
+            tiny = bool(integ.get("tiny"))
+            row.update({
+                "start": _hhmmss(created_ms),
+                "start_ms": created_ms,
+                "dur_s": round(dur_ms / 1000.0, 1) if dur_ms else None,
+                "frames": frames,
+                # 「有无发车记录」= 这条记录是不是发车自动开的（实见 why=maze_run / manual）
+                "launch": (why == "maze_run"),
+                "launch_at_s": 0.0 if why == "maze_run" else None,
+                # 本层定义的"账本平"：没丢帧、没坏帧、样本不算太少。
+                # ⚠️ 三态：老记录的 `integrity` 里**没有** `seq_lost_delta`（v9 才有）
+                #    ⇒ 判不了给 `None`，**不许给 False** —— 那会把"没这个字段"
+                #    显示成"这一跑丢了帧"（改版二十二删过一批通道，老记录就是这样）。
+                "ledger": (None if gap is None
+                           else bool(not tiny and gap == 0 and bad_crc == 0)),
+                "gap": gap,
+                # 记录里没有种子 ⇒ 恒 None（**不是 0**：0 是一个合法的种子）
+                "maze_seed": None,
+                "mazetype": doc.get("mazetype"),
+                "end_why": doc.get("end_why"),
+                "size": st.st_size,
+                # 记录所在目录（绝对路径：界面要"打开目录/复制路径"，相对路径容易被
+                # 工作目录一变就指错地方）
+                "dir": str(p.parent),
+                "video_sid": self.read_link(p.name),
+            })
+            out.append(row)
         return out
 
     def load(self, name: str, with_map: bool = True) -> Dict[str, Any]:

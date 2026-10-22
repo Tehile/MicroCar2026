@@ -268,7 +268,7 @@ def _mouse_sections(base: str, args, sim) -> None:
         record("S6", "FAIL",
                f"服务已不健康（HTTP {hc}，{hdt:.1f}s）⇒ 后面的判据全判不了。"
                f"服务日志尾巴：\n{drain(ROOT / '.tmp' / 'drill' / 'service.log', 1200)}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41"):
             record(cid, "FAIL", "服务不健康 ⇒ 判不了")
         return
 
@@ -291,7 +291,7 @@ def _mouse_sections(base: str, args, sim) -> None:
                f"{json.dumps(r, ensure_ascii=False)[:160]}\n"
                f"      服务日志尾（环形缓冲）：\n" + "\n".join(lines[-12:]) +
                f"\n      进程 stdout（只有启动 banner）：\n{log.strip()[:400]}")
-        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40"):
+        for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41"):
             record(cid, "FAIL", f"连不上活链路 ⇒ 判不了（`mouse/connect` HTTP {c}）")
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
@@ -800,6 +800,81 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"（停等 ⇒ fps 必须是 None，不能拿批式公式算出的 10 Hz 冒充）；"
            f"`caps.mouse.pull` = n={pull_now.get('n')!r} kind={pull_now.get('kind')!r}"
            f"（界面读的就是这一份）")
+
+    # ⑦c 记录摘要 / 视频关联 / 逐批明细（改版二十七）—— **正反两面都要点**
+    #     ① 摘要要有 9 列，且 `ledger`/`maze_seed` 必须守三态（老记录判不了就是 None）；
+    #     ② 关联：合法会话 ⇒ 200 且列表里看得到；解除（显式 null）⇒ 干净删掉；
+    #        坏 body ⇒ 400；不存在的会话 ⇒ 404。
+    #     ③ 逐批明细：`/mouse/state` 的 `rate.unified.batches` 要有行（停等 n=1 也有 ——
+    #        每条 TELEM 就是一批 1 帧）。
+    rpaths, cpaths, _ = api(base, "/api/v1/paths")
+    vroot = Path(str(((rpaths.get("data") or {}).get("video_out_root") or "")))
+    rrec, crec, _ = api(base, "/api/v1/records?n=3")
+    rec_rows = (rrec.get("data") or {}).get("records") or []
+    rec_keys = {"id", "start", "dur_s", "frames", "launch", "launch_at_s",
+                "ledger", "gap", "maze_seed", "dir", "video_sid"}
+    rec_ok = (crec == 200 and bool(rec_rows)
+              and rec_keys.issubset(set(rec_rows[0].keys())))
+    # 三态：`ledger` 只许 True/False/None；`maze_seed` **恒 None**（记录里没有种子，
+    # 而 0 是合法种子 ⇒ 不许拿 0 顶）
+    tri_ok = (all(r.get("ledger") in (True, False, None) for r in rec_rows)
+              and all(r.get("maze_seed") is None for r in rec_rows))
+    rsta, csta, _ = api(base, "/api/v1/mouse/state")
+    rate = ((rsta.get("data") or {}).get("rate") or {}).get("unified") or {}
+    bts = rate.get("batches")
+    batch_ok = (csta == 200 and isinstance(bts, list) and bool(bts)
+                and {"seq", "n", "ms", "hz"}.issubset(set(bts[0].keys())))
+
+    link_ok = link_del = link_400 = link_404 = False
+    tmp_vid = None
+    try:
+        if rec_rows and vroot.is_dir():
+            nm = str(rec_rows[0].get("name") or "")
+            tmp_vid = vroot / "drill-link-tmp"
+            tmp_vid.mkdir(parents=True, exist_ok=True)
+            (tmp_vid / "session.json").write_text("{}", encoding="utf-8")
+            rl, cl, _ = api(base, f"/api/v1/records/{nm}/video", "POST",
+                            {"video_sid": "drill-link-tmp"})
+            link_ok = (cl == 200 and (rl.get("data") or {}).get("video_sid") == "drill-link-tmp")
+            r2, c2, _ = api(base, "/api/v1/records?n=3")
+            row2 = next((x for x in ((r2.get("data") or {}).get("records") or [])
+                         if x.get("name") == nm), {})
+            link_ok = link_ok and row2.get("video_sid") == "drill-link-tmp"
+            # 解除：显式 null
+            r3, c3, _ = api(base, f"/api/v1/records/{nm}/video", "POST",
+                            {"video_sid": None})
+            r4, c4, _ = api(base, "/api/v1/records?n=3")
+            row4 = next((x for x in ((r4.get("data") or {}).get("records") or [])
+                         if x.get("name") == nm), {})
+            link_del = (c3 == 200 and row4.get("video_sid") is None
+                        and not (vroot.parent / "maze" / (nm[:-len(".maze.json")]
+                                                          + ".link.json")).exists())
+            # 负向两条
+            _r, c5, _ = api(base, f"/api/v1/records/{nm}/video", "POST", {})
+            link_400 = (c5 == 400)          # 不带 video_sid ≠ 解除
+            _r, c6, _ = api(base, f"/api/v1/records/{nm}/video", "POST",
+                            {"video_sid": "definitely-not-a-session"})
+            link_404 = (c6 == 404)
+    finally:
+        if tmp_vid is not None:
+            try:
+                (tmp_vid / "session.json").unlink()
+            except OSError:
+                pass
+            try:
+                tmp_vid.rmdir()
+            except OSError:
+                pass          # 测试不留产物；删不掉也不让判据崩（会体现在下面的结果里）
+
+    i41_ok = rec_ok and tri_ok and batch_ok and link_ok and link_del and link_400 and link_404
+    record("I41", "PASS" if i41_ok else "FAIL",
+           f"记录摘要：{len(rec_rows)} 行、9 列齐={rec_ok}、"
+           f"三态（ledger∈{{T,F,None}} 且 maze_seed 恒 None）={tri_ok}；"
+           f"关联：写={link_ok} 解除={link_del} 空 body⇒400={link_400} "
+           f"不存在会话⇒404={link_404}；"
+           f"逐批明细：batches={len(bts) if isinstance(bts, list) else bts!r} 行，"
+           f"首行 n={bts[0].get('n') if bts else None} ms={bts[0].get('ms') if bts else None}"
+           f" hz={bts[0].get('hz') if bts else None}")
 
     # ⚠️ `ok1` / `relaunch_ok` 允许"**判不了**"这一态：模拟器电池读数抖到阈值以下时，
     #    `ERR_LOWBATT` 会把"要求成功"的那两次发车拦下 —— 那是**环境**，不是产品
@@ -2197,7 +2272,7 @@ def main(argv=None) -> int:
             _skip_mouse_sections = False
             sim = _start_sim(args.sim_port)
             if sim is None:
-                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40"):
+                for cid in ("I15", "I16", "I17", "I22", "I23", "I27", "I28", "I30", "I31", "I32", "I33", "I40", "I41"):
                     record(cid, "FAIL", f"模拟器起不来（端口 {args.sim_port}）⇒ 这三条判不了")
             else:
                 try:

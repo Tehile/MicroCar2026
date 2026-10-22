@@ -160,6 +160,13 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_get("/api/v1/session/export", _session_export)
     r.add_get("/api/v1/session/file", _session_file)
 
+    # ---- 比赛记录摘要 + 视频关联（改版二十七，界面「比赛记录」页的数据源）
+    # 为什么单开 `/records` 而不复用 `/mouse/maze/records`：
+    # 那条只回 `{name,size,mtime_ms}`（**故意**轻，谁都能调），而界面那张表要 9 列。
+    # 在旧端点上加列会让"只想知道有几条"的调用也跟着读整份 JSON。
+    r.add_get("/api/v1/records", _records)
+    r.add_post("/api/v1/records/{name}/video", _records_link)
+
     r.add_get("/ws", ws_handler)
 
 
@@ -286,7 +293,10 @@ async def _mouse_disconnect(request: web.Request) -> web.Response:
 async def _mouse_state(request: web.Request) -> web.Response:
     ctx = request.app["ctx"]
     mc = ctx.mouse.mc
-    out: Dict[str, Any] = {"health": ctx.mouse.health()}
+    out: Dict[str, Any] = {"health": ctx.mouse.health(),
+                           # 最近一次采样链的 rate 快照（含逐批明细 `batches`）。
+                           # **纯读**，不在端点里重算 —— 见 `MouseAdapter.rate_last()`。
+                           "rate": ctx.mouse.rate_last()}
     if mc is not None and mc.is_connected:
         loop = asyncio.get_running_loop()
         out["link"] = await loop.run_in_executor(None, lambda: mc.link.self_check())
@@ -1536,6 +1546,81 @@ async def _session_close(request: web.Request) -> web.Response:
     # 报 400 会让人以为是"参数写错了"，其实是"这条能力已经不存在了"。
     await body_json(request)
     return ok(await ctx.session_close())
+
+
+async def _records(request: web.Request) -> web.Response:
+    """**比赛记录摘要**（改版二十七）—— 界面「比赛记录」那张表的数据源。
+
+    每行 9 列 + 几个辅助字段，口径逐条写在 `MazeRecorder.summaries()` 的 docstring 里。
+    这里只说三件与端点有关的：
+
+    ⚠️ **必须走 `run_in_executor`**：读盘 + 逐份 `json.loads`。默认 `n=50`，
+    实际记录平均 ~28 KB、整个目录 1.9 MB ⇒ 50 条约几十毫秒；但记录攒到几百条之后
+    就不该再放在事件循环上（这条端点是"点开记录页"触发的，不是心跳）。
+
+    ⚠️ **上限 500**：不设上限的话，一条 `?n=100000` 就能把服务拖死几百毫秒。
+    超了不报错，直接按 500 取 —— 但**响应里回实际条数**（`n`），别让调用方以为拿全了。
+
+    ⚠️ `ledger` / `maze_seed` 是**本层口径**、且**可能为 `None`**：
+    前者是"我们怎么算账本平"，后者记录里根本没有种子。界面必须能显示"判不了"。
+    """
+    ctx = request.app["ctx"]
+    n = _int(request, "n", 50) or 50
+    n = max(1, min(500, n))
+    loop = asyncio.get_running_loop()
+    rows = await loop.run_in_executor(None, lambda: ctx.maze_rec.summaries(n))
+    return ok({"root": str(ctx.maze_rec.root), "records": rows, "n": len(rows)})
+
+
+async def _records_link(request: web.Request) -> web.Response:
+    """**建立 / 解除「记录 ↔ 视频会话」关联**（改版二十七）。
+
+    body：`{"video_sid": "<视频会话 id>"}`；解除关联给 `{"video_sid": null}`。
+    `name` 是记录文件名（`*.maze.json`，路由里要 URL 编码）。
+
+    校验次序：**400（body 错）→ 404（对象不存在）→ 写**。
+    * `video_sid` 不是"可选"：不带这个键就是**没说清要干什么**，不能当成"解除" ——
+      那样一次手滑的空 POST 就会把已有关联删掉。
+    * `video_sid` 指向的会话目录必须**真的存在**：关联到不存在的会话，
+      界面上就是一条点不开、也删不掉的死链。
+
+    关联落点：`records/maze/<记录名>.link.json`（**不写回 `.maze.json` 本体** ——
+    那份是产物，要和上游/别的工具对得上；"关联哪个视频"是本层的判断）。
+    同步写小文件 ⇒ 走 executor。
+    """
+    ctx = request.app["ctx"]
+    name = request.match_info.get("name") or ""
+    d = await body_json(request)
+    if "video_sid" not in d:
+        raise ApiError(400, '要指定 video_sid；**解除关联请显式给 null**'
+                            '（不带这个键不会被当成"解除"）。')
+    sid = d.get("video_sid")
+    if sid:
+        sid = str(sid).strip()
+        out_root = Path(str(ctx.cfg.get("video.out_root") or ""))
+        vd = out_root / sid
+        # 判"是不是一个**真会话**"，判据与 `list_sessions()` 完全一致：
+        # 光有目录不算 —— 一个空目录（解析到一半被杀、或人手建的）关联上去，
+        # 界面上就是一条点开没内容、也没法删的死链。
+        if not vd.is_dir() or not ((vd / "session.json").is_file()
+                                   or (vd / "trajectory.csv").is_file()):
+            raise ApiError(404, f"没有这个视频会话：{sid}。"
+                                f"（要求 {vd} 下真有 session.json 或 trajectory.csv；"
+                                f"先解析一段视频，或到「视频会话」页刷新列表看看有哪些。）")
+    else:
+        sid = None
+    loop = asyncio.get_running_loop()
+
+    def _do() -> dict:
+        try:
+            return ctx.maze_rec.write_link(name, sid)
+        except ValueError as e:                     # 记录名不合法/不存在
+            raise ApiError(404, str(e)) from e
+
+    r = await loop.run_in_executor(None, _do)
+    ctx.store.mark("control", "records.link", r.get("name", name),
+                   f"video_sid={sid}")
+    return ok(r)
 
 
 async def _session_get(request: web.Request) -> web.Response:

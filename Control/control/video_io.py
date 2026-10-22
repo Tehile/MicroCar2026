@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -305,6 +306,14 @@ def list_sessions(out_root: str | Path) -> List[Dict[str, Any]]:
     """列 `out_root` 下已有会话（按名字倒序 = 新的在前）。
 
     扫盘是同步 IO ⇒ 调用方（端点）必须放 executor（铁律 3）。
+
+    **列表要一次给够界面用的字段**（改版二十七）：界面那张"素材/会话"列表要显示
+    时间、时长、帧数、视频名、体积，以前这些得对每一项再拉一次 `session/{sid}` ——
+    列表 N 项就是 N 次扫盘。这里在**已经读到 session.json 的那一次**里顺手补齐。
+
+    ⚠️ `created` 是**产物写入时刻**（`session.json` 的 mtime），**不是视频拍摄时刻** ——
+    上游 `session.json` 里根本没有拍摄时间这个字段。别拿它当"这段视频是什么时候拍的"。
+    同时给 `created_at`（完整 ISO），要精确时间的用它。
     """
     root = Path(out_root)
     if not root.is_dir():
@@ -318,7 +327,18 @@ def list_sessions(out_root: str | Path) -> List[Dict[str, Any]]:
         if not sj.is_file() and not tc.is_file():
             continue
         item: Dict[str, Any] = {"id": d.name, "has_session": sj.is_file(),
-                                "has_trajectory": tc.is_file()}
+                                "has_trajectory": tc.is_file(),
+                                # 产物目录：界面要显示/复制它（"产物在哪儿"）
+                                "out_dir": str(d)}
+        # 时间戳取 session.json 的 mtime（它最后写）；没有就退目录 mtime。
+        # ⚠️ 判不出来就别给：`stat()` 失败时两个字段都不出现，而不是给 1970。
+        try:
+            ts = (sj if sj.is_file() else d).stat().st_mtime
+            dt = datetime.fromtimestamp(ts)
+            item["created"] = dt.strftime("%H:%M")       # 界面 `created.slice(0,5)`
+            item["created_at"] = dt.isoformat(timespec="seconds")
+        except OSError:
+            pass
         # 摘要只取"列表上要显示的那几个数"：读整份 session.json 只为三行没有必要
         if sj.is_file():
             try:
@@ -329,8 +349,16 @@ def list_sessions(out_root: str | Path) -> List[Dict[str, Any]]:
                     "n_total": fr.get("n_total"),
                     "n_valid": fr.get("n_valid"),
                     "valid_ratio": fr.get("valid_ratio"),
+                    # 无效帧的**原因分布**（界面按它写"为什么这些帧没用"）
+                    "invalid_reasons": fr.get("invalid_reasons"),
                     "fps": vd.get("fps_declared") or vd.get("fps"),
                     "frames": vd.get("frames"),
+                    # 视频源与体积/时长（界面列表的"素材"列）
+                    "video_name": (Path(str(vd.get("path"))).name
+                                   if vd.get("path") else None),
+                    "size_bytes": vd.get("size_bytes"),
+                    "dur_s": vd.get("duration_s"),
+                    "vfr": bool(vd.get("vfr_suspected")),
                     "flags": list(d0.get("flags") or []),
                 })
             except (OSError, json.JSONDecodeError):

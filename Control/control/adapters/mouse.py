@@ -254,6 +254,17 @@ class MouseAdapter:
         #: 把额定值摆到界面上，现场会把"帧率掉了一半"当成正常（真踩过，见 §11.7）。
         #: ⇒ 只报量出来的。
         self._rate_hist: Dict[str, Any] = {}
+        #: 逐批明细（改版二十七）。每行 `{seq, n, ms, hz, lost}` —— 界面那张
+        #: "最近约 8 批帧率表"读的就是它。**由后端攒**：前端攒会出现"刷新/切页就清空"，
+        #: 而这张表的用途恰恰是"看刚才那几批到底是什么样"（铁律 32：后端能算别前端攒）。
+        #: ⚠️ 行是**采样间隔内**的结论（`Δbatches` 与 `Δ时间`），不是逐批硬件时刻：
+        #: 采样 10 Hz、批式 10 Hz 时基本 1:1；批式更快时一行会覆盖多批（`n` 仍是每批帧数）。
+        self._batch_hist: List[Dict[str, Any]] = []
+        self._batch_seen: Optional[Tuple[float, int]] = None
+        self._batch_seq = 0
+        #: 最近一次**采样链**算出的 rate 快照（`/mouse/state` 只读这一份）。
+        #: 空字典 = 采样链还没跑过（判不了），不是"速率为 0"。
+        self._rate_last: Dict[str, Any] = {}
         self._unified_hz_nominal: Optional[float] = None
         #: 本层想用的每批帧数（见 `apply_pull_n`）。配置给了就认配置，
         #: 但**越界一律夹回合法区间**并留日志 —— 配置写错不该让服务起不来，
@@ -2445,6 +2456,12 @@ class MouseAdapter:
             mc = self._mc
             if mc is None or not mc.is_connected:
                 continue
+            # 实测速率 + 逐批明细：**不跟着"有没有订阅者"走**（改版二十七）。
+            # 以前它在 `_bin_subs` 闸后面 ⇒ 没人开浏览器时 rate 永远是空的，
+            # 而 `/mouse/state` 要读它、界面刚打开那几秒也要读它 ⇒ 看到的是"判不了"。
+            # 这里只读内存（`telemetry.samples()` + `stream.stats()`），不做波形拷贝，
+            # 代价可忽略；重的部分（`history_dict` + f32）仍在闸后面。
+            rate = self._rate_snapshot(mc)
             if not self.bus._bin_subs:
                 continue
             try:
@@ -2486,7 +2503,8 @@ class MouseAdapter:
                 "unified": _small(rec, 64),
                 "channels": list(self._unified_channels or []),
                 "leds": led_states(rec, self._unified_channels, _fw),
-                "rate": self._rate_snapshot(mc),
+                # 用上面那个**已经算过**的 rate：再调一次会在 6 s 窗口里多插一个采样点
+                "rate": rate,
                 "bps": mc.telemetry.bytes_per_second(),
                 "streaming": mc.telemetry.is_streaming(),
                 "flags": _safe(mc.telemetry.flags),
@@ -2577,7 +2595,14 @@ class MouseAdapter:
         span = now - t0
         # 窗口太短就不给数（"判不了" ≠ 0 Hz）—— 三态纪律（判据 I11 的同源要求）。
         hz = (n - n0) / span if span >= 2.0 else None
-        return {"unified": {
+        # 拉取器状态：**判不了给 None，不给 `{}`**（改版二十七）。
+        # 以前 `_safe()` 会把它抹成空字典，而界面要区分"没有这个能力"和"有一份空状态"；
+        # `{}` 在两处都成立，最后只能靠读代码猜。
+        try:
+            pull: Optional[Dict[str, Any]] = dict(mc.stream.stats())
+        except Exception:                                     # noqa: BLE001
+            pull = None
+        ret: Dict[str, Any] = {"unified": {
             "hz": (round(hz, 2) if hz is not None else None),
             # 协议常量，不是"上游此刻报的额定值"（见 docstring 的 2.1.0 说明）
             "nominal": self._unified_hz_nominal,
@@ -2585,14 +2610,78 @@ class MouseAdapter:
             "samples": n,
             # 窗口内一帧都没来 ⇒ 拉取实际上是断的（与"慢"要分得开）
             "stalled": bool(span >= 2.0 and (n - n0) == 0),
-            # 拉取器自己的状态（在途数/实测 hz/丢了几条）—— 只有 2.1.0 有，老上游给 {}
-            "pull": _safe(lambda: dict(mc.stream.stats())),
+            # 逐批明细（改版二十七）：最近约 8 批 `{seq, n, ms, hz, lost}`。
+            # 判不了 ⇒ `None`（第一次采样只有基线、还没跨过一个区间）。
+            "batches": self._batch_rows(pull, now),
+            # 拉取器自己的状态（在途数/实测 hz/丢了几条）—— 2.1.0 起才有，判不了给 None
+            "pull": pull,
             # 门面三态（off/stopwait/pace）。⚠️ 必须在这里**再端一次**：
             # `stats()` 里虽也有 `stream_mode`，但 `pull` 在老上游上整体是 {}、
             # 而"现在是什么模式"是界面分支的唯一依据 ⇒ 提到 unified 同级，
             # 让前端不用先探 pull 再探里面的键。
             "stream_mode": _safe(lambda: str(mc.stream.mode)),
         }}
+        # 存一份给**只读**用（`/mouse/state`）。为什么不直接让端点调 `_rate_snapshot()`：
+        # 它每次调用都会往窗口里追加一个采样点（那是 10 Hz 采样链的节拍），
+        # 端点跟着调就会把 `hz` 与逐批的 `ms` 算出**多出来的点**——数据看着更细，其实是假的。
+        self._rate_last = ret
+        return ret
+
+    #: 逐批明细保留几行（界面那张表显示约 8 批）。
+    BATCH_KEEP = 8
+
+    def rate_last(self) -> Dict[str, Any]:
+        """最近一次采样链算出的 rate 快照（**纯读，不追加采样点**）。
+
+        `/mouse/state` 用它。别改成"端点里再算一次"：`_rate_snapshot()` 每调一次都会
+        往 6 s 窗口里追加一个采样点，端点跟着调就等于在 10 Hz 的节拍上又插了几个点，
+        `hz` 与逐批的 `ms` 会算出**比真实更细的假数据**。
+        """
+        return dict(self._rate_last)
+
+    def _batch_rows(self, pull: Optional[Dict[str, Any]],
+                    now: float) -> Optional[List[Dict[str, Any]]]:
+        """把"采样间隔内完成了几批"折成一行行 `{seq, n, ms, hz, lost}`。
+
+        **为什么由后端攒**：这张表的用途是"看刚才那几批到底是什么样"，
+        前端攒的话切个页就清空，而它恰恰要跨页/跨刷新才看得出问题。
+
+        **口径要说清**：行不是"硬件逐批时刻"，而是**两个采样点之间**的结论 ——
+        `ms = Δ时间 / Δ批数`。采样 10 Hz、批式 10 Hz 时基本 1:1；批式更快时
+        一行覆盖多批（`n` 仍是**每批**帧数，`seq` 是累计批序号，中间会跳号）。
+
+        判不了就给 `None`（第一次采样只有基线；或上游没这个能力），**不给空数组** ——
+        "还没有数据"和"这批真是 0 Hz"是两件事。
+        """
+        if not pull:
+            return None
+        try:
+            batches = int(pull.get("batches"))
+            n = int(pull.get("n") or 1)
+            lost = int(pull.get("lost_batches") or 0)
+        except (TypeError, ValueError, AttributeError):
+            return None
+        prev = self._batch_seen
+        self._batch_seen = (now, batches)
+        if prev is None:
+            return None                       # 只有基线，还没跨过一个区间
+        dt = now - prev[0]
+        db = batches - prev[1]
+        if dt <= 0 or db <= 0:
+            return list(self._batch_hist)     # 这段没完成批（例如中途停流）⇒ 不出新行
+        ms = dt * 1000.0 / db
+        self._batch_seq += db
+        self._batch_hist.append({
+            "seq": self._batch_seq,
+            "n": n,
+            # 每批往返（ms）。停等式 = RTT；批式 ≈ T_ms
+            "ms": round(ms, 1),
+            # 这一档实际打出来的帧率 = 每批帧数 / 每批耗时
+            "hz": round(n * 1000.0 / ms, 2) if ms > 0 else None,
+            "lost": lost,
+        })
+        del self._batch_hist[:-self.BATCH_KEEP]
+        return list(self._batch_hist)
 
 
 # ---------------------------------------------------------------- 小工具

@@ -166,6 +166,7 @@ li{margin:.28em 0}
 <li><a href="#1126-auto-locate-2130">11.26 改版二十四·设计稿：手机摄像头下线 + 视频复盘（Auto Locate 视频会话）+ 上游 2.13.0 四灯</a></li>
 <li><a href="#1127">11.27 改版二十五·前端重设计移植方案（状态：部分落地）</a></li>
 <li><a href="#1128-n">11.28 改版二十六·批式 N 落地（状态：已落地）</a></li>
+<li><a href="#1129-p2">11.29 改版二十七·P2 后端契约补齐（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -670,6 +671,24 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   <code>fps is None</code>）；<strong>I20 重钉</strong>到 <code>/static/assets/lib.js</code>（原来探的 <code>wsproto.js</code>
   随改版二十五删除 ⇒ 恒红且文案误导）。<code>drill --sim</code> 从 38/2/1 回到 <strong>39/0/1</strong>。
 细节见 §11.28。</p>
+<p><strong>改版记录 2026-10-22（二十七）</strong>：<strong>P2 后端契约补齐</strong>（新界面要的字段与能力，
+纯增量、不改任何已有键）。五件事：
+· <code>caps</code> 补 <code>fw_int</code>（已在改版二十六做掉）+ <code>pull</code>；<code>/mouse/state</code> 补 <code>rate</code>
+  （<strong>纯读缓存</strong>，不在端点里重算 —— 重算会往 6 s 窗口插额外采样点，
+  <code>hz</code> 与逐批 <code>ms</code> 会算出"比真实更细"的假数据）。
+· <code>rate.unified</code> 补 <strong><code>batches[]</code></strong>（逐批 <code>{seq,n,ms,hz,lost}</code>，后端攒、留 8 行）；
+  <code>pull</code> 判不了从 <code>{}</code> 改成 <strong><code>None</code></strong>（<code>{}</code> 会把"没这个能力"和"有一份空状态"混成一件）。
+· <strong>顺手修一个静默错</strong>：<code>_rate_snapshot()</code> 原来落在 <code>_bin_subs</code> 闸后面 ⇒
+  <strong>没人开浏览器时 rate 恒为空</strong>，而 <code>/mouse/state</code> 和"界面刚打开那几秒"都要读它。
+  实测率与逐批明细不该取决于有没有人在看。
+· <code>list_sessions</code> 补 <code>created</code>(<code>HH:MM</code>)/<code>created_at</code>/<code>out_dir</code>/<code>video_name</code>/
+  <code>size_bytes</code>/<code>dur_s</code>/<code>invalid_reasons</code>/<code>vfr</code> —— 以前这些得对列表里<strong>每一项</strong>
+  再拉一次 <code>session/{sid}</code>（N 项 = N 次扫盘）。
+· 新端点 <strong><code>GET /api/v1/records</code></strong>（9 列摘要）与 <strong><code>POST /api/v1/records/{name}/video</code></strong>
+  （记录 ↔ 视频关联，落 <code>records/maze/&lt;记录名&gt;.link.json</code>）。
+· 判据 <strong>I41</strong>（8 段：摘要 9 列 / <code>ledger</code> 与 <code>maze_seed</code> 的三态 / 关联写入 /
+  解除干净 / 空 body⇒400 / 不存在的会话⇒404 / 逐批明细有行）。
+<code>drill --sim</code> <strong>40 PASS / 0 FAIL / 1 SKIP</strong>。细节见 §11.29。</p>
 <p><strong>改版记录 2026-10-04（五）</strong>：「小车控制」下的 <strong>① 参数回传</strong> 改为 <strong>① 实时参数</strong>。
 内容上把<strong>遥测的实时读数</strong>并到一处：左/右里程等累加量（<code>mid</code> 段）与<strong>四路红外 + 电压</strong>
 （<code>slow</code> 段）<strong>放在同一张读数表里</strong> —— 两段本来就在<strong>同一条 WS 消息</strong>（<code>mouse.telemetry</code>）
@@ -6905,7 +6924,7 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <hr />
 <h3 id="1127">11.27 改版二十五·前端重设计移植方案（状态：<strong>部分落地</strong>）</h3>
 <blockquote>
-<p>状态：<strong>P0（文档对齐）/ P1（工具止血）/ P3（批式 N）已落地，P2/P4/P5 未做。</strong>
+<p>状态：<strong>P0（文档对齐）/ P1（工具止血）/ P2（后端契约）/ P3（批式 N）已落地，P4/P5 未做。</strong>
 本节写的是"新前端接真数据要动什么、谁动、怎么验"，下面每个结论都带 <code>文件:行号</code>，
 是<strong>实测与读码</strong>得来的，不是推测。</p>
 <p><strong>现行布局（改版二十五起）</strong>：<strong>左轨 + 九页面</strong>（<code>#/overview</code> <code>#/live</code> <code>#/params</code>
@@ -7238,10 +7257,10 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 <td><code>drill --sim</code> 39/0/1</td>
 </tr>
 <tr>
-<td><strong>P2</strong></td>
-<td>上面六件事的 ①~⑤（后端契约补齐，纯增量）</td>
+<td><strong>P2</strong> ✅</td>
+<td>六件事的 ①~⑤（后端契约补齐，纯增量）：<code>caps</code> 的 <code>fw_int</code>/<code>pull</code>、<code>rate.unified.batches</code>、<code>pull</code> 判不了给 <code>None</code>、<code>list_sessions</code> 八个列表字段、<code>GET /records</code> + <code>POST /records/{name}/video</code>。另修掉"rate 跟着订阅者走"的静默错。见 §11.29</td>
 <td>本层</td>
-<td><code>drill --sim</code>、<code>check_iface_table</code>、<code>preflight</code> 全绿</td>
+<td><code>drill --sim</code> <strong>40/0/1</strong>（新增 I41）、<code>check_iface_table</code> 5/0（<strong>84 路由</strong>）、<code>preflight</code> 21/2/0</td>
 </tr>
 <tr>
 <td><strong>P3</strong></td>
@@ -7586,6 +7605,146 @@ B10、B14（含 B14i/B14j）、B15、B16、B17、B18、B29、B31、B32、B33；
 </tbody>
 </table>
 <p><code>drill --sim</code>：<strong>39 PASS / 0 FAIL / 1 SKIP</strong>（SKIP 仍是 V1：真视频端到端）。</p>
+<hr />
+<h3 id="1129-p2">11.29 改版二十七·P2 后端契约补齐（状态：<strong>已落地</strong>）</h3>
+<blockquote>
+<p>目标只有一个：<strong>让新界面要的字段与能力在后端存在，且不改任何已有键</strong>（纯增量）。
+凡是"本层口径"的字段，一律在文档与响应里标明，别让后来的人当成上游事实。</p>
+</blockquote>
+<h4 id="_90">一、补了什么</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>位置</th>
+<th>补什么</th>
+<th>为什么是这里</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>caps()</code></td>
+<td><code>fw_int</code>、<code>pull{n,t_ms,T_ms,fps,kind}</code></td>
+<td>能力/参数族本来就住 <code>caps</code>（<code>firmware</code>/<code>unified_channels</code>/<code>stream_mode</code> 都在这），<strong>别再往 <code>health</code> 塞</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>rate.unified</code></td>
+<td><code>batches[]</code>（逐批 <code>{seq,n,ms,hz,lost}</code>，留 8 行）</td>
+<td>界面那张"最近约 8 批帧率表"要跨刷新/跨页看，<strong>前端攒会一刷新就清空</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>rate.unified.pull</code></td>
+<td>判不了从 <code>{}</code> → <strong><code>None</code></strong></td>
+<td><code>{}</code> 把"没这个能力"和"有一份空状态"混成一件，最后只能读代码猜</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>video/sessions</code> 每项</td>
+<td><code>created</code>(<code>HH:MM</code>)/<code>created_at</code>/<code>out_dir</code>/<code>video_name</code>/<code>size_bytes</code>/<code>dur_s</code>/<code>invalid_reasons</code>/<code>vfr</code></td>
+<td>以前要显示这些得对<strong>每一项</strong>再拉一次 <code>session/{sid}</code>（N 项 = N 次扫盘）</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>GET /api/v1/records</code></td>
+<td>9 列摘要 + <code>maze_seed</code>/<code>dir</code>/<code>size</code>/<code>end_why</code>/<code>video_sid</code></td>
+<td>旧 <code>…/maze/records</code> <strong>故意</strong>只回 <code>{name,size,mtime_ms}</code>（谁都能便宜地调）；加列会让"只想知道有几条"的调用也跟着读整份 JSON</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>POST /api/v1/records/{name}/video</code></td>
+<td>建立/解除「记录 ↔ 视频会话」</td>
+<td>新界面「比赛记录」页行内就这一个动作</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_91">二、四条口径（<strong>本层说的，不是上游事实</strong>）</h4>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>定义</th>
+<th>三态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>launch</code></td>
+<td><code>why == "maze_run"</code> —— 这条记录是<strong>发车自动开的</strong>，还是人手动开的</td>
+<td><code>True/False</code>（记录一定有 <code>why</code>）</td>
+</tr>
+<tr>
+<td><code>launch_at_s</code></td>
+<td>自动开的 ⇒ <code>0.0</code>（记录起点就是发车点）；手动的 ⇒ <strong><code>None</code></strong></td>
+<td>不许给 0</td>
+</tr>
+<tr>
+<td><code>ledger</code></td>
+<td><code>not tiny and seq_lost_delta == 0 and bad_crc_delta == 0</code> —— "这一跑没丢帧/没坏帧/样本不算太少"</td>
+<td><strong>老记录没有 <code>seq_lost_delta</code> ⇒ <code>None</code></strong>（判不了 ≠ 不通过）</td>
+</tr>
+<tr>
+<td><code>maze_seed</code></td>
+<td><strong>恒 <code>None</code></strong> —— 记录里根本没有种子这东西（迷宫由固件/上游定）</td>
+<td>不许给 0（0 是合法种子）</td>
+</tr>
+<tr>
+<td><code>created</code>（视频会话）</td>
+<td><strong>产物写入时刻</strong>（<code>session.json</code> 的 mtime），<strong>不是视频拍摄时刻</strong></td>
+<td><code>stat()</code> 失败 ⇒ 两个时间字段都不出现，不给 1970</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>这五条里最容易错的是 <code>ledger</code> 与 <code>maze_seed</code>：一个"判不了"、一个"本来就没有"，
+都<strong>不许</strong>塌成 <code>False</code>/<code>0</code>。界面上要能一眼看出"这条记录没证据"和"这条记录真丢了帧"的区别。</p>
+</blockquote>
+<h4 id="_92">三、修掉的一个静默错（这个不在计划里，是落地时发现的）</h4>
+<p><code>_rate_snapshot()</code> 原来写在采样循环的 <code>if not self.bus._bin_subs: continue</code> <strong>之后</strong> ——
+也就是说<strong>没有任何二进制订阅者时，实测帧率与逐批明细根本不计算</strong>。
+后果有两处，都不报错：<code>/mouse/state</code> 的 <code>rate</code> 永远是 <code>{}</code>；
+界面刚打开、WS 还没订阅上那几秒读到的是"判不了"。</p>
+<p>⇒ 把 rate 计算<strong>提到闸之前</strong>（只读内存：<code>samples()</code> + <code>stream.stats()</code>），
+重的波形拷贝（<code>history_dict</code> + f32）仍留在闸后面。
+<strong>实测率不该取决于有没有人在看</strong> —— 这是"只读数据也要正确"的一个具体例子。</p>
+<h4 id="_93">四、端点校验次序与不变量</h4>
+<p><code>POST /records/{name}/video</code>：</p>
+<table>
+<thead>
+<tr>
+<th>情形</th>
+<th>码</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>不带 <code>video_sid</code> 键</td>
+<td><strong>400</strong></td>
+<td>不等于"解除" —— 否则一次手滑的空 POST 就删掉已有关联</td>
+</tr>
+<tr>
+<td><code>video_sid</code> 指向的会话不是<strong>真会话</strong></td>
+<td><strong>404</strong></td>
+<td>判据与 <code>list_sessions()</code> 一致：光有目录不算，必须有 <code>session.json</code> 或 <code>trajectory.csv</code>。否则界面上是条点不开也删不掉的死链</td>
+</tr>
+<tr>
+<td>记录名不合法/不存在</td>
+<td><strong>404</strong></td>
+<td>走 <code>_safe_path()</code>（顺带防目录穿越）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>解除 = 删文件</strong>，不是写一个 <code>null</code>：<code>"文件里写着 null"</code> 和 <code>"没有这个文件"</code> 会被读成两件事。
+原子写（<code>.tmp</code> + <code>os.replace</code>），避免半个 JSON 被下一次读进来。</p>
+<h4 id="i418">五、判据 I41（8 段，正反都有）</h4>
+<p><code>drill --sim</code> 的 I41 一次验完：摘要 3 行的 9 列齐全 / <code>ledger</code> 三态 / <code>maze_seed</code> 恒 <code>None</code> /
+关联写入后<strong>列表里看得到</strong> / 解除后<strong>文件真没了</strong> / 空 body ⇒ <strong>400</strong> /
+不存在的会话 ⇒ <strong>404</strong> / <code>/mouse/state</code> 的 <code>batches</code> 有行且首行含 <code>seq,n,ms,hz</code>。</p>
+<p>⚠️ 这条判据自己会<strong>造一个临时视频会话目录再删掉</strong>（<code>records/video/drill-link-tmp</code>），
+<code>finally</code> 里清理 —— 判据不许留产物（铁律 24）。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>
