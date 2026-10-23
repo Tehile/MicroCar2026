@@ -1,11 +1,12 @@
 /* ═══ 记录回放：时间轴拖动 + 迷宫位置 + 状态 + 参数快照（二级抽屉） ═════
-   布局守则：**一屏放下位置图与时间轴**，不来回滚。
-   - 左列是"舞台"：地图卡 `flex:1` 吃掉剩余高度（canvas 由 JS 按可用边长画），
-     时间轴卡 `flex:none` 钉在它下面；
-   - 右列只有"随帧变化"的状态；
-   - 「参数」「记录」是**静态的、和时间轴无关** ⇒ 不占右栏，压到底部一条摘要，
-     需要时点开底部抽屉看全（41 项参数 + 记录元信息）。
-   —— 之前这两张卡挂在右栏，把整页撑到 1400+ px，看时间轴得上下滚。 */
+   布局守则：**一屏放下位置图与时间轴**，不来回滚；且地图要尽量大。
+   - 地图是正方形 ⇒ 大小只由**可用高度**决定（宽度再宽也没用）。
+     于是"舞台"的总高度**现算**（`fitStage()`：布局顶边 → 视口底 − 日志坞），
+     不写 `vh−常数` —— 常数一估错（窗口变矮）就是从地图身上割肉；
+   - 一切挡在高度路上的东西都搬家：底部的「参数 · 记录」摘要条进页头动作区，
+     时间轴的"标题/时间码"行并进按钮行；
+   - 左列是"舞台"：地图卡 `flex:1` 吃剩余高度，时间轴 `flex:none` 钉在底部；
+   - 「参数」「记录」是**静态的、和时间轴无关** ⇒ 不占右栏，走二级抽屉。 */
 (function () {
   const S = C.S, U = C.util;
   const CH = C.channels;
@@ -17,6 +18,8 @@
   /* 地图重绘的两个"上次值"：只在地图尺寸或帧号变了才重画。
      ResizeObserver 会因为 canvas 自身尺寸变化再回调一次 —— 不判就会自激。 */
   let lastSide = 0, lastI = -1;
+  /* 舞台高度同理：设成同一个值不重复写 style（不然 resize 时来回抖）。 */
+  let lastH = 0;
   let ro = null;
 
   function dur(sec) {
@@ -52,6 +55,10 @@
 
     actions() {
       return '<button class="btn btn-sm btn-ghost" data-rp="back">← 比赛记录</button>' +
+        /* 「参数 · 记录」是静态信息、与时间轴无关 ⇒ 二级入口放页头动作区。
+           原来它是页面底部一条 45 px 的摘要条 —— 而地图按可用高度定边长，
+           那条栏等于直接从地图上割掉 45 px（+12 间距）。 */
+        '<button class="btn btn-sm btn-ghost" data-rp="sheet">参数 · 记录</button>' +
         '<span class="pill mono" id="rp-pill">—</span>';
     },
 
@@ -92,17 +99,9 @@
               '<canvas id="rp-maze"></canvas>' +
             '</div>' +
             '<div class="rp-tl">' +
-              '<div class="rp-tl-top">' +
-                '<span class="rp-tl-k">时间轴</span>' +
-                '<span class="mono" id="rp-tc">00:00.0 / ' + dur(rec.dur) + '</span>' +
-                '<span class="spacer"></span>' +
-                '<span class="hint mono" id="rp-frame">帧 —</span>' +
-              '</div>' +
-              '<div class="scrub-wrap">' +
-                '<input type="range" class="scrub" id="rp-range" min="0" max="' + (rec.samples.length - 1) + '" value="0">' +
-                '<div class="scrub-marks" id="rp-marks"></div>' +
-              '</div>' +
-              '<div class="row wrap" style="margin-top:6px">' +
+              /* 一行搬运控件 + 一行刻度条。时间码与帧号搬进这一行 ——
+                 单占一行要多吃 20 px，而地图是按可用高度定边长的。 */
+              '<div class="rp-tl-bar">' +
                 '<button class="btn btn-primary btn-sm" id="rp-play">' + C.icon('play') + '<span>播放</span></button>' +
                 '<div class="seg" id="rp-speed">' +
                   '<button data-sp="1" class="on">1×</button>' +
@@ -111,6 +110,13 @@
                 '</div>' +
                 '<button class="btn btn-sm btn-ghost" data-step="-4">−1 s</button>' +
                 '<button class="btn btn-sm btn-ghost" data-step="4">+1 s</button>' +
+                '<span class="spacer"></span>' +
+                '<span class="mono" id="rp-tc">00:00.0 / ' + dur(rec.dur) + '</span>' +
+                '<span class="hint mono" id="rp-frame">帧 —</span>' +
+              '</div>' +
+              '<div class="scrub-wrap">' +
+                '<input type="range" class="scrub" id="rp-range" min="0" max="' + (rec.samples.length - 1) + '" value="0">' +
+                '<div class="scrub-marks" id="rp-marks"></div>' +
               '</div>' +
             '</div>' +
           '</section>' +
@@ -124,19 +130,12 @@
           '</div>' +
         '</div>' +
 
-        /* 底部摘要条：静态信息一行带过，不占主面板 */
-        '<div class="rp-foot">' +
-          '<span class="f-k">参数 · 记录</span>' +
-          '<span class="f-v mono" id="rp-foot-sum">—</span>' +
-          '<span class="spacer"></span>' +
-          '<button class="btn btn-sm" id="rp-sheet-open">展开详情</button>' +
-        '</div>' +
-
         /* 二级抽屉：41 项发车前参数 + 记录元信息 */
         '<div class="rp-sheet" id="rp-sheet" aria-hidden="true">' +
           '<div class="rp-sheet-head">' +
             '<h2>参数 · 记录</h2>' +
             '<span class="hint mono">' + rec.id + '</span>' +
+            '<span class="f-v mono" id="rp-foot-sum">—</span>' +
             '<span class="spacer"></span>' +
             '<button class="btn btn-sm" id="rp-sheet-close">关闭</button>' +
           '</div>' +
@@ -195,7 +194,9 @@
         sheet.classList.toggle('on', on);
         sheet.setAttribute('aria-hidden', on ? 'false' : 'true');
       };
-      root.querySelector('#rp-sheet-open').onclick = () => setSheet(true);
+      /* 「参数 · 记录」在**页头动作区**（不是 root 里），要走 actions 查 */
+      const sheetBtn = actions && actions.querySelector('[data-rp="sheet"]');
+      if (sheetBtn) sheetBtn.onclick = () => setSheet(true);
       root.querySelector('#rp-sheet-close').onclick = () => setSheet(false);
       /* Esc 关闭：视图没有 unmount 钩子，所以**先摘掉上一次的**再挂新的，
          否则每进一次页面就多一个 document 监听（切页几十次就堆几十个）。 */
@@ -235,13 +236,42 @@
           (it.unit ? ' <span class="dim" style="font-size:9.5px">' + it.unit + '</span>' : '') + '</td></tr>').join('')
       ).join('');
 
-      /* 底部条摘要：只写"有多少、有没有"，细节进抽屉 */
+      /* 抽屉头摘要：只写"有多少、有没有"，细节在下面的表里 */
       const nParam = rec.params
         ? rec.params.reduce((a, g) => a + g.items.length, 0) : null;
       root.querySelector('#rp-foot-sum').textContent =
         (nParam == null ? '参数快照 未记录（老记录）' : '参数快照 ' + nParam + ' 项') +
         ' · 采样缺口 ' + ((rec.gaps || []).length ? gapsInfo(rec) : '无') +
         ' · 视频 ' + (rec.video || '未关联');
+
+      /* ── 舞台高度：**现算**，不写死常数 ─────────────────────────────
+         布局顶边的文档坐标 → 视口底，减去日志坞高度和主区底内边距。
+         以前 CSS 写 `vh−326`（按"页头 + 底条 + 内边距"估的一堆常数），
+         窗口一矮就扣多：用户侧 1400×710 实测地图只剩 219 px。
+         现算之后同一窗口是 414 px；窗口长高它跟着长，不用再改常数。
+         下限 360 px：窗口矮到放不下时宁可让页面滚一点，也不把地图压成缩略图。 */
+      const layout = root.querySelector('.rp-layout');
+      const fitStage = () => {
+        if (!layout) return;
+        /* ≤1220 是堆叠布局（地图在上、状态在下），高度交给内容 ⇒ 摘掉内联高度 */
+        if (window.innerWidth <= 1220) {
+          if (layout.style.height) layout.style.height = '';
+          lastH = 0;
+          return;
+        }
+        const dock = document.getElementById('dock');
+        const dockH = dock ? Math.round(dock.getBoundingClientRect().height) : 0;
+        const top = layout.getBoundingClientRect().top + window.scrollY;
+        /* 14 = 主区底内边距(12) + 1 px 取整余量：算满会出现 1 px 溢出 ⇒
+           整页冒出纵向滚动条 ⇒ 顶栏与卡片整体窄 15 px（看着像布局抖了一下）。 */
+        const h = Math.max(360, Math.floor(window.innerHeight - top - dockH - 14));
+        if (h !== lastH) { lastH = h; layout.style.height = h + 'px'; }
+      };
+      lastH = 0;
+      fitStage();
+      if (this._rs) window.removeEventListener('resize', this._rs);
+      this._rs = () => { fitStage(); this.paint(); };
+      window.addEventListener('resize', this._rs);
 
       /* 地图尺寸跟着容器走：窗口一变化就重排（否则切回窗口还按旧尺寸画） */
       if (ro) { ro.disconnect(); ro = null; }

@@ -872,12 +872,19 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 .assoc-list{display:flex;flex-direction:column;border:1px solid var(--line);max-height:230px;overflow:auto}
 
 /* ═══ 回放：位置图 + 时间轴（一屏）+ 参数/记录抽屉 ══════════════════════ */
-/* 高度在这里锁死：页头(72) + 底条(45) + 间距(12) + main 内边距(82) + 顶栏(58)
-   + 日志坞(41) ≈ 310，实测再留 16 px 余量（vh−310 时 docH 超出 16）。 */
+/* 高度**不写死常数**：`views/replay.js` 的 `fitStage()` 现算
+   「布局顶边 → 视口底 − 日志坞」，窗口一变就重算。
+   以前写 `vh−326`，那个 326 是"页头 72 + 底条 45 + 内外边距"的估算 ——
+   窗口一矮它就扣多了，地图被压成 219 px（用户侧 1400×710 实测）。
+   CSS 这条只是 JS 未跑到的兜底。 */
 .rp-layout{
   display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:12px;
-  height:calc(100vh - 326px);min-height:380px;
+  height:calc(100vh - 300px);min-height:360px;
 }
+/* 回放页是"舞台页"：主区上下留白收窄（56→12 / 26→14），页头也用更紧的下边距。
+   这里的每一像素都直接变成地图边长（地图是正方形，只由可用高度决定）。 */
+body[data-route="replay"] .main{padding-top:14px;padding-bottom:12px}
+body[data-route="replay"] .page-head{padding-bottom:10px;margin-bottom:12px}
 /* 位置图与时间轴同卡：卡内的 flex 纵向分配，地图吃剩下的、时间轴钉在底 */
 .rp-map-card{display:flex;flex-direction:column;min-height:0}
 .rp-canvas-wrap{
@@ -885,24 +892,13 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
   padding:8px;overflow:hidden;background:var(--panel);
 }
 .rp-canvas-wrap canvas{display:block;max-width:100%}
-.rp-tl{flex:none;border-top:1px solid var(--line);padding:8px 14px 10px}
-.rp-tl-top{display:flex;align-items:center;gap:10px;margin-bottom:2px}
-.rp-tl-k{
-  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--muted);flex:none;
-}
+/* 时间轴压成两行：一行搬运控件 + 一行刻度条。
+   原来"标题/时间码/帧号"单占一行，加上按钮行一共 110 px —— 而地图是
+   按可用高度定边长的，这 110 px 就是从地图身上割的肉。 */
+.rp-tl{flex:none;border-top:1px solid var(--line);padding:7px 14px 6px}
+.rp-tl-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.rp-tl-bar .mono{font-size:11.5px;font-variant-numeric:tabular-nums}
 .rp-side{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto}
-
-/* 底部摘要条：静态信息一行带过 */
-.rp-foot{
-  display:flex;align-items:center;gap:10px;margin-top:12px;
-  padding:8px 12px;background:var(--panel);border:1px solid var(--line);
-}
-.rp-foot .f-k{
-  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--muted);flex:none;
-}
-.rp-foot .f-v{font-size:11px;color:var(--ink-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 二级抽屉：41 项参数 + 记录元信息。用 fixed 覆盖，不改主布局高度 */
 .rp-sheet{
@@ -917,6 +913,11 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 }
 .rp-sheet-head h2{
   font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+}
+/* 摘要句（原来在页面底部那条 foot 里，为了给地图腾高度移进抽屉头） */
+.rp-sheet-head .f-v{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:11px;color:var(--ink-2);
 }
 .rp-sheet-body{
   flex:1;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr);

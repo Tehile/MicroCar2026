@@ -78,6 +78,9 @@
   function renderPage() {
     const main = document.getElementById('main');
     const v = C.VIEWS[S.route] || C.VIEWS.overview;
+    /* 路由挂到 body 上：个别页要按页改**外壳**尺寸（回放页要把主区底部的
+       56 px 留白收掉，否则"按视口算高度"会多扣一段白给日志坞的空白）。 */
+    document.body.dataset.route = S.route;
     main.scrollTop = 0;
     main.innerHTML =
       '<div class="page">' +
