@@ -4,7 +4,7 @@
 
 | 档位 | 目录 | 迷宫 | fw | link.h 位置 | 动作枚举 |
 |---|---|---|---|---|---|
-| `competition`（默认，新基线） | `code_competition/` | MAZETYPE **16** | **312** | `REMOTE/link.h` | `#define`(timer.h + utility.h) |
+| `competition`（默认，新基线） | `code_competition/` | MAZETYPE **16** | **313** | `REMOTE/link.h` | `#define`(timer.h + utility.h) |
 | `legacy`（课程固件，历史参考） | `code_stm32f1_mouse/` | MAZETYPE 7 | 222 | `HARDWARE/link.h` | `typedef enum`(core.h) |
 
 两代的**目录布局不同**，而离线套件与探针都遵循一条纪律：**版本号从不写死，一律
@@ -34,7 +34,7 @@ _RC = os.path.dirname(os.path.dirname(_HERE))
 PROFILES: Dict[str, dict] = {
     "competition": {
         "dir": "code_competition",
-        "label": "新基线 code_competition（MAZETYPE 16 / fw 312 / 单工程双 Target）",
+        "label": "新基线 code_competition（MAZETYPE 16 / fw 313 / 单工程双 Target）",
         "mazetype": 16,
         "link_h": ("REMOTE", "link.h"),
         "uvprojx": ("USER", "TEST.uvprojx"),

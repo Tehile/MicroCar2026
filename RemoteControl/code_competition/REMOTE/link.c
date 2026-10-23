@@ -3470,6 +3470,21 @@ void LINK_Tick(void)
 	}
 
 #ifdef MOUSE_REMOTE
+	/* 0a3. 基准灯每 tick 重钉(2026-10-23 真机定位): 上面 0 段只在**电平变化沿**写
+	 *      LED4, 而新固件的 ledon()/ledoff() **不认 ledBeaconLock** —— 本档里它
+	 *      只是个没人读的影子(link_port.c:59), 状态灯/电池灯每次 SysTick 都会把
+	 *      LED4 写回去。于是 1Hz 方波只剩不到 1ms 宽, 而组帧间隔 40ms, 帧里
+	 *      几乎永远读到状态灯残值, L2 判据(ARM 后 led4 翻转)就间歇性归零
+	 *      (实测 6 次里 1 次: run6 翻转 0 次, 其余 6~12 次)。
+	 *      修法: 每 tick 无条件重钉一次。组帧(第 5 段)在同一 tick 稍后读 ODR,
+	 *      故帧里必然读到基准灯真值; 放在 0b 之前, 发车标记窗口仍能压过本段。 */
+	if (linkArmed)
+	{
+		linkTimeLed = (u8)(((linkTimeMs - linkArmMs) % (u32)LINK_TIME_DIV)
+		                   < (u32)(LINK_TIME_DIV / 2));
+		LED4 = linkTimeLed ? 0 : 1; /* 低电平点亮 */
+	}
+
 	/* 0b. 发车标记灯(v2.8): 收到 `MAZE RUN` 起 LINK_LAUNCH_MARK_MS 毫秒内,
 	 *     强制点亮全部 4 个 LED —— 作为录像/外部设备可见的**发车时刻**标记。
 	 *     放在基准灯(0)之后: 窗口内基准灯对 LED4 的写入被本段压过, 所以即使

@@ -174,7 +174,7 @@ def _fw_from_header() -> int:
             return int(m.group(1))
     except Exception:                                       # noqa: BLE001
         pass
-    return 312          # 读不到就退回当前已知值（链路已通，不因此阻断）
+    return 313          # 读不到就退回当前已知值（链路已通，不因此阻断）
 
 
 def parse_pong(lines):

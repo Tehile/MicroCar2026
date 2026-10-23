@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LED 位上报专项实机验证 —— v9.2 / FW 312（状态B1 的 bit2-5 = led1..led4）。
+"""LED 位上报专项实机验证 —— v9.2.1 / FW 313（状态B1 的 bit2-5 = led1..led4）。
 
 目的很窄：证明"固件里 LED 真的变了，帧里那 4 位就真的跟着变"，而不是只证明
 "字段能解出来"。判据全部来自固件里的确定性行为：
@@ -659,7 +659,7 @@ def open_link(port: str, tries: int = 4) -> Sess:
 # --------------------------------------------------------------------------- #
 #  L0 前置指纹
 # --------------------------------------------------------------------------- #
-EXPECT_FW = 312
+EXPECT_FW = 313
 
 
 def stage0(lk: Sess, res: dict) -> bool:
@@ -1119,7 +1119,7 @@ def selftest() -> int:
 
 # --------------------------------------------------------------------------- #
 def main() -> int:
-    ap = argparse.ArgumentParser(description="LED 位上报 + 复合命令空窗专项实机验证 (FW 312)")
+    ap = argparse.ArgumentParser(description="LED 位上报 + 复合命令空窗专项实机验证 (FW 313)")
     ap.add_argument("port", nargs="?", default="COM7", help="串口号 (默认 COM7)")
     ap.add_argument("--selftest", action="store_true", help="离线判据自检，不碰串口")
     ap.add_argument("--no-launch", action="store_true", help="跳过 L3(不发车)")

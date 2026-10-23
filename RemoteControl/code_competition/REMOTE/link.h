@@ -67,7 +67,7 @@
                           *        critL/R、left45/right45、frontNear; 状态B 拆 B0/B1(9bit),
                           *        前墙远近并入状态C, 冲刺档位与 goaheadnum 合并为"冲刺上下文"。
                           *        帧布局不兼容 => 进位。详见 docs/通信协议v9-统一帧重排方案.md。 */
-#define LINK_FW_VER 312  /* 3.12 —— 宿主实现同 3.00(迷宫 16x16 / 单体 main / 参数宿主),
+#define LINK_FW_VER 313  /* 3.13 —— 宿主实现同 3.00(迷宫 16x16 / 单体 main / 参数宿主),
                           *        叠加 PROTO 9 帧重排 + 状态B1 的 bit2-5 上报 4 个 LED
                           *        亮灭(帧长/PROTO 不变)。host 按 proto 判帧长与位布局,
                           *        按 fw 选名表与 sim 迷宫尺寸(见 host/host/fwprofile.py)。 */
@@ -76,6 +76,12 @@
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(新工程基线 hex sha256 68ad6be2...)。 */
 #endif
 /* 历史版本记录:
+ *  313 = v9.2.1: **基准灯每 tick 重钉**。远程档里 ledBeaconLock 没有消费者
+ *        (link_port.c 的影子无人读、led.c 的 ledon/ledoff 不认它), 所以基准灯
+ *        只在变化沿写 LED4 时会被固件状态灯在 1ms 内覆盖, 40ms 组帧几乎永远
+ *        采样不到, ARM 后 led4 翻转判据就间歇性归零(6 次里 1 次)。改为每 tick
+ *        无条件重钉, 帧里读到的必为基准灯真值。全在 #ifdef MOUSE_REMOTE 内,
+ *        比赛档产物不受影响; 帧长/PROTO/参数表零改动, PROTO 仍 9。
  *  312 = v9.2: **复合命令** `MAZE RUN [BLIND|RACE] [PULL <n> <t_ms>]`，
  *        发车与「启动下一批拉流」合并成一条命令，省掉发车后再下 RATE PULL 的
  *        一个命令往返。动机: 发车后主机必须「停拉流 -> 让命令 -> 恢复拉流」，
