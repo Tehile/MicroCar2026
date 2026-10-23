@@ -158,6 +158,25 @@ class Link(object):
             pass
 
 
+def _fw_from_header() -> int:
+    """从 `code_competition/REMOTE/link.h` 读 `LINK_FW_VER`，作为期望固件号。
+
+    硬编码过 310，升到 312 之后忘了改，于是本套件对着正确固件报失败。
+    改成现读之后，升版只要改 link.h 一处，所有套件自动跟上。
+    """
+    import os
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "code_competition", "REMOTE", "link.h")
+    try:
+        txt = open(p, "rb").read().decode("gbk", "replace")
+        m = re.search(r"#define\s+LINK_FW_VER\s+(\d+)", txt)
+        if m:
+            return int(m.group(1))
+    except Exception:                                       # noqa: BLE001
+        pass
+    return 312          # 读不到就退回当前已知值（链路已通，不因此阻断）
+
+
 def parse_pong(lines):
     for ln in lines:
         m = RE_PONG.match(ln.strip())
@@ -345,7 +364,11 @@ def main() -> int:
         print("       固件: PONG %d %d %d %d %s" % (
             pong["proto"], pong["fw"], pong["mazetype"], pong["txbuf"], pong["rst"]))
         check("proto = 9", pong["proto"] == 9, "proto=%d" % pong["proto"])
-        check("fw = 310 (远程档, v9)", pong["fw"] == 310, "fw=%d" % pong["fw"])
+        # ★ 期望固件号**直接从 link.h 读**，不再硬编码 —— 2026-10-22 升到 312 时
+        #   本套件仍在断言 310，于是"固件正确"被报成失败（假警报）。
+        _want = _fw_from_header()
+        check("fw = %d (远程档, 见 REMOTE/link.h)" % _want, pong["fw"] == _want,
+              "fw=%d" % pong["fw"])
         check("mazetype = 16", pong["mazetype"] == 16, "mazetype=%d" % pong["mazetype"])
         check("rst = POR/SW/PIN/IWDG", pong["rst"] in ("POR", "SW", "PIN", "IWDG"),
               "rst=%s" % pong["rst"])
@@ -490,7 +513,7 @@ def main() -> int:
         before2 = parse_params(lk.talk("GET TRACKL", timeout=2.0, tail=0.3)[1])
         # 故意把 CRC 改错(末位翻转), 命令体本身是合法的 `GET TRACKL`
         good = build("GET TRACKL", 9001)
-        body = good[:-6]                       # 去掉 *XXXX
+        body = good[:-6]                       # 去掉 *XXXX
 
         bad = body + b"*0000\r\n"            # CRC 固定为 0000(几乎必错)
         st_bad, _ = parse_ack(lk.raw(bad, timeout=2.5)) or ("<无应答>", [])
