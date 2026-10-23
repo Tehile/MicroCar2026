@@ -1,0 +1,84 @@
+{
+  "port": "COM7",
+  "ts": "2026-10-23 16:49:23",
+  "pong": {
+    "proto": 9,
+    "fw": 313,
+    "mazetype": 16,
+    "txbuf": 1024,
+    "rst": "SW"
+  },
+  "baseline": {
+    "led1": 0,
+    "led2": 1,
+    "led3": 0,
+    "led4": 0
+  },
+  "baseline_toggles": {
+    "led1": 0,
+    "led2": 12,
+    "led3": 0,
+    "led4": 0
+  },
+  "arm_ack": [
+    [
+      "ARM",
+      "ACK 912 OK 30137",
+      0
+    ]
+  ],
+  "beacon": {
+    "toggles": 11,
+    "periods_ms": [
+      901,
+      900,
+      1054,
+      1049,
+      1045,
+      1281,
+      979,
+      903,
+      1051
+    ],
+    "median_ms": 1045.0
+  },
+  "l3_run_ack": "ACK 928 OK",
+  "l3_frames": 24,
+  "launch_gap_ms": 157.7005386352539,
+  "launch_got": 2,
+  "mark": {
+    "found": true,
+    "i0": 8,
+    "i1": 9,
+    "count": 2,
+    "span_ms": 141.56436920166016,
+    "prev_all_on": false,
+    "next_all_on": false,
+    "t0": 1.091486930847168,
+    "t1": 1.2330513000488281,
+    "before": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "after": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "after_stop": {
+    "led1": 0,
+    "led2": 0,
+    "led3": 0,
+    "led4": 1
+  },
+  "rst": "SW",
+  "recoveries": 0,
+  "halt_ok": true,
+  "pass": 30,
+  "fail": 0,
+  "ack_retries": []
+}
