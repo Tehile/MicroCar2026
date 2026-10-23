@@ -40,19 +40,22 @@
     mount(root) {
       this._root = root;
       if (!selId) selId = S.recSel || (S.records[0] && S.records[0].id) || '';
+      /* **控制面板在上、列表在下**：选中条目后要能立刻操作，而列表会长
+         （真机几十条），面板放底部就会被列表推到视野外 ⇒ 面板置顶 + 吸顶，
+         列表自己滚，两者互不干扰。 */
       root.innerHTML =
-        '<section class="card">' +
-          '<div class="card-head"><h2>录像目录</h2>' +
-            '<div class="card-head-r"><span class="hint mono">sessions/</span></div></div>' +
-          '<div class="card-body flush">' +
+        '<section class="card dt-ctl" id="dt-ctl"></section>' +
+        '<section class="card dt-list">' +
+          '<div class="card-head"><h2>记录列表</h2>' +
+            '<div class="card-head-r"><span class="hint mono" id="dt-count"></span></div></div>' +
+          '<div class="card-body flush dt-list-scroll">' +
             '<table class="tbl"><thead><tr>' +
               '<th>记录</th><th style="width:92px">开始</th><th style="width:74px">时长</th>' +
               '<th style="width:74px">帧</th><th style="width:150px">发车记录</th>' +
               '<th style="width:200px">视频记录</th><th style="width:80px">账本</th>' +
             '</tr></thead><tbody id="dt-rows"></tbody></table>' +
           '</div>' +
-        '</section>' +
-        '<section class="card" id="dt-detail" style="margin-top:12px"></section>';
+        '</section>';
 
       root.querySelector('#dt-rows').onclick = e => {
         const as = e.target.closest('[data-assoc]');
@@ -98,42 +101,52 @@
           '</tr>';
       }).join('');
 
+      const cnt = root.querySelector('#dt-count');
+      if (cnt) {
+        const nl = S.records.filter(r => r.launch).length;
+        const nv = S.records.filter(r => r.video).length;
+        cnt.textContent = S.records.length + ' 条 · 发车 ' + nl + ' · 视频 ' + nv;
+      }
+
       const r = C.record(selId) || S.records[0];
       if (!r) return;
       selId = r.id;
       const ses = session(r.video);
-      const box = root.querySelector('#dt-detail');
+      const box = root.querySelector('#dt-ctl');
 
       const info =
-        '<div class="card-head"><h2>' + r.id + '</h2>' +
-          '<div class="card-head-r">' +
-            '<span class="tag ' + (r.launch ? 'ok' : '') + '">' + (r.launch ? '有发车记录' : '无发车记录') + '</span>' +
-            '<span class="tag ' + (r.video ? 'blue' : '') + '">' + (r.video ? '有视频记录' : '无视频记录') + '</span>' +
-          '</div></div>' +
-        '<div class="card-body">' +
-          '<div class="dt-split">' +
-            '<dl class="kv compact">' +
-              '<div><dt>开始</dt><dd>' + r.start + '</dd></div>' +
-              '<div><dt>时长</dt><dd>' + dur(r.dur) + '</dd></div>' +
-              '<div><dt>遥测帧</dt><dd>' + r.frames + '</dd></div>' +
-              '<div><dt>发车时刻</dt><dd>' + (r.launch ? U.fmt(r.launchAt, 1) + ' s' : '—') + '</dd></div>' +
-              '<div><dt>视频会话</dt><dd>' + (r.video || '未关联') + '</dd></div>' +
-              '<div><dt>轨迹点</dt><dd>' + (ses ? ses.n_valid : '—') + '</dd></div>' +
-              '<div><dt>帧缺口</dt><dd class="' + (r.gap ? 'bad' : '') + '">' + r.gap + '</dd></div>' +
-              '<div><dt>目录</dt><dd style="font-size:10px">' + r.dir + '</dd></div>' +
-            '</dl>' +
+        '<div class="card-head dt-head">' +
+          '<h2><span class="n">记录</span>' + r.id + '</h2>' +
+          '<div class="dt-head-r">' +
+            '<span class="tag ' + (r.launch ? 'ok' : '') + '">' +
+              (r.launch ? '发车 @' + U.fmt(r.launchAt, 1) + ' s' : '无发车记录') + '</span>' +
+            '<span class="tag ' + (r.video ? 'blue' : '') + '">' +
+              (r.video ? r.video : '无视频记录') + '</span>' +
             '<div class="dt-acts">' +
-              '<button class="btn btn-primary" data-rp="go"' + (r.frames > 0 ? '' : ' disabled') + '>' +
+              '<button class="btn btn-sm btn-primary" data-rp="go"' + (r.frames > 0 ? '' : ' disabled') + '>' +
                 C.icon('play') + '回放</button>' +
-              '<button class="btn" data-rp="csv">' + C.icon('download') + '导出 CSV</button>' +
-              '<button class="btn" data-rp="dir">打开目录</button>' +
-              '<button class="btn btn-ghost" data-rp="assoc">' + C.icon('link') + (r.video ? '改关联' : '关联视频') + '</button>' +
-              '<button class="btn btn-ghost' + (delArmed(r.id) ? ' btn-danger' : '') +
-              '" data-rp="del">' + (delArmed(r.id) ? '确认删除？（5 s 内再点）' : '删除记录') +
+              '<button class="btn btn-sm" data-rp="csv">' + C.icon('download') + 'CSV</button>' +
+              '<button class="btn btn-sm" data-rp="dir">目录</button>' +
+              '<button class="btn btn-sm btn-ghost" data-rp="assoc">' + C.icon('link') +
+                (r.video ? '改关联' : '关联视频') + '</button>' +
+              '<button class="btn btn-sm btn-ghost' + (delArmed(r.id) ? ' btn-danger' : '') +
+              '" data-rp="del">' + (delArmed(r.id) ? '确认删除？（5s）' : '删除') +
               '</button>' +
             '</div>' +
           '</div>' +
-          (r.frames > 0 ? '' : '<div class="banner warn" style="margin-top:12px">' + C.icon('alert') +
+        '</div>' +
+        '<div class="card-body">' +
+          '<dl class="kv compact cols4">' +
+            '<div><dt>开始</dt><dd>' + r.start + '</dd></div>' +
+            '<div><dt>时长</dt><dd>' + dur(r.dur) + '</dd></div>' +
+            '<div><dt>遥测帧</dt><dd>' + r.frames + '</dd></div>' +
+            '<div><dt>发车时刻</dt><dd>' + (r.launch ? U.fmt(r.launchAt, 1) + ' s' : '—') + '</dd></div>' +
+            '<div><dt>视频会话</dt><dd>' + (r.video || '未关联') + '</dd></div>' +
+            '<div><dt>轨迹点</dt><dd>' + (ses ? ses.n_valid : '—') + '</dd></div>' +
+            '<div><dt>帧缺口</dt><dd class="' + (r.gap ? 'bad' : '') + '">' + r.gap + '</dd></div>' +
+            '<div><dt>目录</dt><dd class="ell" title="' + r.dir + '">' + r.dir + '</dd></div>' +
+          '</dl>' +
+          (r.frames > 0 ? '' : '<div class="banner warn" style="margin-top:10px">' + C.icon('alert') +
             '<div class="b-body"><b>这条记录没有帧</b>回放没有位置可画。</div></div>') +
           (assoc ? this.assocHtml(r) : '') +
         '</div>';
@@ -157,7 +170,7 @@
             if (!delArmed(r.id)) {
               delArm = Date.now();
               delArmId = r.id;
-              b.textContent = '确认删除？（5 s 内再点）';
+              b.textContent = '确认删除？（5s）';
               b.classList.add('btn-danger');
               return;
             }

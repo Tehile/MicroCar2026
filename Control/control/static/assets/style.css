@@ -133,7 +133,10 @@ h1,h2,h3,h4,p{margin:0}
 .ws i{width:6px;height:6px;background:var(--green)}
 
 /* ── 页面 ─────────────────────────────────────────────────────────────── */
-.main{flex:1;padding:26px 30px 56px;overflow-x:hidden}
+/* `overflow-x:clip` 而不是 `hidden`：hidden 会把 overflow-y 算成 auto ⇒ .main 变成
+   滚动容器 ⇒ 里面的 `position:sticky`（记录页控制面板）绑在永不滚动的祖先上、
+   完全失效（实测：滚 400 px 后面板 top 从 70 变成 −228）。clip 不建滚动容器。 */
+.main{flex:1;padding:26px 30px 56px;overflow-x:clip}
 .page{max-width:1560px;margin:0 auto}
 .page-head{
   display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
@@ -845,9 +848,25 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 .pull-row .pu-note{margin-left:auto}
 
 /* ═══ 记录：列表 + 关联 ═════════════════════════════════════════════════ */
-.dt-split{display:grid;grid-template-columns:minmax(0,1fr) 196px;gap:18px;align-items:start}
-.dt-acts{display:flex;flex-direction:column;gap:6px}
-.dt-acts .btn{width:100%;justify-content:flex-start}
+/* ═══ 记录：控制面板置顶（吸顶）+ 列表独立滚动 ═════════════════════════ */
+/* 面板放底部时，列表一变长（真机几十条）就会把按钮推到视野外 ⇒ 面板吸在
+   顶栏下沿，列表自己滚，选中任一条都能立刻操作。 */
+.dt-ctl{position:sticky;top:calc(var(--top) + 12px);z-index:9}
+.dt-head .dt-head-r{
+  display:flex;align-items:center;gap:8px;margin-left:auto;
+  flex-wrap:wrap;justify-content:flex-end;
+}
+.dt-acts{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding-left:8px;border-left:1px solid var(--line);
+}
+.dt-list{margin-top:12px}
+/* 列表只吃"面板之外剩下的高度"。300 行硬编码会随页面头/面板高度漂：实测
+   vh−400 时 45 条记录仍把整页顶出 39 px（顶栏 58 + 日志坞 41 + main 内边距 82），
+   于是冒出第二条滚动条（内外双滚）⇒ 留 460 的余量。 */
+.dt-list-scroll{max-height:calc(100vh - 460px);min-height:200px;overflow:auto}
+.kv.cols4{grid-template-columns:repeat(4,minmax(0,1fr));column-gap:22px}
+.kv.cols4 dd.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}
 .assoc{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
 .assoc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:7px}
 .assoc-list{display:flex;flex-direction:column;border:1px solid var(--line);max-height:230px;overflow:auto}
@@ -900,9 +919,10 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
   .replay-grid{grid-template-columns:1fr}
   .race-grid{grid-template-columns:1fr 1fr}
   .race-chan{grid-column:1;grid-row:auto}
-  .dt-split{grid-template-columns:1fr}
-  .dt-acts{flex-direction:row;flex-wrap:wrap}
-  .dt-acts .btn{width:auto}
+  /* 记录：KV 四列在窄屏塞不下「发车时刻 + 值」⇒ 降两列；
+     操作按钮本来就横排，只在 dt-acts 内部换行 */
+  .kv.cols4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dt-acts{padding-left:0;border-left:0;width:100%;justify-content:flex-end}
 }
 @media (max-width:980px){
   .led-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
