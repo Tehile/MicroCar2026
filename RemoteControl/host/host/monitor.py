@@ -148,8 +148,11 @@ def render(
             "右轮 " + c(f"{sr:+7.1f}", "cyan") + " cm/s")
         add(f"    航向 {float(f.get('gyroAngle', 0)):+8.1f} °            "
             f"任务 {MOTION_TASK_NAMES.get(int(f.get('motionTask', 0)), str(f.get('motionTask', '?')))}")
+        md = f.get("mapd") or {}
         add(f"    里程 L{int(f.get('trackL', 0)):6d} R{int(f.get('trackR', 0)):6d} "
-            f"编码角 {float(f.get('encAngle', 0)):+.1f}")
+            f"地图 +{int(md.get('count', 0))}"
+            + (" re" if md.get("resync") else "")
+            + (" LY" if md.get("lossy") else ""))
     else:
         add("")
         add(c("  运动  —— 尚未收到统一帧", "dim"))

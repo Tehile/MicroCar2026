@@ -32,10 +32,15 @@
                      critL,critR / left45,right45 / frontNear; 状态B 拆 B0/B1; 前墙远近
                      并入状态C; 冲刺档位与 goaheadnum 合并为"冲刺上下文"。
                      帧布局不兼容 ⇒ 协议号 8→9, fw 300→310。
+                     v2.14 **字段瘦身 + 建图增量通道**(v10): irMm[4] u16→u8、
+                     batt mV→round(mV/50) u8、encAng 删除, 腾出的 7 B 全给建图增量
+                     通道(偏移 23 头 + 24..29 三条 2 B 条目, 每条自带绝对坐标)。
+                     **帧长仍 30 B**, 但偏移 6..22 整体前移 5 B ⇒ 协议号 9→10,
+                     fw 313→314。
 """
 
-__version__ = "2.13.0"
-PROTO_VER = 9
+__version__ = "2.14.0"
+PROTO_VER = 10
 
 from .registry import API_VERSION  # noqa: E402  (语义化 API 版本, 与固件 proto 分开)
 

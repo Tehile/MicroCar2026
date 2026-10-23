@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..model.ring import TelemetryStore
+from ..api.mapd import MapReplayer
 from ..protocol.codec import MOTION_TASK_NAMES
 
 # 主题色(深色)
@@ -82,6 +83,9 @@ class StatusPanel(QWidget):
     def __init__(self, store: TelemetryStore) -> None:
         super().__init__()
         self.store = store
+        # v10 建图增量重建器(与固件 GucMapBlock 同构) + 已消化的帧序号
+        self.mapd = MapReplayer()
+        self._map_seq = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(6, 6, 6, 6)
@@ -108,7 +112,9 @@ class StatusPanel(QWidget):
         self.f_task = _Field("任务", "")
         self.f_pos = _Field("坐标", "")
         self.f_mode = _Field("模式", "")
-        for f in (self.f_task, self.f_pos, self.f_mode):
+        # v10: 建图增量重建的进度(已重建格数 / 累计条目 / 洞数)
+        self.f_map = _Field("建图", "")
+        for f in (self.f_task, self.f_pos, self.f_mode, self.f_map):
             self.c_state.add(f)
 
         # ---------- 传感器 ----------
@@ -196,6 +202,23 @@ class StatusPanel(QWidget):
         self.f_lost.set(f"{lost:5d}", C_OK if lost == 0 else C_WARN)
 
         self.f_pos.set(f"({int(f.get('posX', 0)):2d},{int(f.get('posY', 0)):2d})")
+
+        # v10 建图增量: 用 `_seq` 去重 —— update() 是高频调用的, 同一帧反复 apply
+        # 会被当成"序号没前进"而误记洞。resync 表示固件那边已开新一轮(发车/
+        # 坐标跳变/上电), 此时清图重来。
+        seq = f.get("_seq")
+        md = f.get("mapd") or {}
+        if seq is not None and seq != self._map_seq:
+            self._map_seq = seq
+            if md.get("resync"):
+                self.mapd.reset()
+            self.mapd.apply(f)
+            st = self.mapd.stats()
+            self.f_map.set(
+                f"{st['cells']:3d}格 Δ{st['entries']:4d}"
+                + (f" 洞{st['holes']}" if st["holes"] else "")
+                + (" LY" if st["lossy"] else ""),
+                C_WARN if (st["holes"] or st["lossy"]) else C_OK)
 
     # ------------------------------------------------------------ 供外部读取
 

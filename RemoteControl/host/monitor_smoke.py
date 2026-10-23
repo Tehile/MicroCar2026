@@ -108,7 +108,7 @@ def main() -> int:
         # 运动
         "speedL": 12.0, "speedR": -3.0, "gyroAngle": 45.0, "pidErr": 1.0,
         "motionTask": 32, "motionStep": 3,
-        "trackL": 120, "trackR": 118, "cellOdom": 1, "encAngle": 42.0,
+        "trackL": 120, "trackR": 118, "cellOdom": 1,
         # 传感器
         "irF1": 180, "irF2": 179, "irL": 40, "irR": 236,
         "irAdcF1": 1200, "irAdcF2": 1190, "irAdcL": 400, "irAdcR": 2300,

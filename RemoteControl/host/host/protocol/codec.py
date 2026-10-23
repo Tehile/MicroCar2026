@@ -51,22 +51,27 @@ UNIFIED_LEN = 30
 #: 统一帧载荷里各字段的字节偏移(与固件 link.h 的 LINK_U_* 逐项对齐)。
 #: **这是一处必须两侧同步的常量** —— 改动它等于改协议。
 #: v9(2026-10-20): 49 -> 30 B, 只留动态量; 偏移映射见 docs/通信协议v9-统一帧重排方案.md。
+#: v10(2026-10-23): **帧长仍 30 B, 但偏移 6..22 整体前移 5 B** ——
+#:   irMm[4] u16->u8(省 4) / batt mV->round(mV/50) u8(省 1) / encAng 删除(省 2),
+#:   腾出的 7 B 全给建图增量通道(23 头 + 24..29 三条 2 B 条目)。
+#:   见 docs/通信协议v10-建图增量通道方案.md。
 U_MS8 = 0
 U_IRMM = 1
-U_BATTMV = 9
-U_SPEEDL = 11
-U_SPEEDR = 13
-U_GYRO = 15
-U_ENCANG = 17
-U_TRACKL = 19
-U_TRACKR = 21
-U_STATE_A = 23
-U_STATE_B0 = 24
-U_STATE_B1 = 25
-U_STATE_C = 26
-U_FLAGS = 27
-U_POS = 28
-U_SPURT = 29
+U_BATT = 5          # u8: round(mV/50), 140 = 7000 mV
+U_SPEEDL = 6
+U_SPEEDR = 8
+U_GYRO = 10
+U_TRACKL = 12
+U_TRACKR = 14
+U_STATE_A = 16
+U_STATE_B0 = 17
+U_STATE_B1 = 18
+U_STATE_C = 19
+U_FLAGS = 20
+U_POS = 21
+U_SPURT = 22
+U_MAPHDR = 23       # u8: count(0..3) | lossy | resync
+U_MAPENT = 24       # 3 x 2 B: [open4 | 0] [x | y<<4]
 
 #: 统一帧的"扁平化"通道名 —— 位打包字段在解码时**直接展开**成独立键,
 #: 于是 ring/monitor/analyze 看到的都是平铺字段, 不需要知道打包细节。
@@ -77,7 +82,7 @@ UNIFIED_CHANNELS: List[str] = [
     "irF1", "irF2", "irL", "irR",
     "battMv",
     "speedL", "speedR",
-    "gyroAngle", "encAngle",
+    "gyroAngle",
     "trackL", "trackR",
     # 状态A: 身份层
     "dir", "mazeTask", "objectGoToFlag",
@@ -95,10 +100,12 @@ UNIFIED_CHANNELS: List[str] = [
     "led1", "led2", "led3", "led4",
 ]
 #: v9 起 30 B 载荷展平成 29 个通道(pos 拆两项、四个位打包字节装 12 个字段);
-#: v9.1 把状态B1 的预留位用掉 4 个上报 LED => **33 个通道**, 帧长仍 30 B。
+#: v9.1 把状态B1 的预留位用掉 4 个上报 LED => 33 个通道。
+#: v10 删掉 encAngle => **32 个通道**, 帧长仍 30 B(建图增量块不是标量通道,
+#: 它按帧变长, 走 `decode_unified(...)["mapd"]` 子结构 + 独立的 <run>.mapd.csv)。
 #: `frontNear` 是**派生量**(= wallFront & !frontFar), 由 decode 现算, 不占列。
 #: 改动打包要同步这个数与 U_* 偏移。
-assert len(UNIFIED_CHANNELS) == 33, len(UNIFIED_CHANNELS)
+assert len(UNIFIED_CHANNELS) == 32, len(UNIFIED_CHANNELS)
 
 #: 统一帧的**额定上限**帧率(Hz) —— 38B/帧 ÷ 11.52 KB/s ≈ 303 Hz(v9: 30B 载荷)。
 #: ⚠️ v2.1 起遥测是**拉取式**的, 实际帧率由链路能力与请求窗口决定(真机实测这条
@@ -160,6 +167,19 @@ STATE_B1_LED4 = 0x20        # LED4 = PC7
 SP_TEST = 0x08              # mazeState.spurtTestFlag
 SP_GOAHEAD_SHIFT = 4        # goaheadnum 左移位数
 SP_GOAHEAD_MASK = 0xF0
+
+# ---- v10 建图增量通道(偏移 23..29) ----
+# 每条 2 B 且**自带绝对坐标**(不用链式 dir 推导): 链式能省一半字节, 但容量有
+# 7.5 倍余量, 而链式一旦某条方向错会静默污染整批; 绝对坐标让单条错误最多错一格。
+MAPD_DEPTH = 32                     # 固件环深(host 端只用于文档/断言)
+MAPD_MAX_PER_FRAME = 3              # 每帧最多条目数
+MAPF_COUNT_MASK = 0x03              # mapHdr bit0-1
+MAPF_LOSSY = 0x04                   # 环溢出过(丢最旧) => 前面有洞
+MAPF_RESYNC = 0x08                  # 本批是新序列起点 => 重新锚定
+MAPE_OPEN_MASK = 0x0F               # 条目 byte0 低 4 位 = open4(1=可通)
+#: 建图期间的最低拉取密度提示: 纯 TELEM(N=1) 只有 3.3 Hz x 3 条 = 10 条/s,
+#: 而冲刺极限 129 ms/格 = 7.75 格/s => 余量仅 1.3 倍。规格要求运图时 N >= 2。
+MAPD_MIN_PULL_N = 2
 
 #: 冲刺速度档(spurtmode 的线上编码)。固件里是 SpurtSpeed_t 的 60..63,
 #: 帧里压成 3 bit 的 0..4(0=未选)。与固件 link.c 的映射逐项一致。
@@ -326,6 +346,16 @@ def _sat16(v: int) -> int:
     return v
 
 
+def _satu8(v: int) -> int:
+    """钳位到 uint8 —— 与固件 `link_Satu8()` 同语义(v10: 红外 mm / 电池 mV/50)。"""
+    v = int(v)
+    if v > 255:
+        return 255
+    if v < 0:
+        return 0
+    return v
+
+
 # ---------------------------------------------------------------- 帧
 
 @dataclass
@@ -363,9 +393,10 @@ def decode_unified(p: bytes) -> dict:
     b = p[:UNIFIED_LEN] + b"\x00" * max(0, UNIFIED_LEN - len(p))
 
     (ms8,) = struct.unpack_from("<B", b, U_MS8)
-    ir_f1, ir_f2, ir_l, ir_r = struct.unpack_from("<hhhh", b, U_IRMM)
-    (batt_mv,) = struct.unpack_from("<H", b, U_BATTMV)
-    sp_l, sp_r, gyro, enc, tkl, tkr = struct.unpack_from("<hhhhhh", b, U_SPEEDL)
+    # v10: 红外 4 路 u8(mm, 饱和 255); 电池 u8 = round(mV/50), 这里还原成 mV
+    ir_f1, ir_f2, ir_l, ir_r = struct.unpack_from("<BBBB", b, U_IRMM)
+    batt_mv = b[U_BATT] * 50
+    sp_l, sp_r, gyro, tkl, tkr = struct.unpack_from("<hhhhh", b, U_SPEEDL)
 
     sa = b[U_STATE_A]
     sb0 = b[U_STATE_B0]
@@ -384,7 +415,7 @@ def decode_unified(p: bytes) -> dict:
         "irF1": ir_f1, "irF2": ir_f2, "irL": ir_l, "irR": ir_r,
         "battMv": batt_mv,
         "speedL": sp_l, "speedR": sp_r,
-        "gyroAngle": gyro, "encAngle": enc,
+        "gyroAngle": gyro,
         "trackL": tkl, "trackR": tkr,
         # -- 状态A: 身份层 --
         "dir": sa & 0x03,
@@ -413,6 +444,26 @@ def decode_unified(p: bytes) -> dict:
         "led2": (sb1 >> 3) & 0x01,
         "led3": (sb1 >> 4) & 0x01,
         "led4": (sb1 >> 5) & 0x01,
+    }
+    # -- v10 建图增量通道: 只解出本帧携带的格子, 重建交给 api.mapd.MapReplayer --
+    mh = b[U_MAPHDR]
+    mn = mh & MAPF_COUNT_MASK
+    if mn > MAPD_MAX_PER_FRAME:
+        mn = MAPD_MAX_PER_FRAME
+    ents = []
+    for k in range(mn):
+        e0 = b[U_MAPENT + 2 * k]
+        e1 = b[U_MAPENT + 2 * k + 1]
+        ents.append({
+            "x": e1 & 0x0F,
+            "y": (e1 >> 4) & 0x0F,
+            "open4": e0 & MAPE_OPEN_MASK,
+        })
+    d["mapd"] = {
+        "count": mn,
+        "lossy": 1 if (mh & MAPF_LOSSY) else 0,
+        "resync": 1 if (mh & MAPF_RESYNC) else 0,
+        "entries": ents,
     }
     # 派生量(纯复算, 不占带宽)
     # v9: frontNear 不再上线 —— 由 wallFront & !frontFar 唯一确定(两者互斥且穷尽)
@@ -454,13 +505,14 @@ def pack_unified(d: dict) -> bytes:
     out = bytearray(UNIFIED_LEN)
     out[U_MS8] = g("ms8") & 0xFF
 
-    struct.pack_into("<hhhh", out, U_IRMM,
-                     _sat16(g("irF1")), _sat16(g("irF2")),
-                     _sat16(g("irL")), _sat16(g("irR")))
-    struct.pack_into("<H", out, U_BATTMV, _sat16(g("battMv")) & 0xFFFF)
-    struct.pack_into("<hhhhhh", out, U_SPEEDL,
+    # v10: 红外 u8 饱和; 电池 mV -> round(mV/50)
+    struct.pack_into("<BBBB", out, U_IRMM,
+                     _satu8(g("irF1")), _satu8(g("irF2")),
+                     _satu8(g("irL")), _satu8(g("irR")))
+    out[U_BATT] = _satu8((g("battMv") + 25) // 50)
+    struct.pack_into("<hhhhh", out, U_SPEEDL,
                      _sat16(g("speedL")), _sat16(g("speedR")),
-                     _sat16(g("gyroAngle")), _sat16(g("encAngle")),
+                     _sat16(g("gyroAngle")),
                      _sat16(g("trackL")), _sat16(g("trackR")))
 
     out[U_STATE_A] = ((g("dir") & 0x03)
@@ -485,6 +537,26 @@ def pack_unified(d: dict) -> bytes:
     out[U_SPURT] = ((g("spurtMode") & 0x07)
                     | ((g("spurtTestFlag") & 0x01) << 3)
                     | ((g("goaheadnum") & 0x0F) << SP_GOAHEAD_SHIFT))
+
+    # -- v10 建图增量块(偏移 23..29) --
+    md = d.get("mapd") or {}
+    ents = list(md.get("entries") or [])[:MAPD_MAX_PER_FRAME]
+    mn = len(ents)
+    mh = mn & MAPF_COUNT_MASK
+    if md.get("lossy"):
+        mh |= MAPF_LOSSY
+    if md.get("resync"):
+        mh |= MAPF_RESYNC
+    out[U_MAPHDR] = mh
+    for k in range(MAPD_MAX_PER_FRAME):
+        if k < mn:
+            e = ents[k]
+            out[U_MAPENT + 2 * k] = int(e.get("open4", 0) or 0) & MAPE_OPEN_MASK
+            out[U_MAPENT + 2 * k + 1] = ((int(e.get("x", 0) or 0) & 0x0F)
+                                         | ((int(e.get("y", 0) or 0) & 0x0F) << 4))
+        else:
+            out[U_MAPENT + 2 * k] = 0
+            out[U_MAPENT + 2 * k + 1] = 0
     return bytes(out)
 
 

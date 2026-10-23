@@ -69,8 +69,8 @@ from host import fwprofile  # noqa: E402
 
 #: 板上应当报的指纹。固件源码里读到的是 v9 期望值, 这里再钉一遍是为了让"源码被谁改错了"
 #: 也能在 S0 就暴露(否则 S0 会拿错源码当正确答案去比对 codec)。
-EXPECT_PROTO = 9
-EXPECT_FW = 313
+EXPECT_PROTO = 10
+EXPECT_FW = 314
 EXPECT_MAZETYPE = 16
 
 #: v8(57 B/帧)时代的实测容量点, 只用于 S3 的对比话术。
@@ -101,9 +101,9 @@ def sha16(path: str) -> str:
 # ============================================================ S0 离线一致性
 
 #: 统一帧载荷偏移 —— 名字两侧一一对应(`codec.U_*` <-> 固件 `LINK_U_*`)。
-U_NAMES = ("MS8", "IRMM", "BATTMV", "SPEEDL", "SPEEDR", "GYRO", "ENCANG",
+U_NAMES = ("MS8", "IRMM", "BATT", "SPEEDL", "SPEEDR", "GYRO",
            "TRACKL", "TRACKR", "STATE_A", "STATE_B0", "STATE_B1", "STATE_C",
-           "FLAGS", "POS", "SPURT")
+           "FLAGS", "POS", "SPURT", "MAPHDR", "MAPENT")
 
 #: flags 位 —— `codec.FLAG_*` <-> 固件 `LINK_FLAG_*`。
 FLAG_NAMES = ("FREEMODE", "SLEEP", "EMERG", "PULLF1", "IR_SWITCH",
@@ -135,13 +135,15 @@ def _sample_dicts(n: int = 120):
                      sp=rnd.randint(-32768, 32767))
         d = {
             "ms8": rnd.randint(0, 255) if f is not fixed[0] else 0,
-            "irF1": f["sp"], "irF2": max(-32768, min(32767, -f["sp"])),
-            "irL": rnd.randint(-32768, 32767),
-            "irR": rnd.randint(0, 32767),
-            "battMv": rnd.randint(0, 32767),   # pack 走 _sat16, 超界会被钳 ⇒ 取合法域
+            # v10: 红外在帧内是 u8(0..255), 电池是 round(mV/50) 的 u8 ——
+            # 样例必须落在无损域内, 否则往返断言会因为饱和而误报。
+            "irF1": f["sp"] & 0xFF, "irF2": (-f["sp"]) & 0xFF,
+            "irL": rnd.randint(0, 255),
+            "irR": rnd.randint(0, 255),
+            "battMv": rnd.randrange(0, 12551, 50),
             "speedL": rnd.randint(-32768, 32767), "speedR": rnd.randint(-32768, 32767),
             "gyroAngle": rnd.randint(-32768, 32767),
-            "encAngle": rnd.randint(-32768, 32767),
+            "mapd": {"count": 0, "lossy": 0, "resync": 0, "entries": []},
             "trackL": rnd.randint(-32768, 32767), "trackR": rnd.randint(-32768, 32767),
             "dir": f["maze"] & 0x03, "mazeTask": f["maze"],
             "objectGoToFlag": rnd.randint(0, 1),
@@ -170,7 +172,7 @@ def stage0_offline() -> bool:
     fw = fwprofile.fw_expect()
     check("固件源码版本号 = (proto %d, fw %d)" % (EXPECT_PROTO, EXPECT_FW),
           fw == (EXPECT_PROTO, EXPECT_FW), str(fw))
-    check("codec.UNIFIED_LEN = 30 (v9)", codec.UNIFIED_LEN == 30,
+    check("codec.UNIFIED_LEN = 30 (v9/v10 帧长未变)", codec.UNIFIED_LEN == 30,
           str(codec.UNIFIED_LEN))
     check("固件 LINK_UNIFIED_LEN == codec.UNIFIED_LEN",
           fwprofile.link_macro("LINK_UNIFIED_LEN") == codec.UNIFIED_LEN,
@@ -183,7 +185,7 @@ def stage0_offline() -> bool:
         want = getattr(codec, "U_" + n)
         if got != want:
             bad.append("%s 固件=%s codec=%s" % (n, got, want))
-    check("16 个 U_* 偏移逐项一致", not bad, "; ".join(bad) or "0 差异")
+    check("%d 个 U_* 偏移逐项一致" % len(U_NAMES), not bad, "; ".join(bad) or "0 差异")
 
     # ---- 8 个 flags 位 ----
     bad = []
@@ -214,7 +216,7 @@ def stage0_offline() -> bool:
           "; ".join(bad) or "0 差异")
 
     # ---- 通道表 ----
-    check("UNIFIED_CHANNELS = 33 项(v9.1: 29 + 4 个 LED)", len(codec.UNIFIED_CHANNELS) == 33,
+    check("UNIFIED_CHANNELS = 32 项(v10: 33 - encAngle)", len(codec.UNIFIED_CHANNELS) == 32,
           str(len(codec.UNIFIED_CHANNELS)))
     check("LED 通道追加在通道表末尾(否则 RingBuffer 历史数据错列)",
           list(codec.UNIFIED_CHANNELS[-4:]) == ["led1", "led2", "led3", "led4"],
@@ -312,7 +314,7 @@ def stage1_ping(lk, parse_pong, parse_ack) -> dict | None:
         print("      (第 %d 次才拿到 PONG —— 首包截断, 已自动重试)" % tries)
     print("       PONG %d %d %d %d %s   RTT=%.0f ms" % (
         pong["proto"], pong["fw"], pong["mazetype"], pong["txbuf"], pong["rst"], rtt))
-    ok = check("proto = %d (v9)" % EXPECT_PROTO, pong["proto"] == EXPECT_PROTO,
+    ok = check("proto = %d (v10)" % EXPECT_PROTO, pong["proto"] == EXPECT_PROTO,
                "proto=%d" % pong["proto"])
     ok &= check("fw = %d (远程档 v9)" % EXPECT_FW, pong["fw"] == EXPECT_FW,
                 "fw=%d" % pong["fw"])

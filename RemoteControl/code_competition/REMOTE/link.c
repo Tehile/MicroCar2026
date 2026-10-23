@@ -540,6 +540,18 @@ static void link_Put16(u8 *p, s16 v)
 	p[1] = (u8)(((u16)v >> 8) & 0xFF);
 }
 
+/* v10: 红外距离(mm)与电池定标值都压进 1 字节, 统一用这个饱和函数。
+ * 负值(不可能出现, 但红外查表边界会产生)钳 0, >255 钳 255 ——
+ * 所有红外判决都是"小于阈值"形式且阈值 <= 245, 故饱和不改判决。 */
+static u8 link_Satu8(long v)
+{
+	if (v > 255L)
+		return 255u;
+	if (v < 0L)
+		return 0u;
+	return (u8)v;
+}
+
 /*-------------------------------------  标定参数表  -------------------------------------*/
 static s32 link_F2Q(float f)
 {
@@ -1171,6 +1183,132 @@ static u8 link_Flags(void)
 	return f;
 }
 
+/* -------------------------------  建图增量通道(v10)  -------------------------------
+ * 目的: 让上位机**实时**复现固件内部墙图, 不必等跑完再 MAP DUMP(那条走 Flash
+ *       存档快照, LP_SyncMap() 全仓无调用点, 上电未 CAL BLOCK 时回的是全 0 图)。
+ *
+ * 挂钩方式: **在 LINK_Tick(1 kHz) 采样 GmcMouse 坐标变化**, 而不是在
+ *   `__wallCheck()` 里插回调。理由:
+ *     ① `utility.c`/`test.c` 一字不动 => 比赛档产物在编译层面就不可能变(红线);
+ *     ② GmcMouse / GucMouseDir / GucMapBlock 的 extern 已在 link_port.h, 零新增依赖;
+ *     ③ 一格最短 129 ms(冲刺 140 cm/s / 180 mm 格距), 1 kHz 采样不可能漏格。
+ *
+ * 上下文: 采样(push)与组帧(pop)都在同一个 SysTick ISR 里 => head/tail 同上下文,
+ *   **不需要临界区**(方案里那版 PRIMASK 保护只在使用任务上下文 push 时才需要)。
+ *
+ * 数据源语义(极易搞反, 务必钉死): GucMapBlock[x][y] 的**低半字节 = 四向可通位**
+ *   (bit0=+Y, bit1=+X, bit2=-Y, bit3=-X, **1=通**), 高半字节 = 同向"未探明"位。
+ *   本通道只传低半字节原值, host 显示墙时才取反 —— 中间转一道手最容易出反相 bug。
+ */
+typedef struct
+{
+	u8 pos;   /* x | (y << 4)                                     */
+	u8 open4; /* GucMapBlock[x][y] & 0x0F, 1=可通                 */
+} LinkMapD;
+
+static LinkMapD linkMapD[LINK_MAPD_DEPTH];
+static u8 linkMapDHead;   /* 写指针: 采样推进 */
+static u8 linkMapDTail;   /* 读指针: 组帧消费(= 已进 TX 环的下一条) */
+static u8 linkMapDLossy;  /* sticky: 环溢出过(丢过最旧) */
+static u8 linkMapDResync; /* sticky: 需要 host 重新锚定 */
+static u8 linkMapDPrevOk; /* 0 = 还没建立坐标基线(上电/复位后第一 tick) */
+static s16 linkMapDPrevX;
+static s16 linkMapDPrevY;
+
+/**
+ * @brief  清空建图增量环并置 resync(发车 / 新图 / 坐标跳变 / 上电)
+ * @note   这里是**唯一**允许整块清的地方 —— 组帧消费永远只推进 tail。
+ *         发车时环里本应为空(车还没走), 坐标跳变时丢掉的是"旧图未发完的残余",
+ *         两种情况下整清都是对的。
+ */
+static void link_MapReset(void)
+{
+	linkMapDHead = 0u;
+	linkMapDTail = 0u;
+	linkMapDLossy = 0u;
+	linkMapDResync = 1u;
+}
+
+/**
+ * @brief  入环一条(环满则丢**最旧**)
+ * @param  pos   x | (y << 4)
+ * @param  open4 GucMapBlock[x][y] & 0x0F
+ * @note   丢最旧而不是丢最新: 保证"最新一格永远在环里", 锚点口径统一, 洞只会
+ *         出现在前面(由 mapHdr 的 lossy 位说明)。
+ */
+static void link_MapPush(u8 pos, u8 open4)
+{
+	u8 nx = (u8)((linkMapDHead + 1u) & (LINK_MAPD_DEPTH - 1u));
+
+	if (nx == linkMapDTail)
+	{
+		linkMapDTail = (u8)((linkMapDTail + 1u) & (LINK_MAPD_DEPTH - 1u));
+		linkMapDLossy = 1u;
+	}
+	linkMapD[linkMapDHead].pos = pos;
+	linkMapD[linkMapDHead].open4 = open4;
+	linkMapDHead = nx;
+}
+
+/**
+ * @brief  1 kHz 采样: GmcMouse 坐标变了就记为"走了一格", 把该格墙信息入环
+ * @note   由 LINK_Tick 在 LP_SyncIn() 之后调用。
+ *
+ *   三个必须注意的点:
+ *   ① **非单步 = 跳变**: 用 s16 差值判(|dx|+|dy| != 1)。固件里
+ *      `__mouseCoorUpdate_Fast()` 能跳格但全仓零调用点(死代码, 禁止启用);
+ *      真正的跳变来自 test.c:772-790 起步时把 cX 由 0 搬到 15 并整列搬图,
+ *      以及 CAL ERASE 后地图被清。跳变时清环 + resync, 以当前格重开序列。
+ *   ② **open4 == 0 本 tick 不记**: ISR 可能正好抢在 `GmcMouse.cY++` 与
+ *      `__wallCheck()` 之间, 此时该格低半字节还是初值 0x00, 记进去就是
+ *      "四向全封死", 会污染整张图。`__wallCheck` 无条件置"来路"位 =>
+ *      写完必非 0 => 下 tick 必能采到正确值, 自愈无需重试。
+ *   ③ **方向不参与组帧**: v10 条目自带绝对坐标, 用户问的"每条都带位置"已采纳。
+ *      链式编码能省一半字节, 但容量有 7.5 倍余量, 而链式一旦某条方向出错会
+ *      **静默污染整批**; 绝对坐标让单条错误最多错一格且可被 host 检出。
+ */
+static void link_MapSample(void)
+{
+	s16 cx, cy, dx, dy;
+	u8 o4;
+
+	cx = (s16)GmcMouse.cX;
+	cy = (s16)GmcMouse.cY;
+
+	if (!linkMapDPrevOk)
+	{
+		linkMapDPrevX = cx;
+		linkMapDPrevY = cy;
+		linkMapDPrevOk = 1u;
+		return;
+	}
+	if (cx == linkMapDPrevX && cy == linkMapDPrevY)
+		return;
+
+	/* 越界(不应发生): 只更新基线, 不入环 —— 绝不能拿越界坐标去索引 GucMapBlock */
+	if (cx < 0 || cx >= MAZETYPE || cy < 0 || cy >= MAZETYPE)
+	{
+		linkMapDPrevX = cx;
+		linkMapDPrevY = cy;
+		return;
+	}
+
+	o4 = (u8)(GucMapBlock[cx][cy] & 0x0Fu);
+	if (o4 == 0u)
+		return; /* 见注②, 下 tick 再来 */
+
+	dx = (s16)(cx - linkMapDPrevX);
+	dy = (s16)(cy - linkMapDPrevY);
+
+	if (!(((dx == 1 || dx == -1) && dy == 0)
+	      || ((dy == 1 || dy == -1) && dx == 0)))
+		link_MapReset(); /* 非单步: 见注① */
+
+	link_MapPush((u8)(((u8)cx & 0x0Fu) | ((u8)((u8)cy & 0x0Fu) << 4)), o4);
+	linkMapDPrevX = cx;
+	linkMapDPrevY = cy;
+}
+
 /**
  * @brief  立即组一帧统一帧并压入 TX 环(供 `TELEM` 命令按需调用)
  * @param  none
@@ -1198,16 +1336,28 @@ static void link_SendUnified(void)
 	 * 天然对齐 —— 上位机拿 ACK 的锚还原绝对时刻即可。 */
 	pl[LINK_U_MS8] = (u8)(linkTimeMs & 0xFFu);
 
-	link_Put16(&pl[LINK_U_IRMM + 0], link_Sat16(irDist.f1));
-	link_Put16(&pl[LINK_U_IRMM + 2], link_Sat16(irDist.f2));
-	link_Put16(&pl[LINK_U_IRMM + 4], link_Sat16(irDist.l));
-	link_Put16(&pl[LINK_U_IRMM + 6], link_Sat16(irDist.r));
+	/* v10 瘦身①: 红外 4 路由 u16 压成 u8。可行性判据不是"距离量程"而是
+	 * "判决点会不会被饱和切掉" —— 参数表里全部红外阈值(thr45 150 / thrFrontLo
+	 * 230 / thrFrontMid 240 / thrFrontHi 245 / thrFrontNear 65 / thrCritical 60)
+	 * 都 <= 245 < 255, 饱和到 255 不改变任何一条 `<thr` 的取值。
+	 * 硬约束: 红外阈值必须 <= 254(host 侧 SET 已钳位; 参数表默认最大 245)。 */
+	pl[LINK_U_IRMM + 0] = link_Satu8(irDist.f1);
+	pl[LINK_U_IRMM + 1] = link_Satu8(irDist.f2);
+	pl[LINK_U_IRMM + 2] = link_Satu8(irDist.l);
+	pl[LINK_U_IRMM + 3] = link_Satu8(irDist.r);
 
-	link_Put16(&pl[LINK_U_BATTMV], link_Sat16((long)battMon.mv));
+	/* v10 瘦身②: 电池 u16 mV -> u8 的 round(mV/50), 即 50 mV/LSB。
+	 * 低电闸 LAUNCH_MIN_MV=7000 恰好落在 140 整数上(7000/50), 零量化误差 ——
+	 * 闸门是这字段唯一有硬用途的地方, 所以不用"百分比"(锂电曲线非线性, 换算表
+	 * 恰好在闸门附近丢精度)。3S 满电 12.6 V -> 252, 仍在 8 bit 内。
+	 * v10 瘦身③: encAng 整项删除(省 2 B)。上位机唯一消费者是 monitor 一行显示,
+	 * 无算法依赖; 而"由 trackL/trackR 换算"只能得**相对角**(固件 angle 经
+	 * angleratio 缩放且 setangle() 会重置基准), 绝对值不可复现 —— 若将来要做
+	 * 角度-里程对拍, 这 2 B 得还回来。 */
+	pl[LINK_U_BATT] = link_Satu8(((long)battMon.mv + 25L) / 50L);
 	link_Put16(&pl[LINK_U_SPEEDL], link_Sat16(speedSt.speedL));
 	link_Put16(&pl[LINK_U_SPEEDR], link_Sat16(speedSt.speedR));
 	link_Put16(&pl[LINK_U_GYRO], link_Sat16(gyroStr.angle));
-	link_Put16(&pl[LINK_U_ENCANG], link_Sat16(odomStr.angle));
 	link_Put16(&pl[LINK_U_TRACKL], link_Sat16(odomStr.trackL));
 	link_Put16(&pl[LINK_U_TRACKR], link_Sat16(odomStr.trackR));
 
@@ -1279,7 +1429,7 @@ static void link_SendUnified(void)
 	pl[LINK_U_POS] = (u8)(((u8)mazeState.mousePos.cX & 0x0Fu)
 	                      | (((u8)mazeState.mousePos.cY & 0x0Fu) << 4));
 
-	/* ---- 冲刺上下文(偏移 29, v9 合并) ----
+	/* ---- 冲刺上下文(偏移 22, v9 合并) ----
 	 * 档位码 60..63 压成 3 bit; 原字节里的 spurtFlag/goOrBack 已进状态B1,
 	 * objectGoToFlag 已进状态A, 空出的 4 bit 正好装 goaheadnum(实际只取 0..4)。
 	 * 这些量只在比赛固件里有意义; 待命时恒 0/未选, 上位机据此判断"是不是在冲刺"。 */
@@ -1298,7 +1448,54 @@ static void link_SendUnified(void)
 	sp |= (u8)(((u8)taskSt.goaheadnum & 0x0Fu) << LINK_SP_GOAHEAD_SHIFT);
 	pl[LINK_U_SPURT] = sp;
 
-	link_SendFrame(LINK_TYPE_UNIFIED, pl, LINK_UNIFIED_LEN);
+	/* ---- 建图增量通道(偏移 23..29, v10) ----
+	 * 取环里最多 LINK_MAPD_MAX 条; count=0 时条目全填 0(绝不填上次残值)。
+	 * `lossy`/`resync` 是 sticky 位: 只有本帧**确实写进 TX 环**才清, 否则下一帧
+	 * 继续带 —— 整帧被丢时不能让 host 误以为"已经对齐"。 */
+	{
+		u8 k, mn, mh, moff;
+
+		moff = linkMapDTail;
+		mn = (u8)((linkMapDHead - linkMapDTail) & (LINK_MAPD_DEPTH - 1u));
+		if (mn > LINK_MAPD_MAX)
+			mn = LINK_MAPD_MAX;
+		mh = (u8)(mn & LINK_MAPF_COUNT_MASK);
+		if (linkMapDLossy)
+			mh |= LINK_MAPF_LOSSY;
+		if (linkMapDResync)
+			mh |= LINK_MAPF_RESYNC;
+		pl[LINK_U_MAPHDR] = mh;
+		for (k = 0u; k < LINK_MAPD_MAX; k++)
+		{
+			u8 b0 = 0u;
+			u8 b1 = 0u;
+			if (k < mn)
+			{
+				u8 idx = (u8)((moff + k) & (LINK_MAPD_DEPTH - 1u));
+				b0 = (u8)(linkMapD[idx].open4 & LINK_MAPE_OPEN_MASK);
+				b1 = linkMapD[idx].pos;
+			}
+			pl[LINK_U_MAPENT + 2u * k] = b0;
+			pl[LINK_U_MAPENT + (2u * k) + 1u] = b1;
+		}
+
+		/* ★ "进入发送缓冲区后清空" = 推进 tail(FIFO 消费), **绝不整块清**:
+		 * 环里 20 条而一帧只带 3 条时, 整块清会丢掉 17 条。
+		 * ★ 只有真的写进 TX 环才推进 tail。判据用 linkDrop 快照比对, 而不是给
+		 * link_SendFrame 加返回值 —— 后者是两档共用的老函数, 改签名属于动红线
+		 * 面上的东西, 用快照零侵入。整帧被丢时 tail 原地不动, 下一帧原样再带;
+		 * 因为每条自带绝对坐标, 重复发送幂等。 */
+		{
+			u16 d0 = linkDrop;
+			link_SendFrame(LINK_TYPE_UNIFIED, pl, LINK_UNIFIED_LEN);
+			if (linkDrop == d0)
+			{
+				linkMapDTail = (u8)((linkMapDTail + mn) & (LINK_MAPD_DEPTH - 1u));
+				linkMapDLossy = 0u;
+				linkMapDResync = 0u;
+			}
+		}
+	}
 }
 
 #ifdef MOUSE_REMOTE
@@ -2801,6 +2998,11 @@ static void link_ExecCmd(char *line, s32 seq)
 				return;
 			}
 			linkMazeReq = 1;
+			/* v10: 新一轮发车 => 建图增量环清空并置 resync。
+			 * 此刻车还没动, 环本应为空; 清一次是为了防止上一轮收车后残留的
+			 * 条目被 host 当成新一轮的起点(host 侧也在 `MAZE RUN` 回 OK 时
+			 * 主动清图, 这里只是兜底)。 */
+			link_MapReset();
 			/* v2.8: 收到发车命令的**同一时刻**点亮全部 4 个 LED, 给录像一个
 			 * 无歧义的发车时间标记(时长见 LINK_LAUNCH_MARK_MS)。
 			 * 直接写引脚而不走 LED_On(): 后者在 ledBeaconLock 置位时(先 ARM
@@ -3309,6 +3511,11 @@ void LINK_Init(void)
 	ledBeaconLock = 0; /* 未发车前 LED 照常充当状态灯 */
 #ifdef MOUSE_REMOTE
 	linkLaunchMarkEnd = 0; /* v2.8: 上电时标记灯未激活 */
+	/* v10: 建图增量环复位。BSS 本就零初始化, 这里显式写一遍是为了让 resync
+	 * 在第一帧就带上(host 重启/重新连接时靠它兜底对齐), 且 prevOk=0 让第一个
+	 * 采样 tick 只建立坐标基线、不会把"当前位置"当成走了一格。 */
+	link_MapReset();
+	linkMapDPrevOk = 0u;
 #endif
 
 	/* ================= 复位原因(在设计方案 §10.2, 由 PING 上报) =================
@@ -3421,6 +3628,11 @@ void LINK_Tick(void)
 	/* P2 平台适配: 每 tick 先把新固件全局量刷进镜像(本模块只读镜像),
 	 * 末尾 LP_SyncOut 再把本模块写过的量推回去。 */
 	LP_SyncIn();
+
+	/* 0a00. 建图增量采样(v10): 比对 GmcMouse 坐标, 走了一格就入环。
+	 * 放在最前面 —— 越早采到, 本 tick 第 5 段组帧时就越新鲜; 且一格最短
+	 * 129 ms, 1 kHz 采样不可能漏格。与组帧同在本 ISR 内 => 环无并发问题。 */
+	link_MapSample();
 
 #ifdef MOUSE_REMOTE
 	/* 0a. 远程软复位倒计时(见 `MCU RESET` 分支)。

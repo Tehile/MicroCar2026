@@ -71,7 +71,7 @@ from .protocol.codec import (
 )
 from .protocol.commands import CommandClient
 
-API_VERSION = "2.13.0"  # v2.13.0: PROTO 9 / FW 311 —— 状态B1 的 bit2-5 上报 4 个 LED
+API_VERSION = "2.14.0"  # v2.14.0: PROTO 10 / FW 314 —— 字段瘦身 + 建图增量通道
                          #   亮灭 => UNIFIED_CHANNELS 29→33(帧长仍 30 B), 详见 docs/LED状态上报-B1位分配方案.md
 
 

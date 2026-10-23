@@ -60,22 +60,36 @@
  *     故 P_NUM/PROTO_VER/FW_VER 三个宏都按 MOUSE_REMOTE 取值 ——
  *     比赛档保持 v2.4 语义与**逐字节不变**的产物, 远程档承载新协议。 */
 #ifdef MOUSE_REMOTE
-#define LINK_PROTO_VER 9 /* v9(2026-10-20): **统一帧重排 49 -> 30 B**。删掉的是
+#define LINK_PROTO_VER 10 /* v10(2026-10-23): **帧长仍 30 B, 但字段偏移整体前移 5 B**。
+                          *        瘦身: irMm[4] u16->u8(-4) / batt mV->mV/50 u8(-1) /
+                          *        encAng 删除(-2), 腾出的 7 B 全部给**建图增量通道**
+                          *        (偏移 23 头 + 24..29 三条 2 B 条目, 每条自带绝对坐标)。
+                          *        偏移变了 => 不兼容, 进位。见 docs/通信协议v10-建图增量通道方案.md。
+                          *        更早的 v9(2026-10-20): **统一帧重排 49 -> 30 B**。删掉的是
                           *        "静态规划结果/本地计数"与"可从现有位推出"的量:
                           *        原始 ADC、格内里程、控制误差、goal、运行时墙阈、岔路栈、
                           *        快路径计数(fastwayCount/90)、丢帧计数(dropCnt)、motionStep、
                           *        critL/R、left45/right45、frontNear; 状态B 拆 B0/B1(9bit),
                           *        前墙远近并入状态C, 冲刺档位与 goaheadnum 合并为"冲刺上下文"。
                           *        帧布局不兼容 => 进位。详见 docs/通信协议v9-统一帧重排方案.md。 */
-#define LINK_FW_VER 313  /* 3.13 —— 宿主实现同 3.00(迷宫 16x16 / 单体 main / 参数宿主),
-                          *        叠加 PROTO 9 帧重排 + 状态B1 的 bit2-5 上报 4 个 LED
-                          *        亮灭(帧长/PROTO 不变)。host 按 proto 判帧长与位布局,
-                          *        按 fw 选名表与 sim 迷宫尺寸(见 host/host/fwprofile.py)。 */
+#define LINK_FW_VER 314  /* 3.14 —— 宿主实现同 3.00(迷宫 16x16 / 单体 main / 参数宿主),
+                          *        叠加 PROTO 10 字段瘦身 + 建图增量通道。host 按 proto
+                          *        判帧长与位布局, 按 fw 选名表与 sim 迷宫尺寸
+                          *        (见 host/host/fwprofile.py)。 */
 #else
 #define LINK_PROTO_VER 5 /* 比赛档: 与 v2.4.0 完全一致(无 39-55 新参数, 表容量 24)。 */
 #define LINK_FW_VER 216  /* 比赛档: 产物逐字节不变(新工程基线 hex sha256 68ad6be2...)。 */
 #endif
 /* 历史版本记录:
+ *  314 = v10: **字段瘦身 + 建图增量通道**(PROTO 10)。三项裁剪共腾 7 B:
+ *        `irMm[4]` u16->u8(省 4; 所有红外阈值 <=245 < 255, 饱和不改任何 `<thr` 判决),
+ *        `batt` mV->round(mV/50)(省 1; 低电闸 7000 mV <-> 140 整数零误差),
+ *        `encAng` 删除(省 2; 上位机唯一消费者是一行显示, 绝对角本就不可复现)。
+ *        腾出的 7 B 全给**建图增量通道**: 偏移 23 头(count/lossy/resync) +
+ *        24..29 三条 2 B 条目(open4 + 绝对坐标)。数据源是 `LINK_Tick` 1 kHz 采样
+ *        `GmcMouse` 变化(不碰 utility.c => 比赛档天然安全), 环深 32 条(RAM 64 B)。
+ *        **帧长仍 30 B**(本链路 RTT 恒 300-310 ms 全在 PC 侧, 与帧长无关)。
+ *        偏移全变 => 不兼容。见 docs/通信协议v10-建图增量通道方案.md。
  *  313 = v9.2.1: **基准灯每 tick 重钉**。远程档里 ledBeaconLock 没有消费者
  *        (link_port.c 的影子无人读、led.c 的 ledon/ledoff 不认它), 所以基准灯
  *        只在变化沿写 LED4 时会被固件状态灯在 1ms 内覆盖, 40ms 组帧几乎永远
@@ -193,40 +207,43 @@
  * v9(2026-10-20) 帧重排: 49 -> 30 B。原则 = 帧里只留"每帧会变的动态量";
  * 静态规划结果(fastwayCount/fastwayCount90)与本地健康计数(linkDrop)移出帧,
  * 改由事件行 / PING 文本低频上报。详见 docs/通信协议v9-统一帧重排方案.md。 */
-#define LINK_U_MS8 0       /* u8     设备毫秒时基低 8 位        */
-#define LINK_U_IRMM 1      /* u16x4  距离 mm: F1 F2 L R         */
-#define LINK_U_BATTMV 9    /* u16    电池 mV(IIR 后)            */
-#define LINK_U_SPEEDL 11   /* s16    左轮速度 cm/s              */
-#define LINK_U_SPEEDR 13   /* s16    右轮速度 cm/s              */
-#define LINK_U_GYRO 15     /* s16    陀螺积分角度               */
-#define LINK_U_ENCANG 17   /* s16    编码器角度(与陀螺角不同物理量) */
-#define LINK_U_TRACKL 19   /* s16    左轮相对里程 **mm**(非 pulse)  */
-#define LINK_U_TRACKR 21   /* s16    右轮相对里程 mm            */
-#define LINK_U_STATE_A 23  /* 位打包: 见下                      */
-#define LINK_U_STATE_B0 24 /* 位打包: 见下                      */
-#define LINK_U_STATE_B1 25 /* 位打包: 见下                      */
-#define LINK_U_STATE_C 26  /* 位打包: 见下                      */
-#define LINK_U_FLAGS 27    /* u8     LINK_FLAG_*                */
-#define LINK_U_POS 28      /* 位打包: posX(4) | posY(4)         */
-#define LINK_U_SPURT 29    /* 位打包: 冲刺上下文(档位/测试/格数)  */
+#define LINK_U_MS8 0       /* u8     设备毫秒时基低 8 位              */
+#define LINK_U_IRMM 1      /* u8x4   距离 mm: F1 F2 L R, 饱和 255    */
+#define LINK_U_BATT 5      /* u8     电池 round(mV/50): 140=7000 mV */
+#define LINK_U_SPEEDL 6    /* s16    左轮速度 cm/s                  */
+#define LINK_U_SPEEDR 8    /* s16    右轮速度 cm/s                  */
+#define LINK_U_GYRO 10     /* s16    陀螺积分角度                   */
+#define LINK_U_TRACKL 12   /* s16    左轮相对里程 **mm**(非 pulse)  */
+#define LINK_U_TRACKR 14   /* s16    右轮相对里程 mm                */
+#define LINK_U_STATE_A 16  /* 位打包: 见下                          */
+#define LINK_U_STATE_B0 17 /* 位打包: 见下                          */
+#define LINK_U_STATE_B1 18 /* 位打包: 见下                          */
+#define LINK_U_STATE_C 19  /* 位打包: 见下                          */
+#define LINK_U_FLAGS 20    /* u8     LINK_FLAG_*                    */
+#define LINK_U_POS 21      /* 位打包: posX(4) | posY(4)             */
+#define LINK_U_SPURT 22    /* 位打包: 冲刺上下文(档位/测试/格数)      */
+#define LINK_U_MAPHDR 23   /* u8     建图增量头: count/lossy/resync  */
+#define LINK_U_MAPENT 24   /* u8x6   建图增量条目 3 x 2 B           */
 /* v9 删除(不再占帧): IRADC / CELLODOM / PIDERR / GOAL / WALLTHR / STACKIDX /
  * FASTWAY / DROP / FRONT / GOAHEAD / FASTWAY90。
- *   前墙远近并入状态C, goaheadnum 并入偏移 29, 路径动作计数改由事件行上报。 */
+ *   前墙远近并入状态C, goaheadnum 并入偏移 22, 路径动作计数改由事件行上报。
+ * v10 删除: ENCANG(编码器角, 相对角可由 trackL/trackR 换算), 并把 IRMM 从
+ *   u16x4 压成 u8x4、BATTMV 从 u16 压成 u8 的 mV/50 定标。 */
 
-/* 位打包明细(偏移 23/24/25/26/28/29) */
-/*  23 状态A : bit0-1 dir(0=UP 1=RIGHT 2=DOWN 3=LEFT)
+/* 位打包明细(偏移 16/17/18/19/21/22) */
+/*  16 状态A : bit0-1 dir(0=UP 1=RIGHT 2=DOWN 3=LEFT)
  *            bit2-4 mazeTask(0=WAIT 1=START 2=SEARCH 3=SPURT 4=SPURT45 5=SPURT90 6=END)
  *            bit5   objectGoToFlag            bit6-7 预留              */
-/*  24 状态B0: bit0-6 motionTask(0..107, 见 core.h)   bit7 预留        */
-/*  25 状态B1: bit0 spurtFlag  bit1 goOrBack
+/*  17 状态B0: bit0-6 motionTask(0..107, 见 core.h)   bit7 预留        */
+/*  18 状态B1: bit0 spurtFlag  bit1 goOrBack
  *            bit2-5 led1..led4(1=亮, v9.1)  bit6-7 预留                   */
-/*  26 状态C : bit0 wallLeft  bit1 wallFront  bit2 wallRight
+/*  19 状态C : bit0 wallLeft  bit1 wallFront  bit2 wallRight
  *            bit3 frontFar(1=远墙档 / 0=近墙档)  bit4 frontBoth  bit5-7 预留
  *            ※ frontFar 仅 wallFront=1 时有意义; frontNear 由上位机按
  *              `wallFront & !frontFar` 推出 => 前墙三档信息一位不丢。
  *            ※ irSwitch 不在本字节, 已移到 flags.0x10。 */
-/*  28       : bit0-3 posX(0-15)   bit4-7 posY(0-15)                   */
-/*  29 冲刺  : bit0-2 spurtMode(0=未选 1=LOW_90 2=LOW 3=MED 4=HIGH)
+/*  21       : bit0-3 posX(0-15)   bit4-7 posY(0-15)                   */
+/*  22 冲刺  : bit0-2 spurtMode(0=未选 1=LOW_90 2=LOW 3=MED 4=HIGH)
  *            bit3 spurtTestFlag   bit4-7 goaheadnum(0..15)            */
 
 /* 位宽与值域上限(供组帧裁剪与上位机静态断言共用) */
@@ -266,6 +283,28 @@
 #define LINK_SP_TEST 0x08       /* mazeState.spurtTestFlag */
 #define LINK_SP_GOAHEAD_SHIFT 4 /* goaheadnum 左移位数 */
 #define LINK_SP_GOAHEAD_MASK 0xF0
+
+/* ---- v10 建图增量通道(偏移 23..29) ----
+ * 目的: 上位机实时复现固件内部墙图, 不必等跑完再 MAP DUMP(那条走 Flash 快照)。
+ * 数据源: LINK_Tick(1 kHz) 比对 GmcMouse 坐标变化 => 走了一格; 该格 open4 取
+ *         GucMapBlock[x][y] & 0x0F 的**原值**(1=可通, 与固件一一对应, 不转有墙位)。
+ *
+ * 每条 2 B 且**自带绝对坐标**(链式 1 B/条 能省一半字节, 但容量有 7.5x 余量):
+ *   条目 byte0: bit0-3 open4(GucMapBlock&0x0F)  bit4-7 预留(必须 0)
+ *   条目 byte1: bit0-3 posX                      bit4-7 posY
+ * 选绝对坐标的理由: 链式编码下任一条方向出错会**静默污染整批**; 绝对坐标让单条
+ * 错误最多错一格, 下一条自动纠正, 且 host 侧免掉 mod16 走格与链传播校验。
+ *
+ * "进入发送缓冲区后清空" = 推进 tail(FIFO 消费), 绝不整块清; 且只有本帧真的
+ * 写进 TX 环才推进 —— 整帧被丢(linkDrop)时下一帧原样再带一遍, 重复发送幂等。 */
+#define LINK_MAPD_DEPTH 32        /* 环深: 32 条 x 2 B = 64 B RAM */
+#define LINK_MAPD_MAX 3           /* 每帧最多携带条数 */
+#define LINK_MAPD_ENT_LEN 2       /* 每条字节数 */
+#define LINK_MAPF_COUNT_MASK 0x03 /* mapHdr bit0-1 = count(0..3) */
+#define LINK_MAPF_LOSSY 0x04      /* 环溢出过(丢最旧) => anchor 之前有洞 */
+#define LINK_MAPF_RESYNC 0x08     /* 本批是新序列起点 => host 重新锚定 */
+#define LINK_MAPE_OPEN_MASK 0x0F  /* 条目 byte0 的低 4 位 = open4 */
+#define LINK_MAPE_POS_MASK 0x0F   /* 条目 byte1 的高/低 4 位 = x / y */
 
 /* ---- 时间同步基准灯(相对独立于校准与各测试档) ----
  * 毫秒时基 linkTimeMs 由 SysTick 每 1ms 自增(u32, 49 天不绕), 上电起走。

@@ -33,6 +33,16 @@ if TYPE_CHECKING:  # pragma: no cover
 #: trackRatio -> speedRatio 的派生关系。
 SPEED_FROM_TRACK_DIVISOR = 100.0
 
+#: v10 硬约束: 统一帧里红外距离被压成 **u8**(饱和 255)。固件所有红外判决都是
+#: "距离 < 阈值"的形式, 阈值来自参数表 —— 一旦阈值 > 254, 饱和后的 255 会让
+#: 判决与真实距离脱节(典型症状: 前墙永远被判成"近"), 而帧里看不出来。
+#: 所以在写入路径上直接挡掉, 而不是等真机跑出怪现象再回头查。
+IR_THRESHOLD_MAX_MM = 254.0
+IR_THRESHOLD_PARAMS = frozenset({
+    "IRTHRWALL", "IRTHR45", "IRTHRCRIT",
+    "IRTHRFLO", "IRTHRFMID", "IRTHRFHI", "IRTHRFNEAR",
+})
+
 DERIVE_PAIRS: Tuple[Tuple[str, str], ...] = (("TRACKL", "SPEEDL"), ("TRACKR", "SPEEDR"))
 
 
@@ -113,6 +123,11 @@ class ParamsAPI:
         if name not in PARAM_IDS:
             return Result(False, "ERR_NAME", {"name": name})
         q = int(q)
+        if name in IR_THRESHOLD_PARAMS and q1616_to_float(q) > IR_THRESHOLD_MAX_MM:
+            return Result(False, "ERR_RANGE", {
+                "name": name, "value": q1616_to_float(q), "max": IR_THRESHOLD_MAX_MM,
+                "why": "v10 红外距离在帧内是 u8(饱和 255), 阈值必须 <= 254",
+            })
         r = self._mc.send_cmd("params.setq", name=name, q=q, timeout=timeout)
         if not r.ok:
             return r

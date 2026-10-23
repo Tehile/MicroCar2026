@@ -98,6 +98,7 @@ def test_static() -> None:
     _test_firmware_mode_gates()
     _test_protocol_constants_vs_firmware()
     _test_enum_tables_vs_firmware()
+    _test_mapd_replay()
 
 
 def _test_enum_tables_vs_firmware() -> None:
@@ -268,6 +269,112 @@ def _test_protocol_constants_vs_firmware() -> None:
     fw_f = sorted(re.findall(r"#define\s+(LINK_FLAG_\w+)", link_h))
     check(f"固件 LINK_FLAG_* 数量({len(fw_f)}) == 主机 FLAG_* 数量({len(flg)})",
           len(fw_f) == len(flg), str(fw_f))
+
+    # ---- v10 建图增量通道: 环参数 / 头位 / 条目位 ----
+    check("link.h: LINK_MAPD_DEPTH == codec.MAPD_DEPTH(%d)" % _c.MAPD_DEPTH,
+          macro("LINK_MAPD_DEPTH") == _c.MAPD_DEPTH, str(macro("LINK_MAPD_DEPTH")))
+    check("link.h: LINK_MAPD_MAX == codec.MAPD_MAX_PER_FRAME(%d)"
+          % _c.MAPD_MAX_PER_FRAME,
+          macro("LINK_MAPD_MAX") == _c.MAPD_MAX_PER_FRAME, str(macro("LINK_MAPD_MAX")))
+    check("link.h: LINK_MAPD_ENT_LEN == 2(每条 2 B)",
+          macro("LINK_MAPD_ENT_LEN") == 2, str(macro("LINK_MAPD_ENT_LEN")))
+    mapd_pairs = (
+        ("MAPF_COUNT_MASK", "LINK_MAPF_COUNT_MASK"),
+        ("MAPF_LOSSY", "LINK_MAPF_LOSSY"),
+        ("MAPF_RESYNC", "LINK_MAPF_RESYNC"),
+        ("MAPE_OPEN_MASK", "LINK_MAPE_OPEN_MASK"),
+    )
+    bad = [f"{hn}: 主机 {getattr(_c, hn)} != 固件 {macro(fwn)}"
+           for hn, fwn in mapd_pairs if macro(fwn) != getattr(_c, hn)]
+    check(f"建图增量位宏 {len(mapd_pairs)} 项与固件一致", not bad, " | ".join(bad))
+    # mapd 块必须**正好**吃掉帧尾: 23 头 + 3x2 条目 == 30
+    check("建图增量块恰好填满帧尾(U_MAPHDR=23, 3x2 条目 -> 30)",
+          _c.U_MAPHDR == 23
+          and _c.U_MAPENT + _c.MAPD_MAX_PER_FRAME * 2 == _c.UNIFIED_LEN,
+          "MAPHDR=%d MAPENT=%d 末端=%d LEN=%d"
+          % (_c.U_MAPHDR, _c.U_MAPENT,
+             _c.U_MAPENT + _c.MAPD_MAX_PER_FRAME * 2, _c.UNIFIED_LEN))
+    # 建图期间最低拉取密度: 纯 TELEM(N=1) 时 3 条/帧 x 3.3 Hz = 10 条/s,
+    # 而冲刺极限 7.75 格/s => 余量只有 1.3 倍。规格要求运图时 N >= 2。
+    check("codec.MAPD_MIN_PULL_N >= 2(建图期间最低拉取密度)",
+          _c.MAPD_MIN_PULL_N >= 2, str(_c.MAPD_MIN_PULL_N))
+
+
+def _test_mapd_replay() -> None:
+    """S10: 建图增量通道的重建器必须与模拟器真值图逐格一致(v10)。
+
+    这是本通道**唯一**可信的离线判据 —— 常量对齐(§S6)只能证明两侧"字段位置"
+    一致, 证明不了"语义"一致: `open4` 到底是"可通位"还是"有墙位"、邻居高半字节
+    该不该清, 这些错了常量测试照样全绿, 真机却是整张反相图。
+
+    做法: 让模拟器按正常探索走若干格(它会像固件一样每走一格压一条进环),
+    逐帧取增量喂给 `MapReplayer`, 最后拿重建图与模拟器内部的 `map_wall` 逐格比。
+    只比**低半字节**(四向可通位) —— 高半字节是"未探明"标记, 模拟器不维护它,
+    与它比对没有意义(固件侧的真值对拍留给真机脚本 map_live_verify.py)。
+    """
+    print("\n[S10] 建图增量通道重建(模拟器真值对拍)")
+
+    from host.api.mapd import MapReplayer
+    from host.sim.mouse_sim import MouseSim, wall_byte
+
+    sim = MouseSim(auto_explore=False, seed=20261023)
+    rp = MapReplayer(sim.n)
+    # 边跑边拉: 走一格就拉一帧。这才是真机上的正常节奏 —— 不这么做, 60 格会让
+    # 32 条的环溢出, 重建图必然缺前面的格子(那属于 lossy 的预期行为, 见下面第二段)。
+    steps = 0
+    for _ in range(60):
+        x, y = sim.pos
+        if not (0 <= x < sim.n and 0 <= y < sim.n):
+            break
+        sim._arrive_cell()
+        sim.dir = sim.turn_target_dir   # 模拟"转弯到位"(否则它会一直朝同一方向撞墙)
+        steps += 1
+        md = sim._take_mapd()
+        rp.apply({"seq": sim.up_seq, "mapd": md,
+                  "posX": sim.pos[0], "posY": sim.pos[1]})
+        sim.up_seq = (sim.up_seq + 1) & 0xFF
+    check(f"模拟器走了 {steps} 格并逐帧拉取(>0 才能验证)", steps > 0, str(steps))
+    check(f"增量环已排空(残留 {len(sim.mapd_ring)} 条)", not sim.mapd_ring,
+          str(len(sim.mapd_ring)))
+
+    # 真值范围 = "曾经进过增量环的格"。**不能**用 visited/wall_known ——
+    # 起点格两者都为真, 但它按设计永远不会进增量流(见 MouseSim.mapd_sent 的注释),
+    # 拿它当真值会把"固件与 host 一致地没有这个格"误判成重建缺陷。
+    bad = []
+    cells = 0
+    for x, y in sorted(sim.mapd_sent):
+        cells += 1
+        # 真值直接由模拟器内部的迷宫几何算(wall_byte 就是固件 GucMapBlock 低半字节
+        # 的同构实现), 而不是读 sim.map_wall —— 后者只在"离开某格"时才写,
+        # 最后一个进入的格子永远是 0, 会误报。
+        exp = wall_byte(sim.vwall, sim.hwall, x, y, sim.n) & 0x0F
+        got = rp.open4(x, y)
+        if exp != got:
+            bad.append((x, y, exp, got))
+    check(f"重建图与模拟器真值逐格一致({cells} 格进过增量流)", not bad, str(bad[:6]))
+    check("重建标记的访问格数 == 进过增量流的格数",
+          sum(rp.visited[x][y] for x in range(sim.n) for y in range(sim.n)) == cells,
+          "visited=%d truth=%d" % (rp.stats()["cells"], cells))
+    check("起点格不在增量流里(固件行为: 首个 tick 只建基线, 起点格低半字节仍是 0)",
+          (0, 0) not in sim.mapd_sent, str(sim.mapd_sent))
+    check("无 resync 之外的异常(resync 只应在上电首帧出现一次)",
+          rp.resync_n <= 1, str(rp.resync_n))
+
+    # -- 溢出路径: 环满时必须丢**最旧**, 且置 lossy --
+    sim2 = MouseSim(auto_explore=False, seed=7)
+    for _ in range(50):
+        x, y = sim2.pos
+        if not (0 <= x < sim2.n and 0 <= y < sim2.n):
+            break
+        sim2._arrive_cell()
+        sim2._push_mapd(0, 0)   # 人为灌满环
+    check(f"环灌满后不超过环深(实 %d)" % len(sim2.mapd_ring),
+          len(sim2.mapd_ring) <= sim2.mapd_depth, str(len(sim2.mapd_ring)))
+    check("溢出时置 lossy 位", sim2.mapd_lossy is True, repr(sim2.mapd_lossy))
+    md = sim2._take_mapd()
+    check("带 lossy 的帧只报一次(取走后清位)",
+          md["lossy"] == 1 and sim2.mapd_lossy is False,
+          "lossy=%d sticky=%r" % (md["lossy"], sim2.mapd_lossy))
 
 
 def _test_firmware_mode_gates() -> None:
@@ -1105,9 +1212,9 @@ def _payload_unified() -> bytes:
     d.update({
         "ms8": 0x5A,
         "irF1": 232, "irF2": 231, "irL": 42, "irR": 43,
-        "battMv": 7620,
+        "battMv": 7600,
         "speedL": 68, "speedR": -12,
-        "gyroAngle": 90, "encAngle": 5,
+        "gyroAngle": 90,
         "trackL": 1200, "trackR": -300,
         # ---- 状态A: 身份层 ----
         "dir": 1, "mazeTask": 2, "objectGoToFlag": 1,
@@ -1123,6 +1230,12 @@ def _payload_unified() -> bytes:
         "spurtMode": 3, "spurtTestFlag": 1, "goaheadnum": 5,
         # ---- 状态B1 的 LED 亮灭(v9.1): 取交替值, 让往返断言真的走到这 4 个位 ----
         "led1": 1, "led2": 0, "led3": 1, "led4": 1,
+        # ---- v10 建图增量通道: 2 条(含 1 条 resync), 让往返断言真的走到 mapd ----
+        "mapd": {
+            "count": 2, "lossy": 0, "resync": 1,
+            "entries": [{"x": 3, "y": 4, "open4": 0x0B},
+                        {"x": 4, "y": 4, "open4": 0x03}],
+        },
     })
     return pack_unified(d)
 

@@ -305,6 +305,18 @@ class MouseSim:
         self.visited[0][0] = True
         self.wall_known = [[False] * self.n for _ in range(self.n)]
         self.map_wall = [[0] * self.n for _ in range(self.n)]
+        #: v10 建图增量环(模拟固件 REMOTE/link.c 的 linkMapD): (x, y, open4)
+        self.mapd_ring: List[tuple] = []
+        self.mapd_lossy = False
+        self.mapd_resync = True   # 上电/发车后第一帧带 resync
+        #: 固件 MAPD_DEPTH = 32; 模拟器同值, 以便 smoke 能测到溢出丢最旧的路径
+        self.mapd_depth = 32
+        #: 曾经进过增量环的格子 —— 重建对拍的真值范围。
+        #: 注意**起点格不在里面**: 固件上电后第一个采样 tick 只建立坐标基线
+        #: (linkMapDPrevOk), 而起点格的 GucMapBlock 低半字节仍是初值 0x00
+        #: (__wallCheck 只在"走进某格"时跑), 所以起点格永远不会进增量流。
+        #: 这与固件实际行为一致, 不是模拟器的简化。
+        self.mapd_sent = set()
 
         # 红外的黑盒探针(用墙距生成, 让波形可信)
         self.ir = [230.0, 230.0, 230.0, 230.0]  # F1 F2 L R
@@ -789,11 +801,37 @@ class MouseSim:
                 self.pos = (nx, ny)
                 if nx < self.n and ny < self.n:
                     self.visited[nx][ny] = True
+                    self._push_mapd(nx, ny)
                 self.turn_target_dir = d
                 self.phase = "TURN"
                 return
         self.turn_target_dir = (self.dir + 2) % 4
         self.phase = "TURN"
+
+    def _push_mapd(self, x: int, y: int) -> None:
+        """v10: 走一格 -> 入建图增量环(镜像固件 link_MapPush)。"""
+        o4 = wall_byte(self.vwall, self.hwall, x, y, self.n) & 0x0F
+        if not o4:
+            return
+        self.mapd_sent.add((x, y))
+        self.mapd_ring.append((x & 0x0F, y & 0x0F, o4))
+        while len(self.mapd_ring) > self.mapd_depth:
+            self.mapd_ring.pop(0)   # 丢最旧
+            self.mapd_lossy = True
+
+    def _take_mapd(self) -> dict:
+        """v10: 取本帧携带的增量(最多 3 条)并推进 tail, 镜像 link_SendUnified。"""
+        ents = self.mapd_ring[:3]
+        del self.mapd_ring[:len(ents)]
+        d = {
+            "count": len(ents),
+            "lossy": 1 if self.mapd_lossy else 0,
+            "resync": 1 if self.mapd_resync else 0,
+            "entries": [{"x": x, "y": y, "open4": o} for x, y, o in ents],
+        }
+        self.mapd_lossy = False
+        self.mapd_resync = False
+        return d
 
     def _mark_walls(self, x: int, y: int) -> None:
         self.wall_known[x][y] = True
@@ -862,7 +900,6 @@ class MouseSim:
             "battMv": self.batt_mv,
             "speedL": _i16(self.speed_l), "speedR": _i16(self.speed_r),
             "gyroAngle": _i16(self.gyro),
-            "encAngle": _i16(self.enc_diff_acc / max(1.0, self.params[6])),
             "trackL": _i16(self.dist_l_mm), "trackR": _i16(self.dist_r_mm),
             # ---- 状态A: 身份层 ----
             "dir": self.dir,
@@ -882,6 +919,12 @@ class MouseSim:
             "posX": self.pos[0], "posY": self.pos[1],
             # ---- 冲刺上下文(模拟器不跑冲刺, 全 0) ----
             "spurtMode": 0, "spurtTestFlag": 0, "goaheadnum": 0,
+            # ---- v10 建图增量通道 ----
+            # 模拟器这里扮演固件的角色: 走一格就把该格的 open4 压进环, 每帧最多
+            # 带 3 条并推进 tail。**组帧即发送**(没有 TX 环丢弃路径), 所以在这
+            # 里消费是安全的 —— 上层 `MapReplayer` 重建出的图应与 self.map_wall
+            # 逐字节相同, smoke 里直接拿来当判据。
+            "mapd": self._take_mapd(),
         }
         pl = pack_unified(d)
         assert len(pl) == UNIFIED_LEN, len(pl)

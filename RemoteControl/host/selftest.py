@@ -139,7 +139,7 @@ def test_mixed_stream() -> None:
     f1 = pack_frame(TYPE_UNIFIED, pack_unified(d1), 1)
     text2 = b"ACK 42 OK\r\n"
     d2 = _blank()
-    d2.update({"irF1": 232, "irF2": 231, "posX": 3, "posY": 4, "battMv": 7620})
+    d2.update({"irF1": 232, "irF2": 231, "posX": 3, "posY": 4, "battMv": 7600})
     f2 = pack_frame(TYPE_UNIFIED, pack_unified(d2), 2)
 
     p = FrameStreamParser()
@@ -151,7 +151,7 @@ def test_mixed_stream() -> None:
     check("第二行是 ACK", len(lines) > 1 and lines[1] == "ACK 42 OK", str(lines))
     if len(frames) == 2:
         s = decode_unified(frames[1].payload)
-        check("统一帧解码正确", s["irF1"] == 232 and s["posX"] == 3 and s["battMv"] == 7620,
+        check("统一帧解码正确", s["irF1"] == 232 and s["posX"] == 3 and s["battMv"] == 7600,
               str({k: s[k] for k in ("irF1", "posX", "battMv")}))
 
     # v2.0 硬要求: `feed()` 返回一串**按到达顺序**混排的 Frame/文本 ——
@@ -337,7 +337,7 @@ def test_session() -> None:
     s.write_raw(b"\xaa\x55raw")
     s.write_text("PONG 2 200 7 256 POR")
     s.write_unified({"ms8": 0x5A, "speedL": 68, "speedR": -12, "gyroAngle": 90,
-                     "motionTask": 32, "irF1": 232, "posX": 3, "posY": 4, "battMv": 7620})
+                     "motionTask": 32, "irF1": 232, "posX": 3, "posY": 4, "battMv": 7600})
     s.write_event({"event": "STOPPED", "reason": "TIME", "raw": "STOPPED TIME #7"})
     s.write_calib_report(["## test", "- ok"])
     backup = s.backup_params([["TRACKL", 3486614, "53.2015"]])
