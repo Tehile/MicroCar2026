@@ -1,0 +1,52 @@
+{
+  "port": "COM7",
+  "ts": "2026-10-23 16:41:16",
+  "pong": {
+    "proto": 9,
+    "fw": 313,
+    "mazetype": 16,
+    "txbuf": 1024,
+    "rst": "SW"
+  },
+  "baseline": {
+    "led1": 0,
+    "led2": 0,
+    "led3": 0,
+    "led4": 0
+  },
+  "baseline_toggles": {
+    "led1": 0,
+    "led2": 8,
+    "led3": 0,
+    "led4": 0
+  },
+  "arm_ack": [
+    [
+      "ARM",
+      "ACK 912 OK 12288",
+      0
+    ]
+  ],
+  "beacon": {
+    "toggles": 12,
+    "periods_ms": [
+      1055,
+      1052,
+      890,
+      889,
+      909,
+      1059,
+      1124,
+      891,
+      1064,
+      1067
+    ],
+    "median_ms": 1053.6
+  },
+  "rst": "SW",
+  "recoveries": 0,
+  "halt_ok": true,
+  "pass": 16,
+  "fail": 0,
+  "ack_retries": []
+}
