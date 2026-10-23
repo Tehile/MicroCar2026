@@ -101,6 +101,15 @@ window.C = (function () {
       objectGoToFlag: 0, goaheadnum: 0,
       irF1: 68, irF2: 71, irL: 34, irR: 38, battMv: 8412, ms8: 37, flags: 17,
       evq: false, rate: 4.6, ageMs: 118, fifo: 0, batchN: 1, batchMs: 244,
+      /* ── 链路 / 遥测层（不是帧内通道，是后端 `mouse.telemetry` 顶层字段）──
+         `bps` 字节率、`streaming` 是否在流、`tFlags` 遥测层 flags、`seq` 批次号、
+         `lost` 序号缺口累计。**原型模式下这些也是造的**，接真机时由
+         `applyTelemetry` 覆盖 —— 别在视图里自己乘 30 算字节率（那是在编）。 */
+      bps: 122, streaming: true, tFlags: 1, seq: 1043, lost: 0,
+      /* 解码器现算的派生键（上游 `dirName`/`mazeTaskName`/`roadName`/`freemode` 等）。
+         这四个与 `dir`/`mazeTask`/`goOrBack`/`flags` 是同一份事实，界面**不重复显示**；
+         新增的、前端不认识的键由实时页报数（`#lv-unk`），信息不丢也不摆两份读数。 */
+      extra: { dirName: '北', mazeTaskName: 'WAIT', roadName: '去程', freemode: 1 },
     },
     hist: { rate: [] },
     /* 4 灯三态（led1..led4）。null = 未知：固件没实现 / 通道不在帧里 / 没连接。
@@ -340,6 +349,14 @@ window.C = (function () {
       ['battMv', '电池', ' mV', 0], ['ms8', '帧时基低 8 位', ' ms', 0], ['flags', '标志位']] },
   ];
 
+  /* 通道的展示元信息（单位 / 小数位）**只在 GROUPS 里写一份**，这里建索引。
+     以前 `valText` 一律 `fmt(v,0)`，于是 speedL 显示成 "12"、posX 显示成 "2"，
+     单位与精度都在码表里写着却没人用 —— 看起来像"协议只给了整数"。 */
+  const KEYMETA = {};
+  GROUPS.forEach(g => g.keys.forEach(k => {
+    KEYMETA[k[0]] = { unit: (k[2] || '').trim(), dec: k[3] };
+  }));
+
   function valText(k, v) {
     if (v === null || v === undefined) return '—';
     if (CODE[k]) return CODE[k](v);
@@ -357,7 +374,9 @@ window.C = (function () {
       return (bits.length ? bits.join('+') : '无') + ' (' + v + ')';
     }
     if (typeof v === 'boolean') return v ? '是' : '否';
-    return util.fmt(v, 0);
+    const meta = KEYMETA[k] || {};
+    const dec = meta.dec == null ? 0 : meta.dec;
+    return util.fmt(v, dec) + (meta.unit ? ' ' + meta.unit : '');
   }
 
   /* ── 比赛记录：5 条历史；launch=有没有发车记录，video=关联的视频会话 ───── */
@@ -642,10 +661,28 @@ window.C = (function () {
 
   /* WS 遥测 → S。**4 灯直接取后端的 `leds`，不再前端重算**（铁律 54：
      接线时删前端那份，否则同一件事两个真相）。 */
+  /* 一旦从 WS 收到过设备侧批次号，本地 mock 的 seq 就作废 —— 之后的跳号才算缺口。
+     没有这位的话，切到真机的第一拍会把"mock 1043 → 设备 7"算成丢了 1035 批。 */
+  let seqFromDevice = false;
+
   function applyTelemetry(msg) {
     const u = msg.unified || {};
-    Object.keys(u).forEach(function (k) { if (k in S.tel) S.tel[k] = u[k]; });
+    /* 已知通道写进 tel；**不认识的键不许丢** —— 上游解码器会现算一批派生键
+       （`dirName`/`mazeTaskName`/`roadName`/`freemode`…），丢掉之后界面上少一块，
+       而"少了"和"设备没给"长得一模一样。收进 `extra` 原样展示。 */
+    const extra = {};
+    Object.keys(u).forEach(function (k) {
+      if (k in S.tel) S.tel[k] = u[k];
+      else if (u[k] !== null && typeof u[k] !== 'object') extra[k] = u[k];
+    });
+    S.tel.extra = extra;
     if (msg.leds) S.leds = msg.leds;
+    /* 后端一直在推、前端一直没用到的三个顶层字段。
+       ⚠️ `streaming`（设备在不在发）与 `S.pulling`（界面开没开拉取）**不是一回事**，
+       不许互相顶替：一边是设备事实，一边是人的操作。 */
+    if (msg.bps != null) S.tel.bps = msg.bps;
+    if (msg.streaming != null) S.tel.streaming = !!msg.streaming;
+    if (msg.flags != null) S.tel.tFlags = msg.flags;
     const r = (msg.rate && msg.rate.unified) || {};
     if (r.hz != null) S.tel.rate = r.hz;
     if (r.age_ms != null) S.tel.ageMs = r.age_ms;
@@ -655,6 +692,15 @@ window.C = (function () {
       });
       const last = r.batches[r.batches.length - 1];
       S.tel.batchN = last.n; S.tel.batchMs = last.ms;
+      /* 批次号跳号 = 真的少了批次。**第一次接上不能算缺口**：本地 mock 的 seq
+         和设备的 seq 毫无关系，直接相减会算出几百个"丢帧"，把真问题淹掉。 */
+      if (last.seq != null) {
+        if (!seqFromDevice) { S.tel.seq = last.seq; seqFromDevice = true; }
+        else {
+          if (last.seq > S.tel.seq) S.tel.lost = (S.tel.lost || 0) + (last.seq - S.tel.seq - 1);
+          S.tel.seq = last.seq;
+        }
+      }
     }
     // 状态位：`mazeTask >= 2` 才算"在跑"（速度过零会闪，任务机是状态不是瞬时量）
     S.running = (S.tel.mazeTask | 0) >= 2;
@@ -1772,6 +1818,19 @@ window.C = (function () {
     t.rate = N * 1000 / t.batchMs;
     t.ageMs = S.running ? 100 + Math.round(Math.random() * 60)
       : util.clamp(t.ageMs + 8, 60, 1400);
+
+    /* 链路层与派生键（原型）。**字节率仍按 30 B/帧 × 帧率算** —— 这只是在
+       让假数据自洽；真机一律以后端 `bps` 为准（`applyTelemetry` 覆盖它），
+       视图不许自己做这个乘法。派生键照抄上游解码器的命名，原样展示不解释。 */
+    t.bps = Math.round(t.rate * 30);
+    t.streaming = true;
+    t.seq = rateSeq;
+    t.extra = {
+      dirName: DIRS[t.dir] || '',
+      mazeTaskName: TASKS[t.mazeTask] || '',
+      roadName: t.goOrBack ? '回程' : '去程',
+      freemode: (t.flags & 1) ? 1 : 0,
+    };
     if (tickN % 4 === 0) {
       const h = S.hist;
       h.rate.push(+t.rate.toFixed(2));

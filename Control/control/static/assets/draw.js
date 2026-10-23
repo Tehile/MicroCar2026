@@ -25,9 +25,14 @@ C.draw = (function () {
 
   /* ── 迷宫：黑墙 + 蓝终点 + 已走轨迹 ─────────────────────────────────────
      M 缺省 = 实时那份（C.maze）；回放传 recordView() 的结果。
-     车坐标是**格中心**口径（0.5 起），不要再 +.5。 */
-  function maze(cv, M) {
+     车坐标是**格中心**口径（0.5 起），不要再 +.5。
+     `cap` = 允许的最大边长（px）。回放页要"地图吃掉剩余高度"，容器给的是
+     **可用高度**；不传时按容器宽度走正方形（实时/比赛页就是这样，宽度已被
+     栅格约束住）。⚠️ 必须在 fit() 之前写 style.width —— fit 读的是 clientWidth，
+     先设宽再量，否则量到旧宽度、地图溢出容器。 */
+  function maze(cv, M, cap) {
     const m = M || C.maze, N = m.N;
+    if (cap) cv.style.width = Math.max(80, Math.round(cap)) + 'px';
     const { g, w } = fit(cv, 1);
     const pad = 20;
     const s = (w - pad * 2) / N;

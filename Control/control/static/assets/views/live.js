@@ -44,12 +44,22 @@
             '</div>' +
           '</section>' +
 
+          /* 右侧：4 灯 + 链路层。链路这几项是 `mouse.telemetry` 的**顶层字段**
+             （bps / streaming），不是帧内通道 —— 以前一个都没用，字节率还是
+             前端拿 `rate × 30` 自己乘出来的。 */
           '<section class="card">' +
             '<div class="card-head"><h2>状态行 · 4 灯</h2>' +
               '<div class="card-head-r"><span class="pill mono sm" id="lv-ir">—</span></div></div>' +
             '<div class="card-body">' +
               '<div class="led-strip" id="lv-leds"></div>' +
               '<div class="led-note" id="lv-led-note"></div>' +
+              '<div class="sec-title" style="margin:9px 0 4px">链路</div>' +
+              '<dl class="kv compact pair2" id="lv-link"></dl>' +
+              /* 解码器现算的派生键里，`dirName`/`mazeTaskName`/`roadName`/`freemode`
+                 与下面通道卡的 `dir`/`mazeTask`/`goOrBack`/`flags` **是同一份事实**
+                 （一条真相原则：两处显示就会两处不一样）。这张小字只报"还有 N 个
+                 前端不认识的键"，既不让信息丢掉，也不摆一份重复的读数。 */
+              '<div class="hint mono" id="lv-unk" style="margin-top:6px"></div>' +
             '</div>' +
           '</section>' +
         '</div>' +
@@ -85,11 +95,13 @@
           '</div>' +
         '</section>';
 
+      /* 4 项起就双列：单列的组会把整行撑到 4 行高，而 1600 宽下每列还有 ~200px，
+         放得下"中文标签 + 读数（带单位）"。窄屏另用 `#lv-ch .kv > div code{display:none}` 兜住。 */
       root.querySelector('#lv-ch').innerHTML = CH.groups.map(g =>
         '<section class="card"><div class="card-head"><h2>' + g.name + '</h2>' +
         '<div class="card-head-r"><span class="hint mono">' + g.keys.length + '</span></div></div>' +
         '<div class="card-body" style="padding-top:4px"><dl class="kv compact'
-        + (g.keys.length >= 6 ? ' pair2' : '') + '">' + g.keys.map(k =>
+        + (g.keys.length >= 4 ? ' pair2' : '') + '">' + g.keys.map(k =>
           '<div><dt>' + k[1] + ' <code>' + k[0] + '</code></dt>' +
           '<dd data-k="' + k[0] + '">—</dd></div>').join('') + '</dl></div></section>').join('');
 
@@ -177,9 +189,11 @@
       }
       const noteEl = root.querySelector('#lv-n-note');
       if (noteEl) {
+        /* 字节率取后端的 `bps`，**不要**拿 `rate × 30` 自己乘：帧长是 30 B 没错，
+           但那是链路常量，真实字节率还含帧间静默与批头，前端算出来的只是"理论值"。 */
         noteEl.textContent = pulling
-          ? 'n=' + S.pullN + ' · 往返 ' + U.fmt(t.batchMs, 0) + ' ms · '
-            + U.fmt(t.rate * 30, 0) + ' B/s'
+          ? 'n=' + S.pullN + ' · 往返 ' + U.fmt(t.batchMs, 0) + ' ms'
+            + (t.bps == null ? '' : ' · ' + U.fmt(t.bps, 0) + ' B/s')
           : '已结束 · 档 n=' + S.pullN + ' · 改 N 后按【开始拉取】';
       }
       /* 门控：拉取中锁住 N（切档必须先停），停了只放【开始拉取】 */
@@ -220,6 +234,37 @@
           ? '<span class="sq"></span>' + (!S.health.mouse.connected ? '未连接 ⇒ 4 灯未知'
             : 'fw ' + S.health.mouse.fw + ' < 311 ⇒ 4 灯未知') : '';
         note.style.display = unknown ? '' : 'none';
+      }
+
+      /* 链路层：bps / streaming / 批次 seq / 序号缺口。
+         ⚠️ `streaming` 是**设备事实**，`S.pulling` 是**人的操作**，两码事：
+             点了"结束拉取"之后设备可能还在发（后端没来得及停），所以这里
+             不许拿 pulling 顶替 streaming，也不许反着来。 */
+      const link = root.querySelector('#lv-link');
+      if (link) {
+        const st = t.streaming;
+        const stTxt = st === true ? '在流' : st === false ? '停' : '判不了';
+        const stCls = st === true ? 'ok' : st === false ? 'dim' : 'warn';
+        link.innerHTML =
+          '<div><dt>字节率 <code>bps</code></dt><dd>' +
+            (t.bps == null ? '—' : U.fmt(t.bps, 0) + ' B/s') + '</dd></div>' +
+          '<div><dt>设备 <code>streaming</code></dt><dd class="' + stCls + '">' + stTxt + '</dd></div>' +
+          '<div><dt>批次号 <code>seq</code></dt><dd>' + (t.seq == null ? '—' : t.seq) + '</dd></div>' +
+          '<div><dt>序号缺口 <code>lost</code></dt><dd class="' +
+            ((t.lost | 0) > 0 ? 'bad' : '') + '">' + (t.lost == null ? '—' : t.lost) + '</dd></div>';
+      }
+
+      /* 派生键：与已有通道同义的四个不重复列（见 HTML 处的说明），
+         剩下的"前端不认识"的才报数 —— 报数而不是画一遍，避免两条真相。 */
+      const unk = root.querySelector('#lv-unk');
+      if (unk) {
+        const KNOWN_DUP = { dirName: 1, mazeTaskName: 1, roadName: 1, freemode: 1 };
+        const extra = t.extra || {};
+        const rest = Object.keys(extra).filter(k => !KNOWN_DUP[k]);
+        unk.textContent = rest.length
+          ? '另有 ' + rest.length + ' 个未识别键：' + rest.slice(0, 4).join(', ')
+            + (rest.length > 4 ? ' …' : '')
+          : '';
       }
 
       root.querySelectorAll('[data-k]').forEach(d => {

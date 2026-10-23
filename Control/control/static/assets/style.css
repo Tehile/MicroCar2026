@@ -871,9 +871,60 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 .assoc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:7px}
 .assoc-list{display:flex;flex-direction:column;border:1px solid var(--line);max-height:230px;overflow:auto}
 
-/* ═══ 回放：时间轴 + 位置 ═══════════════════════════════════════════════ */
-.replay-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:12px;align-items:start}
-.rp-maze{max-width:620px;margin:0 auto}
+/* ═══ 回放：位置图 + 时间轴（一屏）+ 参数/记录抽屉 ══════════════════════ */
+/* 高度在这里锁死：页头(72) + 底条(45) + 间距(12) + main 内边距(82) + 顶栏(58)
+   + 日志坞(41) ≈ 310，实测再留 16 px 余量（vh−310 时 docH 超出 16）。 */
+.rp-layout{
+  display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:12px;
+  height:calc(100vh - 326px);min-height:380px;
+}
+/* 位置图与时间轴同卡：卡内的 flex 纵向分配，地图吃剩下的、时间轴钉在底 */
+.rp-map-card{display:flex;flex-direction:column;min-height:0}
+.rp-canvas-wrap{
+  flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+  padding:8px;overflow:hidden;background:var(--panel);
+}
+.rp-canvas-wrap canvas{display:block;max-width:100%}
+.rp-tl{flex:none;border-top:1px solid var(--line);padding:8px 14px 10px}
+.rp-tl-top{display:flex;align-items:center;gap:10px;margin-bottom:2px}
+.rp-tl-k{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);flex:none;
+}
+.rp-side{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto}
+
+/* 底部摘要条：静态信息一行带过 */
+.rp-foot{
+  display:flex;align-items:center;gap:10px;margin-top:12px;
+  padding:8px 12px;background:var(--panel);border:1px solid var(--line);
+}
+.rp-foot .f-k{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);flex:none;
+}
+.rp-foot .f-v{font-size:11px;color:var(--ink-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 二级抽屉：41 项参数 + 记录元信息。用 fixed 覆盖，不改主布局高度 */
+.rp-sheet{
+  position:fixed;left:var(--rail);right:0;bottom:0;height:58vh;z-index:40;
+  background:var(--panel);border-top:2px solid var(--ink);
+  display:none;flex-direction:column;min-height:0;
+}
+.rp-sheet.on{display:flex}
+.rp-sheet-head{
+  flex:none;display:flex;align-items:center;gap:10px;
+  padding:10px 16px;border-bottom:1px solid var(--line);
+}
+.rp-sheet-head h2{
+  font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+}
+.rp-sheet-body{
+  flex:1;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr);
+  gap:18px;padding:12px 16px 16px;
+}
+.rp-sheet-col{min-height:0;display:flex;flex-direction:column}
+.rp-sheet-col.grow{overflow:hidden}
+.rp-param-scroll{flex:1;min-height:0;overflow:auto;border:1px solid var(--line)}
 
 .scrub-wrap{position:relative;padding:2px 0 0}
 .scrub{
@@ -909,16 +960,20 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 
 @media (max-width:1420px){
   .race-grid{grid-template-columns:272px minmax(0,1fr) 306px}
-  .replay-grid{grid-template-columns:minmax(0,1fr) 340px}
+  .rp-layout{grid-template-columns:minmax(0,1fr) 296px}
   /* 窄屏：通道卡双列里塞不下"中文标签 + 原始字段名"，标签会被折断成
      "迷宫任"/"务"这种 ⇒ 整段通道区隐去 code，只留中文标签与读数 */
   #lv-ch .kv > div code{display:none}
 }
 @media (max-width:1220px){
   .lv-top{grid-template-columns:1fr}
-  .replay-grid{grid-template-columns:1fr}
   .race-grid{grid-template-columns:1fr 1fr}
   .race-chan{grid-column:1;grid-row:auto}
+  /* 回放：右栏再窄就只剩数字读不出来 ⇒ 状态改到地图下面，
+     整页高度也随之放开（小屏不追求一屏，宁可滚） */
+  .rp-layout{grid-template-columns:1fr;height:auto;min-height:0}
+  .rp-map-card{min-height:420px}
+  .rp-sheet-body{grid-template-columns:minmax(0,1fr)}
   /* 记录：KV 四列在窄屏塞不下「发车时刻 + 值」⇒ 降两列；
      操作按钮本来就横排，只在 dt-acts 内部换行 */
   .kv.cols4{grid-template-columns:repeat(2,minmax(0,1fr))}
