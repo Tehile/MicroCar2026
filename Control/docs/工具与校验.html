@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Control · 工具与校验</title>
+<style>
+:root{
+  --bg:#14161a; --bg2:#1a1d23; --bg3:#20242c; --line:#2b3038;
+  --fg:#dfe3ea; --fg2:#9aa3b0; --fg3:#6b7480;
+  --accent:#5aa9e6; --accent2:#7bd88f; --warn:#e5b567; --danger:#e06c75;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+#wrap{display:flex; align-items:flex-start; max-width:1500px; margin:0 auto}
+/* ---------- 侧栏 ---------- */
+#toc{
+  position:sticky; top:0; flex:0 0 300px; height:100vh; overflow-y:auto;
+  padding:22px 16px 60px; border-right:1px solid var(--line); background:var(--bg2);
+}
+#toc .brand{font-size:13px; color:var(--fg3); letter-spacing:.08em; margin-bottom:14px; text-transform:uppercase}
+#toc ul{list-style:none; margin:0; padding-left:0}
+#toc ul ul{padding-left:14px}
+#toc li{margin:1px 0}
+#toc a{display:block; padding:4px 8px; border-radius:6px; color:var(--fg2); text-decoration:none;
+        font-size:13px; line-height:1.45; border-left:2px solid transparent}
+#toc a:hover{background:var(--bg3); color:var(--fg)}
+#toc>ul>li>a{color:var(--fg); font-weight:600}
+/* ---------- 正文 ---------- */
+main{flex:1 1 auto; min-width:0; padding:34px 46px 120px}
+h1,h2,h3,h4{line-height:1.35; margin:1.9em 0 .6em; scroll-margin-top:16px}
+h1{font-size:27px; margin-top:0; padding-bottom:.45em; border-bottom:2px solid var(--line)}
+h2{font-size:21px; padding-bottom:.35em; border-bottom:1px solid var(--line); color:#fff}
+h3{font-size:17px; color:var(--accent)}
+h4{font-size:15px; color:var(--fg2)}
+p{margin:.75em 0}
+a{color:var(--accent)}
+strong{color:#fff}
+hr{border:0; border-top:1px solid var(--line); margin:2.2em 0}
+/* ---------- 表格 ---------- */
+table{border-collapse:collapse; width:100%; margin:1.1em 0; font-size:13.5px; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:7px 11px; text-align:left; vertical-align:top}
+th{background:var(--bg3); color:#fff; font-weight:600; white-space:nowrap}
+tr:nth-child(even) td{background:rgba(255,255,255,.014)}
+td code{white-space:nowrap}
+/* ---------- 代码 ---------- */
+code{background:var(--bg3); padding:1px 5px; border-radius:4px; font-family:var(--mono);
+     font-size:12.8px; color:#e8c07d}
+pre{background:#0f1115; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+    overflow-x:auto; margin:1.1em 0}
+pre code{background:none; padding:0; color:#c8d0da; font-size:12.6px; line-height:1.65; white-space:pre}
+/* ---------- 引用（本方案里全是纪律/警告） ---------- */
+blockquote{margin:1.1em 0; padding:10px 16px; border-left:3px solid var(--warn);
+           background:rgba(229,181,103,.07); border-radius:0 8px 8px 0; color:#f0e0c0}
+blockquote p{margin:.3em 0}
+blockquote code{background:rgba(0,0,0,.35)}
+ul,ol{padding-left:1.6em}
+li{margin:.28em 0}
+@media (max-width:1080px){
+  #toc{display:none}
+  main{padding:20px 18px 80px}
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <nav id="toc">
+    <div class="brand">Control · 整合上位机</div>
+    <div class="toc">
+<ul>
+<li><a href="#control">Control · 工具与校验</a><ul>
+<li><a href="#1">1. 六个脚本一览</a></li>
+<li><a href="#2-preflightpy">2. preflight.py —— 启动前自检</a></li>
+<li><a href="#3-drillpy">3. drill.py —— 端到端演练 + 判据</a><ul>
+<li><a href="#31-2026-10-25">3.1 编号现状（2026-10-25 核对）</a></li>
+<li><a href="#32-sim">3.2 --sim 的边界</a></li>
+</ul>
+</li>
+<li><a href="#4-browser_checkpy">4. browser_check.py —— 无头浏览器实测</a><ul>
+<li><a href="#41-v6">4.1 核心是 V6 —— 验"接缝真的接上了"</a></li>
+<li><a href="#42-v5">4.2 负向判据 V5 —— 不许假绿</a></li>
+<li><a href="#43-v0-v15">4.3 组清单（V0 ~ V15）</a></li>
+</ul>
+</li>
+<li><a href="#5-check_iface_tablepy">5. check_iface_table.py —— 防文档漂移</a></li>
+<li><a href="#6-neg_i30py">6. neg_i30.py —— 判据的变异验证</a></li>
+<li><a href="#7-build_doc_htmlpy">7. build_doc_html.py —— 文档导出</a></li>
+<li><a href="#8">8. 收工前的一套动作</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+  </nav>
+  <main>
+<h1 id="control">Control · 工具与校验</h1>
+<blockquote>
+<p>六个脚本，回答三个问题：<strong>能不能跑</strong> / <strong>跑起来对不对</strong> / <strong>文档要不要重导出</strong>。
+全部用 <code>general_env</code> 里的 Python 跑（<code>Auto Locate</code> 明令不得在别的环境装包）。</p>
+</blockquote>
+<pre><code class="language-bash">PY=&quot;C:/Users/liuru/.conda/envs/general_env/python.exe&quot;
+export NO_PROXY=&quot;127.0.0.1,localhost&quot;      # 本机端点必须绕过代理，否则请求会打去外网
+</code></pre>
+<hr />
+<h2 id="1">1. 六个脚本一览</h2>
+<table>
+<thead>
+<tr>
+<th>脚本</th>
+<th>行数</th>
+<th>回答什么</th>
+<th>要不要设备</th>
+<th>典型用法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/preflight.py</code></td>
+<td>469</td>
+<td><strong>能不能跑</strong>：依赖 / 上游可 import / 串口 / 端口</td>
+<td>否</td>
+<td><code>$PY tools/preflight.py</code></td>
+</tr>
+<tr>
+<td><code>tools/drill.py</code></td>
+<td>3092</td>
+<td><strong>跑起来对不对</strong>：端到端 + 判据验收</td>
+<td>加 <code>--sim</code> 才需要</td>
+<td><code>$PY tools/drill.py --sim</code></td>
+</tr>
+<tr>
+<td><code>tools/browser_check.py</code></td>
+<td>991</td>
+<td><strong>界面真的渲染出来了吗</strong>：九个页面 + 接缝</td>
+<td>需要服务在跑</td>
+<td><code>$PY tools/browser_check.py --sim</code></td>
+</tr>
+<tr>
+<td><code>tools/check_iface_table.py</code></td>
+<td>263</td>
+<td><strong>文档漂移了吗</strong>：<code>接口对照表.md</code> × 实现 × 上游三方一致</td>
+<td>否</td>
+<td><code>$PY tools/check_iface_table.py</code></td>
+</tr>
+<tr>
+<td><code>tools/neg_i30.py</code></td>
+<td>74</td>
+<td><strong>这道闸还有牙吗</strong>：I30 的变异验证</td>
+<td>否</td>
+<td><code>$PY tools/neg_i30.py</code></td>
+</tr>
+<tr>
+<td><code>tools/build_doc_html.py</code></td>
+<td>143</td>
+<td><strong>重导出文档</strong>：<code>docs/*.md</code> → 离线 HTML</td>
+<td>否</td>
+<td><code>$PY tools/build_doc_html.py</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><code>tools/video_session.py</code> 不属于校验工具 —— 它是<strong>运行件</strong>（视频会话薄壳，
+由服务在需要时调用），放在同一目录是因为它同样是"转发给上游"的角色。</p>
+</blockquote>
+<hr />
+<h2 id="2-preflightpy">2. <code>preflight.py</code> —— 启动前自检</h2>
+<blockquote>
+<p>按顺序把"会让人白折腾半小时"的事先排掉。每一项输出三段：<strong>检查了什么 / 结论 /
+不对时怎么改</strong>。</p>
+</blockquote>
+<pre><code class="language-bash">$PY tools/preflight.py            # 全量
+$PY tools/preflight.py --quick    # 跳过网络与 git（离线环境）
+</code></pre>
+<p>实际有 <strong>11 个检查小节</strong>，顺序按致命性排（少了前者就什么都跑不了）：</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>小节</th>
+<th>查什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>配置</td>
+<td><code>config.yaml</code> 能不能载入、键有没有写错</td>
+</tr>
+<tr>
+<td>2</td>
+<td>依赖</td>
+<td>整合层固定用 <code>general_env</code>，依赖齐不齐</td>
+</tr>
+<tr>
+<td>3</td>
+<td>上游仓库路径</td>
+<td><code>RemoteControl</code> / <code>Auto Locate</code> 找得到吗</td>
+</tr>
+<tr>
+<td>4</td>
+<td>上游可 import</td>
+<td><strong>只 import，不改它们</strong></td>
+</tr>
+<tr>
+<td>5</td>
+<td>判据 <strong>I1</strong></td>
+<td>不许引入 <code>PySide6</code> / <code>pyqtgraph</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>判据 <strong>I9</strong></td>
+<td>上游仓库的工作区必须干净</td>
+</tr>
+<tr>
+<td>7</td>
+<td>串口</td>
+<td><strong>串口是独占的</strong>，被占就没有第二个能连</td>
+</tr>
+<tr>
+<td>8</td>
+<td>视频复盘</td>
+<td>离线链路（视频文件 → Auto Locate 会话解析）</td>
+</tr>
+<tr>
+<td>9</td>
+<td>会话根目录可写</td>
+<td>落盘的目录有没有写权限</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Control 自己的端口</td>
+<td>8770 有没有被占</td>
+</tr>
+<tr>
+<td>11</td>
+<td>大方向冻结</td>
+<td>宗旨与布局不得改动</td>
+</tr>
+</tbody>
+</table>
+<p>第 8 节（视频复盘）在 <code>--quick</code> 下会跳过。</p>
+<hr />
+<h2 id="3-drillpy">3. <code>drill.py</code> —— 端到端演练 + 判据</h2>
+<p>这是本项目的承重判据集。<strong>每条判据都编号（<code>I*</code>），既可以自动跑也能单独被引述</strong>。</p>
+<pre><code class="language-bash">$PY tools/drill.py                # 起临时服务，跑完整链路
+$PY tools/drill.py --sim          # 额外起上游鼠标模拟器（有真数据）
+$PY tools/drill.py --port 8899    # 8770 被占时换端口
+</code></pre>
+<h3 id="31-2026-10-25">3.1 编号现状（2026-10-25 核对）</h3>
+<p>实际存在的编号 <strong>47 个</strong>：</p>
+<pre><code>I1  I2  I3  I4  I5  I6      I9  I10     I12           I15 I16 I17 I18 I19
+I20 I21 I22 I23 I24     I27 I28 I29 I30 I31 I32 I33 I34 I35 I36 I37 I38 I39
+I40 I41 I42 I43 I44 I45 I46 I47     I49 I50 I51 I52 I53 I54 I55
+</code></pre>
+<p>⚠️ <strong>编号不连续是常态，不是漏写</strong>：<code>I7 I8 I11 I13 I14 I25 I26 I48</code> 这些随相关功能
+下线而被移除，编号<strong>不留补丁、不重号</strong>（改名连判据一起改，见记忆中的相关纪律）。
+所以"缺号"不代表"还没做"。</p>
+<h3 id="32-sim">3.2 <code>--sim</code> 的边界</h3>
+<ul>
+<li><strong>不加 <code>--sim</code></strong>：跑不了需要活链路的那些（<code>I15</code>~<code>I17</code>、<code>I22</code>、<code>I23</code>、<code>I27</code>、<code>I28</code>、
+  <code>I30</code>~<code>I33</code> 等）⇒ <strong>这些会跳过</strong>，不是通过。</li>
+<li><strong>加 <code>--sim</code></strong>：模拟器会破坏确定性相关的验证 ⇒ 相关项标 <strong>SKIP</strong>，<strong>不硬过</strong>。</li>
+<li>8770 已有旧实例时会自动改用别的端口。</li>
+</ul>
+<p>一句话：<strong>看汇总要同时看 <code>PASS</code> 数和 <code>SKIP</code> 清单</strong>，只看 PASS 数会被蒙。</p>
+<hr />
+<h2 id="4-browser_checkpy">4. <code>browser_check.py</code> —— 无头浏览器实测</h2>
+<blockquote>
+<p><strong>九个页面真渲染 + 接缝真的接上了。</strong> 用 CDP（<code>aiohttp</code> 就够了），不引入 Playwright
+—— 本机本来就有 Chrome，少一个 ~150 MB 依赖，多一条能随时重跑的命令。</p>
+</blockquote>
+<pre><code class="language-bash">$PY tools/browser_check.py                    # 默认连 http://127.0.0.1:8770
+$PY tools/browser_check.py --sim              # 自己起服务 + 模拟器
+$PY tools/browser_check.py --only V7          # 只跑某一组
+</code></pre>
+<h3 id="41-v6">4.1 核心是 <code>V6</code> —— 验"接缝真的接上了"</h3>
+<p><strong>要验的不是"界面把数据显示对了"，而是"点了按钮，请求到底有没有发出去"</strong>。
+做法：在页面里注入 <code>fetch</code> 记录器，点【应用】把每批帧数设成 3，然后去请求记录里
+<strong>找</strong> <code>POST /api/v1/mouse/stream/batch</code>。找不到就是没接上 ——
+而界面上一句"已下发"是<strong>本地 toast，跟网络毫无关系</strong>。</p>
+<h3 id="42-v5">4.2 负向判据 <code>V5</code> —— 不许假绿</h3>
+<blockquote>
+<p><strong>设备没连上时，界面不许说连上了。</strong> 假"已连接"会让人以为可以去发车。</p>
+</blockquote>
+<p>⚠️ <code>--sim</code> 与不带 <code>--sim</code> 两种情况<strong>断言方向相反</strong> —— 双向都点才叫判据。</p>
+<h3 id="43-v0-v15">4.3 组清单（V0 ~ V15）</h3>
+<table>
+<thead>
+<tr>
+<th>组</th>
+<th>验什么</th>
+<th>判不了时怎么办</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V0~V4</td>
+<td>页面/DOM/资源/错误的基本命题</td>
+<td>直接 FAIL</td>
+</tr>
+<tr>
+<td><strong>V5</strong></td>
+<td><strong>设备连接状态不许与后端矛盾</strong>（假绿/假红）</td>
+<td>双向都跑</td>
+</tr>
+<tr>
+<td><strong>V6</strong></td>
+<td><strong>接缝</strong>：注入 fetch 记录器抓真请求</td>
+<td>SKIP 需说明原因</td>
+</tr>
+<tr>
+<td><strong>V7</strong></td>
+<td>记录页 + <strong>真数据</strong>；后端给 <code>null</code> 账本时界面必须显示「判不了」而不是「差 N 帧」</td>
+<td>无记录/非真机 ⇒ SKIP（<strong>不是失败</strong>）</td>
+</tr>
+<tr>
+<td>V8</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>V9</strong></td>
+<td>参数端点：参数 41 项四组，派生值只读；鼠未连 ⇒ 端点 409、界面理应没表</td>
+<td>SKIP 需说明原因</td>
+</tr>
+<tr>
+<td>V10</td>
+<td>假端口不许说已连接</td>
+<td>—</td>
+</tr>
+<tr>
+<td>V11</td>
+<td><strong>拉取按页开关</strong>：要帧的页才开门拉（<code>overview/live/params/race/maint</code>），其余页不拉</td>
+<td>未连设备 ⇒ SKIP</td>
+</tr>
+<tr>
+<td>V12</td>
+<td>实时图</td>
+<td>未连设备 ⇒ SKIP</td>
+</tr>
+<tr>
+<td>V13 / V14</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>V15</td>
+<td>清空动作</td>
+<td>未连设备 ⇒ SKIP</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>标"—"的是本项目当前未被 AI 逐条读透的组；<strong>宁可留白也不猜</strong>（下游自证原则）。
+要看某组的确切命题，直接读 <code>tools/browser_check.py</code> 里对应的 <code>record("Vn", …)</code> 及其上方注释。</p>
+</blockquote>
+<p>⚠️ <strong>常见误会</strong>：<code>--port</code> 是"连已有服务"，<strong>不会自己起</strong>。要验新后端必须自己先起一个
+实例（用完关掉），否则连到的还是旧代码。</p>
+<hr />
+<h2 id="5-check_iface_tablepy">5. <code>check_iface_table.py</code> —— 防文档漂移</h2>
+<p>检查三件事：</p>
+<ol>
+<li><strong>上游符号真的存在</strong> —— <code>接口对照表.md</code> 里写的 <code>HostLink.ledger</code> 这类裸名，
+   逐个在上游里核对；</li>
+<li><strong>本层端点真的存在</strong> —— 表里列的路由在 <code>routes.py</code> 里能找到；</li>
+<li><strong>两边一致</strong> —— 端点 ↔ 上游方法的对应关系与实现同步。</li>
+</ol>
+<p>上游协议版本一变（PROTO 9 → 10 这类），这张表是最先过时的地方，所以要在 CI 习惯里跑。</p>
+<hr />
+<h2 id="6-neg_i30py">6. <code>neg_i30.py</code> —— 判据的变异验证</h2>
+<blockquote>
+<p>纪律：<strong>一道从没红过的闸不算闸。</strong></p>
+</blockquote>
+<p>守的是"两条来路同一个纪元"。做法是把修复撤掉再跑一遍：</p>
+<ul>
+<li><strong>A（现状）</strong>：<code>_reset_epoch()</code> 清环 + 换差分器 + 零点交给发车后第一帧；</li>
+<li><strong>B（旧行为）</strong>：只挪零点，不清环也不换差分器（就是当年修掉的那个 bug）。</li>
+</ul>
+<p>要看的就一件事：B 里会不会出现<strong>负 <code>t_ms</code></strong>（上一段/发车前的决策残留在新纪元里），
+而 A 里不会。实测 <strong>A 0 条 / B 11 条</strong> —— 两者一样就说明这道闸根本没咬住。</p>
+<p>⚠️ 它<strong>特意保留在仓库里</strong>（不像临时脚本那样用完删）：差分/纪元逻辑再动时，
+重跑一次就知道闸还有没有牙。</p>
+<hr />
+<h2 id="7-build_doc_htmlpy">7. <code>build_doc_html.py</code> —— 文档导出</h2>
+<pre><code class="language-bash">$PY tools/build_doc_html.py              # 渲染 docs/ 下全部 .md
+$PY tools/build_doc_html.py docs/x.md    # 只渲染指定文件
+</code></pre>
+<p>产物是自包含的暗色 HTML（无外部依赖、无 CDN、可离线打开）。</p>
+<p>⚠️ <strong>改了 <code>docs/*.md</code> 之后必须重跑一次</strong>，否则 <code>.html</code> 是旧的 —— 离线交付时
+给人的是 html，它就代表"最新状态"。</p>
+<hr />
+<h2 id="8">8. 收工前的一套动作</h2>
+<pre><code class="language-bash">export NO_PROXY=&quot;127.0.0.1,localhost&quot; no_proxy=&quot;127.0.0.1,localhost&quot;
+
+$PY tools/preflight.py        # ① 自检
+$PY tools/drill.py --sim      # ② 端到端 + 判据
+$PY tools/build_doc_html.py   # ③ 文档 HTML 重导出
+</code></pre>
+<p>如果动过 <code>control/static/</code>，补一条 <code>$PY tools/browser_check.py --sim</code>。
+如果动过端点或上游适配，补 <code>$PY tools/check_iface_table.py</code>。</p>
+  </main>
+</div>
+</body>
+</html>

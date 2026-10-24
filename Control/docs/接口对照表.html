@@ -927,6 +927,18 @@ li{margin:.28em 0}
 <td>—</td>
 <td><strong>改版三十二新增：删一条比赛记录</strong>（<strong>不可逆</strong>）。删 <code>records/maze/&lt;名&gt;.maze.json</code> + 它的 <code>.link.json</code>；<strong>不碰视频产物</strong>（"记录 → 视频"是单向关联，删记录顺手删视频＝替人做决定）。不存在 ⇒ <strong>404</strong>（先 <code>exists()</code> 判，不靠异常文案猜）；写盘失败 ⇒ <strong>409</strong> 带 <code>OSError</code> 原文。界面上是<strong>两步确认</strong>（5 s 内再点一次）</td>
 </tr>
+<tr>
+<td><code>POST /api/v1/records/{name}/rename</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>改版四十新增：改记录名</strong>。body <code>{"to": "&lt;新名&gt;"}</code>（不带 <code>.maze.json</code> 后缀）。<strong>只改文件名与 <code>.link.json</code> 的名字，不动内容</strong>：内容是产物，改名是为了"看得懂"，不是重新生成。冲突（新名已存在）⇒ <strong>409 且不覆盖</strong>；空 <code>to</code> ⇒ <strong>400</strong>、名字带路径分隔符等非法字符 ⇒ <strong>409</strong>（都是 <code>ValueError</code> 同一条路：后端判、前端不猜）；同名 ⇒ <strong>200 但 <code>renamed:false</code></strong>（幂等，不是错误）。不存在 ⇒ <strong>404</strong>（先判 <code>exists()</code>，不靠异常文案猜）</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/records/bulk-delete</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>改版四十新增：批量删</strong>。body <code>{"names": ["&lt;名&gt;", …]}</code>（<strong>必须是非空数组</strong>，否则 <strong>400</strong>；上限 200）。<strong>一次请求一个端点</strong>：前端循环发 N 个 DELETE 时半途失败，"到底删了几条"就变成猜数。响应 <code>{deleted, failed, total, results:[{name, ok, error?}]}</code> —— <strong>逐条结果</strong>，删掉的与没删掉的分开报。不可逆，界面上两次确认 + 显示条数</td>
+</tr>
 </tbody>
 </table>
 <h2 id="5">5. 场地（<strong>改版二十四：整节删除</strong>）</h2>

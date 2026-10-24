@@ -25,22 +25,25 @@
     box.querySelectorAll('[data-route]').forEach(b => {
       b.onclick = function () { C.go(b.dataset.route); };
     });
-    renderRailMeta();
   }
 
-  /* 侧栏底部两格：**数据源**与**协议版本 / 通道数**（`index.html` 里留空不写死）。
-     ⚠️ 这两格曾经是 HTML 里写死的 "原型·纯前端 / v9·PROTO 9"：协议升到 v10、
-         前端也接了真机之后它们还在那儿 —— 长得跟真数据一样，是第二个真相。
-     判不了就给 `—`（三态纪律），不猜。 */
-  function renderRailMeta() {
-    const m = S.health.mouse || {};
-    const el = document.getElementById('rail-mode');
-    if (el) el.textContent = C.LIVE.on ? '真机 · 已连后端' : '原型 · 未连后端';
-    const p = document.getElementById('rail-proto');
-    if (!p) return;
-    const n = (m.caps || {}).unified_channels;
-    p.textContent = (m.proto == null ? 'PROTO —' : 'PROTO ' + m.proto)
-      + (n ? ' · ' + n + ' 通道' : '');
+  /* 数据源状态（改版四十）：**唯一**一处说明"这些数字是哪来的"。
+     以前是左轨底部两格小字（`rail-mode` / `rail-proto`），
+       · 写死过 "v9 / PROTO 9"，协议升到 v10 它还在那儿（第二个真相）；
+       · 和顶栏那盏写死"实时"的 `#ws` 同时存在，两处说法可以不一致。
+     现在合成一盏：`LIVE.on` 一个判据，三种表现（见 style.css 的 `.ws`）。
+     ⚠️ `LIVE.on === false` 不等于"后端坏了"：它是"退回原型数据"，
+        这句要在 title 里说清楚，否则用户以为界面在骗他。 */
+  function renderMode() {
+    const el = document.getElementById('ws');
+    if (!el) return;
+    const txt = el.querySelector('span');
+    const on = C.LIVE.on;
+    el.className = 'ws' + (on ? '' : (C.LIVE.err ? ' proto' : ' unknown'));
+    if (txt) txt.textContent = on ? '实时' : (C.LIVE.err ? '原型' : '—');
+    el.title = on ? '已连后端 · 遥测走 WebSocket'
+      : (C.LIVE.err ? ('未连后端（' + C.LIVE.err + '）· 界面按原型数据演示')
+        : '正在探测后端…');
   }
 
   /* ── 顶栏设备片：只有两路 ─────────────────────────────────────────────── */
@@ -73,6 +76,7 @@
 
   /* ── 顶栏右侧 ─────────────────────────────────────────────────────────── */
   function renderTop() {
+    renderMode();
     const rec = document.getElementById('btn-record');
     rec.className = 'btn' + (S.session.active ? ' btn-danger' : '');
     rec.querySelector('span').textContent = S.session.active ? '停止记录' : '开始记录';
@@ -98,6 +102,11 @@
        56 px 留白收掉，否则"按视口算高度"会多扣一段白给日志坞的空白）。 */
     document.body.dataset.route = S.route;
     main.scrollTop = 0;
+    /* 主区的**行内高度**由页面自己决定（比赛页要钉住"视口 − 顶栏 − 日志坞"）。
+       这里先清掉上一次留下的值：不清的话，从比赛页切到别的页，
+       那一页会被钉成一屏高、内容全被 `overflow:hidden` 剪掉。 */
+    main.style.height = '';
+    main._stageH = 0;
     main.innerHTML =
       '<div class="page">' +
         '<header class="page-head">' +
@@ -408,9 +417,6 @@
       if (S.estop) C.act('unlock'); else C.act('estop');
       refreshChrome();
     };
-    document.getElementById('scene').onchange = function (e) {
-      C.setScene(e.target.value);
-    };
 
     C.on('tick', function () {
       const v = C.VIEWS[S.route];
@@ -448,14 +454,10 @@
        `silent=true`：不要因为恢复路由而多压一条 history。 */
     C.go(C.VIEWS[init] ? init : 'overview', true);
 
-    /* 原型便利：?scene=run|estop|down|oldfw|novideo，?dev=mouse|clock */
+    /* 原型便利：?dev=mouse|clock 直接打开设备抽屉。
+       （`?scene=` 随左轨"情景"下拉一起删了 —— 它只改浏览器里的演示状态，
+         接上真机后一个字节都不影响设备，留着只会让人以为自己在控制设备。） */
     const qs = new URLSearchParams(location.search);
-    const sc = qs.get('scene');
-    if (sc) {
-      const sel = document.getElementById('scene');
-      if (sel) sel.value = sc;
-      C.setScene(sc);
-    }
     const dv = qs.get('dev');
     if (dv) setTimeout(function () { openDev(dv); }, 120);
 

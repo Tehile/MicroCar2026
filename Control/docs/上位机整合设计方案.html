@@ -177,6 +177,7 @@ li{margin:.28em 0}
 <li><a href="#1137">11.37 改版三十五·记录的主时间轴改成设备时基（每帧唯一）（状态：已落地）</a></li>
 <li><a href="#1138-124-s">11.38 改版三十七·发车前先拉取（那 1~2.4 s 缺口的成因与"对轴"）（状态：本层已落地；改上游那条是设计）</a></li>
 <li><a href="#1139-v10">11.39 改版三十九·协议 v10：建图增量通道（地图从"推断"变"事实"）+ 通道瘦身（状态：已落地）</a></li>
+<li><a href="#1140">11.40 改版四十·界面九条：零基线 / 停车即已保存 / 三列各滚 / 记录增删查改（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -732,6 +733,25 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
   后果不是崩溃，是<strong>每道上下方向的墙都记到隔一格</strong>——图上"有内容"，但错位。
   ⚠️ 根因是注释把"旧前端 <code>PY(y)=n-1-y</code> 的显示翻转"当成了"数据是镜像的"；
   <strong>显示怎么摆是显示的事，数据下标就是固件 y</strong>。细节见 §11.31。</p>
+<p><strong>改版记录 2026-10-24（四十）</strong>：<strong>界面九条 —— 先删掉假的，再谈真的</strong>（用户真机试跑后逐条提）。
+· <strong>七条现象、四个根因</strong>：帧率波形空（<code>S.hist.rate</code> 只在<strong>原型 tick</strong> 里 push，真机不跑 tick）
+  + 假初值（<code>applyTelemetry</code> 只在有值时才覆盖 ⇒ 写死的「陀螺角 12.4」一辈子盖不掉）；
+  地图随滚轮缩放（<code>fitMaze()</code> 量的是 <code>window.scrollY</code> —— <strong>视口相对位移</strong>，
+  而代码里根本没有缩放功能）；停车不自动保存（<strong>后端早就会收尾</strong>，前端全站
+  <strong>一次都没调过</strong> <code>GET /mouse/maze/record</code>）+ 停止原因看不到（<code>ws.py</code> 订阅了
+  <code>mouse.upevent</code>，<code>lib.js</code> 的 WS 分发漏了这个分支 ⇒ 数据到浏览器门口被丢）。
+· <strong>零基线</strong>：<code>S.tel</code> 拆两条 —— <strong>累计量给 0</strong>（里程/陀螺角/前向计数，0 是合法零位）、
+  <strong>测量量给 <code>null</code></strong>（IR/电池/帧率/bps/seq/位置 ⇒ <code>—</code>）；4 灯 <code>null</code> <strong>不是"灭"</strong>。
+· <strong>停车即「已保存」</strong>：<code>S.rec</code> 四态 + 1 s 轮询 + <code>STOPPED</code> 原因横幅（时间护栏与红外护栏
+  在帧里长得一模一样，只有这条上行事件能区分）；<code>stop()</code> 先放 <code>{ok:null,pending:true}</code>
+  占位 —— 落盘那几十毫秒里轮询撞上会把<strong>上一次</strong>的摘要当这一次。
+· <strong>三列各自滚 + 地图锁定</strong>：<code>.main{flex:0 0 auto}</code>、<code>#view</code> 改 flex 列、<code>fitMaze()</code> 量
+  卡片自身。⚠️ 顺手挖出 <code>.page{margin:0 auto}</code> 在 flex 列里<strong>让"拉伸"失效</strong>
+  （<code>.page</code> 只有 958 而非 1124），还形成"页面宽 = 画布宽"的反馈环 ⇒ 地图永远长不大。
+· <strong>记录页补齐增删查改</strong>：搜索 / 四个筛选 chip / 多选（全选<strong>只勾当前筛出的</strong>）/
+  批量删走<strong>单端点</strong>（逐条报）/ 改名（连同 <code>.link.json</code> 一起搬）/ 导入 / 列表吃满剩余高度。
+· 判据新增 <strong>I54</strong>（改名：409 不覆盖、幂等、关联一起搬）与 <strong>I55</strong>（批量删逐条报）。
+细节见 §11.40。</p>
 <p><strong>改版记录 2026-10-22（三十七）</strong>：<strong>发车前先拉取</strong>（先拉流并等到一帧，再开记录，最后发车）。
 · 现场：第一次发车后隔一段时间数据才跟上，中间<strong>缺数据 + 数据不变</strong>。
   两条真机记录里缺口是 <strong>2398 ms / 949 ms</strong>，且<strong>正好卡在"待机 → 开跑"</strong>——
@@ -9409,6 +9429,215 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 <p>九路由 1400×710 复查：<strong>零横向溢出、零 console 错误、零渲染失败横幅</strong>；首屏直接落在某一页（<code>#/race</code> 刷新）也能取到图 —— 之前 <code>S.route</code> 只赋值不 <code>C.go()</code>，比赛页的 <code>startRaceTick()</code> 不跑，图上永远"等待数据"，而顶栏写着"实时·已连接"（判据 V12 是 <code>C.go</code> 跳过去的，天然绕开真实入口）。</p>
 <p>侧栏底部那两格（数据源 / 协议版本）以前是 <code>index.html</code> <strong>写死</strong>的 <code>原型·纯前端</code> / <code>v9·PROTO 9</code>：协议升到 v10、前端接了真机之后它还在，且长得跟真数据一样 —— 典型的"第二个真相"，改由 <code>renderRailMeta()</code> 从 <code>caps.mouse</code> 填，判不了给 <code>—</code>。</p>
 <hr />
+<h3 id="1140">11.40 改版四十·界面九条：零基线 / 停车即已保存 / 三列各滚 / 记录增删查改（状态：<strong>已落地</strong>）</h3>
+<p>这一轮全部来自用户在一次真机试跑后的九条反馈。<strong>七条现象只对应四个根因</strong>，而且其中三条
+（帧率、地图缩放、停车保存）当初的推断都与事实不同 —— 记在这里，因为"看起来像是什么"
+与"实际是什么"之间的差，正是这一层最容易复发的地方。</p>
+<h4 id="_141">一、现象 → 根因</h4>
+<table>
+<thead>
+<tr>
+<th>用户看到</th>
+<th>真正的根因</th>
+<th>为什么一直看着"正常"</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>接了真机，「实时帧率」仍写"等待第一批"，波形图空白</td>
+<td><code>S.hist.rate</code> <strong>只在原型 tick 里 push</strong>。接真机之后 tick 不跑 ⇒ 波形永远空</td>
+<td>而 <code>S.tel.rate</code> 的初值写死 <code>4.6</code> ⇒ 不是"没数据"，是"有个不动的假数"。<strong>两处错互相掩护</strong></td>
+</tr>
+<tr>
+<td>没连设备时界面有"陀螺角 12.4"这类具体数字</td>
+<td><code>applyTelemetry</code> <strong>只在有值时才覆盖</strong> ⇒ 初值一旦是编的就永远留着</td>
+<td>只有真连上设备、且那一项真的回了值，假值才会被覆盖。平时看到的是"很安静的 12.4"</td>
+</tr>
+<tr>
+<td>比赛页一滚滚轮，迷宫图就变大变小</td>
+<td><code>fitMaze()</code> 量的是 <code>body.getBoundingClientRect().top + window.scrollY</code> —— <strong>视口相对位移</strong>。整页滚 ⇒ top 变小 ⇒ 可用高变大 ⇒ 每 250 ms 重画换一个边长</td>
+<td><strong>代码里根本没有缩放功能</strong>。所以从"缩放"入手找，什么也找不到</td>
+</tr>
+<tr>
+<td>比赛页整页一起滚，左右两栏跟着动</td>
+<td><code>.race-grid</code> 没有高度约束（它在 <code>#view</code> 里，而 <code>#view</code> 是 <code>display:block</code>）⇒ 子元素的 <code>flex:1</code> <strong>完全不生效</strong></td>
+<td>静态截图里一模一样：三栏都"排好了"</td>
+</tr>
+<tr>
+<td>车自己停下后，界面还要人手动点【停止并保存】</td>
+<td><strong>后端早就会自动收尾</strong>（<code>_maybe_finish_maze_rec</code> 轮询四种原因落盘），而前端<strong>全站一次都没调用过</strong> <code>GET /mouse/maze/record</code></td>
+<td>界面不查，所以不知道已经存了。人点一次 ⇒ 落一份空记录</td>
+</tr>
+<tr>
+<td>停车时不显示原因</td>
+<td><code>STOPPED &lt;reason&gt;</code> 只能走<strong>上行事件</strong>。<code>ws.py</code> 订阅清单里<strong>有</strong> <code>mouse.upevent</code>，<code>lib.js</code> 的 WS 分发只接了 telemetry/maze/hello/log ⇒ 数据到浏览器门口被丢</td>
+<td>丢在分发层，后端日志里一切正常</td>
+</tr>
+<tr>
+<td>左下角"情景"下拉与"真机：…"</td>
+<td><code>index.html</code> 里<strong>写死</strong>的两块，与顶栏"实时"重复表达"连没连后端"，且协议升到 v10 之后还写着 <code>v9 · PROTO 9</code></td>
+<td>它长得像真数据 —— 典型的第二个真相</td>
+</tr>
+<tr>
+<td>记录列表没有查找、没多选、不能改名，底部还空一截</td>
+<td>这一页只做了"看"，没做增删查改；列表高度写的是 <code>calc(100vh − 460px)</code></td>
+<td>空的那一截正是"写死常数"的证据</td>
+</tr>
+</tbody>
+</table>
+<h4 id="e-a-c-b-d">二、改法（顺序是 E → A → C → B → D）</h4>
+<p><strong>先删掉假的，再谈真的</strong>：不先把写死的值清掉，后面所有"零基线""判不了"都没法验。</p>
+<table>
+<thead>
+<tr>
+<th>块</th>
+<th>做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>E 侧栏</strong></td>
+<td>删 <code>.rail-foot</code> 整块（<code>#scene</code> 六个 option + <code>原型·纯前端</code>/<code>v9·PROTO 9</code> 两格），连带 <code>S.scene</code> / <code>setScene()</code> / <code>?scene=</code> 一起删（<strong>删元素要连读它的人一起删</strong>）。顶栏 <code>#ws</code> 变成<strong>一盏灯</strong>：<code>实时</code>（<code>LIVE.on</code>）/ <code>原型</code> / <code>—</code>，判据只有 <code>C.LIVE.on</code></td>
+</tr>
+<tr>
+<td><strong>A 零基线</strong></td>
+<td><code>S.tel</code> 拆成<strong>两条基线</strong>：<strong>累计量给 0</strong>（里程、陀螺角、前向计数、<code>ms8</code> —— 0 是合法零位）、<strong>测量量给 <code>null</code></strong>（IR、电池、帧率、<code>bps</code>、<code>seq</code>、位置 x/y ⇒ 显示 <code>—</code>）。<code>S.health.mouse</code> 改"未连接"；4 灯全 <code>null</code>（<strong><code>null</code> 不是"灭"</strong>，是"判不了"）；帧率波形真机也 push（上限 60 点）；空波形的提示语从"等待第一批"改成"<strong>还没有帧率样本</strong>"（真机那一路没有"批次"这个东西）</td>
+</tr>
+<tr>
+<td><strong>C 停车即已保存</strong></td>
+<td>前端新增 <code>S.rec</code> + 1 s 轮询 <code>GET /mouse/maze/record</code>；WS 分发补 <code>mouse.upevent</code> 分支；后端 <code>MazeRecorder</code> 记 <code>_last_stop</code>（<code>feed_event()</code> 里遇 <code>STOPPED</code> 就记，<strong>不管在不在记录</strong> —— "为什么停"任何时候都要答得出），<code>status()</code> 带 <code>last_stop</code> 与 <code>auto_end</code>；<code>stop()</code> 进锁后先放 <code>{ok:null, pending:true}</code> 占位</td>
+</tr>
+<tr>
+<td><strong>B 三列各滚 + 地图锁定</strong></td>
+<td><code>.main</code> 高度由 <code>fitMain()</code> 实测钉死（<code>flex:0 0 auto</code>）；左/中/右三栏各自 <code>overflow-y:auto</code>；<code>#view</code> 改 flex 列；<code>fitMaze()</code> 改成量<strong>卡片自身</strong>的 <code>clientHeight</code></td>
+</tr>
+<tr>
+<td><strong>D 记录页增删查改</strong></td>
+<td>搜索 + 四个筛选 chip + 多选（表头全选<strong>只勾当前筛出的</strong>）+ 批量删端点 + 改名端点 + 导入 + <strong>列表吃满剩余高度</strong></td>
+</tr>
+</tbody>
+</table>
+<p>四条 CSS 事实，改错任何一条都会"看起来做了、其实没做"：</p>
+<table>
+<thead>
+<tr>
+<th>事实</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.main{flex:1}</code> 展开是 <code>1 1 0%</code> ⇒ <strong><code>flex-basis:0</code> 时行内 <code>height</code> 不参与计算</strong></td>
+<td>写了 <code>height:611px</code>，<code>offsetHeight</code> 仍是 1165。这两条路由必须 <code>flex:0 0 auto</code></td>
+</tr>
+<tr>
+<td><code>#view</code> 默认 <code>display:block</code> ⇒ 子元素的 <code>flex:1</code> <strong>一点用都没有</strong></td>
+<td>三列都不滚，记录列表把日志坞顶出 1762 px</td>
+</tr>
+<tr>
+<td><code>.main{overflow-x:clip}</code> 不能换 <code>hidden</code></td>
+<td><code>hidden</code> 会把 <code>overflow-y</code> 算成 <code>auto</code> ⇒ <code>.main</code> 变成滚动容器 ⇒ 页内 <code>sticky</code> <strong>完全失效</strong>（实测滚 400 px 后 top 从 170 变 −228）</td>
+</tr>
+<tr>
+<td>加 <code>body[data-route="race"]</code> 前缀改外壳</td>
+<td>只有这两页是"舞台页"，别的页照旧整页滚 —— 不能把契约写到全局</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_142">三、两次"想当然"被实测打回</h4>
+<p>这两条是本轮最值得记的：<strong>都是我自己先想出来、再被数字否掉的</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>想当然</th>
+<th>实测</th>
+<th>定案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>地图是正方形、两侧有空白 ⇒ 把图例与建图诊断<strong>搬到右侧窄栏</strong>，既填满空白又把垂直空间还给地图</td>
+<td>1400×710 下中栏只有 ~466 px 宽，窄栏 172+14 ⇒ <strong>宽度</strong>成了新的瓶颈，地图 <strong>351 → 300</strong>（更小了）</td>
+<td>撤销。正方形只吃 <code>min(可用高, 可用宽)</code>，<strong>能省空间的必须已经是富余的那条边</strong>。这里富余的是高度 ⇒ 保持"图例在图下方"，但压成两行：图例一行（标签 2~3 字，解释进 <code>title</code>）、诊断成对排一行（原来 <code>·</code> 串联必折两三行）。省下的垂直线全部归地图 ⇒ <strong>366</strong></td>
+</tr>
+<tr>
+<td><code>.page</code> 本来就居中，宽度无所谓</td>
+<td><code>.page{margin:0 auto}</code> 是 flex 列的子项 ⇒ <strong>自动外边距让"拉伸"失效</strong>，宽取 <code>fit-content</code>：<code>.main</code> 有 1184 px，<code>.page</code> 只有 <strong>958</strong>，中间栏被挤到 356。更坏的是形成<strong>反馈环</strong>：页面宽 = 中间栏内容宽（<code>1fr</code> 在不确定宽度下退化成 max-content）= 画布宽 ⇒ 画布多宽页面就多宽，永远长不大</td>
+<td><code>margin:0;align-self:stretch</code> ⇒ <code>.page</code> 1124、中间栏 522，地图这才真正由<strong>高度</strong>决定（366）。这条同时把左右两栏也放宽了 166 px</td>
+</tr>
+</tbody>
+</table>
+<p>顺带钉死了一条口径：地图画布的宽度<strong>只由 <code>fitMaze()</code> 写 <code>style.width</code></strong>，CSS 里不再有
+<code>width:100%</code>（否则它把边长拉成卡片宽，与"按高度算出来的边长"互相打架）。因此
+"布局好了没"的闸<strong>不能</strong>再用 <code>cv.clientWidth</code>（首帧恒 0 ⇒ 变成永远不画），改成 <code>cap != 0</code>。</p>
+<h4 id="_143">四、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>验什么</th>
+<th>为什么必须钉</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I54</strong>（<code>--sim</code>）</td>
+<td>改名 <code>X → X-rn</code>：200 且 <code>renamed=true</code>、列表里新旧<strong>一对一换掉</strong>；同名 ⇒ 200 + <code>renamed:false</code>（幂等）；<strong>负向</strong>：重名 ⇒ 409 <strong>且被占那条仍在</strong>、空名 ⇒ 400、带 <code>..</code> ⇒ 409、源不存在 ⇒ 404；有视频会话时 <code>.link.json</code> 必须<strong>跟着搬</strong></td>
+<td>漏搬关联<strong>界面上完全看不出</strong>（列表里新名字好端端躺着，"记录 → 视频"静默没了）；"先删后写"式的覆盖<strong>不可逆</strong></td>
+</tr>
+<tr>
+<td><strong>I55</strong>（<code>--sim</code>）</td>
+<td>批量删：<code>names: []</code> ⇒ 400；<code>[存在, 不存在]</code> ⇒ 200 且 <code>deleted=1 failed=1</code> + <strong>逐条</strong> <code>results</code>；真删掉的那条不在列表里</td>
+<td>前端循环发 N 个 DELETE ⇒ 半途失败"删了几条"只能靠数，而这件事不可逆</td>
+</tr>
+<tr>
+<td>一次性探针（<strong>不入库</strong>）</td>
+<td>55 项：九路由无渲染失败横幅、零基线四项、帧率 <code>—</code> 与空波形、IR"判不了"、地图不随滚且 366、三列各自滚、记录页搜索/全选计数/空态文案/批量删第一次只进确认/改名入口、列表底边距日志坞 13 px</td>
+<td>窗口相关的判据必须按<strong>用户窗口</strong>（1400×710）量。这类探针<strong>用完就删</strong> —— 留在仓库里会腐烂成"看着在验"</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 探针第一版报了三条<strong>假红</strong>，全是我自己写错：① 改名的 <code>to</code> 该给<strong>不带后缀</strong>的名字，
+我给了 <code>X.maze.json-rn</code> ⇒ 落盘成 <code>X.maze.json-rn.maze.json</code> ⇒ 后面几步全 404，
+看起来像"改名把文件搬坏了"；② <code>#vd-err</code> 是常驻的 <code>display:none</code> 占位，
+<code>querySelectorAll</code> 数到了它；③ <code>Failed to load resource: 409</code> 是网络层记录（没连设备时
+<code>/params/grouped</code> 本来就 409，界面已 toast），不是脚本错误。<strong>判据红了先怀疑判据自己。</strong></p>
+<h4 id="_144">五、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drill.py --sim</code></td>
+<td><strong>54 PASS / 0 FAIL / 1 SKIP</strong>（SKIP 仍是 V1：真视频端到端）</td>
+</tr>
+<tr>
+<td>一次性探针</td>
+<td><strong>55 PASS / 0 FAIL</strong>（跑完即删）</td>
+</tr>
+<tr>
+<td>地图边长（1400×710）</td>
+<td>351 → <strong>366 px</strong>（<code>min(可用高, 可用宽)</code>，此时由高度定）</td>
+</tr>
+<tr>
+<td>页面宽度（1400×710）</td>
+<td><code>.page</code> 958 → <strong>1124 px</strong>（<code>.main</code> 1184 − 两侧 30 px）</td>
+</tr>
+<tr>
+<td>记录页</td>
+<td>列表底边距日志坞 <strong>13 px</strong>（原来空出一大块）；搜索筛到 1 条、全选 50/50、批量删第一次只进确认</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>I16/I42 是间歇红</strong>（4 次 <code>--sim</code> 里 2 次）：红的时候 <code>GET /mouse/maze/grouped</code> 回了
+<code>{groups:{}, count:0, connected:false}</code> 却是 <strong>HTTP 200</strong> —— 走到 <code>params_grouped()</code> 里
+<code>mc is None</code> 那条兜底分支（模拟器重连窗口）。这条路本轮没动，判据也没有削弱；
+"200 + 空表"本身是个<strong>真问题</strong>（空表是"读到 0 项"这个假事实），已记入 §12.2。</p>
+<hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>
 <thead>
@@ -9537,6 +9766,12 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 <td><strong><code>fastwayCount</code> / <code>fastwayCount90</code> / <code>dropCnt</code> 的召回路径</strong>：上游方案指了 <code>PATHPLAN</code> 事件与低频诊断通道，但<strong>都没落地</strong></td>
 <td>界面上三项永远是"—"</td>
 <td><strong>部分结案（改版二十三）</strong>：<code>fastwayCount*</code> 如实标"上游暂不可得"并向上游提需求（本层不绕过、不塞回帧）；<code>dropCnt</code> <strong>已退化</strong>为本机 <code>stats()["seq_lost"]</code>/<code>bad_crc</code> 差量（<code>maze_rec._probe_losses</code>，判据 I36），语义窄一圈、<code>None</code> ≠ 0（§11.25 §六）</td>
+</tr>
+<tr>
+<td>U10</td>
+<td><strong><code>GET /mouse/params/grouped</code> 的重连窗口会回 <code>200 + 空表</code></strong>（改版四十 drill 里 4 次抓到 2 次）：<code>params_grouped()</code> 在 <code>mc is None</code> 时返回 <code>{groups:{}, count:0, connected:false}</code>，而端点外面只有 <code>_need_mouse</code> 一层</td>
+<td>判据 I16/I42 间歇红；界面上表现为"参数表 0 组"，最容易被当成"固件没参数"（正是 §11.30 记过的那个坑）</td>
+<td>下次动这条链时收口：<code>mc is None</code> 与"拉取没开"一样抛 409（<strong>空表是"读到 0 项"这个假事实</strong>），端点不返回空骨架；届时 I16 的"HTTP 200 但组为空"要改成断言 409</td>
 </tr>
 </tbody>
 </table>

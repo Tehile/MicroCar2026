@@ -8,9 +8,11 @@
       mods: [['live', '实时状态'], ['params', '参数设定'], ['race', '比赛'], ['maint', '维护自检']],
       foot() {
         const m = S.health.mouse;
-        /* 拉取停了就没有帧率可言 —— 别把最后一帧的 Hz 当成还在跑 */
+        /* 拉取停了就没有帧率可言 —— 别把最后一帧的 Hz 当成还在跑。
+           拉取开着但还没测出速率（`rate == null`）也不许写 "— Hz" 这种半句话。 */
+        const rt = S.tel.rate;
         return [m.connected ? m.port : '未连接', '30 B 帧',
-          S.pulling ? U.fmt(S.tel.rate, 1) + ' Hz' : '拉取已结束'];
+          !S.pulling ? '拉取已结束' : (rt == null ? '速率待测' : U.fmt(rt, 1) + ' Hz')];
       },
     },
     {

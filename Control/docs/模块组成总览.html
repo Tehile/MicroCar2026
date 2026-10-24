@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Control · 模块组成总览</title>
+<style>
+:root{
+  --bg:#14161a; --bg2:#1a1d23; --bg3:#20242c; --line:#2b3038;
+  --fg:#dfe3ea; --fg2:#9aa3b0; --fg3:#6b7480;
+  --accent:#5aa9e6; --accent2:#7bd88f; --warn:#e5b567; --danger:#e06c75;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+#wrap{display:flex; align-items:flex-start; max-width:1500px; margin:0 auto}
+/* ---------- 侧栏 ---------- */
+#toc{
+  position:sticky; top:0; flex:0 0 300px; height:100vh; overflow-y:auto;
+  padding:22px 16px 60px; border-right:1px solid var(--line); background:var(--bg2);
+}
+#toc .brand{font-size:13px; color:var(--fg3); letter-spacing:.08em; margin-bottom:14px; text-transform:uppercase}
+#toc ul{list-style:none; margin:0; padding-left:0}
+#toc ul ul{padding-left:14px}
+#toc li{margin:1px 0}
+#toc a{display:block; padding:4px 8px; border-radius:6px; color:var(--fg2); text-decoration:none;
+        font-size:13px; line-height:1.45; border-left:2px solid transparent}
+#toc a:hover{background:var(--bg3); color:var(--fg)}
+#toc>ul>li>a{color:var(--fg); font-weight:600}
+/* ---------- 正文 ---------- */
+main{flex:1 1 auto; min-width:0; padding:34px 46px 120px}
+h1,h2,h3,h4{line-height:1.35; margin:1.9em 0 .6em; scroll-margin-top:16px}
+h1{font-size:27px; margin-top:0; padding-bottom:.45em; border-bottom:2px solid var(--line)}
+h2{font-size:21px; padding-bottom:.35em; border-bottom:1px solid var(--line); color:#fff}
+h3{font-size:17px; color:var(--accent)}
+h4{font-size:15px; color:var(--fg2)}
+p{margin:.75em 0}
+a{color:var(--accent)}
+strong{color:#fff}
+hr{border:0; border-top:1px solid var(--line); margin:2.2em 0}
+/* ---------- 表格 ---------- */
+table{border-collapse:collapse; width:100%; margin:1.1em 0; font-size:13.5px; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:7px 11px; text-align:left; vertical-align:top}
+th{background:var(--bg3); color:#fff; font-weight:600; white-space:nowrap}
+tr:nth-child(even) td{background:rgba(255,255,255,.014)}
+td code{white-space:nowrap}
+/* ---------- 代码 ---------- */
+code{background:var(--bg3); padding:1px 5px; border-radius:4px; font-family:var(--mono);
+     font-size:12.8px; color:#e8c07d}
+pre{background:#0f1115; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+    overflow-x:auto; margin:1.1em 0}
+pre code{background:none; padding:0; color:#c8d0da; font-size:12.6px; line-height:1.65; white-space:pre}
+/* ---------- 引用（本方案里全是纪律/警告） ---------- */
+blockquote{margin:1.1em 0; padding:10px 16px; border-left:3px solid var(--warn);
+           background:rgba(229,181,103,.07); border-radius:0 8px 8px 0; color:#f0e0c0}
+blockquote p{margin:.3em 0}
+blockquote code{background:rgba(0,0,0,.35)}
+ul,ol{padding-left:1.6em}
+li{margin:.28em 0}
+@media (max-width:1080px){
+  #toc{display:none}
+  main{padding:20px 18px 80px}
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <nav id="toc">
+    <div class="brand">Control · 整合上位机</div>
+    <div class="toc">
+<ul>
+<li><a href="#control">Control · 模块组成总览</a><ul>
+<li><a href="#1">1. 一句话定位</a></li>
+<li><a href="#2">2. 与外部系统的关系</a></li>
+<li><a href="#3">3. 分层拓扑</a></li>
+<li><a href="#4">4. 后端模块（逐个）</a><ul>
+<li><a href="#41">4.1 入口与装配</a></li>
+<li><a href="#42">4.2 公共底座</a></li>
+<li><a href="#43">4.3 业务核心</a></li>
+<li><a href="#44-http">4.4 HTTP 层</a></li>
+</ul>
+</li>
+<li><a href="#5-controlstatic">5. 前端模块（control/static/）</a><ul>
+<li><a href="#51">5.1 四个核心件</a></li>
+<li><a href="#52-viewsjs">5.2 九个页面（views/*.js）</a></li>
+</ul>
+</li>
+<li><a href="#6">6. 运行时模型</a></li>
+<li><a href="#7">7. 数据落点</a></li>
+<li><a href="#8">8. 配置入口</a></li>
+<li><a href="#9">9. 文档地图</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+  </nav>
+  <main>
+<h1 id="control">Control · 模块组成总览</h1>
+<blockquote>
+<p><strong>本文是"静态地图"</strong>：系统由哪些模块构成、谁依赖谁、数据落在哪、起哪个进程。
+逐接口的语义、协议格式、判据细节不在这里 —— 那些分别在
+<a href="上位机整合设计方案.md"><code>上位机整合设计方案.md</code></a>（设计主线）与
+<a href="接口对照表.md"><code>接口对照表.md</code></a>（端点 ↔ 上游方法对照）里。</p>
+<p>校验类工具统一在 <a href="工具与校验.md"><code>工具与校验.md</code></a>。</p>
+</blockquote>
+<hr />
+<h2 id="1">1. 一句话定位</h2>
+<p><strong>本机单进程 Web 上位机</strong>（Python + 浏览器），把"电脑鼠实时链路"和"视频离线复盘"
+合成一个界面。<strong>只消费上游，不改上游源码</strong>。</p>
+<pre><code class="language-bash">PY=&quot;C:/Users/liuru/.conda/envs/general_env/python.exe&quot;   # 固定用这个环境
+$PY tools/preflight.py        # 自检
+$PY app.py                    # 起服务 → http://127.0.0.1:8770
+</code></pre>
+<p>三个硬约束（判据级别，不要顺手放宽）：</p>
+<table>
+<thead>
+<tr>
+<th>约束</th>
+<th>内容</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>端点只绑 <code>127.0.0.1</code></td>
+<td><code>app.py</code> 默认 <code>127.0.0.1:8770</code></td>
+<td>本机自用；要开 <code>0.0.0.0</code> 必须先补鉴权</td>
+</tr>
+<tr>
+<td>不 import <code>PySide6</code>/<code>pyqtgraph</code></td>
+<td>判据 <strong>I1</strong></td>
+<td>Web 形态同时免掉与 Auto Locate 的环境冲突</td>
+</tr>
+<tr>
+<td>上游凭据只在服务端</td>
+<td>前端只见本层端点</td>
+<td>永远拿不到真凭据</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2">2. 与外部系统的关系</h2>
+<p>只有<strong>两路</strong>上游（改版二十四之后）：</p>
+<table>
+<thead>
+<tr>
+<th>上游</th>
+<th>提供什么</th>
+<th>怎么接</th>
+<th>落在哪个模块</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RemoteControl/host</code></td>
+<td>鼠直控、参数表、遥测、波形、4 灯状态</td>
+<td><strong>同进程 import</strong>（<code>host.api.MouseClient</code>）</td>
+<td><code>control/adapters/mouse.py</code></td>
+</tr>
+<tr>
+<td><code>Auto Locate</code></td>
+<td>一段视频逐帧的 ArUco 位置 + 帧时间轴</td>
+<td><strong>起子进程</strong>（<code>python -m aruco_locator.session</code>）</td>
+<td><code>control/adapters/video.py</code> + 薄壳 <code>tools/video_session.py</code></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>PhoneCamera</code>/<code>hostlink</code>/独立服务 8765/在线帧流定位已整块下线</strong>（改版二十四）。
+位置数据的唯一来路是"<strong>一段视频 → Auto Locate 会话解析 → 轨迹</strong>"，不是实时帧流。
+老不说这点的地方（<code>release/归档说明.md</code> 等）都是历史快照。</p>
+<blockquote>
+<p>Auto Locate 的 <code>session</code> <strong>不收 <code>--config</code></strong> ⇒ 必须经 <code>tools/video_session.py</code> 转接，
+否则会静默用上游默认配置（内参失效，会被误判成"视频不行"）。</p>
+</blockquote>
+<hr />
+<h2 id="3">3. 分层拓扑</h2>
+<pre><code>┌────────────────── 浏览器（control/static/，9 个页面 + 4 个核心件）────────────────┐
+│  index.html ── shell.js 外壳 ── lib.js 内核/接缝 ── views/*.js 页面 ── draw.js 绘图 │
+└────────────────────── REST /api/v1/* ─────── WS: JSON + 二进制 ─────────────────┘
+                                  │
+┌────────────────── 整合层（单进程，aiohttp）──────────────────────────────────────┐
+│  app.py  装配 → ctx.Ctx 装配 → routes.register() 挂端点                          │
+│                                                                                  │
+│  ── 实时链路 ──                       ── 干扰 facts ──                            │
+│  adapters/mouse.py  →  bus.Bus  →  ws.py  →  前端                                │
+│        │ 订阅 Event.TELEMETRY                                                    │
+│        ├──→ maze_rec.MazeRecorder   实验 8 记录（从发车到停止）                    │
+│        └──→ map_live.LiveWallMap    v10 建图增量（比赛页墙图唯一真相）              │
+│                                                                                  │
+│  ── 离线批处理 ──                                                                │
+│  adapters/video.py  → 子进程 Auto Locate  →  video_io.py 读产物                  │
+│                                                                                  │
+│  公共底座：config / clock / store / arena / leds / bus                            │
+└──────────────────────────────────────────────────────────────────────────────────┘
+                    │ 同进程 import                    │ 子进程 (Popen)
+              RemoteControl/host                  Auto Locate
+</code></pre>
+<p><strong>关键箭头只有四条</strong>，其余都不许反向：</p>
+<table>
+<thead>
+<tr>
+<th>数据流</th>
+<th>方向</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>设备 → 界面</td>
+<td>单向</td>
+<td>上游回调 → <code>bus.publish()</code> → WS → 前端</td>
+</tr>
+<tr>
+<td>界面 → 设备</td>
+<td>单向</td>
+<td>REST 动作 → 适配器 → 上游 <code>send_cmd</code></td>
+</tr>
+<tr>
+<td>鼠 subscribe → 记录/建图</td>
+<td>扇出</td>
+<td><code>MazeRecorder</code> 与 <code>LiveWallMap</code> 各自订阅，互不依赖</td>
+</tr>
+<tr>
+<td>视频</td>
+<td>跨进程</td>
+<td>本层只"起/停/查状态/读产物"，不看进程内部</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4">4. 后端模块（逐个）</h2>
+<p>17 个 Python 文件。<strong>每行最后一个符号都在对应文件里真实存在</strong>。</p>
+<h3 id="41">4.1 入口与装配</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>行数</th>
+<th>职责</th>
+<th>关键符号</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>app.py</code></td>
+<td>~180</td>
+<td>服务入口。建 <code>web.Application</code>、挂 no-cache 中间件、托管静态资源、启动后台任务</td>
+<td><code>build_app</code>, <code>ui_no_cache</code></td>
+</tr>
+<tr>
+<td><code>control/__init__.py</code></td>
+<td>20</td>
+<td>包定位 + 版本。<code>__version__="0.1.0"</code></td>
+<td><code>__version__</code>, <code>API_VERSION</code></td>
+</tr>
+<tr>
+<td><code>control/ctx.py</code></td>
+<td>450</td>
+<td><strong>装配中心</strong>：把 config / clock / bus / store / arena / 两个适配器 / 记录器装成一个 <code>Ctx</code>；后台 task 与 <code>sampler_loop</code> 也在这</td>
+<td><code>Ctx</code>, <code>SessionError</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="42">4.2 公共底座</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>行数</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/config.py</code></td>
+<td>324</td>
+<td>配置载入校验。<strong>未知键直接报错</strong>（静默忽略 = 配置等于没配）</td>
+</tr>
+<tr>
+<td><code>control/bus.py</code></td>
+<td>177</td>
+<td>统一事件总线。多源线程 → 一个 WS 广播 + 一个二进制通道；必须走 <code>loop.call_soon_threadsafe</code></td>
+</tr>
+<tr>
+<td><code>control/clock.py</code></td>
+<td>319</td>
+<td>统一主时钟。三条时间基各归各：<strong>固件毫秒时基</strong>（上游 <code>timesync</code>）/ 主机墙钟 / 视频帧时间轴</td>
+</tr>
+<tr>
+<td><code>control/store.py</code></td>
+<td>412</td>
+<td>会话目录 + <code>timeline.csv</code> + <code>meta.json</code>（设计方案 §5）</td>
+</tr>
+<tr>
+<td><code>control/arena.py</code></td>
+<td>146</td>
+<td>坐标换算：固件格子 ⇄ 场地归一化 ⇄ 画布像素</td>
+</tr>
+<tr>
+<td><code>control/leds.py</code></td>
+<td>93</td>
+<td>状态B1 的 4 个 LED 位 → <strong>三态</strong>（真/假/未知）。⚠️ <code>未知</code> 绝不画成"灭"</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43">4.3 业务核心</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>行数</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/adapters/mouse.py</code></td>
+<td>3383</td>
+<td><strong>最大的一块</strong>。包 <code>host.api.MouseClient</code>：连接、参数、动作、拉取、决策差分、发车前的 <code>&lt;@=ensure_pull</code></td>
+</tr>
+<tr>
+<td><code>control/maze_rec.py</code></td>
+<td>~1500</td>
+<td>实验 8 记录器。<strong>订阅 <code>Event.TELEMETRY</code></strong>（每帧一次），不订阅"有人看波形才发"的那条</td>
+</tr>
+<tr>
+<td><code>control/map_live.py</code></td>
+<td>411</td>
+<td>v10 建图增量通道 → 比赛页墙图（<strong>三态</strong>）+ 建图诊断。<strong>这是界面那张图的唯一真相</strong></td>
+</tr>
+<tr>
+<td><code>control/adapters/video.py</code></td>
+<td>347</td>
+<td>视频会话执行器：子进程 + 状态轮询。要能取消（<code>kill</code>），且崩溃不至于带走本服务</td>
+</tr>
+<tr>
+<td><code>control/video_io.py</code></td>
+<td>384</td>
+<td>视频产物读取 + 时间轴自洽校验。<strong>只读文件，不 import cv2</strong> ⇒ 可被判据直接喂合成产物验</td>
+</tr>
+</tbody>
+</table>
+<h3 id="44-http">4.4 HTTP 层</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>行数</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>control/api/routes.py</code></td>
+<td>1918</td>
+<td>REST 路由表（§6.2 落地）。只负责"触发"与给元信息</td>
+</tr>
+<tr>
+<td><code>control/api/ws.py</code></td>
+<td>119</td>
+<td>WS 两条通道：JSON + 二进制。<strong>payload &gt; 64 KB 一律走二进制</strong>（判据 <strong>I10</strong>）</td>
+</tr>
+<tr>
+<td><code>control/api/errors.py</code></td>
+<td>116</td>
+<td>上游异常 → HTTP 状态码。错误信息必须能照着做，<code>error.type</code> 带上游原始异常类型</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="5-controlstatic">5. 前端模块（<code>control/static/</code>）</h2>
+<p>目录分工与路由 frozen 约定见 <a href="../control/static/README.md"><code>control/static/README.md</code></a>（前端权威文档）。</p>
+<h3 id="51">5.1 四个核心件</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>行数</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>index.html</code></td>
+<td>—</td>
+<td>唯一 HTML。<strong>顺序列出全部 assets 引用</strong>（有新文件必须同步这里）</td>
+</tr>
+<tr>
+<td><code>shell.js</code></td>
+<td>473</td>
+<td>外壳：左轨导航 / 顶栏两灯 / 页面容器 / 日志坞 / 设备抽屉。<strong>启动链 <code>boot()</code> 在这</strong></td>
+</tr>
+<tr>
+<td><code>lib.js</code></td>
+<td>2256</td>
+<td>原型内核 + <strong>接缝层</strong>：<code>act()</code>/<code>setPull()</code>/<code>pullBatch()</code>/<code>connectMouse()</code>/<code>videoStart()</code>/<code>renameRecord()</code>… ⚠️ 这里没有一行网络请求</td>
+</tr>
+<tr>
+<td><code>draw.js</code></td>
+<td>331</td>
+<td>扁平示意图：迷宫 / 帧率 / 视频轨迹。纯白底、1px 网格、实心色块、无阴影无渐变</td>
+</tr>
+<tr>
+<td><code>style.css</code></td>
+<td>—</td>
+<td>样式（注意：<strong>不一物二用</strong>，改 CSS 前先看有没有别的块在复用同一条规则）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="52-viewsjs">5.2 九个页面（<code>views/*.js</code>）</h3>
+<p>全部经 <code>C.VIEWS.&lt;route&gt;</code> 注册，<code>shell.js</code> 按 <code>S.route</code> 取用；<strong>九个 key 与九个文件一一对应</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>路由 hash</th>
+<th>文件</th>
+<th>行数</th>
+<th>页面</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>#/overview</code></td>
+<td><code>overview.js</code></td>
+<td>288</td>
+<td>总览：两路状态 +  latest 读数</td>
+</tr>
+<tr>
+<td><code>#/live</code></td>
+<td><code>live.js</code></td>
+<td>317</td>
+<td>实时：波形 + 4 灯三态 + 拉取档位</td>
+</tr>
+<tr>
+<td><code>#/params</code></td>
+<td><code>params.js</code></td>
+<td>194</td>
+<td>参数表（<strong>依赖拉取在跑</strong>：不先 <code>syncPull()</code> 就空表）</td>
+</tr>
+<tr>
+<td><code>#/race</code></td>
+<td><code>race.js</code></td>
+<td>429</td>
+<td>比赛：墙图 + 发车/收车。⚠️ <strong>舞台页</strong>，需 <code>fitMain()</code> 现算高度</td>
+</tr>
+<tr>
+<td><code>#/maint</code></td>
+<td><code>maint.js</code></td>
+<td>233</td>
+<td>维护：标定分步 / 擦除（不可逆）/ 直控动作</td>
+</tr>
+<tr>
+<td><code>#/video</code></td>
+<td><code>video.js</code></td>
+<td>297</td>
+<td>视频复盘：选素材 → 起解析 → 看产物</td>
+</tr>
+<tr>
+<td><code>#/track</code></td>
+<td><code>track.js</code></td>
+<td>209</td>
+<td>轨迹回放（视频产物）</td>
+</tr>
+<tr>
+<td><code>#/data</code></td>
+<td><code>data.js</code></td>
+<td>450</td>
+<td>记录管理：搜索/筛选/多选/批量删/导入</td>
+</tr>
+<tr>
+<td><code>#/replay</code></td>
+<td><code>replay.js</code></td>
+<td>371</td>
+<td>迷宫记录回放：<strong>从帧重放建</strong>图，不读 <code>wall_rows</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>&lt;舞台页&gt;</strong>（<code>race</code> / <code>replay</code>）有专门的高度纪律：地图边长由<strong>可用高度</strong>决定，
+且必须量自身、不量视口（<code>fitMain()</code>）。详见 static/README.md。</p>
+</blockquote>
+<hr />
+<h2 id="6">6. 运行时模型</h2>
+<p><strong>一个重要的事实</strong>：PySide6 那套的事件循环 ≠ 这里的线程模型。这里有三类执行体：</p>
+<table>
+<thead>
+<tr>
+<th>执行体</th>
+<th>谁在跑</th>
+<th>纪律</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>asyncio 主循环</td>
+<td>aiohttp + <code>ctx.start_background()</code> 的两个 task</td>
+<td>端点零网络零同步阻塞；设备往返/串口/扫盘一律 <code>run_in_executor</code></td>
+</tr>
+<tr>
+<td>上游调度线程</td>
+<td><code>MouseClient</code> 的回调线程</td>
+<td>回调里<strong>只能</strong>把事件投进总线，不许调会阻塞等设备的 API（<code>ReentrancyError</code>）</td>
+</tr>
+<tr>
+<td>视频子进程</td>
+<td><code>VideoAdapter</code> <code>Popen</code> 起 Auto Locate</td>
+<td>只杀<strong>本次会话起的那个</strong>；被杀是 <code>cancelled</code> ≠ <code>failed</code></td>
+</tr>
+</tbody>
+</table>
+<p>后台两个 task：<code>mouse.sampler_loop()</code>（推波形 + 实验 8 自动收尾轮询）、<code>_bus_tap()</code>（留最新遥测供场地页算 Δ）。</p>
+<hr />
+<h2 id="7">7. 数据落点</h2>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>存什么</th>
+<th>入库</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>records/maze/*.maze.json</code></td>
+<td>实验 8 跑迷宫记录</td>
+<td><strong>否</strong>（gitignore）</td>
+<td>数据本体，<strong>不能删</strong></td>
+</tr>
+<tr>
+<td><code>records/video/&lt;id&gt;/</code></td>
+<td>视频会话产物 <code>session.json</code> + <code>trajectory.csv</code></td>
+<td>否</td>
+<td><code>session.json</code> 是权威，两者不一致时报告不取平均</td>
+</tr>
+<tr>
+<td><code>sessions/&lt;sid&gt;/</code></td>
+<td>整合层会话：<code>timeline.csv</code> / <code>meta.json</code> / <code>mouse/</code></td>
+<td>否</td>
+<td>⚠️ 老会话里的 <code>frames/</code>、<code>thumbs/</code>、<code>camera.json</code> <strong>只读保留</strong></td>
+</tr>
+<tr>
+<td><code>outputs/exp8_shots/</code></td>
+<td>实验八验收截图（实时/回放/退出回放）</td>
+<td><strong>是</strong></td>
+<td>无文档引用，属证据留档</td>
+</tr>
+<tr>
+<td><code>.tmp/</code></td>
+<td>运行草稿：日志/脚本/截图</td>
+<td>否</td>
+<td><strong>用完删</strong>（本次已清空并归档到仓库外）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8">8. 配置入口</h2>
+<p><code>config.yaml</code>（324 行解释器 <code>config.py</code>）。相对路径一律相对 <strong>config.yaml 所在目录</strong>（= Control 根）解析。</p>
+<p>新增配置项时注意<strong>「新段同步」</strong>那条纪律：同一种配置往往要在<strong>四处</strong>同时落地，
+漏一处就会出现"改了没生效"。细则见 <code>上位机整合设计方案.md</code> §11 的对应小节。</p>
+<hr />
+<h2 id="9">9. 文档地图</h2>
+<table>
+<thead>
+<tr>
+<th>想看什么</th>
+<th>去哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模块组成 / 依赖 / 数据流（本文）</td>
+<td><code>docs/模块组成总览.md</code></td>
+</tr>
+<tr>
+<td>设计主线、冻结的总纲、逐改版记录</td>
+<td><code>docs/上位机整合设计方案.md</code>（+ <code>.html</code> 离线版）</td>
+</tr>
+<tr>
+<td>某个端点对应上游哪个方法</td>
+<td><code>docs/接口对照表.md</code>（+ <code>.html</code>）</td>
+</tr>
+<tr>
+<td>什么做了、什么没做</td>
+<td><code>docs/未实现功能.md</code>（+ <code>.html</code>）</td>
+</tr>
+<tr>
+<td>怎么验（preflight / drill / browser_check …）</td>
+<td><code>docs/工具与校验.md</code></td>
+</tr>
+<tr>
+<td>前端路由、接缝、样式纪律</td>
+<td><code>control/static/README.md</code></td>
+</tr>
+<tr>
+<td>现场操作手册（收工行为、复盘）</td>
+<td>根 <code>README.md</code></td>
+</tr>
+<tr>
+<td>历史版本快照（<strong>不作现状使用</strong>）</td>
+<td><code>release/归档说明.md</code></td>
+</tr>
+</tbody>
+</table>
+  </main>
+</div>
+</body>
+</html>

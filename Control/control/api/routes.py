@@ -169,6 +169,11 @@ def register(app: web.Application, ctx: Any) -> None:
     r.add_get("/api/v1/records/{name}/replay", _records_replay)
     r.add_delete("/api/v1/records/{name}", _records_delete)
     r.add_post("/api/v1/records/{name}/video", _records_link)
+    # 改版四十：记录页要"增删查改"里缺的两条（改 / 批量删）。
+    # ⚠️ 批量删**单独一条端点**，不让前端循环发 N 个 DELETE：
+    #    那样半途失败（第 3 条 404）会让"删了几条"变成一个前端猜的数。
+    r.add_post("/api/v1/records/{name}/rename", _records_rename)
+    r.add_post("/api/v1/records/bulk-delete", _records_bulk_delete)
 
     r.add_get("/ws", ws_handler)
 
@@ -1700,6 +1705,71 @@ async def _records_delete(request: web.Request) -> web.Response:
     ctx.store.mark("control", "record.delete", name,
                    json.dumps({"removed": out.get("removed")}, ensure_ascii=False))
     return ok(out)
+
+
+async def _records_rename(request: web.Request) -> web.Response:
+    """**重命名一条记录**（改版四十）。`name` 是旧文件名，`to` 是新名字。
+
+    为什么不是 PUT `/{name}`：改名要**同时**处理 `<名>.link.json`，
+    语义是"换一个身份"而不是"改字段"（记录内容一个字节都不动）。
+
+    错误码按"人下一步该做什么"分：
+      * **404** 旧名字不存在 ⇒ 刷新列表（可能已被别人删了）；
+      * **400** 新名字非法 / 空 ⇒ 换个名字；
+      * **409** 新名字已被占 ⇒ 换个名字，**本端点绝不覆盖**；
+      * 盘上改失败 ⇒ 409 + `OSError` 原文（"改不掉"必须能追到原因）。
+    """
+    ctx = request.app["ctx"]
+    name = request.match_info.get("name") or ""
+    if not ctx.maze_rec.exists(name):
+        raise ApiError(404, f"没有这条记录：{name}（刷新一下列表，可能已经被删了）。")
+    d = await body_json(request, required=True)
+    to = str(d.get("to") or "").strip()
+    if not to:
+        raise ApiError(400, "缺少新名字（`to`）。")
+    loop = asyncio.get_running_loop()
+    try:
+        out = await loop.run_in_executor(None, lambda: ctx.maze_rec.rename(name, to))
+    except ValueError as e:
+        raise ApiError(409, str(e))
+    if out.get("renamed"):
+        ctx.store.mark("control", "record.rename", str(out.get("name") or ""),
+                       f"from={name}")
+    return ok(out)
+
+
+async def _records_bulk_delete(request: web.Request) -> web.Response:
+    """**批量删除**（改版四十）。`{names: [...]}` ⇒ 逐条结果。
+
+    ⚠️ 逐条报，**部分成功如实回**（`deleted` / `failed` + 每条的 `error`）。
+       不让前端自己循环发 DELETE：那样"删了几条"要靠前端数，半途失败就说不清。
+    ⚠️ 上限 200 条/次：再多就该归档目录，而不是让一次请求占满事件循环之外的线程。
+    ⚠️ 删的东西与单条 DELETE **完全一样**（记录 + 关联文件，不碰视频产物）。
+    """
+    ctx = request.app["ctx"]
+    d = await body_json(request, required=True)
+    names = d.get("names")
+    if not isinstance(names, list) or not names:
+        raise ApiError(400, "`names` 必须是非空数组（要删哪几条）。")
+    if len(names) > 200:
+        raise ApiError(400, f"一次最多删 200 条（这次给了 {len(names)} 条）。")
+    loop = asyncio.get_running_loop()
+    results = []
+    for n in names:
+        nm = str(n)
+        if not ctx.maze_rec.exists(nm):
+            results.append({"name": nm, "ok": False, "error": "没有这条记录（可能已被删）"})
+            continue
+        try:
+            out = await loop.run_in_executor(None, lambda nm=nm: ctx.maze_rec.delete(nm))
+            results.append({"name": nm, "ok": True, "removed": out.get("removed")})
+        except ValueError as e:
+            results.append({"name": nm, "ok": False, "error": str(e)})
+    deleted = sum(1 for r in results if r["ok"])
+    ctx.store.mark("control", "record.delete_bulk", "",
+                   f"deleted={deleted}/{len(results)}")
+    return ok({"deleted": deleted, "failed": len(results) - deleted,
+               "total": len(results), "results": results})
 
 
 async def _records_replay(request: web.Request) -> web.Response:

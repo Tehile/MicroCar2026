@@ -9,7 +9,12 @@
 </head>
 <body>
 
-<!-- ═══ 左轨：品牌 + 导航 + 情景模拟 ═══════════════════════════════════════ -->
+<!-- ═══ 左轨：品牌 + 导航 ═══════════════════════════════════════════════════
+     改版四十删掉了底部那两块（"情景"下拉 + 模式/协议两条小字）：
+       · 情景只改本地演示状态，接上真机后一个字节都不影响设备，纯噪音；
+       · "真机 · 已连后端" 与设备抽屉里的固件/协议/通道**是同一份事实的第二份读法**
+         （一元素一真相）。数据源状态改由顶栏那盏 `#ws` 如实显示。
+     ═══════════════════════════════════════════════════════════════════════ -->
 <aside class="rail" id="rail">
   <div class="brand">
     <span class="brand-mark">
@@ -20,23 +25,6 @@
     <span class="brand-text"><b>CONTROL</b><i>电脑鼠整合上位机</i></span>
   </div>
   <nav class="nav" id="nav"></nav>
-  <div class="rail-foot">
-    <label class="scene-pick">
-      <span>情景</span>
-      <select id="scene" title="只在原型里有效：切换可演示的状态组合">
-        <option value="ready">就绪 · 待发车</option>
-        <option value="run">运行中 · 冲刺</option>
-        <option value="estop">急停 · 锁存</option>
-        <option value="down">断连 · 两路都空</option>
-        <option value="oldfw">旧固件 310 · 4 灯未知</option>
-        <option value="novideo">无视频 · 只跑小车</option>
-      </select>
-    </label>
-    <!-- ⚠️ 这两格**由 JS 填**（`shell.js` 的 `renderRailMeta`），不写死：
-         写死过一次 "v9 / PROTO 9"，协议升到 v10 之后它还在那儿，而它长得跟
-         真数据一模一样 —— 是"第二个真相"。填不进去就显示 `—`，不编。 -->
-    <div class="rail-meta"><span id="rail-mode">—</span><span id="rail-proto">—</span></div>
-  </div>
 </aside>
 
 <!-- ═══ 主区 ═══════════════════════════════════════════════════════════════ -->
@@ -45,7 +33,11 @@
     <div class="crumb" id="crumb"></div>
     <div class="devices" id="devices"></div>
     <div class="top-actions">
-      <span class="ws" id="ws"><i></i>实时</span>
+      <!-- 数据源状态（改版四十）：以前这里写死"实时"、左轨底部写"真机 · 已连后端"，
+           两处都在**后端没起的时候就先说已连上**。现在只有一个来源：`LIVE.on`
+           （`shell.js` 的 `renderMode`），连上才写"实时"，否则写"原型"。
+           判不了（还没试完）写 `—`，不抢先说好话。 -->
+      <span class="ws" id="ws" title="数据源"><i></i><span>—</span></span>
       <button class="btn" id="btn-record">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/></svg>
         <span>开始记录</span>

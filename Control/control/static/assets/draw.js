@@ -240,7 +240,9 @@ C.draw = (function () {
     if (rawPeak < .2) {
       g.textAlign = 'center'; g.textBaseline = 'middle';
       g.font = '10px Consolas,monospace';
-      g.fillText('等待第一批', cw / 2, ch / 2 - 2);
+      /* 文案改版四十：原来写"等待第一批"—— 它暗示"马上就来"。
+         真实情况可能是"从来没连上"或"拉取没开"，那要人去做事，不是等。 */
+      g.fillText('还没有帧率样本', cw / 2, ch / 2 - 2);
       return;
     }
     g.textAlign = 'left'; g.textBaseline = 'top';

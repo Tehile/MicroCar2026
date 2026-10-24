@@ -35,22 +35,26 @@
                   ' title="只清这张图，记录与设备都不动">清空</button>' +
               '</div>' +
             '</div>' +
-            '<div class="card-body" style="padding:10px">' +
+            '<div class="card-body maze-body" style="padding:10px">' +
+              /* 改版四十：图例与建图诊断压成**紧凑两行**放在图下面。
+                 试过把图例搬进右侧窄栏（图是正方形，两侧本来有空白），实测**更糟**：
+                 1400×710 下中栏只有 ~466 px 宽，窄栏吃掉 186 px ⇒ 宽度成了新的瓶颈，
+                 地图从 351 掉到 300。地图边长是 `min(可用高, 可用宽)`，**只能在
+                 已经富余的那条边上省空间**，而这里富余的是高度。所以还是放下面，
+                 但把原来的"图例一行 + 诊断两三行"压成一紧凑行：省下的垂直线全部归地图。 */
               '<div class="maze-box"><canvas id="rc-maze"></canvas></div>' +
-              /* 图例与"这张图攒了多久"同一行：轨迹/帧数/秒数属于**这张图的来路**，
-                 放在卡头会把标题挤成两行（"迷宫重 / 构"），放在图例右侧正好。 */
               '<div class="maze-foot">' +
-                '<span class="legend"><i></i>已知墙</span>' +
-                '<span class="legend"><i class="dash"></i>未探明</span>' +
-                '<span class="legend"><i class="gray"></i>没走到（无数据）</span>' +
-                '<span class="legend"><i class="goal"></i>终点 2×2</span>' +
-                '<span class="hint mono maze-src" id="rc-trail">—</span>' +
+                /* 图例标签一律短到 2~3 字：括号里的解释（"探索前沿"/"无数据"）留在
+                   `title` 里 —— 界面上多一个字就可能把这一行挤成两行，而这一页
+                   每多 1 px 文字，正方形地图就少 1 px。 */
+                '<span class="legend" title="已确认为墙的面"><i></i>已知墙</span>' +
+                '<span class="legend" title="只在探索前沿画点线：这一段还没确认过"><i class="dash"></i>未探明</span>' +
+                '<span class="legend" title="车没走到过、也没有任何数据（不等于空地）"><i class="gray"></i>没走到</span>' +
+                '<span class="legend" title="终点 2×2 格，由后端锁死"><i class="goal"></i>终点 2×2</span>' +
+                '<span class="maze-src mono" id="rc-trail">—</span>' +
               '</div>' +
-              /* 建图诊断（改版三十九）：这六个数回答"这张图可不可信" ——
-                 条目为 0 说明还没走过新格；洞 > 0 说明缺了一段；溢出/重锚是
-                 固件环的自我说明；对账是两条独立来路的分歧数。 */
-              '<div class="hint mono" id="rc-mstat" style="margin-top:6px">—</div>' +
-              '<div class="hint" id="rc-mwarn" style="margin-top:3px"></div>' +
+              '<div class="maze-diag mono" id="rc-mstat">—</div>' +
+              '<div class="hint" id="rc-mwarn"></div>' +
             '</div>' +
           '</section>' +
 
@@ -65,7 +69,11 @@
               '<div class="hint" id="rc-hint"></div>' +
               '<div class="act-sep"></div>' +
               '<div class="act-3">' +
-                '<button class="btn wide" id="rc-recstop">' + C.icon('save') + '停止并保存</button>' +
+                /* 改版四十：这个按钮要能变成"已保存 · <名> · N 帧" ——
+                   车自己停下时后端**已经**收尾落盘了（`_maybe_finish_maze_rec`），
+                   不需要人再点一次。文案与门控全在 `paint()` 里，按 `S.rec` 走。 */
+                '<button class="btn wide" id="rc-recstop">' + C.icon('save') +
+                  '<span>停止并保存</span></button>' +
                 '<button class="btn" id="rc-mstop">收车</button>' +
                 '<button class="btn btn-danger" id="rc-rescue">复位</button>' +
               '</div>' +
@@ -80,7 +88,11 @@
             '<section class="card">' +
               '<div class="card-head"><h2>迷宫状态机</h2></div>' +
               '<div class="card-body"><dl class="kv compact" id="rc-state"></dl>' +
-                '<div class="banner" id="rc-note" style="margin-top:8px"></div></div>' +
+                '<div class="banner" id="rc-note" style="margin-top:8px"></div>' +
+                /* 停止原因（改版四十）：`STOPPED <reason>` 是唯一能回答"为什么停"的
+                   来路 —— 时间护栏到与红外护栏触发在帧里长得一模一样。
+                   没停过就不显示（空着，不写"未知"，那会像一条故障）。 */
+                '<div class="banner ok" id="rc-stop" style="margin-top:8px;display:none"></div></div>' +
             '</section>' +
           '</div>' +
         '</div>';
@@ -117,6 +129,7 @@
         this.paint(true);
       };
 
+      fitStage();
       this.paint(true);
     },
 
@@ -130,15 +143,21 @@
       });
 
       const rec = S.session.active;
+      /* 发车前检查改成**三态**（改版四十）：`ok===null` = 判不了（还没读到帧）。
+         原来 `t.battMv > 7000` 在没数据时算 false ⇒ 画成一个红叉"电池"，
+         看起来像"电池电压不够"，而真相是"根本没连上"。 */
       const checks = [
-        { ok: t.battMv > 7000, label: '电池', val: U.fmt(t.battMv, 0) + ' mV' },
+        { ok: t.battMv == null ? null : t.battMv > 7000, label: '电池',
+          val: t.battMv == null ? '—' : U.fmt(t.battMv, 0) + ' mV' },
         { ok: !S.estop, label: '急停', val: S.estop ? '锁存' : '未锁' },
-        { ok: !S.running && (t.mazeTask === 0 || t.mazeTask === 6), label: '任务机', val: CH.tasks[t.mazeTask] || String(t.mazeTask) },
+        { ok: t.mazeTask == null ? null : (!S.running && (t.mazeTask === 0 || t.mazeTask === 6)),
+          label: '任务机', val: CH.tasks[t.mazeTask] || (t.mazeTask == null ? '—' : String(t.mazeTask)) },
         { ok: rec, label: '记录', val: rec ? (S.session.frames + ' 帧') : '发车自动开录' },
       ];
       root.querySelector('#rc-checks').innerHTML = checks.map(c =>
         '<div class="check-row">' +
-        '<span class="ck' + (c.ok ? '' : ' no') + '">' + C.icon(c.ok ? 'check' : 'alert') + '</span>' +
+        '<span class="ck' + (c.ok === null ? ' unk' : (c.ok ? '' : ' no')) + '">' +
+        C.icon(c.ok === null ? 'x' : (c.ok ? 'check' : 'alert')) + '</span>' +
         '<span>' + c.label + '</span>' +
         '<span class="v">' + c.val + '</span></div>').join('');
 
@@ -151,6 +170,61 @@
         : S.estop ? '急停锁存 · 先解锁'
         : S.running ? '跑位中 · 收车 0.2~1 s 退出'
         : '预检通过';
+
+      /* ── 【停止并保存】= 记录器状态的镜像（改版四十）───────────────────────
+         为什么不再是一个单纯的按钮：后端在**车停 / 回 WAIT / 断链 / 超帧数**时
+         已经自动收尾落盘了。界面若还写着"停止并保存"，人会去点它，
+         然后得到一句"当前没有在记录"—— 那看起来像"保存失败了"。
+         三态：
+           在记        → 可点（提前收尾）
+           正在落盘    → 不可点，写"保存中…"
+           已落盘      → 不可点，写"已保存 · <名> · N 帧"
+           连后端都没  → 不可点（不知道在不在记，不许假装能停）
+         ⚠️ **不重复发 `record/stop`**：收尾是后端的决定，界面只读结果。 */
+      const rb = root.querySelector('#rc-recstop');
+      if (rb) {
+        const R = S.rec;
+        const lbl = rb.querySelector('span');
+        rb.className = 'btn wide';
+        if (R.on) {
+          lbl.textContent = '停止并保存';
+          rb.disabled = false;
+          rb.title = '提前收尾并落盘（车自己停了后端也会自动存）';
+        } else if (R.saving) {
+          lbl.textContent = '保存中…';
+          rb.disabled = true;
+          rb.title = '记录器正在写盘';
+        } else if (R.last && R.last.ok) {
+          lbl.textContent = '已保存 · ' + shortName(R.last.name) + ' · ' + (R.last.frames || 0) + ' 帧';
+          rb.disabled = true;
+          rb.className = 'btn wide ok';
+          rb.title = '已落盘（' + String(R.last.name || '') + '）· 路径 ' + String(R.last.path || '');
+        } else if (R.last && R.last.ok === false) {
+          lbl.textContent = '没记成 · ' + shortName(R.last.note || '没有收到帧');
+          rb.disabled = true;
+          rb.className = 'btn wide warn';
+          rb.title = String(R.last.note || '');
+        } else {
+          lbl.textContent = '停止并保存';
+          rb.disabled = true;
+          rb.title = C.LIVE.on ? '当前没有在记录（发车会自动开录）' : '未连后端 · 判不了在不在记';
+        }
+      }
+      /* 停止原因：只报**这一次**的话（`last_stop` 在新一跑开始时被后端清掉） */
+      const stopEl = root.querySelector('#rc-stop');
+      if (stopEl) {
+        const txt = String(S.rec.stopText || '');
+        if (txt) {
+          const at = S.rec.stopAt ? ' · ' + U.hhmmss(S.rec.stopAt) : '';
+          const code = String(S.rec.stopReason || '');
+          stopEl.style.display = '';
+          stopEl.className = 'banner ok';
+          stopEl.innerHTML = C.icon('check') + '<div class="b-body"><b>已停车</b> '
+            + U.esc(txt) + (code && code !== txt ? '（' + U.esc(code) + '）' : '') + at + '</div>';
+        } else {
+          stopEl.style.display = 'none';
+        }
+      }
 
       root.querySelector('#rc-spurt').innerHTML = kv([
         ['spurtMode', '冲刺档位', (CH.spurt[t.spurtMode] || t.spurtMode) + ' (' + t.spurtMode + ')'],
@@ -223,11 +297,16 @@
       }
       const msEl = root.querySelector('#rc-mstat');
       if (msEl) {
-        msEl.textContent = mstat
-          ? ['条目 ' + mstat.entries, '重锚 ' + mstat.resync, '序号断 ' + mstat.seq_gaps,
-             '环溢出 ' + mstat.lossy, '坐标差 ' + mstat.pos_mismatch,
-             '面冲突 ' + mstat.face_flip,
-             '对账 ' + (mdiff ? (mdiff.mismatch + '/' + mdiff.common) : '—')].join(' · ')
+        /* 紧凑行（改版四十）：原来是"一行 ` · ` 串联"，七项在 466 px 里会折两三行，
+           白白吃掉地图的高度（地图边长 = 可用高与可用宽取小）。这里改成
+           `标签 值` 成对排、可换行但每对不拆断，实测一行放得下，省下的高度全给图。 */
+        msEl.innerHTML = mstat
+          ? [['条目', mstat.entries], ['重锚', mstat.resync], ['序号断', mstat.seq_gaps],
+             ['环溢出', mstat.lossy], ['坐标差', mstat.pos_mismatch],
+             ['面冲突', mstat.face_flip],
+             ['对账', mdiff ? (mdiff.mismatch + '/' + mdiff.common) : '—']]
+            .map(r => '<span class="ms-i">' + r[0] + '<b>' + r[1] + '</b></span>')
+            .join('')
           : '—';
       }
       const mwEl = root.querySelector('#rc-mwarn');
@@ -261,21 +340,33 @@
         }
         mwEl.textContent = warn.join('；');
       }
-      root.querySelector('#rc-trail').textContent = mv
+      const trEl = root.querySelector('#rc-trail');
+      trEl.textContent = mv
         ? ('轨迹 ' + (view.trail || []).length + ' 点 · ' + (mv.frames_total || 0) + ' 帧'
            + (mv.covered_s ? ' · ' + U.fmt(mv.covered_s, 0) + ' s' : ''))
-        : '等设备帧';      const cv = root.querySelector('#rc-maze');
-      if (cv && cv.clientWidth) {
+        : '等设备帧';
+      /* 这一行是 `flex-wrap:nowrap` + 省略号：窄窗口下可能被截，所以把全文放 `title`。
+         不给 `title` 就成了"数字被截掉还看不出截了"。 */
+      trEl.title = trEl.textContent;
+      const cv = root.querySelector('#rc-maze');
+      /* ⚠️ 这里**不能**再用 `cv.clientWidth` 当"布局好了没"的闸：
+         画布宽度现在完全由 `fitMaze()` 写进 `style.width`（CSS 里那条 `width:100%`
+         已删，否则它会把边长拉成地图格的宽、跟高度算出来的边长打架）。
+         `clientWidth` 在首帧必然是 0 ⇒ 变成"永远不画"的死锁。闸改成 `cap` 非 0。 */
+      const cap = cv ? fitMaze(cv) : 0;
+      if (cap) {
         C.draw.maze(cv, {
           N: view.N, goal: view.goal || [], v: view.v || [], h: view.h || [],
           visited: view.visited || {}, trail: view.trail || [],
           path: [],                      // 实时图没有"规划路径"，只有走过的 trail
           car: car,
-        }, fitMaze(cv));
+        }, cap);
       }
     },
-
     onTick() {
+      /* 高度先量：窗口大小 / 日志坞展开收起都会变，而这三个区是"一边跑一边看"的。
+         每拍都量（两次 `getBoundingClientRect`，代价可忽略），值没变就不碰 DOM。 */
+      fitStage();
       this._n = (this._n || 0) + 1;
       if (this._n % 2) return;
       this.paint();
@@ -283,31 +374,52 @@
     onState() { this.paint(true); },
   };
 
-  /* 地图边长由**可用高度**定（改版三十九）。
-     地图是正方形 ⇒ 宽度再宽也用不上，唯一能变大的方向是"往上长"。
-     原先 `.maze-box canvas{width:100%}` 让它按**列宽**定型：1400×760 下列宽 500
-     ⇒ 地图 500×500 ⇒ 卡片正文高 618，把图例和建图诊断顶到视口外（诊断正是这一轮
-     新加的六个数，看不见等于没加）。这里改成现算：
-       视口底（减日志坞）− 正文顶 − 图例/诊断行高 ⇒ 剩下的才是画布
-     再向下取整 1 px（算满会顶出一条滚动条，整页横向窄 15 px）。 */
+  /* 地图边长由**中栏卡片自己的可用高度**定（改版四十）。
+     原先量的是 `body.getBoundingClientRect().top + window.scrollY` —— **视口相对位移**。
+     可这一页原来整页滚：往下滚 top 变小 ⇒ `avail` 变大 ⇒ 每 250 ms 的 `onTick`
+     重画就换一个边长。**"滚轮会缩放地图"就是这么来的，代码里根本没有缩放功能。**
+     现在三列各滚各的（`.main` 固定高度 + 栏内 `overflow:auto`），中栏卡片由 flex
+     分配到一个确定高度 ⇒ 直接读 `clientHeight`，与滚动彻底解耦。
+
+     画布是正方形，宽度再富余也用不上，所以只能由**较紧的那一边**定：
+       可用高 = 正文内高 − 上下 padding − 图例行 − 诊断行（都实测）− 1 px
+       可用宽 = 正文内宽
+     ⚠️ 这两行必须**实测 `offsetHeight`**，不能写常数：诊断那一行在有统计时是七个数
+        （可能折行）、没统计时只有一个 `—`，告警块也是有时才出现。写死就等于
+        "图要么被裁、要么白留一截"。
+     ⚠️ 也别想着把图例搬到右边省高度 —— 试过了，中间栏只有 ~466 px 宽，
+        窄栏占 186 px 后宽度变成瓶颈，地图反而从 351 掉到 300（实测）。
+        正方形只吃 `min(高, 宽)`，能省的必须是**已经富余**的那条边。
+     下限 220：再小连 16×16 的格子线都糊成一片。 */
   function fitMaze(cv) {
     const body = (cv && cv.closest) ? cv.closest('.card-body') : null;
     if (!body) return 0;
     const cs = getComputedStyle(body);
     const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    const foot = body.querySelector('.maze-foot');
-    const st = body.querySelector('#rc-mstat');
-    const wn = body.querySelector('#rc-mwarn');
-    const others = padV
-      + (foot ? foot.offsetHeight : 0)
-      + (st ? st.offsetHeight + 6 : 0)
-      + (wn ? wn.offsetHeight + 3 : 0);
-    const dock = document.getElementById('dock');
-    const dockH = dock ? dock.getBoundingClientRect().height : 0;
-    const top = body.getBoundingClientRect().top + window.scrollY;
-    const avail = window.scrollY + window.innerHeight - dockH - 8 - top - others - 1;
-    /* 下限 240：再小就连 16×16 的格子线都糊成一片，不如让页面滚。 */
-    return Math.max(240, Math.min(avail, body.clientWidth));
+    const padH = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    let below = 0;
+    body.querySelectorAll('.maze-foot, .maze-diag, #rc-mwarn').forEach(function (e) {
+      /* 告警块没话说时是空的：`:empty` 高度本来就是 0，但 margin 仍在 ⇒ 用 offsetHeight 判。 */
+      if (e.offsetHeight > 0) below += e.offsetHeight + 4;
+    });
+    const availH = body.clientHeight - padV - below - 1;
+    const availW = body.clientWidth - padH;
+    if (availH <= 0 || availW <= 0) return 0;      // 还没布局好：这一拍不画
+    return Math.max(220, Math.min(availH, availW));
+  }
+
+  /* 主区高度 = 视口 − 顶栏 − 日志坞（实测，**不写常数**）。实现收在 `lib.js` 的
+     `fitMain()`（记录页也用同一条口径，两处不要各写一份）。
+     每次 `onTick` 都量一次，值没变就不碰 DOM（避免无谓的重排）。 */
+  function fitStage() {
+    C.fitMain();
+  }
+
+  /* 记录名去掉后缀：`20261024_210412_mz7.maze.json` → `20261024_210412_mz7`。
+     按钮上要留得住（一行），完整名字在 `title` 里。判不了就给 `—`。 */
+  function shortName(s) {
+    const v = String(s == null ? '' : s).replace(/\.maze\.json$/, '');
+    return v || '—';
   }
 
   function kv(rows) {

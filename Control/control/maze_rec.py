@@ -625,6 +625,12 @@ class MazeRecorder:
         #: 这一段的文件名（**开录时**就定，见 `status()`；落盘时 `_write()` 用它）。
         self._name: Optional[str] = None
         self._last: Optional[Dict[str, Any]] = None     # 最近一次的收尾摘要
+        #: **最近一次 `STOPPED` 上行事件**（改版四十）：`{reason, reason_text, t_ms}`。
+        #: 为什么要存下来：`reason`（TIME / IR / ESTOP / USER / END）**从帧里推不出来**
+        #: ——"时间护栏到"与"红外护栏触发"在帧里长得一样。它原来只走 WS 往界面上闪一下，
+        #: 而记录器自己不留 ⇒ 刷新一次页面就再也说不出"它为什么停的"，
+        #: 但那恰恰是复盘第一个要问的问题。这里留一份，随 `status()` 一起端出去。
+        self._last_stop: Optional[Dict[str, Any]] = None
         self._maps: Dict[str, MazeWallMap] = {}         # 复盘缓存：name → 重建图
         #: v10 建图增量通道的重建（改版三十九）。**与比赛页同一份算法**
         #: （`control/map_live.py`），所以"回放看到的图"与"当时看的图"是同一条来路。
@@ -793,7 +799,14 @@ class MazeRecorder:
             return None if r is None else r.get("auto_end")
 
     def status(self) -> Dict[str, Any]:
-        """给界面的一行状态。**不发命令、零设备访问。**"""
+        """给界面的一行状态。**不发命令、零设备访问。**
+
+        改版四十加了两个键，都是"停车之后界面还得说得出话"需要的：
+          · `auto_end`  —— 该收尾的原因（`stopped_event` / `back_to_wait` / `link_down`
+            / `max_frames`）。界面靠它区分"人点的停止"与"车自己停的"。
+          · `last_stop` —— 最近一条 `STOPPED` 事件的原话（`reason` 码 + `reason_text` 人话）。
+            没有它就只剩"已保存 · 多少帧"，而**为什么停**是复盘第一个要问的问题。
+        """
         with self._lock:
             r = self._rec
             out = {
@@ -806,10 +819,12 @@ class MazeRecorder:
                 # "· 记录 <名>"从来没出现过（谁也发现不了，因为它长得像可选的）。
                 "name": (self._name if r is not None else None),
                 "last": self._last,
+                "last_stop": self._last_stop,
             }
             if r is not None:
                 out["why"] = r.get("why")
                 out["mazetype"] = r.get("mazetype")
+                out["auto_end"] = r.get("auto_end")
             return out
 
     # ------------------------------------------------------------ 起
@@ -839,6 +854,9 @@ class MazeRecorder:
             # 而回放那份是单段的 ⇒ 两条来路看起来"完全不一样"）。
             # 零点**不在这里钉**：交给"发车后的第一帧"，与落盘那份的 `t0` 同源。
             self._reset_epoch("launch")
+            # 新一跑 ⇒ 上一跑的"为什么停"作废（改版四十）。不清的话，界面在车还没
+            # 停下时就会挂着上一次的"红外护栏触发"，看起来像这一次也停了。
+            self._last_stop = None
             self._rec = {
                 "why": str(why or "manual"),
                 "mazetype": (None if mazetype is None else _i(mazetype, 7)),
@@ -1200,6 +1218,15 @@ class MazeRecorder:
             self._ev_ring.append(ev)
             if len(self._ev_ring) > EV_RING:
                 del self._ev_ring[:len(self._ev_ring) - EV_RING]
+            # `STOPPED` ⇒ 记下"为什么停"（**不管在不在记录**都要记：车可能是在
+            # 手动记录之外停的，那也得答得出原因）。见 `_last_stop` 的注释。
+            if ev["event"] == "STOPPED":
+                self._last_stop = {
+                    "reason": ev["reason"],
+                    "reason_text": ev["reason_text"],
+                    "t_ms": now_ms,
+                    "seq": ev.get("seq"),
+                }
             r = self._rec
             if r is None:
                 return
@@ -1246,6 +1273,11 @@ class MazeRecorder:
             if r is None:
                 return {"ok": False, "note": "当前没有在记录"}
             self._rec = None
+            # "正在落盘"占位（改版四十）：从这一行到下面 `_last = summary` 之间有一次
+            # 几毫秒~几十毫秒的 JSON 落盘，而界面每 1 s 轮询一次 `status()`。撞上这个
+            # 窗口的话，界面会把**上一次**的摘要当成这一次的结果（名字、帧数全错）。
+            # ⇒ 先放一个 `pending`，界面看到它就写"保存中…"，等下一拍再报结论。
+            self._last = {"ok": None, "pending": True, "end_why": why}
 
         # ---- 落盘（**在锁外**做 IO：调度线程可能正等锁，别让它等磁盘）
         # ⚠️ `firmware_map` 只作**对账基准**，可以缺（跑动中不一定会拉墙图）。
@@ -1994,6 +2026,56 @@ class MazeRecorder:
             raise ValueError(f"没有这份记录：{name!r}")
         return {"ok": True, "name": name, "removed": removed,
                 "note": "记录已删除（视频产物不受影响）"}
+
+    #: 记录名里不许出现的字符（Windows 文件名非法字符 + 路径分隔符）。
+    NAME_BAD = '\\/:*?"<>|'
+
+    def rename(self, name: str, to: str) -> Dict[str, Any]:
+        """把一条记录**改名**（连同它的 `.link.json`）。返回新名字。
+
+        为什么需要（改版四十）：记录名本来只有"时间戳_mz档位"这一种（`_name_for`），
+        而现场经常要按小队 / 题目重命名。没有这个方法，唯一的办法是去资源管理器里改
+        —— 那样 `<名>.link.json` 会**跟着旧名留下**，界面上这条记录的视频关联
+        就"无声消失"了（列表里显示"无视频记录"，而关联文件明明还在）。
+
+        三条纪律：
+          * 只改**文件名**，不改内容 —— `*.maze.json` 里没有"我叫什么"这个字段；
+          * 冲突 ⇒ `ValueError`（端点翻成 **409**），**绝不覆盖**同名记录；
+          * 非法字符 / 空名 ⇒ `ValueError`（端点翻成 400）。
+        """
+        src = self._safe_path(name)                 # 不存在 / 穿越都在这儿抛
+        stem = str(to or "").strip()
+        if stem.endswith(".maze.json"):
+            stem = stem[: -len(".maze.json")]
+        if not stem:
+            raise ValueError("新名字不能为空")
+        if len(stem) > 80:
+            raise ValueError("新名字太长（最多 80 个字符）")
+        if stem.startswith(".") or any(c in stem for c in self.NAME_BAD):
+            raise ValueError('新名字里有文件名不能用的字符（\\ / : * ? " < > |）')
+        dst = self.root / (stem + ".maze.json")
+        if dst == src:
+            return {"ok": True, "renamed": False, "from": src.name, "name": src.name,
+                    "note": "名字没变"}
+        if dst.exists():
+            raise ValueError(f"已经有一条叫 {stem!r} 的记录了（不覆盖）")
+
+        old_link = self.root / (src.name[: -len(".maze.json")] + self.LINK_SUFFIX)
+        new_link = self.root / (stem + self.LINK_SUFFIX)
+        moved_link = False
+        try:
+            src.rename(dst)
+            if old_link.is_file():
+                old_link.rename(new_link)
+                moved_link = True
+        except OSError as e:
+            # 记录本体改成了、关联没跟进的情况要**说出来**（否则界面上关联会"消失"）
+            raise ValueError(f"改名失败：{type(e).__name__}: {e}") from e
+        with self._lock:
+            self._maps.pop(name, None)
+        return {"ok": True, "renamed": True, "from": src.name, "name": dst.name,
+                "link": moved_link,
+                "note": "已改名" + ("（关联文件同步改名）" if moved_link else "")}
 
     def exists(self, name: str) -> bool:
         """这条记录**在不在**（顺带防目录穿越）。

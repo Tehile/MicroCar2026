@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from control.store import _rmtree_quiet      # noqa: E402  「绝不抛异常」的删除器
+from control.maze_rec import FORMAT as REC_FORMAT   # noqa: E402  导入临时记录要用它
 
 RESULTS: list = []          # (id, 结论, 说明)
 HW_ONLY = "需要现场硬件"
@@ -1195,6 +1196,145 @@ def _mouse_sections(base: str, args, sim) -> None:
                + ("" if i53_ok else
                   " ⇒ 图没有真的换成增量来源：`未探明` 不存在说明还是主机推断那套"
                   "（它把'没走到'当成'没有墙'），或者全场被填成同一个值（编的）"))
+
+    # ---- I54 / I55：记录改名 + 批量删除（改版四十）
+    #
+    # 为什么这两条要单立：它们都是**改数据**的动作，做错了界面上都看不出异常 ——
+    #   · 改名漏搬 `<名>.link.json` ⇒ 列表里新名字好端端躺着，而"记录 → 视频"
+    #     的关联**静默丢了**（那份关联只存在于那个小文件里，记录本体里没有）；
+    #   · 批量删若靠前端循环发 N 个 DELETE ⇒ 半途失败时"到底删了几条"只能靠数，
+    #     而这件事**不可逆**。
+    # 所以钉五件事（含两条负向）：
+    #   ① 改名成功后列表里新旧名字一对一换掉，且 `.link.json` 跟着搬（有视频会话时）；
+    #   ② **负向**：新名字已被占 ⇒ 409，且**被占的那条一个字节没动**（不许"先删后写"）；
+    #   ③ 同名改名 ⇒ 200 但 `renamed:false`（幂等，不是错误）；
+    #   ④ **负向**：空 `to` ⇒ 400、带路径分隔符 ⇒ 409、源不存在 ⇒ 404；
+    #   ⑤ 批量删**逐条报**：真删掉 1 条 + 不存在的 1 条如实报失败，空数组 ⇒ 400。
+    # ⚠️ 全程只用**自己导入的临时记录**，跑完删干净 —— 真记录一条都不碰。
+    head("14g. 判据 I54/I55：记录改名（关联一起搬 / 409 不覆盖 / 幂等）+ 批量删（逐条报）")
+    scratch: list = []
+
+    def _imp(tag: str) -> str:
+        """导入一条 1 帧的临时记录，返回落盘文件名（失败给空串）。
+
+        ⚠️ `created_ms` **必须有**：导入不只是校验格式，还要用创建时刻生成文件名
+           （`_name_for`）。少这个键 ⇒ `KeyError` 翻成 500。手写 doc 的判据最容易
+           漏这一条，漏了会看到"导入失败"而不是"我少给了键"。
+        """
+        rr, cc, _ = api(base, "/api/v1/mouse/maze/records/import", "POST",
+                        {"name": tag, "doc": {"format": REC_FORMAT,
+                                              "channels": ["a", "b"],
+                                              "frames": [[0, 0]], "t_ms": [0],
+                                              # 两次导入必须落到**不同的**文件名，
+                                              # 否则第二次会覆盖第一次，"重名冲突"就测不出来了。
+                                              "created_ms": int(time.time() * 1000)
+                                                            + len(scratch) * 1000}})
+        nm = str((rr.get("data") or {}).get("name") or "")
+        if cc == 200 and nm:
+            scratch.append(nm)
+        return nm if cc == 200 else ""
+
+    def _names() -> set:
+        rl, cl, _ = api(base, "/api/v1/records?n=500")
+        return {str(x.get("name")) for x in ((rl.get("data") or {}).get("records") or [])}
+
+    # ⚠️ 路径里的 `name`、列表里的 `name` 都是**带后缀的文件名**，而改名的 `to`
+    #    要的是**不带后缀的名字**。第一版直接把 "X.maze.json" 拼成 "X.maze.json-rn"
+    #    传进去 ⇒ 落盘成 "X.maze.json-rn.maze.json"（后缀被追加了一遍），
+    #    列表里当然找不到新名字，后面几步全部 404。判据自己写错时，
+    #    它报的"改名把东西搬坏了"是**假红**（铁律 52 的另一面：先看判据自己）。
+    STEM = ".maze.json"
+
+    def _stem(full: str) -> str:
+        return full[:-len(STEM)] if full.endswith(STEM) else full
+
+    n54a = _imp("drill-i54-a")
+    n54b = _imp("drill-i54-b")
+    # 有视频会话就把关联也钉上（没有就如实说"判不了"，不假装通过）
+    vsid = ""
+    rv, cvv, _ = api(base, "/api/v1/video/sessions")
+    for s in ((rv.get("data") or {}).get("sessions") or []):
+        if s.get("id"):
+            vsid = str(s["id"])
+            break
+    if n54a and vsid:
+        # 关联落盘成 `<名>.link.json`；改名时它必须一起搬，否则关联静默消失。
+        api(base, f"/api/v1/records/{quote(n54a)}/video", "POST", {"video_sid": vsid})
+    new_stem = _stem(n54a) + "-rn" if n54a else ""
+    renamed = new_stem + STEM        # 改名成功后应有的**文件名**
+    r1, c1, _ = api(base, f"/api/v1/records/{quote(n54a)}/rename", "POST", {"to": new_stem})
+    d1 = r1.get("data") or {}
+    names_after = _names()
+    moved = bool(c1 == 200 and d1.get("renamed")) and (renamed in names_after) \
+        and (n54a not in names_after)
+    if moved:
+        scratch.remove(n54a)
+        scratch.append(renamed)
+    # 关联跟着搬：`.link.json` 也得在
+    link_moved = None
+    if moved and vsid:
+        rl2, _, _ = api(base, "/api/v1/records?n=500")
+        for row in ((rl2.get("data") or {}).get("records") or []):
+            if str(row.get("name")) == renamed:
+                link_moved = (row.get("video_sid") == vsid)
+                break
+    # 同名 ⇒ 幂等（`to` 给不带后缀的名字）
+    r2, c2, _ = api(base, f"/api/v1/records/{quote(renamed)}/rename", "POST",
+                    {"to": new_stem})
+    idem = (c2 == 200 and (r2.get("data") or {}).get("renamed") is False)
+    # 负向：新名已被占 ⇒ 409，且被占的那条没动
+    if n54b:
+        r3, c3, _ = api(base, f"/api/v1/records/{quote(renamed)}/rename", "POST",
+                        {"to": _stem(n54b)})
+    else:
+        r3, c3 = {}, -1
+    conflict = (c3 == 409 and n54b in _names())
+    # 负向：空 / 非法 / 源不存在
+    _r, c_empty, _ = api(base, f"/api/v1/records/{quote(renamed)}/rename", "POST", {"to": "  "})
+    _r, c_slash, _ = api(base, f"/api/v1/records/{quote(renamed)}/rename", "POST",
+                         {"to": "../i54-escape"})
+    _r, c_404, _ = api(base, "/api/v1/records/__no_such_i54__.maze.json/rename", "POST",
+                       {"to": "whatever"})
+    gates = (c_empty == 400 and c_slash == 409 and c_404 == 404)
+    i54_ok = bool(n54a and n54b and moved and idem and conflict and gates
+                  and (link_moved is not False))
+    record("I54", "PASS" if i54_ok else "FAIL",
+           f"改名 {n54a} → {renamed}：HTTP {c1}、renamed={d1.get('renamed')!r}、"
+           f"列表里新旧一对一换掉={moved}；"
+           f"关联搬迁：{'无视频会话 ⇒ 判不了' if not vsid else link_moved!r}；"
+           f"同名幂等={idem}（200 且 renamed:false）；"
+           f"负向：重名 409 且被占那条仍在={conflict}（实际 {c3}）、"
+           f"空名 400={c_empty == 400}、带 `..` 的 409={c_slash}、源不存在 404={c_404 == 404}"
+           + ("" if i54_ok else
+              " ⇒ 改名把东西搬坏了：`.link.json` 没跟着搬（关联静默丢）、"
+              "或者覆盖了已存在的记录（不可逆）、或者把非法名当成了合法名"))
+
+    # I55：批量删 —— 一次请求、逐条结果
+    _r, c_bulk0, _ = api(base, "/api/v1/records/bulk-delete", "POST", {"names": []})
+    ghost = "__no_such_i55__.maze.json"
+    r5, c5, _ = api(base, "/api/v1/records/bulk-delete", "POST",
+                    {"names": [renamed, ghost]})
+    d5 = r5.get("data") or {}
+    res5 = {str(x.get("name")): bool(x.get("ok")) for x in (d5.get("results") or [])}
+    left = _names()
+    i55_ok = bool(c_bulk0 == 400 and c5 == 200
+                  and d5.get("deleted") == 1 and d5.get("failed") == 1
+                  and res5.get(renamed) is True and res5.get(ghost) is False
+                  and renamed not in left)
+    record("I55", "PASS" if i55_ok else "FAIL",
+           f"空数组 ⇒ {c_bulk0}（应 400）；混着删 [存在, 不存在] ⇒ {c5}、"
+           f"deleted={d5.get('deleted')} failed={d5.get('failed')}、"
+           f"逐条结果={res5}、真删掉的那条已不在列表={renamed not in left}"
+           + ("" if i55_ok else
+              " ⇒ 批量删没有逐条报：前端拿不到'哪几条没删成'，"
+              "而这件事不可逆，只能当成全成了"))
+    # 清场：把剩下的临时记录删干净（**测试不留产物**）
+    if n54b:
+        api(base, "/api/v1/records/bulk-delete", "POST", {"names": [n54b]})
+    for nm in list(scratch):
+        if nm in _names():
+            api(base, "/api/v1/records/bulk-delete", "POST", {"names": [nm]})
+    scratch.clear()
 
 
 

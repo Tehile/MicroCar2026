@@ -80,17 +80,7 @@ h1,h2,h3,h4,p{margin:0}
 .nav-item.on{background:var(--ink);color:#fff;border-left-color:var(--blue)}
 .nav-item.on svg{opacity:1}
 
-.rail-foot{border-top:1px solid var(--line);padding:12px 14px 14px}
-.scene-pick{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--muted)}
-.scene-pick span{letter-spacing:.1em;text-transform:uppercase;font-weight:700;font-size:9px}
-.scene-pick select{
-  flex:1;min-width:0;background:var(--paper);border:1px solid var(--line);
-  color:var(--ink);font-size:11px;padding:4px 5px;border-radius:0;
-}
-.rail-meta{
-  display:flex;justify-content:space-between;margin-top:9px;
-  font-family:var(--mono);font-size:9px;color:var(--muted-2);letter-spacing:.04em;
-}
+/* 左轨底部原本有"情景"下拉 + 模式/协议两格，改版四十整块删除（见 index.html 注释）。 */
 
 /* ── 顶栏 ─────────────────────────────────────────────────────────────── */
 .app{margin-left:var(--rail);min-height:100vh;display:flex;flex-direction:column}
@@ -131,6 +121,11 @@ h1,h2,h3,h4,p{margin:0}
   color:var(--muted);letter-spacing:.08em;margin-right:4px;
 }
 .ws i{width:6px;height:6px;background:var(--green)}
+/* 数据源三态（改版四十）：连上=绿"实时" / 退回原型=琥珀"原型" / 还没试完=空心"…"。
+   空心不是省事：`LIVE.on` 第一次握手回来之前谁也不该先说"已连上"。 */
+.ws.proto{color:#946200}
+.ws.proto i{background:var(--amber)}
+.ws.unknown i{background:transparent;border:1px solid var(--muted-2)}
 
 /* ── 页面 ─────────────────────────────────────────────────────────────── */
 /* `overflow-x:clip` 而不是 `hidden`：hidden 会把 overflow-y 算成 auto ⇒ .main 变成
@@ -193,6 +188,13 @@ h1,h2,h3,h4,p{margin:0}
 .btn-lg{height:44px;font-size:13.5px;padding:0 20px}
 .btn-block{width:100%}
 .btn.wide{grid-column:1 / -1}
+/* 记录器收尾后的两种静止态（改版四十）：**已保存**（绿框）与**没记成**（琥珀框）。
+   它们都是 `disabled`，所以要把 `:disabled` 那层 .38 透明压回来 ——
+   否则"已经存好了"看起来像"按不了所以没存"。 */
+.btn.wide.ok{background:#F0F7F1;border-color:#9CC6A4;color:#1E6B33;opacity:1}
+.btn.wide.ok:disabled{opacity:1;cursor:default}
+.btn.wide.warn{background:#FFF8EC;border-color:#E0BE7E;color:#7A5300;opacity:1}
+.btn.wide.warn:disabled{opacity:1;cursor:default}
 .btn-estop{background:var(--ink);border-color:var(--ink);color:#fff;padding:0 14px}
 .btn-estop:hover{background:var(--red);border-color:var(--red);color:#fff}
 .btn-estop.latched{background:var(--red);border-color:var(--red);color:#fff;animation:pulse 1.1s steps(2,end) infinite}
@@ -509,6 +511,47 @@ h1,h2,h3,h4,p{margin:0}
 /* ── 比赛 ─────────────────────────────────────────────────────────────── */
 .race-grid{display:grid;grid-template-columns:300px minmax(0,1fr) 336px;gap:12px;align-items:start}
 .race-chan .card-body{padding:4px 12px 8px}
+
+/* 比赛页：**三列各滚各的**（改版四十）。
+   原来 `.race-grid` 没有高度约束，三列靠 `.main` 整页滚 ⇒ 滚一下左栏，
+   中间的地图和右栏的发车按钮一起跑出视口，而这三个区是"一边跑一边看"的，
+   不该互相牵动。
+   高度不写 `vh − 常数`：日志坞是可变的（收起一行 / 展开一大块），常数一写就错。
+   由 `race.js` 的 `fitStage()` 实测写进 `.main` 的行内高度，这里只负责分配：
+     主区固定高度 → 网格 flex 撑满 → 左右栏 `overflow:auto` → 中栏卡片吃满剩余。
+   ⚠️ `.main` 上的 `overflow:hidden` 只在这个路由生效，其余页仍是 `overflow-x:clip`。
+   ⚠️ 必须同时把 `flex` 改掉：`.main{flex:1}` 展开是 `1 1 0%`，**flex-basis 为 0
+      时行内 `height` 根本不参与计算**（实测：写了 611px，`offsetHeight` 仍是 1165）。
+      这两条（比赛 / 记录）一律 `flex:0 0 auto`，高度只听 `height`。 */
+body[data-route="race"] .main,
+body[data-route="data"] .main{flex:0 0 auto}
+body[data-route="race"] .main{padding-bottom:12px;overflow:hidden;display:flex;flex-direction:column}
+body[data-route="race"] .page{flex:1;min-height:0;display:flex;flex-direction:column;max-width:none}
+/* ⚠️ `.page` 自带 `margin:0 auto`，而它现在是 flex 列的子项 —— **自动外边距会让
+   "拉伸"失效**（`align-self` 变成 `auto` ⇒ 宽取 `fit-content`）。实测：`.main` 有
+   1184 px，`.page` 只有 958 px，中栏因此被挤到 356 px，地图从本可有的 394 掉到 334。
+   更坏的是它形成**反馈环**：页面宽 = 中间栏内容宽（`1fr` 在不确定宽度下退化成
+   max-content）= 画布宽 ⇒ 画布多宽页面就多宽，永远长不大。
+   `margin:0` 恢复拉伸，宽度这才与内容无关。 */
+body[data-route="race"] .page,
+body[data-route="data"] .page{margin:0;align-self:stretch}
+body[data-route="race"] .page-head{flex:none}
+/* ⚠️ `#view` 也必须是 flex 列：`.race-grid` / `.dt-list` 挂在它下面，
+   而它默认是 `display:block` ⇒ 子元素的 `flex:1` **一点作用都没有**
+   （实测：`.page` 已经是 573，`.race-grid` 仍是 1039 的内容高，于是三列都不滚、
+   记录列表把日志坞顶出 1762 px）。这一条加错地方等于全部没做。 */
+body[data-route="race"] #view,
+body[data-route="data"] #view{flex:1;min-height:0;display:flex;flex-direction:column}
+body[data-route="race"] .race-grid{flex:1;min-height:0;align-items:stretch}
+body[data-route="race"] .race-grid > .stack,
+body[data-route="race"] .race-grid > .card{min-height:0;max-height:100%}
+/* 左右两栏：自己滚，滚动条贴在栏内 */
+body[data-route="race"] .race-chan,
+body[data-route="race"] .race-side{overflow-y:auto;overflow-x:hidden}
+/* 中栏：卡片撑满，正文让出画布；画布尺寸由 `fitMaze()` 按**自身**可用高度定 */
+body[data-route="race"] .race-grid > .card{display:flex;flex-direction:column;overflow:hidden}
+body[data-route="race"] .race-grid > .card > .card-body{flex:1;min-height:0;display:flex;flex-direction:column}
+body[data-route="race"] .maze-box{flex:1;min-height:0;align-items:center}
 .race-chan .kv > div{padding:2.5px 0}
 .race-chan .kv dd{font-size:11px}
 .launch-card{display:flex;flex-direction:column;gap:12px;padding:14px}
@@ -520,6 +563,8 @@ h1,h2,h3,h4,p{margin:0}
 .check-row .ck{width:16px;height:16px;display:grid;place-items:center;background:var(--green);color:#fff}
 .check-row .ck svg{width:10px;height:10px}
 .check-row .ck.no{background:var(--amber);color:var(--ink)}
+/* 判不了（改版四十）：既不是通过也不是不通过 —— 空心灰底，不涂红也不涂绿。 */
+.check-row .ck.unk{background:transparent;color:var(--muted-2);border:1px solid var(--line)}
 .check-row .v{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-align:right}
 .launch-btn{
   width:100%;height:76px;border:0;background:var(--blue);color:#fff;
@@ -536,10 +581,7 @@ h1,h2,h3,h4,p{margin:0}
 /* 地图是正方形 ⇒ 边长受**高度**约束（`fitMaze()` 现算），横向必然有富余。
    以前左靠会让右边空出一大块，看着像"图没画完"；居中读起来才对。 */
 .maze-box{position:relative;display:flex;justify-content:center}
-.maze-box canvas{width:100%;flex:0 0 auto;display:block;background:#fff}
-.maze-foot{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding-top:8px;font-size:10.5px;color:var(--muted)}
-/* 这张图的来路：轨迹点数 / 累计帧 / 覆盖时长，靠右（与图例同一行，不占卡头） */
-.maze-foot .maze-src{margin-left:auto;font-size:10.5px;color:var(--muted);white-space:nowrap}
+.maze-box canvas{flex:0 0 auto;display:block;background:#fff}
 .legend{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted)}
 .legend i{width:14px;height:0;border-top:2px solid var(--ink);display:inline-block}
 .legend i.dash{border-top:1px dotted var(--line-2)}
@@ -551,6 +593,32 @@ h1,h2,h3,h4,p{margin:0}
    ⚠️ 它表达的是"**没有数据**"，不是"空地" —— 两者的图例必须分开画。 */
 .legend i.gray{width:12px;height:9px;border:0;background:rgba(24,25,28,.07)}
 .race-side .card + .card{margin-top:12px}
+
+/* 地图下面两行（改版四十）：图例 + 建图诊断。**必须压得足够扁** ——
+   地图是正方形，边长 = `min(可用高, 可用宽)`，这里可用宽只有 ~446 px
+   而可用高有 ~430 px ⇒ 每多占 1 px 垂直线，图就小 1 px。
+   （试图把这两行搬到右侧窄栏反而更糟：窄栏占 186 px 宽，把"富余边"变成瓶颈，
+   实测地图 351 → 300。省空间只能在**已经富余**的那条边上省。） */
+.maze-foot{display:flex;gap:12px;flex-wrap:nowrap;align-items:center;padding-top:8px;font-size:10.5px;color:var(--muted)}
+.maze-foot .legend{flex:0 0 auto}
+/* 这张图的来路：轨迹点数 / 累计帧 / 覆盖时长，靠右（与图例同一行，不占卡头）。
+   ⚠️ 这一行**不许换行**：一旦折成两行就是 23 px，等于地图小 23 px（实测 366→339）。
+      宽度不够时让它自己省略（`title` 里有全文），而不是把图例挤下去。 */
+.maze-foot .maze-src{
+  margin-left:auto;flex:0 1 auto;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:10.5px;color:var(--muted);
+}
+/* 建图诊断：成对齐排、可换行但成对不拆断（原来用 ` · ` 串一行，七项在 446 px 里
+   必折两三行；成对排只折一行，省下的高度全归地图） */
+.maze-diag{
+  display:flex;flex-wrap:wrap;gap:0 12px;padding-top:5px;
+  font-size:10.5px;color:var(--muted);
+}
+.maze-diag .ms-i{white-space:nowrap}
+.maze-diag .ms-i b{margin-left:4px;color:var(--ink);font-weight:600}
+/* 告警块没话说时整块拿走（`:empty` 高度本来就是 0，但 padding 还在） */
+.maze-body #rc-mwarn:empty{display:none}
 
 /* ── 维护 ─────────────────────────────────────────────────────────────── */
 .step-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
@@ -766,7 +834,6 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
   .nav-label{display:none}
   .nav-item{justify-content:center;padding:10px 0}
   .nav-item span{display:none}
-  .rail-foot{display:none}
   .main{padding:18px 16px 24px}
   .page-head{flex-direction:column;align-items:flex-start;gap:10px}
   .page-actions{justify-content:flex-start}
@@ -868,15 +935,42 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
   padding-left:8px;border-left:1px solid var(--line);
 }
 .dt-list{margin-top:12px}
-/* 列表只吃"面板之外剩下的高度"。300 行硬编码会随页面头/面板高度漂：实测
-   vh−400 时 45 条记录仍把整页顶出 39 px（顶栏 58 + 日志坞 41 + main 内边距 82），
-   于是冒出第二条滚动条（内外双滚）⇒ 留 460 的余量。 */
-.dt-list-scroll{max-height:calc(100vh - 460px);min-height:200px;overflow:auto}
+/* 列表高度：**改成吃满剩余高度**（改版四十）。
+   原来 `max-height:calc(100vh - 460px)`：1400×710 下只给 250 px，其余高度全空着
+   —— 用户看到的就是"列表最下面离屏幕底还有一大段没用上"。而 460 这个常数本身
+   也在漂（页头 / 面板 / 日志坞都会变），所以干脆不估：主区高度由 `fitMain()` 实测，
+   列表 `flex:1` 分到剩下的部分，自己滚。 */
+.dt-list-scroll{min-height:160px;overflow:auto}
 .kv.cols4{grid-template-columns:repeat(4,minmax(0,1fr));column-gap:22px}
 .kv.cols4 dd.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}
 .assoc{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
 .assoc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:7px}
 .assoc-list{display:flex;flex-direction:column;border:1px solid var(--line);max-height:230px;overflow:auto}
+
+/* 记录页：主区钉成一屏高，面板在上、列表在下，列表内部滚（改版四十）。
+   与比赛页同一套口径（`fitMain()` 实测"视口 − 顶栏 − 日志坞"写进行内高度），
+   区别只是这里左中右换成了"上下两块"。
+   ⚠️ 面板 `flex:0 1 auto; overflow:auto` 而不是固定高：关联视频那块展开后会长，
+      让它自己缩/滚，别把列表挤成 0 高。 */
+body[data-route="data"] .main{padding-bottom:12px;overflow:hidden;display:flex;flex-direction:column}
+body[data-route="data"] .page{flex:1;min-height:0;display:flex;flex-direction:column;max-width:none}
+body[data-route="data"] .page-head{flex:none}
+body[data-route="data"] .dt-ctl{flex:0 1 auto;max-height:58%;overflow:auto;position:static}
+body[data-route="data"] .dt-list{margin-top:12px;flex:1;min-height:0;display:flex;flex-direction:column}
+body[data-route="data"] .dt-list-scroll{flex:1;min-height:0}
+
+/* 工具行（搜索 / 筛选 chip / 批量动作 / 导入） */
+.dt-tools{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:9px 14px;border-bottom:1px solid var(--line);background:var(--paper);
+}
+.dt-tools .search{flex:0 1 240px;min-width:150px;background:var(--panel)}
+.dt-tools .dt-sel{margin-left:auto}
+/* 勾选列：窄、居中、不换行 */
+.tbl th.ck-col,.tbl td.ck-col{width:34px;padding:0 4px 0 12px;text-align:center}
+.tbl th.ck-col input,.tbl td.ck-col input{width:13px;height:13px;accent-color:var(--blue);cursor:pointer;margin:0}
+.tbl input[type=checkbox]::-webkit-outer-spin-button{-webkit-appearance:none}
+.dt-empty{padding:22px 14px;color:var(--muted);font-size:11.5px;text-align:center}
 
 /* ═══ 回放：位置图 + 时间轴（一屏）+ 参数/记录抽屉 ══════════════════════ */
 /* 高度**不写死常数**：`views/replay.js` 的 `fitStage()` 现算

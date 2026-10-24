@@ -1,10 +1,27 @@
-/* ═══ 记录 · 比赛记录：发车记录 / 视频记录 两个标志 + 关联 + 回放 ══════ */
+/* ═══ 记录 · 比赛记录：查（搜索 / 筛选）+ 增（导入）+ 改（改名 / 关联）
+       + 删（单条 / 多选批量）+ 回放 ═══════════════════════════════════════
+   改版四十大修，四件事：
+     1. **查**：工具行加搜索框 + 三个筛选 chip（发车 / 视频 / 账本异常）。
+        纯前端过滤 —— 记录已经全在 `S.records` 里（默认取 50 条），零新端点。
+     2. **多选**：每行一个 checkbox + 表头全选（只勾**当前筛出来的**那批）。
+        勾选集合（`checked`）与"控制面板在看哪一条"（`selId`）**是两件事**：
+        前者是"要对谁动手"，后者是"在看谁的详情"，混在一起会误删。
+     3. **改**：改名（`POST /records/{name}/rename`，同时搬 `.link.json`）+ 关联视频。
+     4. **删**：单条两步确认（原样保留）+ **批量**（一条端点，逐条结果）。
+     5. **底部空白**：列表改成 flex 吃满剩余高度、内部滚（原来 `max-height:
+        calc(100vh - 460px)` 在 1400×710 下只给 250 px，剩下的高度全空着）。
+   ⚠️ 命名注意：`checked` 是"勾选"，`selId` 是"展开详情"，别互相顶替。
+   ═══════════════════════════════════════════════════════════════════════════ */
 (function () {
   const S = C.S, U = C.util;
   let selId = '';
   let assoc = false;
-  let delArm = 0;      // 删除的**两步确认**：第一次点击的时刻（0 = 没在等确认）
-  let delArmId = '';   // 等的是哪一条（不然点 A 再点 B 会被当成确认 B）
+  let checked = {};       // id → 1（勾选集合）
+  let chip = 'all';       // all | launch | video | bad
+  let q = '';             // 搜索词
+  let delArm = 0;         // 单条删除的两步确认：第一次点击的时刻（0 = 没在等确认）
+  let delArmId = '';      // 等的是哪一条（不然点 A 再点 B 会被当成确认 B）
+  let bulkArm = 0;        // 批量删除的两步确认（按"这一批"计时，不按条）
 
   /* 这一条是否正"等第二次点击"。**必须按 id 判**：只按时间判的话，
      用户点 A 的删除 → 又点 B 的删除，B 会被立刻删掉（一次都没确认过）。
@@ -13,13 +30,44 @@
   function delArmed(id) {
     return !!delArm && delArmId === id && (Date.now() - delArm) <= 5000;
   }
+  function bulkArmed() {
+    return !!bulkArm && (Date.now() - bulkArm) <= 5000;
+  }
 
   function dur(s) {
+    if (s == null) return '—';
     const m = Math.floor(s / 60), r = Math.round(s % 60);
     return m + ':' + String(r).padStart(2, '0');
   }
   function session(id) {
     return S.videoSessions.find(v => v.id === id) || null;
+  }
+
+  /* 当前**筛出来**的那批（表格里看得到的）。搜索与 chip 都在这里收口，
+     别的地方（全选 / 计数 / 批量删）一律走它 —— 否则"全选"会勾到看不见的行。 */
+  function visible() {
+    const kw = q.trim().toLowerCase();
+    return S.records.filter(r => {
+      if (chip === 'launch' && !r.launch) return false;
+      if (chip === 'video' && !r.video) return false;
+      if (chip === 'bad' && r.ledger !== false) return false;
+      if (!kw) return true;
+      const hay = [r.id, r.start, r.video || '', r.endWhy || '', String(r.frames)]
+        .join(' ').toLowerCase();
+      return hay.indexOf(kw) >= 0;
+    });
+  }
+  function checkedIds() {
+    const out = [];
+    visible().forEach(r => { if (checked[r.id]) out.push(r.id); });
+    return out;
+  }
+  /* 记录被删 / 改名之后，勾选集合里会留下已不存在的 id。
+     不清的话"已选 3"会永远显示，而列表里一条都没打勾。 */
+  function pruneChecked() {
+    const live = {};
+    S.records.forEach(r => { live[r.id] = 1; });
+    Object.keys(checked).forEach(id => { if (!live[id]) delete checked[id]; });
   }
 
   C.VIEWS.data = {
@@ -41,15 +89,34 @@
       this._root = root;
       if (!selId) selId = S.recSel || (S.records[0] && S.records[0].id) || '';
       /* **控制面板在上、列表在下**：选中条目后要能立刻操作，而列表会长
-         （真机几十条），面板放底部就会被列表推到视野外 ⇒ 面板置顶 + 吸顶，
+         （真机几十条），面板放底部就会被列表推到视野外 ⇒ 面板置顶，
          列表自己滚，两者互不干扰。 */
       root.innerHTML =
         '<section class="card dt-ctl" id="dt-ctl"></section>' +
         '<section class="card dt-list">' +
           '<div class="card-head"><h2>记录列表</h2>' +
             '<div class="card-head-r"><span class="hint mono" id="dt-count"></span></div></div>' +
+          /* 工具行（改版四十）：查 + 批量动作 + 导入。 */
+          '<div class="dt-tools">' +
+            '<label class="search">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>' +
+              '<input id="dt-q" placeholder="搜索 名字 / 开始时间 / 视频">' +
+            '</label>' +
+            '<div class="seg" id="dt-chip">' +
+              '<button data-chip="all">全部</button>' +
+              '<button data-chip="launch">发车</button>' +
+              '<button data-chip="video">视频</button>' +
+              '<button data-chip="bad">账本异常</button>' +
+            '</div>' +
+            '<span class="hint mono dt-sel" id="dt-sel">未选</span>' +
+            '<button class="btn btn-sm btn-ghost" id="dt-del">' + C.icon('trash') + '删除选中</button>' +
+            '<button class="btn btn-sm" id="dt-imp">' + C.icon('download') + '导入…</button>' +
+            '<input type="file" id="dt-file" accept=".json,application/json" hidden>' +
+          '</div>' +
           '<div class="card-body flush dt-list-scroll">' +
             '<table class="tbl"><thead><tr>' +
+              '<th class="ck-col"><input type="checkbox" id="dt-ckall" title="全选当前筛选结果"></th>' +
               '<th>记录</th><th style="width:92px">开始</th><th style="width:74px">时长</th>' +
               '<th style="width:74px">帧</th><th style="width:150px">发车记录</th>' +
               '<th style="width:200px">视频记录</th><th style="width:80px">账本</th>' +
@@ -57,7 +124,9 @@
           '</div>' +
         '</section>';
 
+      /* ── 行交互：勾选框只改"勾选集合"，行其余部分改"正在看哪一条" ── */
       root.querySelector('#dt-rows').onclick = e => {
+        if (e.target.matches('input[data-ck]')) return;   // 勾选由 change 事件处理
         const as = e.target.closest('[data-assoc]');
         if (as) {
           selId = as.dataset.assoc;
@@ -71,62 +140,182 @@
         assoc = false;
         this.paint();
       };
+      root.querySelector('#dt-rows').onchange = e => {
+        const box = e.target.closest('input[data-ck]');
+        if (!box) return;
+        if (box.checked) checked[box.dataset.ck] = 1; else delete checked[box.dataset.ck];
+        this.syncTools();
+      };
+
+      const ckAll = root.querySelector('#dt-ckall');
+      ckAll.onchange = () => {
+        const on = ckAll.checked;
+        visible().forEach(r => { if (on) checked[r.id] = 1; else delete checked[r.id]; });
+        this.paint();
+      };
+
+      const qEl = root.querySelector('#dt-q');
+      qEl.oninput = () => { q = qEl.value; this.paint(); };
+      /* 搜索不该被整页重挂清掉：`paint()` 只重画 tbody 与工具行状态，不动 input 本体。
+         （`renderPage` 只在路由切换 / `emit('state')` 时发生，而这里不触发 state。） */
+
+      root.querySelectorAll('#dt-chip [data-chip]').forEach(b => {
+        b.onclick = () => { chip = b.dataset.chip; this.paint(); };
+      });
+
+      const delBtn = root.querySelector('#dt-del');
+      delBtn.onclick = () => {
+        const ids = checkedIds();
+        if (!ids.length) return;
+        /* 批量删：**按"这一批"两步确认**。不可逆，所以不做"点了就删"。
+           计时起点是第一次点击；5 s 内再点同一批才真删。 */
+        if (!bulkArmed()) {
+          bulkArm = Date.now();
+          this.syncTools();
+          return;
+        }
+        bulkArm = 0;
+        delBtn.disabled = true;
+        C.bulkDeleteRecords(ids).then(res => {
+          // 删成功的从勾选集合里去掉（失败的要继续留着，让人看到是哪几条没删掉）
+          (res.results || []).forEach(x => { if (x.ok) delete checked[x.name.replace(/\.maze\.json$/, '')]; });
+          Object.keys(checked).forEach(id => {
+            if (ids.indexOf(id) >= 0 && !S.records.some(r => r.id === id)) delete checked[id];
+          });
+          if (res.failed) {
+            C.toast('warn', '部分没删掉', '成功 ' + res.deleted + ' 条 · 失败 ' + res.failed + ' 条');
+          } else {
+            C.toast('ok', '已删除 ' + res.deleted + ' 条', '记录与关联文件已移除（视频产物不动）');
+          }
+          this.paint();
+        });
+      };
+
+      /* 导入（"增"）：文件内容原样交给后端校验并落盘。
+         ⚠️ 不让后端凭文件名猜格式 —— 它校验 `format` / `channels` / `frames` 三者一致，
+            对不上就明说，不写半个文件。 */
+      const file = root.querySelector('#dt-file');
+      root.querySelector('#dt-imp').onclick = () => file.click();
+      file.onchange = () => {
+        const f = file.files && file.files[0];
+        if (!f) return;
+        const rd = new FileReader();
+        rd.onload = () => {
+          let doc = null;
+          try { doc = JSON.parse(String(rd.result || '')); }
+          catch (e) {
+            C.toast('bad', '不是合法的 JSON', String(e.message || e).slice(0, 120));
+            file.value = '';
+            return;
+          }
+          C.importRecord(doc, f.name).then(ok => {
+            file.value = '';
+            if (ok) C.toast('ok', '已导入', f.name);
+            this.paint();
+          });
+        };
+        rd.onerror = () => { C.toast('bad', '读不了这个文件', f.name); file.value = ''; };
+        rd.readAsText(f);
+      };
+
       this.paint();
+    },
+
+    /* 工具行状态（勾选数 / 按钮门控 / chip 高亮）。**与列表分开**：
+       勾一下不该重画整张表（会把滚动位置和正在输入的光标弄丢）。 */
+    syncTools() {
+      const root = this._root;
+      if (!root || !root.querySelector('#dt-sel')) return;
+      const vis = visible();
+      const ids = checkedIds();
+      const sel = root.querySelector('#dt-sel');
+      sel.textContent = ids.length ? ('已选 ' + ids.length + ' / ' + vis.length) : ('未选 · ' + vis.length + ' 条');
+      const del = root.querySelector('#dt-del');
+      del.disabled = !ids.length;
+      const armed = bulkArmed() && ids.length > 0;
+      del.className = 'btn btn-sm ' + (armed ? 'btn-danger' : 'btn-ghost');
+      del.innerHTML = C.icon('trash') + (armed ? ('确认删除 ' + ids.length + ' 条？（5s）') : '删除选中');
+      const all = root.querySelector('#dt-ckall');
+      all.checked = vis.length > 0 && vis.every(r => checked[r.id]);
+      all.indeterminate = !all.checked && ids.length > 0;
+      root.querySelectorAll('#dt-chip [data-chip]').forEach(b => {
+        b.classList.toggle('on', b.dataset.chip === chip);
+      });
     },
 
     paint() {
       const root = this._root;
       if (!root || !root.querySelector('#dt-rows')) return;
+      pruneChecked();
 
-      root.querySelector('#dt-rows').innerHTML = S.records.map(r => {
-        const ses = session(r.video);
-        return '<tr class="sess-row' + (r.id === selId ? ' sel' : '') + '" data-id="' + r.id + '">' +
-          '<td class="num" style="color:var(--ink)">' + r.id + '</td>' +
-          '<td class="num dim">' + r.start + '</td>' +
-          '<td class="num dim">' + dur(r.dur) + '</td>' +
-          '<td class="num">' + r.frames + '</td>' +
-          '<td>' + (r.launch
-            ? '<span class="tag ok">发车 @' + U.fmt(r.launchAt, 1) + ' s</span>'
-            : '<span class="tag">无</span>') + '</td>' +
-          '<td>' + (r.video
-            ? '<span class="tag blue">' + r.video + '</span>'
-            : '<button class="btn btn-sm btn-ghost" data-assoc="' + r.id + '">' + C.icon('link') + '关联</button>') + '</td>' +
-          // 三态：true=通过 / false=丢帧 / null=**判不了**（老记录没有丢帧计数）
-          // 判不了不许画成"差 X 帧"—— 那是在替设备作证
-          '<td>' + (r.ledger === true
-            ? '<span class="tag ok">通过</span>'
-            : r.ledger === false
-              ? '<span class="tag bad">差 ' + (r.gap == null ? '?' : r.gap) + ' 帧</span>'
-              : '<span class="tag">判不了</span>') + '</td>' +
-          '</tr>';
-      }).join('');
+      const vis = visible();
+      const ck = id => (checked[id] ? ' checked' : '');
+      root.querySelector('#dt-rows').innerHTML = vis.length
+        ? vis.map(r => {
+            const ses = session(r.video);
+            return '<tr class="sess-row' + (r.id === selId ? ' sel' : '') + '" data-id="' + r.id + '">' +
+              '<td class="ck-col"><input type="checkbox" data-ck="' + r.id + '"' + ck(r.id) + '></td>' +
+              '<td class="num" style="color:var(--ink)">' + U.esc(r.id) + '</td>' +
+              '<td class="num dim">' + U.esc(r.start) + '</td>' +
+              '<td class="num dim">' + dur(r.dur) + '</td>' +
+              '<td class="num">' + U.fmt(r.frames, 0) + '</td>' +
+              '<td>' + (r.launch
+                ? '<span class="tag ok">发车 @' + U.fmt(r.launchAt, 1) + ' s</span>'
+                : '<span class="tag">无</span>') + '</td>' +
+              '<td>' + (r.video
+                ? '<span class="tag blue">' + U.esc(r.video) + '</span>'
+                : '<button class="btn btn-sm btn-ghost" data-assoc="' + r.id + '">' + C.icon('link') + '关联</button>') + '</td>' +
+              // 三态：true=通过 / false=丢帧 / null=**判不了**（老记录没有丢帧计数）
+              // 判不了不许画成"差 X 帧"—— 那是在替设备作证
+              '<td>' + (r.ledger === true
+                ? '<span class="tag ok">通过</span>'
+                : r.ledger === false
+                  ? '<span class="tag bad">差 ' + (r.gap == null ? '?' : r.gap) + ' 帧</span>'
+                  : '<span class="tag">判不了</span>') + '</td>' +
+              '</tr>';
+          }).join('')
+        /* 空态（改版四十）：原来筛不到东西时表体是**一片空白**，
+           与"加载失败""还没取到"完全分不出来。两种空要说清楚是哪一种。 */
+        : '<tr><td colspan="8" class="dt-empty">' +
+          (S.records.length
+            ? '没有匹配的记录（清掉搜索词或换一个筛选）'
+            : (C.LIVE.on ? '还没有记录 · 发车一次会自动落一份，也可以用【导入…】' : '未连后端 · 判不了有没有记录'))
+          + '</td></tr>';
 
       const cnt = root.querySelector('#dt-count');
       if (cnt) {
         const nl = S.records.filter(r => r.launch).length;
         const nv = S.records.filter(r => r.video).length;
-        cnt.textContent = S.records.length + ' 条 · 发车 ' + nl + ' · 视频 ' + nv;
+        cnt.textContent = S.records.length + ' 条 · 发车 ' + nl + ' · 视频 ' + nv
+          + (vis.length === S.records.length ? '' : ' · 筛出 ' + vis.length);
       }
+      this.syncTools();
 
-      const r = C.record(selId) || S.records[0];
-      if (!r) return;
+      /* ── 控制面板：**看**的那一条（与勾选无关） ────────────────────── */
+      const box = root.querySelector('#dt-ctl');
+      const r = C.record(selId) || S.records[0] || null;
+      if (!r) {
+        box.innerHTML = '<div class="card-body"><div class="empty"><b>没有可显示的记录</b>' +
+          '列表为空时这里不编一条出来。发车一次、或用【导入…】放一份进来。</div></div>';
+        return;
+      }
       selId = r.id;
       const ses = session(r.video);
-      const box = root.querySelector('#dt-ctl');
 
       const info =
         '<div class="card-head dt-head">' +
-          '<h2><span class="n">记录</span>' + r.id + '</h2>' +
+          '<h2><span class="n">记录</span>' + U.esc(r.id) + '</h2>' +
           '<div class="dt-head-r">' +
             '<span class="tag ' + (r.launch ? 'ok' : '') + '">' +
               (r.launch ? '发车 @' + U.fmt(r.launchAt, 1) + ' s' : '无发车记录') + '</span>' +
             '<span class="tag ' + (r.video ? 'blue' : '') + '">' +
-              (r.video ? r.video : '无视频记录') + '</span>' +
+              (r.video ? U.esc(r.video) : '无视频记录') + '</span>' +
             '<div class="dt-acts">' +
               '<button class="btn btn-sm btn-primary" data-rp="go"' + (r.frames > 0 ? '' : ' disabled') + '>' +
                 C.icon('play') + '回放</button>' +
               '<button class="btn btn-sm" data-rp="csv">' + C.icon('download') + 'CSV</button>' +
               '<button class="btn btn-sm" data-rp="dir">目录</button>' +
+              '<button class="btn btn-sm" data-rp="rename">' + C.icon('save') + '改名</button>' +
               '<button class="btn btn-sm btn-ghost" data-rp="assoc">' + C.icon('link') +
                 (r.video ? '改关联' : '关联视频') + '</button>' +
               '<button class="btn btn-sm btn-ghost' + (delArmed(r.id) ? ' btn-danger' : '') +
@@ -137,14 +326,14 @@
         '</div>' +
         '<div class="card-body">' +
           '<dl class="kv compact cols4">' +
-            '<div><dt>开始</dt><dd>' + r.start + '</dd></div>' +
+            '<div><dt>开始</dt><dd>' + U.esc(r.start) + '</dd></div>' +
             '<div><dt>时长</dt><dd>' + dur(r.dur) + '</dd></div>' +
-            '<div><dt>遥测帧</dt><dd>' + r.frames + '</dd></div>' +
+            '<div><dt>遥测帧</dt><dd>' + U.fmt(r.frames, 0) + '</dd></div>' +
             '<div><dt>发车时刻</dt><dd>' + (r.launch ? U.fmt(r.launchAt, 1) + ' s' : '—') + '</dd></div>' +
             '<div><dt>视频会话</dt><dd>' + (r.video || '未关联') + '</dd></div>' +
             '<div><dt>轨迹点</dt><dd>' + (ses ? ses.n_valid : '—') + '</dd></div>' +
-            '<div><dt>帧缺口</dt><dd class="' + (r.gap ? 'bad' : '') + '">' + r.gap + '</dd></div>' +
-            '<div><dt>目录</dt><dd class="ell" title="' + r.dir + '">' + r.dir + '</dd></div>' +
+            '<div><dt>帧缺口</dt><dd class="' + (r.gap ? 'bad' : '') + '">' + (r.gap == null ? '—' : r.gap) + '</dd></div>' +
+            '<div><dt>目录</dt><dd class="ell" title="' + U.esc(r.dir) + '">' + U.esc(r.dir) + '</dd></div>' +
           '</dl>' +
           (r.frames > 0 ? '' : '<div class="banner warn" style="margin-top:10px">' + C.icon('alert') +
             '<div class="b-body"><b>这条记录没有帧</b>回放没有位置可画。</div></div>') +
@@ -162,6 +351,22 @@
             C.toast('ok', '已导出', r.id + '.csv');
           } else if (k === 'dir') C.toast('', r.dir, '已在文件管理器打开');
           else if (k === 'assoc') { assoc = !assoc; this.paint(); }
+          else if (k === 'rename') {
+            /* 改名（改版四十）：默认值给**去掉后缀的当前名**，改完就地重拉列表。
+               ⚠️ 冲突 / 非法字符由后端判（409 / 400），前端不抢着校验 ——
+                  两处各写一套规则，迟早会在"哪些字符算非法"上分叉。 */
+            const cur = String(r.id || '');
+            const to = window.prompt('改名（只改文件名，内容一个字节都不动；'
+              + '关联文件会跟着搬）', cur);
+            if (to == null) return;
+            const v = String(to).trim();
+            if (!v || v === cur) return;
+            C.renameRecord(r.id, v).then(ok => {
+              if (!ok) return;                       // 失败已经 toast/日志说过了
+              C.toast('ok', '已改名', cur + ' → ' + v);
+              this.paint();
+            });
+          }
           else if (k === 'del') {
             /* 两步确认（与维护页同一套口径）：点一次变红写着"确认删除"，
                5 s 内再点才真删。**不可逆**，所以不做"点了就删"。
@@ -179,6 +384,7 @@
             b.disabled = true; b.textContent = '删除中…';
             C.deleteRecord(r.id).then(() => {
               C.toast('warn', '已删除', r.id + ' 及其关联文件');
+              delete checked[r.id];
               this.paint();
             });
           }
@@ -213,7 +419,7 @@
     assocHtml(r) {
       const list = S.videoSessions;
       return '<div class="assoc">' +
-        '<div class="assoc-head">选择要挂到 ' + r.id + ' 的视频会话' +
+        '<div class="assoc-head">选择要挂到 ' + U.esc(r.id) + ' 的视频会话' +
           (r.video ? '<button class="btn btn-sm btn-ghost" data-unlink>解除关联</button>' : '') + '</div>' +
         (list.length
           ? '<div class="assoc-list">' + list.map(v =>
@@ -226,6 +432,19 @@
         '</div>';
     },
 
+    /* 高度跟着窗口/日志坞走（列表吃满剩余高度，内部滚）。
+       `onTick` 每 500 ms 会调一次，`fitMain()` 里值没变就不碰 DOM。 */
+    onTick() {
+      C.fitMain();
+      this._n = (this._n || 0) + 1;
+      if (this._n % 4) return;              // 2 s 一次：两步确认的文案要能自己恢复
+      const staleDel = !!delArm && !delArmed(delArmId);
+      const staleBulk = !!bulkArm && !bulkArmed();
+      if (!staleDel && !staleBulk) return;
+      if (staleDel) { delArm = 0; delArmId = ''; }
+      if (staleBulk) bulkArm = 0;
+      this.paint();
+    },
     onState() { this.paint(); },
   };
 })();

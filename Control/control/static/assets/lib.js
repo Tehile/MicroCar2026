@@ -73,11 +73,18 @@ window.C = (function () {
 
   /* ── 全局状态 ─────────────────────────────────────────────────────────── */
   const S = {
-    scene: 'ready',
     route: 'overview',
     running: false,
     estop: false,
     session: { active: false, id: '', t0: 0, frames: 0, ledger: 'pass' },
+    /* 迷宫记录器（改版四十）——**后端那一份**状态，与会话（`session`）无关。
+       为什么要单开一格：后端早就在**自动收尾**（车停 / 回 WAIT / 断链 / 超帧数都会
+       落盘），而界面从来没问过 `/mouse/maze/record`（全站零调用）⇒ 车停了、文件
+       落了，按钮还写着"停止并保存"，像在等人再点一次。
+       字段全部**照抄后端 `MazeRecorder.status()`**，前端不推：
+         on / frames / name / why / autoEnd / last（收尾摘要）/ stopReason+stopText（为何停）。 */
+    rec: { on: false, frames: 0, name: '', why: '', autoEnd: '',
+           stopReason: '', stopText: '', stopAt: 0, last: null, saving: false },
     /* 拉取只有批式：一次往返取 N 帧，N 决定帧率 */
     pullMode: 'batch',
     pullN: 1,
@@ -93,52 +100,74 @@ window.C = (function () {
     params: null,
     log: [],
     logFilter: { src: null, lvl: null, q: '' },
+    /* 遥测基线（改版四十）——**两条口径，别混**：
+       · **累计量**给 `0`：里程、陀螺角、前冲计数、设备时基。0 是它们的合法取值
+         （TARE / 复位之后本来就是 0），给 null 反而画不出"零位"。
+       · **测量量**给 `null`：轮速、位置、三面墙、四路红外、电池、帧率、帧龄、
+         字节率、批次号、标志位。它们此刻**根本没读到**，0 会被读成"停着 / 没墙 /
+         电池耗尽"，是编造。
+       ⚠️ 为什么必须改：这一块原来是**一套原型演示数据**（陀螺角 12.4、位置 1.5、
+         里程 4812、电池 8412、帧率 4.6、seq 1043、4 灯三亮一灭）。接真机后首帧到来
+         之前，它们就是界面上的"读数"——而 `applyTelemetry` 只在有值时才覆盖，
+         于是**没读到的量会一直显示那个编造的数**（"陀螺角 12.4"就是这么来的）。
+         比赛页的车画在第 1 格也是同一个根因（`posX=1.5`）。
+       三态纪律：`null` 在渲染层一律变 `—`（`valText` / `util.fmt`），不涂红也不填 0。 */
     tel: {
-      speedL: 0, speedR: 0, trackL: 4812, trackR: 4805, posX: 1.5, posY: 1.5,
-      gyroAngle: 12.4, dir: 0, motionTask: 0, mazeTask: 0,
-      wallLeft: 1, wallFront: 0, wallRight: 1, frontNear: 0, frontFar: 0, frontBoth: 0,
-      irSwitch: 1, spurtMode: 0, spurtFlag: 0, goOrBack: 0, spurtTestFlag: 0,
-      objectGoToFlag: 0, goaheadnum: 0,
-      irF1: 68, irF2: 71, irL: 34, irR: 38, battMv: 8412, ms8: 37, flags: 17,
-      evq: false, rate: 4.6, ageMs: 118, fifo: 0, batchN: 1, batchMs: 244,
-      /* ── 链路 / 遥测层（不是帧内通道，是后端 `mouse.telemetry` 顶层字段）──
-         `bps` 字节率、`streaming` 是否在流、`tFlags` 遥测层 flags、`seq` 批次号、
-         `lost` 序号缺口累计。**原型模式下这些也是造的**，接真机时由
-         `applyTelemetry` 覆盖 —— 别在视图里自己乘 30 算字节率（那是在编）。 */
-      bps: 122, streaming: true, tFlags: 1, seq: 1043, lost: 0,
+      /* —— 累计量：0 —— */
+      trackL: 0, trackR: 0, gyroAngle: 0, goaheadnum: 0, ms8: 0, lost: 0,
+      /* —— 状态码：0 是合法取值（WAIT / 朝北 / 去程 / 档位 0），不是"没读到" —— */
+      dir: 0, motionTask: 0, mazeTask: 0, goOrBack: 0,
+      spurtMode: 0, spurtFlag: 0, spurtTestFlag: 0, objectGoToFlag: 0,
+      evq: false, batchN: 1,
+      /* —— 测量量：null（没读到）—— */
+      speedL: null, speedR: null, posX: null, posY: null,
+      wallLeft: null, wallFront: null, wallRight: null,
+      frontNear: null, frontFar: null, frontBoth: null, irSwitch: null,
+      irF1: null, irF2: null, irL: null, irR: null, battMv: null,
+      flags: null, rate: null, ageMs: null, batchMs: null, fifo: null,
+      bps: null, streaming: null, tFlags: null, seq: null,
       /* 解码器现算的派生键（上游 `dirName`/`mazeTaskName`/`roadName`/`freemode` 等）。
          这四个与 `dir`/`mazeTask`/`goOrBack`/`flags` 是同一份事实，界面**不重复显示**；
          新增的、前端不认识的键由实时页报数（`#lv-unk`），信息不丢也不摆两份读数。 */
-      extra: { dirName: '北', mazeTaskName: 'WAIT', roadName: '去程', freemode: 1 },
+      extra: {},
     },
     hist: { rate: [] },
     /* 4 灯三态（led1..led4）。null = 未知：固件没实现 / 通道不在帧里 / 没连接。
-       与后端 leds.py 同一套判据：先看 fw ≥ 311，再看通道清单。 */
-    leds: { led1: true, led2: true, led3: true, led4: false },
-    ledSupported: true,
-    /* 视频复盘：一次只跑一个会话（上游子进程） */
-    videoRun: { state: 'done', id: '20261021-210412', elapsed: 0, error: '', t0: 0 },
-    videoSel: '20261021-210412',
+       与后端 leds.py 同一套判据：先看 fw ≥ 311，再看通道清单。
+       ⚠️ 初始**全是 null**，不是"三亮一灭"——没连接时那盏灯亮不亮无从得知，
+          画成"灭"会让人去查线路（改版四十）。 */
+    leds: { led1: null, led2: null, led3: null, led4: null },
+    ledSupported: false,
+    /* 视频复盘：一次只跑一个会话（上游子进程）。
+       初始是 `idle` + 空 id —— 原来写了一个具体的演示会话名，刷新一次就"已有一个会话"，
+       而磁盘上并不存在那个目录（改版四十）。 */
+    videoRun: { state: 'idle', id: '', elapsed: 0, error: '', t0: 0 },
+    videoSel: '',
   };
   let rateSeq = 0;
 
-  /* ── 设备状态：三态（true / false / null=判不了）—— null 不许涂成红 */
+  /* ── 设备状态：三态（true / false / null=判不了）—— null 不许涂成红
+     改版四十：**初始一律"没连上 / 判不了"**。原来这里写死 `connected:true`、
+     `port:'COM7'`、`fw:'314'`、`proto:10`、`caps.unified_channels:32` ——
+     顶栏于是先斩后奏地写着"已连接 COM7"，而串口根本没有打开。
+     这些值的真来源只有一个：`/api/v1/health`（`applyHealth`）与 `/api/v1/caps`（`applyCaps`）。 */
   S.health = {
     mouse: {
-      available: true, connected: true, port: 'COM7', fw: '314', fwInt: 314, proto: 10,
-      link: 'uart 115200', detail: '', caps: { unified_channels: 32, led: true },
+      available: true, connected: false, port: '', fw: null, fwInt: null, proto: null,
+      link: '', detail: '', caps: {},
     },
-    clock: { calibrated: true, offsetMs: 3.2, uncertaintyMs: 1.4, source: 'visual', method: 'rls', samples: 214 },
-    timesync: { armed: true, armUpMs: 1420, driftPpm: 12.5, samples: 64 },
-    video: { available: true, root: 'D:\\video', running: false },
+    clock: { calibrated: false, offsetMs: null, uncertaintyMs: null, source: '', method: '', samples: null },
+    timesync: { armed: false, armUpMs: null, driftPpm: null, samples: null },
+    video: { available: true, root: '', running: false },
   };
 
   /* 准备清单：改版二十四只剩三项，且**只有电脑鼠拦记录**
-     （视频是离线批处理，不拦；时间基未标定只影响跨机对齐）。 */
+     （视频是离线批处理，不拦；时间基未标定只影响跨机对齐）。
+     初始是"未连接 / 未标定"两行 —— 真实值由 `/health` 的 `readiness.items` 一次性覆盖。 */
   S.readiness = [
-    { key: 'mouse', name: '电脑鼠', ok: true, blocking: true, state: 'COM7 · fw 2.13.0 · 4.6 Hz', action: '' },
-    { key: 'clock', name: '时间基', ok: false, blocking: false, state: '未发车 · 对齐按 assumed', action: '打开时钟窗口' },
-    { key: 'video', name: '视频复盘', ok: true, blocking: false, state: '3 个会话 · 最近 21:04', action: '' },
+    { key: 'mouse', name: '电脑鼠', ok: false, blocking: true, state: '未连接 · 串口为空', action: '' },
+    { key: 'clock', name: '时间基', ok: false, blocking: false, state: '未标定', action: '打开时钟窗口' },
+    { key: 'video', name: '视频复盘', ok: true, blocking: false, state: '—', action: '' },
   ];
 
   /* ── 迷宫：确定性递归回溯 + BFS 路径 ─────────────────────────────────── */
@@ -615,6 +644,9 @@ window.C = (function () {
     const m = S.health.mouse;
     if (d.firmware != null) m.fw = String(d.firmware);
     if (d.fw_int != null) m.fwInt = Number(d.fw_int);
+    /* `protocol` 是上游报的协议号（v10 ⇒ 10）。设备抽屉那句"协议 vN · 30 B 帧"读它；
+       以前没人赋值，`m.proto` 一直停在那份写死的 10 上 —— 换协议也不会变（改版四十）。 */
+    if (d.protocol != null) m.proto = Number(d.protocol);
     if (d.unified_channels) {
       m.caps = m.caps || {};
       m.caps.unified_channels = d.unified_channels.length;
@@ -696,7 +728,17 @@ window.C = (function () {
     if (msg.streaming != null) S.tel.streaming = !!msg.streaming;
     if (msg.flags != null) S.tel.tFlags = msg.flags;
     const r = (msg.rate && msg.rate.unified) || {};
-    if (r.hz != null) S.tel.rate = r.hz;
+    if (r.hz != null) {
+      S.tel.rate = r.hz;
+      /* 波形数据（改版四十）：原先是**只有原型 tick 才 push**（`tickN % 4`），
+         而 `tick()` 在 `LIVE.on` 时第一行就 return ⇒ 真机分支永远不攒点，
+         `draw.spark` 判 `rawPeak < .2` 就写"等待第一批"，接上真机后永远停在那句。
+         现在真帧也进同一条队列（上限 60 点，与原型一致）。
+         ⚠️ 只在 `hz != null` 时 push：判不了 ≠ 0 Hz，填 0 会把波形压成贴地直线。 */
+      const h = S.hist.rate;
+      h.push(+r.hz.toFixed(2));
+      if (h.length > 60) h.shift();
+    }
     if (r.age_ms != null) S.tel.ageMs = r.age_ms;
     if (Array.isArray(r.batches) && r.batches.length) {
       S.rateLog = r.batches.map(function (b) {
@@ -740,6 +782,9 @@ window.C = (function () {
       try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.type === 'mouse.telemetry') applyTelemetry(m);
       else if (m.type === 'mouse.maze') applyMaze(m);
+      /* ⚠️ 改版四十补上：这条一直在推，分发里却没有分支 ⇒ 到浏览器门口被丢掉。
+         "车为什么停的"（TIME / IR / ESTOP / USER / END）只能从这条流里知道。 */
+      else if (m.type === 'mouse.upevent') applyUpevent(m);
       else if (m.type === 'hello' && m.health) applyHealth(m.health);
       else if (m.type === 'log') log(m.source || 'control', m.level || 'info', m.text || '');
     };
@@ -761,7 +806,7 @@ window.C = (function () {
         emit('state');
         // 先按"当前这页需不需要"决定拉不拉，再取数：参数表读表依赖拉取在跑。
         syncPull(S.route).then(function () {
-          loadParams(); loadRecords(); loadVideoSessions();
+          loadParams(); loadRecords(); loadVideoSessions(); loadRecStatus();
         });
         // 看门狗常驻：哪一页要帧就保证它在拉（自己掉的会重开，人工停的让 8 s）
         startPullGuard();
@@ -773,7 +818,11 @@ window.C = (function () {
               liveCleanup();
               log('control', 'warn', '与后端的连接断了 · 退回原型数据');
               emit('state');
+              return;
             });
+            /* 记录器状态（改版四十）：纯内存读，零设备访问 ⇒ 跟着 1 s 心跳走。
+               收尾是**后端自己做的**，界面只能靠这条轮询知道"已经存了"。 */
+            loadRecStatus();
           }, 1000);
         }
       });
@@ -1185,6 +1234,147 @@ window.C = (function () {
       log('mouse', 'warn', '这页要实时帧，但拉取是停的 ⇒ 自动重开');
       setPull(true, S.pullN);
     }, 2000);
+  }
+
+  /* ── 迷宫记录器：状态轮询 + 停车原因（改版四十）─────────────────────────
+     三件事在这里收口，别的视图不许自己推：
+       ⓐ `on` / `last` —— 在记吗 / 上一次落盘结果（后端权威）；
+       ⓑ 刚收尾的那一下**说一句**（谁也没点，但文件已经存了，得让人知道）；
+       ⓒ `STOPPED` 的**原因人话**——它只能从上行事件来（帧里推不出来）。
+     ⚠️ 收尾**在浏览器之外发生**（后端 `_maybe_finish_maze_rec` 轮询 `auto_end_reason`），
+        所以这里只做"读到什么就说什么"，绝不发 `record/stop`——重复发等于把一段
+        已经落盘的数据再收一次，第二次只会得到"当前没有在记录"。 */
+  let recSavedName = '';        // 已经提示过"已保存"的那一份（1 s 一轮，防重复 toast）
+
+  function applyRecStatus(d) {
+    if (!d) return;
+    const r = S.rec;
+    const was = r.on;
+    r.on = !!d.recording;
+    r.frames = d.frames == null ? 0 : (d.frames | 0);
+    r.name = d.name || '';
+    r.why = d.why || '';
+    r.autoEnd = d.auto_end || '';
+    if (d.last_stop) {
+      r.stopReason = d.last_stop.reason || '';
+      r.stopText = d.last_stop.reason_text || d.last_stop.reason || '';
+      r.stopAt = d.last_stop.t_ms || 0;
+    } else if (r.on) {
+      /* 后端在新一跑开始时会清掉 `last_stop` ⇒ 这里跟着清。
+         否则车还在跑，界面上却挂着上一跑的"红外护栏触发"。 */
+      r.stopReason = ''; r.stopText = ''; r.stopAt = 0;
+    }
+    const last = d.last || null;
+    /* `pending` = 后端正在落盘（`stop()` 里先占位、写完再给真摘要）。
+       撞上这个窗口就只说"保存中"，别把上一条的名字当这一条报出去。 */
+    r.saving = !!(last && last.pending);
+    if (last && !last.pending) r.last = last;
+    else if (!last) r.last = null;
+
+    if (was && !r.on && r.last && r.last.ok && r.last.name && r.last.name !== recSavedName) {
+      recSavedName = r.last.name;
+      const nm = String(r.last.name).replace(/\.maze\.json$/, '');
+      const whyTxt = r.stopText ? (' · ' + r.stopText) : '';
+      log('mouse', 'info', '记录已自动保存 · ' + nm + ' · ' + (r.last.frames || 0) + ' 帧' + whyTxt);
+      toast('ok', '已停车 · 记录已保存',
+        nm + ' · ' + (r.last.frames || 0) + ' 帧' + whyTxt);
+      loadRecords();
+    }
+  }
+
+  /* 上行事件（`mouse.upevent`）：`STOPPED <reason> #n` / `ESTOP TRIP #n`。
+     ⚠️ 这条流原来**到浏览器门口就被丢了**（分发只接了 telemetry/maze/hello/log），
+        于是"车为什么停的"在界面上根本无处可查，而协议里明明给了 `reason_text`。 */
+  function applyUpevent(m) {
+    if (!m || typeof m !== 'object') return;
+    const ev = String(m.event || '');
+    const code = String(m.reason || '');
+    const text = String(m.reason_text || m.reason || '');
+    if (ev === 'STOPPED') {
+      S.rec.stopReason = code;
+      S.rec.stopText = text;
+      S.rec.stopAt = Date.now();
+      log('mouse', 'warn', '设备停车 · ' + (text || code) + (code ? '（' + code + '）' : ''));
+    } else if (ev) {
+      log('mouse', 'warn', ev + (code ? ' · ' + (text || code) : ''));
+    }
+  }
+
+  function loadRecStatus() {
+    if (!LIVE.on) return Promise.resolve(false);
+    return get('/api/v1/mouse/maze/record')
+      .then(function (d) { applyRecStatus(d); return true; })
+      .catch(function () { return false; });
+  }
+
+  /* ── 改名 / 批量删 / 导入（改版四十）────────────────────────────────────
+     三条都**真的写盘**。前端只负责"发出去 + 把结果如实说一遍"：
+       · 改名：成功后就地重拉列表（名字变了，缓存的 id 全失效）；
+       · 批量删：**逐条结果**照后端给的报，不假设"全成"；
+       · 导入：文件内容原样 POST（后端校验 format/channels/frames 一致性）。
+     ⚠️ 绝不先改本地再发请求：那样失败之后界面会显示"已经改好了"。 */
+  function renameRecord(id, to) {
+    const rec = S.records.find(function (r) { return r.id === id; });
+    if (!rec || !LIVE.on) return Promise.resolve(false);
+    return post('/api/v1/records/' + encodeURIComponent(rec.name) + '/rename', { to: String(to) })
+      .then(function (d) {
+        log('control', 'info', '记录改名 · ' + rec.id + ' → ' + ((d && d.name) || to));
+        return loadRecords().then(function () { return true; });
+      })
+      .catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('control', 'warn', '改名没成功：' + msg);
+        toast('bad', '改名失败', String(msg).slice(0, 140));
+        return false;
+      });
+  }
+
+  function bulkDeleteRecords(ids) {
+    const names = (ids || []).map(function (id) {
+      const r = S.records.find(function (x) { return x.id === id; });
+      return r ? r.name : null;
+    }).filter(Boolean);
+    if (!names.length) return Promise.resolve({ deleted: 0, failed: 0 });
+    if (!LIVE.on) return Promise.resolve({ deleted: 0, failed: names.length });
+    return post('/api/v1/records/bulk-delete', { names: names })
+      .then(function (d) {
+        const okn = d.deleted || 0, bad = d.failed || 0;
+        log('control', bad ? 'warn' : 'info',
+          '批量删除 · 成功 ' + okn + ' 条' + (bad ? ('，失败 ' + bad + ' 条') : ''));
+        /* 先把**成功的那几条**就地摘掉，再重拉。只靠重拉的话，
+           重拉一旦失败/很慢，界面上那几条会一直留着 ⇒ 用户会再点一次，
+           而后端已经 404 了，于是"按了没反应"。 */
+        const gone = {};
+        (d.results || []).forEach(function (r) { if (r.ok) gone[r.name] = 1; });
+        for (let i = S.records.length - 1; i >= 0; i--) {
+          if (gone[S.records[i].name]) S.records.splice(i, 1);
+        }
+        emit('state');
+        return loadRecords().then(function () {
+          return { deleted: okn, failed: bad, results: d.results || [] };
+        });
+      })
+      .catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('control', 'warn', '批量删除没成功：' + msg);
+        toast('bad', '批量删除失败', String(msg).slice(0, 140));
+        return { deleted: 0, failed: names.length };
+      });
+  }
+
+  function importRecord(doc, name) {
+    if (!LIVE.on) return Promise.resolve(false);
+    return post('/api/v1/mouse/maze/records/import', { doc: doc, name: String(name || '') })
+      .then(function (d) {
+        log('control', 'info', '记录已导入 · ' + ((d && d.name) || '') + ' · ' + ((d && d.frames) || 0) + ' 帧');
+        return loadRecords().then(function () { return true; });
+      })
+      .catch(function (e) {
+        const msg = (e && (e.detail || e.message)) || String(e);
+        log('control', 'warn', '导入没成功：' + msg);
+        toast('bad', '导入失败', String(msg).slice(0, 140));
+        return false;
+      });
   }
 
   /* ── 记录 ↔ 视频的关联（**真的写盘**，不是只改本地对象） ───────────────── */
@@ -1882,60 +2072,10 @@ window.C = (function () {
   }
   function wallAhead(cx, cy, dir) { return wallAheadIn(maze, cx, cy, dir); }
 
-  /* ── 场景（原型演示用） ───────────────────────────────────────────────── */
-  function setScene(name) {
-    S.scene = name;
-    const h = S.health;
-    if (name !== 'oldfw') {
-      h.mouse.fwInt = 313; h.mouse.fw = '2.13.0'; h.mouse.caps.led = true; S.ledSupported = true;
-    }
-    if (name === 'ready') {
-      h.mouse.connected = true; h.mouse.port = 'COM7'; h.mouse.available = true;
-      h.clock.calibrated = true;
-      S.estop = false; S.running = false;
-      S.tel.mazeTask = 0; S.tel.battMv = 8412;
-      maze.idx = 0; maze.frac = 0;
-      S.videoSessions = makeSessions();
-      S.videoRun = { state: 'done', id: S.videoSessions[0].id, elapsed: 0, error: '', t0: 0 };
-      S.readiness[0].ok = true; S.readiness[0].state = 'COM7 · fw 2.13.0 · 4.6 Hz';
-      S.readiness[1].ok = false; S.readiness[1].state = '未发车 · 对齐按 assumed';
-      S.readiness[2].ok = true; S.readiness[2].state = '3 个会话 · 最近 21:04';
-      recomputeLeds();
-      log('control', 'info', '情景：就绪 · 待发车');
-    } else if (name === 'run') {
-      act('launch');
-    } else if (name === 'estop') {
-      act('estop');
-    } else if (name === 'down') {
-      h.mouse.connected = false; h.mouse.port = '';
-      h.clock.calibrated = false;
-      S.running = false; S.estop = false;
-      S.tel.mazeTask = 0; S.tel.speedL = 0; S.tel.speedR = 0;
-      h.video.root = 'D:\\video';
-      S.readiness[0].ok = false; S.readiness[0].state = '未连接 · 串口为空';
-      S.readiness[1].ok = false; S.readiness[1].state = '未标定';
-      S.readiness[2].ok = false; S.readiness[2].state = '素材目录里没有视频';
-      S.videoSessions = [];
-      S.videoRun = { state: 'idle', id: '', elapsed: 0, error: '', t0: 0 };
-      recomputeLeds();
-      log('mouse', 'warn', '串口 COM7 已断开 · 读数停在最后一帧');
-      log('video', 'warn', '视频目录 D:\\video 里没有视频 · 放一个 mp4 再刷新');
-    } else if (name === 'oldfw') {
-      h.mouse.connected = true; h.mouse.port = 'COM7';
-      h.mouse.fw = '310'; h.mouse.fwInt = 310; h.mouse.caps.led = false;
-      S.ledSupported = false;
-      S.estop = false; S.running = false;
-      recomputeLeds();
-      S.readiness[0].ok = true; S.readiness[0].state = 'COM7 · fw 310 · 4.6 Hz';
-      log('mouse', 'warn', '固件 310：4 个 LED 位是预留位（恒 0）⇒ 界面显示未知，不显示“灭”');
-    } else if (name === 'novideo') {
-      S.videoSessions = [];
-      S.videoRun = { state: 'idle', id: '', elapsed: 0, error: '', t0: 0 };
-      S.readiness[2].ok = false; S.readiness[2].state = '还没有解析过视频';
-      log('video', 'info', '视频目录为空 · 放一个 mp4 再刷新');
-    }
-    emit('state');
-  }
+  /* 改版四十：`setScene()` 连同左轨"情景"下拉一起删除。
+     它只改**浏览器里**的演示状态（`S.health` / `S.tel` / `S.videoSessions`），
+     接上真机之后一个字节都不影响设备 —— 而界面上看不出这个区别，
+     于是"切到运行中"看起来像把车发起来了。真状态只有两条来路：`/health` 与 WS 遥测。 */
 
   /* ── 参数表：41 项 / 四组（上游 2.5.0 起的分组） ──────────────────────── */
   function buildParams() {
@@ -2005,11 +2145,10 @@ window.C = (function () {
   S.records = makeRecords();
   S.recSel = S.records[0].id;
 
-  /* 预填几批：一进来帧率表就有读数 */
-  for (let i = 0; i < 5; i++) {
-    const ms = 232 + Math.round(Math.random() * 12);
-    S.rateLog.push({ seq: ++rateSeq, n: S.pullN, ms: ms, hz: +(S.pullN * 1000 / ms).toFixed(2) });
-  }
+  /* 改版四十：这里原来预填 5 条**编出来的**批次记录（"一进来帧率表就有读数"）。
+     于是没连设备时 `#lv-delta` 有数、波形有一小段，而设备一帧都没来过。
+     现在留空 —— 真样本由 `applyTelemetry`（真机）或原型 tick（无后端）攒，
+     攒不到就是"还没有帧率样本"，这比一条看起来合理的曲线诚实。 */
   /* 统一帧通道数**只有一处真相**：`S.health.mouse.caps.unified_channels`，
      由 `applyCaps()` 从后端 `/caps` 的 `unified_channels.length` 写入。
      ⚠️ 这里原来还有一份 `S.caps = {unified_channels: 33, ...}` —— 没人读、也不会被
@@ -2054,28 +2193,51 @@ window.C = (function () {
   }
 
   let timer = null;
+  /* ── 主区高度（改版四十）────────────────────────────────────────────────
+     "把内容塞进一屏"的页面（比赛 / 记录）先把 `.main` 钉成
+     **视口 − 顶栏 − 日志坞**，再由 CSS 用 flex 分配剩余高度、让栏内自己滚。
+
+     ⚠️ 禁用 `calc(100vh - 160px)` 这类写法：那个常数是**估的**，而日志坞的高度
+        是可变的（收起一行 / 展开一大块）。回放页那次就是常数扣多了，
+        地图只剩 219 px（宽度富余全浪费掉）。
+     ⚠️ 只改 `.main` 的**行内高度**，改完立刻返回实测值；值没变就不碰 DOM
+        （`onTick` 每 500 ms 会调一次，不能每次都触发重排）。 */
+  function fitMain() {
+    const main = document.getElementById('main');
+    if (!main) return 0;
+    const top = document.querySelector('.topbar');
+    const dock = document.getElementById('dock');
+    const topH = top ? top.getBoundingClientRect().height : 0;
+    const dockH = dock ? dock.getBoundingClientRect().height : 0;
+    const h = Math.max(360, Math.round(window.innerHeight - topH - dockH));
+    if (main._stageH !== h) { main._stageH = h; main.style.height = h + 'px'; }
+    return h;
+  }
+
   function boot() {
     if (timer) return;
     timer = setInterval(tick, 250);
   }
 
-  /* 初始日志 */
-  [
-    ['control', 'info', '服务已起 · 127.0.0.1:8770 · 协议 v10（30 B 统一帧 / 32 通道 + 建图增量）'],
-    ['mouse', 'info', '串口 COM7 已连接 · fw 2.13.0 · proto 9'],
-    ['video', 'info', '视频目录 D:\\video · 3 个 mp4 · 最近解析 21:04'],
-    ['control', 'warn', '时间基：设备侧未发车（ARM 未置位），跨机对齐按 assumed 记录'],
-  ].forEach(x => S.log.push({ t: Date.now() - 60000 + Math.random() * 50000, src: x[0], level: x[1], text: x[2] }));
+  /* 初始日志（改版四十）：原来这几行是**编的现场** —— "串口 COM7 已连接 · fw 2.13.0 ·
+     proto 9" 之类。日志是取证材料，编一条比不写更坏：它长得跟真事件一模一样，
+     事后翻日志会以为那一刻真的连上过。现在只留与运行状态无关的口径说明；
+     连上 / 断开 / 拉取这些由后端日志如实进来。 */
+  S.log.push({ t: Date.now(), src: 'control', level: 'info',
+    text: '界面已就绪 · 协议 v10（30 B 统一帧 / 32 通道 + 建图增量）' });
+  S.log.push({ t: Date.now(), src: 'control', level: 'info',
+    text: '数据源未定：连不上后端时读数显示 —（不编数字）' });
 
   recomputeLeds();
 
   return {
     S, util, icon, on, emit, log, toast, go, boot, act,
-    sessionStart, sessionStop, setScene,
+    sessionStart, sessionStop,
     videoStart, videoCancel, videoTick,
     recomputeLeds, pullBatch,
     setPull, syncPull,
     loadMazeView, clearMazeView, startRaceTick, stopRaceTick, deleteRecord, linkVideo,
+    renameRecord, bulkDeleteRecords, importRecord, loadRecStatus, fitMain,
     // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
     startLive, LIVE,
     // 四页数据（按页拉取 + 形状翻译）

@@ -165,6 +165,7 @@
       const root = this._root;
       if (!root || !root.querySelector('#lv-ch')) return;
       const t = S.tel;
+      const pulling = S.pulling;
 
       /* 通道数：能力探到才显示（v10 = 32；判不了给 `—`，不拿记忆里的数顶） */
       const cnEl = root.querySelector('#lv-chan-n');
@@ -173,18 +174,19 @@
         cnEl.textContent = '· ' + (n ? n : '—');
       }
 
-      /* 帧率 */
-      const pulling = S.pulling;
+      /* 帧率（改版四十）：显示条件从"拉取中"改成"**真有一个帧率**"。
+         原来没帧率时一律写 `—`（哪怕拉取开着），而"拉取开着但还没测出来"与
+         "没开拉取"是两件事；反过来，拉取关着但 `rate` 有值（刚停那一刻）也不该抹掉。 */
       const rateEl = root.querySelector('#lv-rate');
       if (rateEl) {
-        rateEl.textContent = pulling ? U.fmt(t.rate, 1) : '—';
-        rateEl.classList.toggle('off', !pulling);
+        rateEl.textContent = (t.rate == null) ? '—' : U.fmt(t.rate, 1);
+        rateEl.classList.toggle('off', t.rate == null);
       }
       const log = S.rateLog;
       const last = log[log.length - 1], prev = log[log.length - 2];
       const dEl = root.querySelector('#lv-delta');
       if (dEl) {
-        if (!pulling || !last || !prev) { dEl.className = 'rate-delta'; dEl.textContent = '—'; }
+        if (!last || !prev) { dEl.className = 'rate-delta'; dEl.textContent = '—'; }
         else {
           const d = last.hz - prev.hz;
           dEl.className = 'rate-delta ' + (d > .05 ? 'up' : d < -.05 ? 'down' : 'flat');
@@ -192,11 +194,13 @@
         }
       }
       const ageEl = root.querySelector('#lv-age');
-      if (ageEl) ageEl.textContent = '最新一帧 ' + U.fmt(t.ageMs, 0) + ' ms 前';
+      if (ageEl) ageEl.textContent = t.ageMs == null ? '最新一帧 —' : '最新一帧 ' + U.fmt(t.ageMs, 0) + ' ms 前';
       const stEl = root.querySelector('#lv-pull-state');
       if (stEl) {
-        stEl.textContent = pulling ? '拉取中' : '已结束';
-        stEl.className = 'pill mono sm ' + (pulling ? 'ok' : 'idle');
+        /* 三态：没连设备时"已结束"是编的（从没开始过）。 */
+        const stTxt = !S.health.mouse.connected ? '判不了' : (pulling ? '拉取中' : '已结束');
+        stEl.textContent = stTxt;
+        stEl.className = 'pill mono sm ' + (!S.health.mouse.connected ? 'idle' : (pulling ? 'ok' : 'idle'));
       }
       const noteEl = root.querySelector('#lv-n-note');
       if (noteEl) {
@@ -232,11 +236,18 @@
           '<span class="l-state">' + txt + '</span></div>';
       }).join('');
 
-      const irOn = !!(t.flags & 16);
+      /* IR 开关位（flags bit4）。`flags == null` ⇒ **判不了**，不许按 0 算成"关"——
+         "红外没开"与"还没读到帧"是两件完全不同的事，后者去查红外是白查。 */
       const ir = root.querySelector('#lv-ir');
       if (ir) {
-        ir.textContent = 'IR ' + (irOn ? '开' : '关') + ' 0x10';
-        ir.className = 'pill mono sm ' + (irOn ? 'ok' : 'idle');
+        if (t.flags == null) {
+          ir.textContent = 'IR 判不了';
+          ir.className = 'pill mono sm idle';
+        } else {
+          const irOn = !!(t.flags & 16);
+          ir.textContent = 'IR ' + (irOn ? '开' : '关') + ' 0x10';
+          ir.className = 'pill mono sm ' + (irOn ? 'ok' : 'idle');
+        }
       }
       const note = root.querySelector('#lv-led-note');
       if (note) {
@@ -282,13 +293,14 @@
         d.textContent = CH.text(d.dataset.k, t[d.dataset.k]);
       });
 
-      /* 提示条：只说发生了什么 */
+      /* 提示条：只说发生了什么。⚠️ "拉取已结束"只有在**连过设备**才说 ——
+         从没连上时那是"判不了"，不是"结束了"（改版四十）。 */
       const arr = [];
       if (S.estop) arr.push(banner('bad', '急停锁存', '电机已断电'));
       if (!S.health.mouse.connected) arr.push(banner('warn', '未连接电脑鼠', '读数为最后一帧'));
-      if (!pulling) {
+      if (S.health.mouse.connected && !pulling) {
         arr.push(banner('', '拉取已结束', '没有新帧 · 改 N 后按【开始拉取】'));
-      } else if (S.health.mouse.connected && !S.running && t.ageMs > 1500) {
+      } else if (S.health.mouse.connected && !S.running && t.ageMs != null && t.ageMs > 1500) {
         arr.push(banner('', '无数据', '最新一帧 ' + U.fmt(t.ageMs / 1000, 1) + ' s 前'));
       }
       root.querySelector('#lv-banners').innerHTML = arr.join('');
