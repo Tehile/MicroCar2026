@@ -17,7 +17,7 @@
     RC_FW_PROFILE=legacy python pull_smoke.py      # 按课程固件校验
 
 `fw_expect()` 的返回值同时用于：`PONG` 指纹核对（sim 与固件必须一致）、
-`front_check`/`pull_smoke` 的设备指纹断言。
+`basic_cmd_smoke`/`pull_smoke` 的设备指纹断言。
 """
 
 from __future__ import annotations

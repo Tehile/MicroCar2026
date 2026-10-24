@@ -3,31 +3,36 @@
 给 STM32F103 电脑鼠（竞速迷宫鼠）加一条**双向蓝牙链路**与一整套 **PC 工具链**，
 把"调参、标定、监视、复现"从"串口 printf 肉眼观察"搬到电脑上。
 
-> 当前版本 **v2.10.1**　|　固件远程档 `PROTO 8 / FW 222`，比赛档 `5 / 216`　|　API `2.10.1`
+> 当前版本　|　固件远程档 `PROTO 10 / FW 314`，比赛档 `PROTO 5 / FW 216`　|　host API `2.14.0`
 >
 > **底线约束**：两档共用同一份固件源码，**比赛档产物必须逐字节不变**
-> （判据是 hex 哈希 `f0a5f8637d96b61def2d…`，不是看代码）。
+> （判据是 hex 哈希 `68ad6be2…8141`，不是看代码）。
+>
+> 模块分层与职责见 [`docs/模块组成总览.md`](docs/模块组成总览.md)；怎么验见
+> [`docs/工具与校验.md`](docs/工具与校验.md)。
 
 ---
 
 ## 1. 这是什么
 
-一条**命令严格停等**的 115200 串口/蓝牙 SPP 链路 + 一个 Python 上位机，让电脑端可以：
-（遥测拉取 v2.10 起统一为 `TelemetryPuller`：`n=1` 停等 ~4-6.5Hz、`n≥2` 批式 10Hz）
+一条**命令严格停等**的 460800 串口/蓝牙 SPP 链路 + 一个 Python 上位机，让电脑端可以：
+（遥测拉取统一为 `TelemetryPuller`：`n=1` 停等、`n≥2` 批式；**容量顶 13.3 Hz**）
 
 | 能力 | 说明 |
 |---|---|
-| **实时监视** | 一帧 57 B 的"统一帧"含 49 个通道：转速、姿态、里程、坐标、红外/墙位、电源、迷宫与冲刺状态 |
+| **实时监视** | 统一帧**载荷 30 B / 线上 38 B**，含转速、姿态、里程、坐标、红外/墙位、电源、迷宫与冲刺状态 |
+| **建图增量**（v10） | 每帧捎带 3 条 × 2 B 的建图增量（自带绝对坐标），实时同步电脑鼠内部建图 |
 | **参数在线调** | 远程档 **41 项**参数（Q16.16 精度），写后自动回读校验，`SAVE` 落 Flash page115 掉电保留 |
 | **半自动标定** | 陀螺零偏 / 车心到墙 / 红外 8 值 / 角度与里程系数，带理论值与线性反解公式 |
 | **手动运动** | `MOVE FWD/ROT/RUN`（双护栏：时间 + 红外），急停**锁存**，全在固件 1 ms 中断里兜底 |
-| **远程发车/收车** | `MAZE RUN [BLIND\|RACE]` 让车自己跑迷宫；`MCU RESET` 可靠收车 |
+| **远程发车/收车** | `MAZE RUN [BLIND\|RACE] [PULL n t]` 一条命令完成发车并启动恰好一批帧；`MCU RESET` 可靠收车 |
 | **时间同步** | 把每一帧映射到"发车以来毫秒"，蓝牙抖动不再污染时间轴；LED 1 Hz 基准灯供独立校核 |
 | **离线分析** | 阶跃指标、跟踪误差、按动作分段、直行质量、红外曲线拟合、电池跌落分析 |
-| **无硬件可跑** | 设备模拟器协议逐字节一致，自带仿真物理与 7×7 迷宫探索 |
+| **无硬件可跑** | 设备模拟器协议逐字节一致，自带仿真物理与迷宫探索 |
 
 **安全设计**（真机事故后的硬约束）：发车前上位机独立校验电池（`< 7000 mV` 拒绝发车）；
-急停/停止命令会**让遥测拉取器让路**，确保命令独占链路即时生效。
+急停/停止命令会**让遥测拉取器让路**，确保命令独占链路即时生效；
+收车必须**拉帧验证任务归零**，只看 `ACK OK` 不算停住。
 
 ---
 
@@ -35,19 +40,18 @@
 
 ```
 RemoteControl/
-├── code_stm32f1_mouse/      固件（Keil MDK，STM32F103RB，课程基线）
-│   ├── HARDWARE/            link.c/.h 为本项目新增的链路层（其余为上游外设驱动）
-│   ├── MOTION/ APP/ STRATEGY/ USER/   上游迷宫搜索/冲刺/控制（本项目仅"加可见性"）
-│   └── docs/                上游原始文档（algorithm/architecture/rename_map）
-├── code_competition/        新比赛固件基线（MAZETYPE 16，远程化移植对象）
+├── code_competition/        ★ 现行固件基线（Keil MDK，STM32F103RB，MAZETYPE 16）
 │   ├── USER/TEST.uvprojx    单工程双 Target：Target 1 比赛档 / Target_Remote 远程档
-│   └── HARDWARE/…           GBK/UTF-8 混杂原样保留；远程插入点全部 #ifdef MOUSE_REMOTE 门控
+│   ├── REMOTE/              链路层（仅远程档编译）：link.c 协议引擎 + link_port.c 平台适配
+│   └── STRATAGY/ UTILITY/ HARDWARE/   比赛代码本体（本项目只加可见性，不改行为）
+├── code_stm32f1_mouse/     旧课程基线（MAZETYPE 7），仅参考，非主线
 ├── host/                    PC 上位机（Python）
 │   ├── run_host.py          启动 GUI
-│   ├── selftest.py 等 10 个套件
+│   ├── *.py                 30 个脚本：契约/自检/模拟器套件/真机验收/安全（见工具与校验）
 │   ├── host/                包：protocol / transport / model / api / ui / sim
 │   └── README.md            ★ 上位机使用指南（装了怎么跑）
-├── docs/                    ★ 本项目文档（见下）
+├── docs/                    ★ 本项目文档（见下，10 篇）
+├── tools/                   参数工具链 paramgen.py + paramkit/
 ├── release/                 归档 zip + SHA256 台账
 ├── build_all_modes.py           旧工程两档批量编译
 └── build_competition_modes.py   新工程双 Target 编译 + 比赛档 hex 红线校验
@@ -57,21 +61,22 @@ RemoteControl/
 
 ## 3. 文档导航
 
-**本项目对外交付的文档只有三类：功能简介（本文）、对外接口及用法、算法详解。**
+文档按**总体 → 模块 → 接口 → 专题 → 工具**组织：
 
 | 想看什么 | 去哪 |
 |---|---|
 | 项目功能简介（本文） | `README.md` |
-| **算法思路详解**（固件新增 + 上位机全收，供审阅） | [`docs/算法详解.md`](docs/算法详解.md) |
+| **模块组成总览**（分层拓扑 / 各模块职责 / 运行时模型 / 数据落点） | [`docs/模块组成总览.md`](docs/模块组成总览.md) |
 | **线格式权威规格**（帧/命令/参数/错误码） | [`docs/通信协议规格.md`](docs/通信协议规格.md) |
 | **可编程接口清单**（`mc.*` 方法 + 命令/帧/参数表） | [`docs/api_reference.md`](docs/api_reference.md) |
+| **怎么验**（脚本清单 / 构建 / 压测 / 真机四条铁律） | [`docs/工具与校验.md`](docs/工具与校验.md) |
+| **算法思路详解**（固件新增 + 上位机全收，供审阅） | [`docs/算法详解.md`](docs/算法详解.md) |
 | 参数名称-功能-调整速查（仿课件表） | [`docs/参数名称-功能-调整表.md`](docs/参数名称-功能-调整表.md) |
+| **迷宫数据回传**（变量总表 / 增量通道 / 已知断点） | [`docs/迷宫数据回传与重建.md`](docs/迷宫数据回传与重建.md) |
 | **链路稳定性压测**（固定 FPS / MTBF / 环境对比） | [`docs/链路MTBF压测方法.md`](docs/链路MTBF压测方法.md) |
-| **遥测拉取器统一设计**（v2.10：停等/批式合并，n=1 退化） | [`docs/遥测拉取器统一设计方案.md`](docs/遥测拉取器统一设计方案.md) |
-| **比赛固件远程化移植方案**（`code_competition` 基线，三层架构 / 中止设计 / 分阶段计划） | [`docs/比赛固件远程化移植方案.md`](docs/比赛固件远程化移植方案.md) |
+| **历史决策**（已落地方案与代码落点） | [`docs/已落地方案与决策记录.md`](docs/已落地方案与决策记录.md) |
+| **未实现 / 遗留**（`MAP LIVE`、冻结项、待判发现） | [`docs/未实现功能.md`](docs/未实现功能.md) |
 | 上位机怎么跑（CLI / GUI / 标定 / 采集） | [`host/README.md`](host/README.md) |
-| 上游迷宫算法与源码导览 | [`code_stm32f1_mouse/docs/`](code_stm32f1_mouse/docs/) |
-| **比赛代码参考**（新基线，MAZETYPE 16） | [`code_competition/`](code_competition/) |
 
 ---
 
@@ -91,7 +96,9 @@ python run_host.py               # 终端 B —— 上位机，连接下拉框�
 2. `host/` 里 `python -m host.monitor COM7`（终端仪表盘）；
 3. 或 `python run_host.py` → 选带 `[蓝牙]` 标记的口 → 连接。
 
-连接后第一条命令是 `PING`，应回 `PONG 8 222 7 1024 <rst>`（远程档指纹）。
+连接后第一条命令是 `PING`，应回 `PONG 10 314 16 1024 <rst>`（远程档指纹：
+`PROTO 10` / `FW 314` / `MAZETYPE 16` / TX 环 1024 B）。第六字段 `<rst>` 是复位源
+（`POR` 上电 / `SW` 软复位）。若 `PING` 永远无 `PONG`，先怀疑**烧错档**（比赛档无 `LINK_Init`）。
 
 ### 上位机依赖
 
@@ -129,12 +136,14 @@ python build_competition_modes.py   # 两档全量重编 + ROM/RAM/告警汇总 
 - **Target_Remote（远程档）**：上述 + `MOUSE_REMOTE,EN_USART1_RX`，产物落 `USER\Remote\`；
   远程档关闭 `FLASHSAVE` 板载飞行记录（让位 TELEM 实时流），RAM 20480→10960
 
-### 上位机（十套件，共 702 项）
+### 上位机（30 个脚本，分类见 `docs/工具与校验.md`）
+
+> ⚠️ 用 `C:/ProgramData/anaconda3/python.exe` 跑（托管 python 无 numpy）。
 
 ```bash
 cd host
-python selftest.py            # 协议断言（CRC/Q16.16/帧/自恢复/墙图/落盘）
-python contract_test.py       # 登记表↔模拟器逐条对齐 + 源码静态断言（263 项）
+python selftest.py            # 协议断言（CRC/Q16.16/帧/自恢复/墙图/落盘）45 项
+python contract_test.py       # 登记表↔模拟器逐条对齐 + 源码静态断言（278 项）
 python facade_smoke.py        # 门面全功能（A–J）
 python maze_smoke.py          # 迷宫状态复刻 / 路口分类
 python monitor_smoke.py       # 实时监视器

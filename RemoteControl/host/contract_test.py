@@ -520,7 +520,7 @@ def _test_firmware_mode_gates() -> None:
     #      上位机若与固件条目数不一致, 参数页会**静默作废**, 标定回落默认值。
     #      v2.5: LINK_P_NUM/PROTO_VER/FW_VER 三宏按 MOUSE_REMOTE 门控(两档编译
     #      同一份 link.c) —— 解析规则 = **`#ifdef MOUSE_REMOTE` 分支内的第一个值**;
-    #      并断言"远程分支在前"(front_check/pull_smoke 的"首个匹配"解析依赖此顺序)。
+    #      并断言"远程分支在前"(pull_smoke 的"首个匹配"解析依赖此顺序)。
     i_ifdef = link_h.find("#ifdef MOUSE_REMOTE")
     i_pn = link_h.find("#define LINK_P_NUM")
     check("link.h: LINK_P_NUM 在 #ifdef MOUSE_REMOTE 之后(远程分支在前, 解析约定)",
@@ -787,8 +787,8 @@ def _test_firmware_mode_gates() -> None:
     #      ⇒ `link_CalibLoad()` 的 `crcF != crcC` **永远成立**、整页被判无效
     #      ⇒ 参数每次上电都回落 `link_ParamFromSys()` 的源码默认值, `SAVE` 形同虚设。
     #      症状极隐蔽: `GET`/`SETQ`/`GET ALL` 走 RAM 的 `linkParam[]`, 与 Flash 页无关,
-    #      所以"写→读"全程正常; 只有"改值 → SAVE → 复位 → 再看"才暴露。判据脚本
-    #      `host/params_persist_probe.py`。修法: 让 +8 保持擦除态 0xFFFF, 末尾写一次。
+    #      所以"写→读"全程正常; 只有"改值 → SAVE → 复位 → 再看"才暴露(该一次性探针
+    #      已随本次清理移除, 此处断言保留为回归)。修法: 让 +8 保持擦除态 0xFFFF, 末尾写一次。
     _save_body = link_c.split("link_CalibSave(void)")[1].split("static u8 link_CalibLoad")[0]
     _gated = ("#ifdef MOUSE_REMOTE" in _save_body) and ("#else" in _save_body)
     check("link_CalibSave: crc 槽修复被 #ifdef MOUSE_REMOTE 门控(比赛档逐字节不变)", _gated)

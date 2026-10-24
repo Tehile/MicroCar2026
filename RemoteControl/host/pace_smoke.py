@@ -8,7 +8,7 @@
     交付率 99.9%/98.6%, 传输量 2.5 倍 —— 即本类的默认配置。
 
 本测试全部跑在**模拟器**上(同构实现了 `RATE` 族), 不断真机。真机验收另见
-`front_check.py` / `link_pull_pace.py`。
+`link_pull_pace.py` / `v9_pull_verify.py`。
 
 用法(在 host/ 目录下):
     python pace_smoke.py

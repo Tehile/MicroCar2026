@@ -24,6 +24,9 @@ MUST_HAVE = [
     "release/make_archive.py",
     "release/verify_archive.py",
     # 文档(13 篇)
+    # ⚠️ 本清单对应 **v3.0.0 及之前** 的包(那些包里确实是这些文档)。
+    #    2026-10-25 文档重组后 docs/ 精简为 10 篇(见 make_archive.py 的 must_have);
+    #    自下一个归档起, 本清单须与 make_archive.py 同步, 否则会误报缺失。
     "docs/参数全量整定常量化-方案v3.0.md",
     "docs/参数名称-功能-调整表.md",
     "docs/参数JSON化与双向转换工具链设计方案.md",

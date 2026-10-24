@@ -1,7 +1,10 @@
 # 电脑鼠蓝牙上位机（host）
 
-配套固件模块 `code_stm32f1_mouse/HARDWARE/link.c`。
-算法与设计见 [`../docs/算法详解.md`](../docs/算法详解.md)；线上字节定义见 [`../docs/通信协议规格.md`](../docs/通信协议规格.md)。
+配套固件模块 `code_competition/REMOTE/`（`link.c` 协议引擎 + `link_port.c` 平台适配，仅远程档编译）。
+模块分层见 [`../docs/模块组成总览.md`](../docs/模块组成总览.md)；算法与设计见
+[`../docs/算法详解.md`](../docs/算法详解.md)；线上字节定义见
+[`../docs/通信协议规格.md`](../docs/通信协议规格.md)；脚本清单与真机铁律见
+[`../docs/工具与校验.md`](../docs/工具与校验.md)。
 
 ---
 
@@ -12,7 +15,7 @@
 ```bash
 cd host
 
-# 终端 A —— 设备模拟器（协议与固件逐字节一致，自带仿真物理 + 7x7 迷宫探索）
+# 终端 A —— 设备模拟器（协议与固件逐字节一致，自带仿真物理与迷宫探索）
 python -m host.sim.mouse_sim
 
 # 终端 B —— 上位机
@@ -26,7 +29,9 @@ python run_host.py
 
 1. 与蓝牙 SPP 模块配对（Windows 会在“设备和打印机”里生成一个**传出** COM 口）
 2. 点“刷新”，下拉框里选带 `[蓝牙]` 标记的那个口
-3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回 `PONG 8 222 7 1024 <rst>`（远程档指纹；第三字段 = `MAZETYPE`=7，即 7×7 四分之一迷宫，**不随版本号变**）
+3. 点“连接”；若 1 秒内没数据，用底部的文本调试台敲 `PING` 回车，应回
+   `PONG 10 314 16 1024 <rst>`（远程档指纹：`PROTO 10` / `FW 314` / `MAZETYPE 16` / TX 环 1024 B）
+   ⚠️ 若 `PING` 永远无 `PONG`，先怀疑**烧错档**（比赛档无 `LINK_Init`）
 
 ### 标定 / 采集阶段：不起 GUI，直接看实时数据
 
@@ -37,12 +42,15 @@ python -m host.monitor tcp://127.0.0.1:5555  # 无硬件：连模拟器
 python -m host.monitor replay://sessions/2026-09-27_0151   # 回放历史会话
 ```
 
-固件档位自 **v2.4 起只有两档**（`code_stm32f1_mouse/USER/main.h`）：
+现行固件是 **`code_competition/USER/TEST.uvprojx` 单工程双 Target**（MAZETYPE 16）：
 
-| 档 | 开关 | 能力 |
-|---|---|---|
-| **远程档** | `#define MOUSE_REMOTE 1` | 上位机全程接管：监视 + 参数读写 + 手动运动 + 远程发车/收车 + `MCU RESET` |
-| **按键比赛档** | **什么都不定义** | 与比赛固件一致（按键 + 物理启动） |
+| 档 | Keil Target | Define | 能力 |
+|---|---|---|---|
+| **比赛档** | `Target 1` | `STM32F10X_MD,USE_STDPERIPH_DRIVE` | 与比赛固件一致，**产物 hex 必须与移植前逐字节相同**（红线 `68ad6be2…8141`） |
+| **远程档** | `Target_Remote` | 上述 + `MOUSE_REMOTE,EN_USART1_RX` | 上位机全程接管：监视 + 参数读写 + 手动运动 + 远程发车/收车 + `MCU RESET` |
+
+`MOUSE_REMOTE` 由 Keil `-D` 注入，**源码里只有 `#ifdef`**，没有任何 `#define`。
+当前档位看 `TEST.uvoptx` 的 `<IsCurrentTarget>`。
 
 远程档值守态默认 `freemode=1`（电机不输出），只有收到 `MOVE *` / `MAZE RUN` 才会动。
 ⚠️ v2.4 起**不再有「电机绝不可能动」的档** —— 静态标定时请把轮子架离地面。
@@ -259,15 +267,11 @@ host/
 ├── analyze_pace_gaps.py     逐帧 CSV 节奏分析(批内/跨批分类 + 75ms 量化)
 │
 │   -- 真机诊断 / 验收脚本(需接真设备; 多数默认只读, 发车类须显式开关) --
-├── v210_accept.py           **v2.10 统一拉取器真机验收**(设计 §9.3 五项; A1/A2/A5/A4 只读, A3 运动须 --motor)
 ├── v210_launch_pull_test.py **拉取中发车**复现/定位(`--busy-probe` 请求消费自检 + off/telem/pace 三工况矩阵; **退出硬保证待命**: 分级 MAZE STOP→ESTOP→MCU RESET; 发车须 --motor)
 ├── mouse_stop.py            **紧急收车**(panic button): 车在乱跑/脚本已退出时立刻把车带回待命态
-├── front_check.py           前墙双档 + 比赛状态只读验收(载荷 45→49 字节核对)
 ├── maze_launch_link_test.py **发车链路最小验收**: BLIND 与 RACE 各发一轮, 只判"链路是否通"(--launch)
 ├── launch_link_live.py      **运动中链路有效性探针**: 发车后在车运动期间持续收帧 + 主动插 PING(--launch, --target BLIND|RACE)
-├── params_persist_probe.py  **参数持久化定点探针**: 逐步骤打印 SETQ/SAVE/MCU RESET 的回读, 定位"SAVE 不持久化"
 ├── move_run_guard_test.py   V3 验收: MOVE RUN 双护栏(TIME/IR) + 运动中二次 MOVE 应 ERR_BUSY + ESTOP 锁存/STOP 解锁(--motor; --safe-ir N 给 T1 加保护阈值)
-├── maze_front_capture.py    发车 + 运动期前墙双档采样(恒等式与越界只读核对)
 ├── requirements.txt
 └── host/
     ├── protocol/
