@@ -32,7 +32,10 @@
         <option value="novideo">无视频 · 只跑小车</option>
       </select>
     </label>
-    <div class="rail-meta"><span>原型 · 纯前端</span><span>v9 / PROTO 9</span></div>
+    <!-- ⚠️ 这两格**由 JS 填**（`shell.js` 的 `renderRailMeta`），不写死：
+         写死过一次 "v9 / PROTO 9"，协议升到 v10 之后它还在那儿，而它长得跟
+         真数据一模一样 —— 是"第二个真相"。填不进去就显示 `—`，不编。 -->
+    <div class="rail-meta"><span id="rail-mode">—</span><span id="rail-proto">—</span></div>
   </div>
 </aside>
 

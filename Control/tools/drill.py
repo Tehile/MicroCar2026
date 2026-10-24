@@ -1137,6 +1137,65 @@ def _mouse_sections(base: str, args, sim) -> None:
            + ("" if i45_ok else
               " ⇒ **每次都在重放滑动窗口**：跑过窗口长度后，早期探到的墙会消失"))
 
+    # ---- I53：v10 建图增量**端到端**出图（改版三十九）
+    # 为什么必须端到端：I51 只证明了那个类自己是对的，证明不了"它被接上了"。
+    # 接线漏一处（没在 `on_telemetry` 里喂 / 喂了但 `maze_reconstruct` 没换源）
+    # ⇒ 界面上仍是一张图，只是那张图来自**旧的主机推断**：看着有墙有路，
+    # 但"未探明"这一态永远不存在（它把"没走到"当成"没有墙"）。
+    head("14c. 判据 I53：比赛页那张图真的来自固件增量（三态齐 + 不是全场同值）")
+    rr53, cc53, _ = api(base, "/api/v1/mouse/maze/reconstruct")
+    d53 = (rr53.get("data") or {}) if cc53 == 200 else {}
+    src53 = d53.get("source")
+    vw53 = d53.get("view") or {}
+    st53 = (vw53.get("stats") or ((d53.get("mapd") or {}).get("stats")) or {})
+    # ⚠️ **车停在起点时增量通道天然是空的**：起点格永不入流（固件那边它也是 0）。
+    #    这时判据只能验到"一张空图"，而空图既可能是"没接线"也可能是"没动过" ——
+    #    两种结论完全不同。所以先看条目，必要时**真让它走一趟**再验。
+    if src53 == "mapd" and not int((st53 or {}).get("entries") or 0):
+        api(base, "/api/v1/mouse/stream", "POST", {"on": True})
+        time.sleep(0.6)
+        _rr_l, _cc_l, _msg_l, _ok_l, _low_l = launch_checked(base)
+        if _ok_l:
+            time.sleep(3.0)                  # 让它跨几格（每跨一格固件才推一条）
+        api(base, "/api/v1/mouse/maze/stop", "POST", {}, timeout=25)
+        api(base, "/api/v1/mouse/maze/record/stop", "POST", {}, timeout=25)
+        rr53, cc53, _ = api(base, "/api/v1/mouse/maze/reconstruct")
+        d53 = (rr53.get("data") or {}) if cc53 == 200 else {}
+        src53 = d53.get("source")
+        vw53 = d53.get("view") or {}
+        st53 = (vw53.get("stats") or ((d53.get("mapd") or {}).get("stats")) or {})
+    v53 = vw53.get("v") or []
+    h53 = vw53.get("h") or []
+    flat53 = [c for row in v53 for c in row] + [c for row in h53 for c in row]
+    has_unknown = 2 in flat53
+    has_known = (0 in flat53) or (1 in flat53)
+    cells53 = int(st53.get("cells") or 0)
+    total53 = int(vw53.get("cells_total") or 0)
+    not_all = bool(total53) and cells53 < total53
+    if src53 != "mapd":
+        record("I53", "SKIP",
+               f"这张图不是增量来源（source={src53!r}）⇒ 这台固件的帧里没有 "
+               f"`mapd`（PROTO<10），端到端验不了；退路是主机推断那套"
+               f"（`view.src='ring'`，已由 I45/I46 守着）")
+    elif not int(st53.get("entries") or 0):
+        # 走了那一趟还是一格都没有 ⇒ **判不了**，不是"通过"也不是"产品错"。
+        # 分不清三种情况：发车被低电拦 / 车一步没跨 / 固件不推条目。
+        record("I53", "SKIP",
+               f"增量通道里一条都没有（带 mapd 的帧={st53.get('frames_mapd')}）"
+               f"⇒ 车没跨过格（起点格永不入流）或发车没成，端到端这一格判不了；"
+               f"接线本身由 I51/I52 守着")
+    else:
+        i53_ok = bool(st53.get("entries") and st53.get("frames_mapd")
+                      and cells53 > 0 and has_unknown and has_known and not_all)
+        record("I53", "PASS" if i53_ok else "FAIL",
+               f"source={src53}、view.src={vw53.get('src')}、"
+               f"条目={st53.get('entries')}、带 mapd 的帧={st53.get('frames_mapd')}、"
+               f"已探明格={cells53}/{total53}；三态：未探明出现={has_unknown}、"
+               f"已知面出现={has_known}；**不是全格同值**（cells<total={not_all}）"
+               + ("" if i53_ok else
+                  " ⇒ 图没有真的换成增量来源：`未探明` 不存在说明还是主机推断那套"
+                  "（它把'没走到'当成'没有墙'），或者全场被填成同一个值（编的）"))
+
 
 
     # ⚠️ `ok1` / `relaunch_ok` 允许"**判不了**"这一态：模拟器电池读数抖到阈值以下时，
@@ -1765,6 +1824,118 @@ def main(argv=None) -> int:
             pass
     except Exception as e:                                    # noqa: BLE001
         record("I50", "FAIL", f"缺口单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---------------------------------------------------------------- 0d v10 建图
+    head("0d. v10 建图增量：三态 / 幂等 / 冲突取最新 / 落盘往返（纯内存）")
+    # 为什么单列：v10 换成"固件报事实"之后，图上多出**第三态「未探明」**。
+    # 那一态是最容易做错、也最容易看着没错的 —— 固件里没走过的格低半字节就是 0，
+    # 而 0 的字面意思恰好是"四面皆墙"。谁要是不加这一层，画出来就是一张
+    # **满格实墙**的图：有内容、边界清楚、看着完全正常，但每一面都是编的。
+    #
+    # 这条判据钉五件事：
+    #   ① 幂等：同一条重复 apply 不改变任何面（否则邻居清掉的位会自己长回来）；
+    #   ② 没报过的格 = 未探明（2），**不是** 有墙（1）；
+    #   ③ 坏条目（open4=0）只记"到过"，不写面；
+    #   ④ 同一条边被两条报成不同结论 ⇒ **最后一次说了算**（用户 2026-10-22 裁决）
+    #      且 `face_flip` 记数（"这条边被改过"本身是现场信息，不擦）；
+    #   ⑤ 落盘行往返：`-` 必须还原成未探明，十六进制必须还原成同一张图。
+    try:
+        from control.map_live import LiveWallMap, MapdRows, UNKNOWN
+
+        def _f(seq, x, y, o4, note_resync=0):
+            return {"_seq": seq, "posX": x, "posY": y,
+                    "mapd": {"count": 1, "lossy": 0, "resync": note_resync,
+                             "entries": [{"x": x, "y": y, "open4": o4}]}}
+
+        # open4 的第 d 位 = **1 可通 / 0 有墙**，d 与固件同序（0=+Y 1=+X 2=-Y 3=-X）
+        lm1 = LiveWallMap()
+        lm1.feed(_f(10, 0, 0, 0b0001))          # +Y 通 ⇒ fh[0][0]=0；+X 墙 ⇒ fv[0][0]=1
+        first = (lm1.fh[0][0], lm1.fv[0][0], lm1.stats()["cells"])
+        for _k in range(3):
+            lm1.feed(_f(10, 0, 0, 0b0001))      # 同一条再喂三遍
+        idem = (lm1.fh[0][0], lm1.fv[0][0], lm1.stats()["cells"]) == first \
+            and lm1.stats()["cells"] == 1
+        # ② 未探明：x=1 那一片从没被报过
+        unk_ok = (lm1.fv[0][1] == UNKNOWN and lm1.fv[7][7] == UNKNOWN
+                  and lm1.fv[0][0] == 1)
+        # ③ 坏条目：open4=0 只记 visited
+        lm1.feed(_f(11, 2, 2, 0))
+        bad_ok = (lm1.open4[2][2] == 0 and lm1.visited[2][2] == 1
+                  and lm1.fv[2][2] == UNKNOWN and lm1.fh[2][2] == UNKNOWN)
+        # ④ 冲突取最新：(0,0) 说 +Y 通；从 (0,1) 看 -Y 说有墙 ⇒ 后者后到、说了算
+        lm1.feed(_f(12, 0, 1, 0b0011))
+        flip_n = lm1.stats()["face_flip"]
+        latest_ok = (lm1.fh[0][0] == 1 and flip_n >= 1)
+        # ⑤ 落盘往返
+        dumped = MapdRows.dump(lm1, 16)
+        back = MapdRows.view(dumped["rows"], 16, lm1.view(16)["trail"])
+        memv = lm1.view(16)
+        rt_ok = (back["v"] == memv["v"] and back["h"] == memv["h"]
+                 and back["visited"] == memv["visited"]
+                 and dumped["rows"][9][9] == MapdRows.UNKNOWN_CH)
+        # ⑥ `坐标差`（pos_mismatch）口径：**重走老格不算错位**。
+        #    `last_cell` 若只在"写新格"时更新（曾这么写），车回头走已经写过的格
+        #    时会拿一个很旧的格子去比当前坐标 ⇒ 判据常亮（实测 762/1374，55%，
+        #    警告行整场亮着，现场只会以为固件采样坏了）。正确口径是取**本帧最后
+        #    一条条目**，与坐标差 ≥2 才算"有格子没报上来"。
+        lm2 = LiveWallMap()
+        lm2.feed(_f(30, 0, 0, 0b0001))        # 写 (0,0)
+        lm2.feed(_f(31, 3, 3, 0b0001))        # 写 (3,3) ⇒ 最后条目跳到 (3,3)
+        lm2.feed(_f(32, 0, 0, 0b0001))        # **回头重走** (0,0)：门控早退，但条目仍是 (0,0)
+        pm_revisit = lm2.stats()["pos_mismatch"]
+        lm2.feed({"_seq": 33, "posX": 9, "posY": 9,
+                  "mapd": {"count": 1, "lossy": 0, "resync": 0,
+                           "entries": [{"x": 0, "y": 0, "open4": 0b0001}]}})
+        pm_bad = lm2.stats()["pos_mismatch"]
+        pos_ok = (pm_revisit == 0 and pm_bad == 1)
+        i51_ok = bool(idem and unk_ok and bad_ok and latest_ok and rt_ok and pos_ok)
+        record("I51", "PASS" if i51_ok else "FAIL",
+               f"幂等={idem}（重复 3 次后 fh/fv/cells 不变，cells={lm1.stats()['cells']}）；"
+               f"未探明={(lm1.fv[0][1], lm1.fv[7][7])}（应都是 {UNKNOWN}）、"
+               f"已探明面 fv[0][0]={lm1.fv[0][0]}（应为 1）={unk_ok}；"
+               f"坏条目只记到过={bad_ok}；冲突取最新 fh[0][0]={lm1.fh[0][0]}（应为 1）、"
+               f"face_flip={flip_n}={latest_ok}；落盘往返={rt_ok}；"
+               f"坐标差口径：重走老格 {pm_revisit}（应为 0）、真错位 {pm_bad}（应为 1）={pos_ok}"
+               + ("" if i51_ok else
+                  " ⇒ 未探明被画成墙 / 重复 apply 改图 / 冲突擦掉前一次 / 落盘的 `-` 还原不回来 /"
+                  " 坐标差把重走当错位：这五种都会让图或诊断**看着正常但内容是编的**"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I51", "FAIL", f"建图三态单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---------------------------------------------------------------- 0e 帧号别名
+    head("0e. 建图吃的是 `_seq`（不是 `seq`）：跳号必须数得出来（纯内存）")
+    # 为什么单列：上游 `MapReplayer.apply()` 读的是 `frame["seq"]`，而遥测事件里的
+    # 帧号键叫 **`_seq`**（`TelemetryStore` 加的）。直接把 `rec` 透传进去 ⇒ 它认为
+    # "从来没有序号" ⇒ `holes`/`seq_gaps` **恒 0**，账面写"没丢批"而实际丢了。
+    # 那是典型的**假绿**（比假红危险：没人会去查一个绿色的项）。
+    # 判据必须**正反两向**：连续喂 ⇒ 0；跳一批 ⇒ 1。只看"有个数"是验不出来的。
+    try:
+        from control.map_live import LiveWallMap as _LM2
+
+        def _f2(seq_key, seq, x=0, y=0):
+            return {seq_key: seq, "posX": x, "posY": y,
+                    "mapd": {"count": 1, "lossy": 0, "resync": 0,
+                             "entries": [{"x": x, "y": y, "open4": 0b0001}]}}
+
+        la = _LM2()
+        la.feed(_f2("_seq", 10))
+        la.feed(_f2("_seq", 11))            # 连续 ⇒ 0 次跳号
+        la.feed(_f2("_seq", 13))            # 跳 1 批 ⇒ 1 次
+        gaps_underscore = la.stats()["seq_gaps"]
+        lb = _LM2()
+        lb.feed(_f2("seq", 10))
+        lb.feed(_f2("seq", 11))
+        lb.feed(_f2("seq", 13))
+        gaps_plain = lb.stats()["seq_gaps"]
+        # 反向：只给 `seq`（上游原生键）也必须算得出来；两者结论必须一致
+        i52_ok = (gaps_underscore == 1 and gaps_plain == 1)
+        record("I52", "PASS" if i52_ok else "FAIL",
+               f"只给 `_seq`（10,11,13）⇒ seq_gaps={gaps_underscore}（应为 1）；"
+               f"只给 `seq`（10,11,13）⇒ seq_gaps={gaps_plain}（应为 1）"
+               + ("" if i52_ok else
+                  " ⇒ 有一路读错键：**这一路会恒报「没丢批」**，真丢了也看不出来"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I52", "FAIL", f"帧号别名单测没跑起来：{type(e).__name__}: {e}")
 
     # ---------------------------------------------------------------- 1 起服务
     head("1. 起服务")

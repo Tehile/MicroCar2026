@@ -176,6 +176,7 @@ li{margin:.28em 0}
 <li><a href="#1136">11.36 改版三十四·地图对齐固件坐标 + 清空 + 远近墙 + 测试提速（状态：已落地）</a></li>
 <li><a href="#1137">11.37 改版三十五·记录的主时间轴改成设备时基（每帧唯一）（状态：已落地）</a></li>
 <li><a href="#1138-124-s">11.38 改版三十七·发车前先拉取（那 1~2.4 s 缺口的成因与"对轴"）（状态：本层已落地；改上游那条是设计）</a></li>
+<li><a href="#1139-v10">11.39 改版三十九·协议 v10：建图增量通道（地图从"推断"变"事实"）+ 通道瘦身（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -9131,6 +9132,282 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </tr>
 </tbody>
 </table>
+<h3 id="1139-v10">11.39 改版三十九·协议 v10：建图增量通道（地图从"推断"变"事实"）+ 通道瘦身（状态：<strong>已落地</strong>）</h3>
+<h4 id="_134">一、上游变了什么</h4>
+<p><code>RemoteControl</code> 提交 <code>17845f3</code>（2026-10-23）把协议推到 <strong>PROTO 10 / FW 314 / API 2.14.0</strong>。
+帧长仍是 <strong>30 B</strong>，但字段<strong>重排</strong>，并新增一块<strong>建图增量通道</strong>（偏移 23..29）：</p>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>v9</th>
+<th>v10</th>
+<th>对本层的影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>通道数</td>
+<td>33</td>
+<td><strong>32</strong></td>
+<td><code>encAngle</code> 被删，腾出的字节给了建图</td>
+</tr>
+<tr>
+<td><code>irMm[4]</code></td>
+<td>u16</td>
+<td><strong>u8</strong>（饱和 255）</td>
+<td>界面必须显式标"饱和"，否则 255 被读成"前方 255 mm 有东西"</td>
+</tr>
+<tr>
+<td><code>batt</code></td>
+<td>u16 mV</td>
+<td><strong>u8 = <code>round(mV/50)</code></strong></td>
+<td>解码已还原 mV，但<strong>真实分辨率只有 50 mV</strong> ⇒ 别按 1 mV 显示</td>
+</tr>
+<tr>
+<td><code>mapHdr</code> + 3×2 B 条目</td>
+<td>—</td>
+<td><strong>新增</strong></td>
+<td>每帧最多带 3 格"四向可通位 + 坐标"</td>
+</tr>
+</tbody>
+</table>
+<p>固件侧（<code>LINK_Tick</code>）以 1 kHz 盯 <code>GmcMouse</code> 坐标变化，每走一格把该格
+<code>GucMapBlock[x][y] &amp; 0x0F</code>（<strong>四向可通位，绝对方向，1=通</strong>）压进 32 条环。</p>
+<h4 id="_135">二、旧那张图错在哪（三处，全都"不报错但结论错"）</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>旧做法</th>
+<th>错在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>MazeWallMap</code> 拿 <code>wallLeft/Front/Right + dir</code>（<strong>相对车身朝向</strong>）逐格累积</td>
+<td>它推的是"我转过去看见了什么"；v10 之后固件直接报"这一格四向通不通"。<strong>两条来路</strong>，一条是推断、一条是事实</td>
+</tr>
+<tr>
+<td>2</td>
+<td>首帧受环形缓冲 30 s 限制（后来改成累积，但起点仍在窗口里）</td>
+<td>跑过 30 s 后早期探明的墙<strong>凭空消失</strong>，图上仍有墙有路 ⇒ 看不出错</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>visited</code> 只有"车走过"</td>
+<td><strong>它不知道"没走过"这回事</strong> —— 固件里未写过的格低半字节就是 <code>0</code>，而 <code>0</code> 的字面意思恰好是"四面皆墙"。不做这一层，画出来就是一张<strong>满格实墙</strong>的图：有内容、边界清楚、看着完全正常，但每一面都是编的</td>
+</tr>
+</tbody>
+</table>
+<p>第 3 条是这一轮的主因：<strong>"没数据"和"已知没有墙"必须画成两个样子</strong>。</p>
+<h4 id="controlmap_livepy">三、本层怎么做（<code>control/map_live.py</code>）</h4>
+<p><code>LiveWallMap</code> <strong>不继承</strong>上游 <code>MapReplayer</code>。上游那个类的口径是"我和固件逐字节一样吗"
+（<code>wall[x][y]</code> 低半字节 + 高半字节第二张图），界面要答的是另一个问题：
+<strong>"这一面我到底知不知道"</strong>。两者结论不同（未写过的格在固件里是 0）。</p>
+<table>
+<thead>
+<tr>
+<th>做法</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>面的三态：<code>0</code> 可通 / <code>1</code> 有墙 / <strong><code>2</code> 未探明</strong></td>
+<td>三态是"知道/不知道"的唯一表达；老记录（v9）只有 0/1，<code>2</code> 是增量流才有的第三态</td>
+</tr>
+<tr>
+<td>照抄固件 <code>__wallCheck()</code> 的写入门控（低半字节非 0 即跳过）</td>
+<td>不抄的话，重复收到同一格会把邻居<strong>后来清掉的位重置回去</strong> ⇒ 图上"确认要拆的墙自己长回来"</td>
+</tr>
+<tr>
+<td>同一条边被反复观测 ⇒ <strong>最后一次说了算</strong>，并存 <code>face_flip</code> 计数</td>
+<td>用户 2026-10-22 裁决（铁律 0）：图是"所有时刻所有视角的拼接"，冲突本身是现场信息，不做证据分级、不擦</td>
+</tr>
+<tr>
+<td><code>open4 == 0</code> 的条目<strong>只记"到过"、不写任何面</strong></td>
+<td>写过的格 <code>open4</code> 恒非 0（固件先 <code>\|= MOUSEWAY_B</code>）⇒ 收到 0 说明这条是坏的；照写就是四面皆墙</td>
+</tr>
+<tr>
+<td>起点格<strong>永不入流</strong>（固件那边它也是 0）⇒ 图上"未探明"，不画四面墙</td>
+<td>画成墙等于断言"起点四周全封"，而现场会据此判断"根本走不出去"</td>
+</tr>
+<tr>
+<td><code>feed()</code> 在 <code>on_telemetry</code> 里、<strong>排在"在不在记录"之前</strong></td>
+<td><code>mapd</code> <strong>不在 32 列里</strong>（不进 ring）⇒ 只能逐帧 apply，读 <code>latest()</code> 必漏条目。漏一帧少一格，而且<strong>看不出来</strong>（图上只是少一条墙，像"那里还没走到"）</td>
+</tr>
+<tr>
+<td>记录器同步喂一份，<code>stop()</code> 落 <code>mapd</code> 行（十六进制 + 诊断）</td>
+<td>回放要的是<strong>与比赛页同一张图</strong>（同一来路、同一口径）；<code>wall</code> 那份继续落，只当对账基准</td>
+</tr>
+<tr>
+<td>两张图<strong>不同时画</strong>：<code>MazeWallMap</code> 降为<strong>对账诊断</strong>（<code>face_diff</code>：同一面"固件说通 / 主机看着有墙"的数）</td>
+<td>一元素一真相（铁律 32）。它对账的价值在"<strong>独立的相对朝向来路</strong>"——这个项目在方向映射上已经错过两次</td>
+</tr>
+</tbody>
+</table>
+<p>界面侧（<code>draw.maze</code> 第三态）：已知墙<strong>实线</strong>、未探明<strong>虚线</strong>、没走到过的格<strong>淡底</strong>（<code>rgba(24,25,28,.05)</code>）。
+一格都没探到时不涂底（那时整张图就该是纯空白，涂满反而像"已经有内容"）。</p>
+<h4 id="_136">四、四个必须知道的边界</h4>
+<ol>
+<li><strong><code>mapd</code> 不在 <code>channels</code> 里</strong> ⇒ 不进环形缓冲，只能从 <code>Event.TELEMETRY</code> 的 <code>rec</code> 逐帧 apply。</li>
+<li><strong>帧号键叫 <code>_seq</code></strong>，而上游 <code>MapReplayer.apply()</code> 读 <code>frame["seq"]</code> ⇒ 直接透传会让它认为
+   "从来没序号"，<code>holes</code> <strong>恒 0</strong> = "没丢批"的<strong>假绿</strong>（上游自己的 <code>status_panel</code> 也中这一枪）。
+   本层 <code>feed()</code> 负责把 <code>_seq</code> 桥成 <code>seq</code>（判据 <strong>I52</strong> 正反两向钉住）。</li>
+<li><strong>运图要求 N≥2</strong>：纯 <code>TELEM</code>(N=1) 3.3 Hz × 3 条 = 10 条/s，而冲刺 129 ms/格 = 7.75 格/s，
+   余量只有 1.3 倍 ⇒ 跟不上就丢格。本层<strong>只提示、不自动改档</strong>（档位是人设的，程序不该偷偷调）。</li>
+<li><strong><code>MAP DUMP</code> 的语义已改</strong>：它是 <strong>Flash 存档快照</strong>，不是实时图。<code>_mouse_maze</code> 里那句
+   "固件这份是对账基准"现在<strong>是错的</strong>——真正的基准是增量流；<code>MAP DUMP</code> 只在赛后核对存档时有用。</li>
+</ol>
+<h4 id="v9-v10">五、漂移修复（v9 → v10 的四处「静默错」）</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>修法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>encAngle</code> 已删</td>
+<td><code>GROUPS</code> / <code>S.tel</code> 初值 / mock tick / <code>WAVE_CHANNELS</code> 四处全清（<code>lib.js</code> 里留着 <code>274.1°</code> 自增的话，界面<strong>看着有值、其实不动</strong>）</td>
+</tr>
+<tr>
+<td>通道数写死 <code>33</code></td>
+<td>改由 <code>caps.unified_channels</code> 驱动，界面报"· N"；mock 用 32</td>
+</tr>
+<tr>
+<td><code>irMm</code> 饱和 255</td>
+<td><code>valText</code> 超过 255 显示 <code>≥255 饱和</code>（<strong>不许</strong>显示成 255 mm）</td>
+</tr>
+<tr>
+<td><code>batt</code> 分辨率 50 mV</td>
+<td>按 0.05 V 量子显示（<code>12.35 V</code>），不再给 <code>12347 mV</code> 那种假精度</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_137">五之二、这轮实测抓到的两个<strong>静默错</strong></h4>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>为什么难发现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /mouse/maze/reconstruct</code> 直接 <strong>500 <code>IndexError</code></strong></td>
+<td><code>face_diff()</code> 只守了 <code>y &lt; self.n - 1</code>，没守 <code>x</code>；而 <code>fh</code> 是 <strong>(n−1)×(n−1)</strong>、<code>fv</code> 是 <strong>n×(n−1)</strong>，形状不同 ⇒ <code>fh[y][n−1]</code> 越界</td>
+<td>这条路径<strong>平时根本跑不到</strong>：没有 <code>mapd</code> 帧时 <code>diff</code> 恒 <code>None</code>（<code>use_mapd</code> 为假）。一上线就是"整块图没了"，现场只会怀疑设备没数据</td>
+</tr>
+<tr>
+<td><code>frames_total=0</code>、<code>covered_s=0</code>、图永远空白</td>
+<td><code>_live_t = time.time()</code>（1.7e9）与 ring 里的 <code>t = host.clock.now_monotonic()</code>（开机秒数，如 12345.6）<strong>不同纪元</strong> ⇒ <code>t_i &lt;= _live_t</code> <strong>恒真</strong> ⇒ 每一帧都被当成"已经喂过"跳过</td>
+<td>不报错、不告警。界面上只写着"等设备帧"，而帧其实以 30+ Hz 在到。<strong>这个错在上游把 ring 改成单调时钟那天起就存在了</strong>，只是"图一直是空的"被当成"还没走到"</td>
+</tr>
+</tbody>
+</table>
+<p>两条的共性：<strong>目标消失时读数还"有值"</strong>（I45 那次红了，但话术指向"重放滑动窗口"，
+把人引向完全无关的方向）。所以判据除了断言数值，还要断言<strong>来路</strong>（<code>source == "mapd"</code>）。</p>
+<h4 id="_138">六、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>验什么</th>
+<th>为什么必须这样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I51</strong>（纯内存）</td>
+<td>喂同一格重复 3 次 ⇒ 面/cells 不变（幂等）；没报过的格是 <code>2</code>（未探明）<strong>不是</strong> <code>1</code>；<code>open4=0</code> 只记到过、不写面；两条对同一面给相反结论 ⇒ 最终=最后一次且 <code>face_flip≥1</code>；<code>MapdRows.dump → view</code> 往返一致（<code>-</code> 还原成未探明）</td>
+<td>这五种错法<strong>都会画出一张"看着正常"的图</strong>：满格实墙 / 墙自己长回来 / 未探明被当成墙 / 冲突把前一次擦掉</td>
+</tr>
+<tr>
+<td><strong>I52</strong>（纯内存）</td>
+<td>只给 <code>_seq</code>（10,11,13）⇒ <code>seq_gaps=1</code>；只给 <code>seq</code> 同样 ⇒ <code>1</code>；两者结论必须一致</td>
+<td>只读错一个键 ⇒ 这一路<strong>恒报"没丢批"</strong>。假绿比假红危险（没人会去查一个绿色的项）</td>
+</tr>
+<tr>
+<td><strong>I53</strong>（端到端 <code>--sim</code>）</td>
+<td><code>GET /mouse/maze/reconstruct</code> ⇒ <code>source=="mapd"</code>、<code>stats.entries&gt;0</code>、<code>frames_mapd&gt;0</code>、<code>cells&gt;0</code>；<code>v/h</code> 里<strong>同时出现</strong> <code>2</code>（未探明）与 <code>0/1</code>（已知面）；<strong><code>cells &lt; cells_total</code></strong>（刚跑几格不可能全探明）；固件不报建图 ⇒ <strong>SKIP</strong> 并写明退路</td>
+<td>I51 只证明那个类自己是对的，证明不了"它被接上了"。接线漏一处 ⇒ 界面上仍是一张图，只是来自旧的主机推断：<strong>"未探明"这一态永远不存在</strong>，而它把"没走到"当成"没有墙"</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_139">七、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>I51（纯内存）</td>
+<td>幂等 ✅（重复 3 次 <code>fh/fv/cells</code> 不变）、未探明 <code>fv[0][1]=2</code>、坏条目只记到过 ✅、冲突取最新 <code>fh[0][0]=1</code>（<code>face_flip=1</code>）、落盘往返 ✅</td>
+</tr>
+<tr>
+<td>I52（纯内存）</td>
+<td><code>_seq</code> 与 <code>seq</code> 两条来路都算出 <code>seq_gaps=1</code>（连续时都 0）</td>
+</tr>
+<tr>
+<td>I53（<code>--sim</code>）</td>
+<td><code>source=mapd</code>、条目 6、带 mapd 的帧 108、已探明 5/256、未探明与已知面<strong>同时出现</strong></td>
+</tr>
+<tr>
+<td>端到端对账（<code>--sim</code> 发车后）</td>
+<td><code>diff = {common: 16, mismatch: 0}</code> —— 两条独立来路（固件增量 vs 主机推断）在 16 个共知面上<strong>完全一致</strong>，<code>visited</code> 里<strong>没有起点格 (0,0)</strong>（符合"起点永不入流"）</td>
+</tr>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>52 PASS / 0 FAIL / 1 SKIP</strong>（SKIP 仍是 V1：真视频端到端）</td>
+</tr>
+<tr>
+<td>I45（回归）</td>
+<td>纪元修正后 <code>frames_total=[82,124,167,209]</code> 单调增、<code>covered_s</code> 到 4.7 s（此前恒 <code>[0,0,0,0]</code>）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_140">七之二、落地时又踩到的四处（都是"看着正常、其实在骗人"）</h4>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>现象</th>
+<th>定案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>pos_mismatch</code> 判据常亮</strong></td>
+<td>一次跑下来 762/1374（<strong>55%</strong>）：<code>last_cell</code> 只在 <code>_write()</code> <strong>写成功</strong>时更新，而写成功被固件那条门控挡在"新格"上 ⇒ 车<strong>重走</strong>老格时 <code>last_cell</code> 停在上一个新格，距离越拉越远</td>
+<td><code>last_cell</code> 取<strong>本帧最后一条条目</strong>（不管写没写）。同一局 ⇒ <strong>0</strong>。铁律 50：判据红先怀疑数字</td>
+</tr>
+<tr>
+<td><strong><code>对账</code> 当成告警</strong></td>
+<td>3/47（短跑）、54/370（长跑）—— 恒非 0</td>
+<td>主机那套（相对朝向 + 远近墙两档）本来就比固件绝对值粗。<strong>只报数、不告警</strong>，只在分歧过半且样本 ≥8 时提一句。它的价值在<strong>突变</strong>，不在 0</td>
+</tr>
+<tr>
+<td><strong>地图按列宽定型</strong></td>
+<td><code>.maze-box canvas{width:100%}</code> ⇒ 1400×710 下列宽 520、地图 500×500 ⇒ 卡片正文 <strong>618</strong> 高，图例与建图诊断<strong>全在视口外</strong>（诊断正是本轮新加的）</td>
+<td><code>fitMaze()</code> 按可用高度现算（视口底 − 日志坞 − 正文顶 − 图例/诊断行高 − 1，下限 240）⇒ <strong>372×372</strong>，卡底 660 &lt; 710，两行诊断都可见。与回放页同一个教训：<strong>真正抢高度的是别的元素</strong></td>
+</tr>
+<tr>
+<td><strong>未探明点线铺满整图</strong></td>
+<td>三态一上来，16×16 未探索区全是点线，像一张虚线网</td>
+<td>点线<strong>只画在探索前沿</strong>（至少一侧走过）+ 轨迹从纯黑改 <strong>40% 墨色</strong>（纯黑是墙的颜色，图和墙互相冒充）</td>
+</tr>
+</tbody>
+</table>
+<p>九路由 1400×710 复查：<strong>零横向溢出、零 console 错误、零渲染失败横幅</strong>；首屏直接落在某一页（<code>#/race</code> 刷新）也能取到图 —— 之前 <code>S.route</code> 只赋值不 <code>C.go()</code>，比赛页的 <code>startRaceTick()</code> 不跑，图上永远"等待数据"，而顶栏写着"实时·已连接"（判据 V12 是 <code>C.go</code> 跳过去的，天然绕开真实入口）。</p>
+<p>侧栏底部那两格（数据源 / 协议版本）以前是 <code>index.html</code> <strong>写死</strong>的 <code>原型·纯前端</code> / <code>v9·PROTO 9</code>：协议升到 v10、前端接了真机之后它还在，且长得跟真数据一样 —— 典型的"第二个真相"，改由 <code>renderRailMeta()</code> 从 <code>caps.mouse</code> 填，判不了给 <code>—</code>。</p>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

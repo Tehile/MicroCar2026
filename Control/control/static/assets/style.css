@@ -533,9 +533,13 @@ h1,h2,h3,h4,p{margin:0}
 .act-3{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .act-3 .btn{width:100%;font-size:11px}
 .act-sep{height:1px;background:var(--line)}
-.maze-box{position:relative}
-.maze-box canvas{width:100%;display:block;background:#fff}
-.maze-foot{display:flex;gap:12px;flex-wrap:wrap;padding-top:8px;font-size:10.5px;color:var(--muted)}
+/* 地图是正方形 ⇒ 边长受**高度**约束（`fitMaze()` 现算），横向必然有富余。
+   以前左靠会让右边空出一大块，看着像"图没画完"；居中读起来才对。 */
+.maze-box{position:relative;display:flex;justify-content:center}
+.maze-box canvas{width:100%;flex:0 0 auto;display:block;background:#fff}
+.maze-foot{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding-top:8px;font-size:10.5px;color:var(--muted)}
+/* 这张图的来路：轨迹点数 / 累计帧 / 覆盖时长，靠右（与图例同一行，不占卡头） */
+.maze-foot .maze-src{margin-left:auto;font-size:10.5px;color:var(--muted);white-space:nowrap}
 .legend{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted)}
 .legend i{width:14px;height:0;border-top:2px solid var(--ink);display:inline-block}
 .legend i.dash{border-top:1px dotted var(--line-2)}
@@ -543,6 +547,9 @@ h1,h2,h3,h4,p{margin:0}
    图例这里用"细一号 + 半透明"暗示它比近墙远，与画布上的位置差一起表达。 */
 .legend i.far{border-top:2px solid var(--muted);opacity:.55}
 .legend i.goal{width:10px;height:10px;border:1.5px solid var(--blue);background:rgba(43,79,242,.13);opacity:1}
+/* 没走到的格：极淡底块（与画布 `rgba(24,25,28,.05)` 同一色）。
+   ⚠️ 它表达的是"**没有数据**"，不是"空地" —— 两者的图例必须分开画。 */
+.legend i.gray{width:12px;height:9px;border:0;background:rgba(24,25,28,.07)}
 .race-side .card + .card{margin-top:12px}
 
 /* ── 维护 ─────────────────────────────────────────────────────────────── */

@@ -18,7 +18,7 @@
 
 ⇒ 记录器拿的是**每一帧**（真机个位数 Hz，模拟器可到十几 Hz），不是 10 Hz 的抽样。
 
-## 墙图不存，**重建**
+## 墙图不存，**重建**（改版三十九：改由 v10 增量通道重建）
 
 每帧都带 `wallLeft / wallFront / wallRight`（**相对车身朝向**）与 `posX / posY / dir`，
 所以主机侧可以**随走随建**一张"我认为墙在哪"的图 —— 这正是界面中栏要的"重构示意"。
@@ -28,6 +28,17 @@
 2. **随帧更新**：中栏能跟着车走，而不是几秒才刷一次。
 3. **复盘不必复述存墙图**：重放帧序列就能**确定性**重建出与当时一模一样的过程图。
    存一份反而危险 —— 两份数据迟早会不一致，而那时没人知道该信哪个。
+
+⚠️ **v10 之后"重建"换了来路**：固件每走一格直接报该格的四向可通位
+（`GucMapBlock & 0x0F`，绝对坐标，每帧 ≤3 条），本层 `LiveWallMap` 逐帧 apply。
+上面那套"相对方向转绝对方向"（`MazeWallMap`）**仍然保留，但只做对账** ——
+它是独立来路，正好能抓"方向映射写反"（这个项目已经错过两次）。
+落盘时**两份都写**：`mapd`（界面口径，回放优先用它）+ `wall`（对账基准）。
+
+⚠️ 相对方向转绝对方向是这里唯一容易写错的地方：
+`dir` 是 0=UP / 1=RIGHT / 2=DOWN / 3=LEFT（上游 `DIR_NAMES`），
+"前墙"在 dir=1 时指的是**东**墙，不是北墙。转错了整张图会镜像/旋转，
+而且**看起来仍然是一张合理的迷宫**（这类错最难发现）。
 
 ⚠️ 相对方向转绝对方向是这里唯一容易写错的地方：
 `dir` 是 0=UP / 1=RIGHT / 2=DOWN / 3=LEFT（上游 `DIR_NAMES`），
@@ -72,6 +83,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# v10 建图增量通道的重建（改版三十九）。**与比赛页共用同一个类**：
+# "回放看到的图"必须与"当时看的图"同一条来路，否则复盘时两边对不上，
+# 而没人能说清该信哪一张（这个项目在"两套墙图"上已经踩过一次）。
+from .map_live import LiveWallMap, MapdRows
 
 #: 落盘格式号。**改结构就要改它** —— 导入端按它判断能不能读。
 #: 为什么要个格式号：这个文件是要**跨时间**用的（今天的记录明天复盘、甚至换机器），
@@ -145,6 +161,12 @@ _OPP = {0: 2, 1: 3, 2: 0, 3: 1}
 #: ⚠️ 换赛道 = 只改这里；判据 I34 直接比对"记录判据用的集合"与"端点端出去的"。
 GOAL_CELLS: Tuple[Tuple[int, int], ...] = ((7, 7), (7, 8), (8, 7), (8, 8))
 _GOAL_SET = frozenset(GOAL_CELLS)
+
+#: `ms8` 解回绕时给"到达间隔"留的抖动余量（ms）。用来判"到底补了几圈"：
+#: 补出来的累计时长不得超过到达间隔，否则设备时基会跑得比墙钟快（见
+#: `MazeRecorder._frame_time_ms` 的说明）。20 ms 只覆盖 `rx` 戳的粒度抖动 ——
+#: 余量给大了（试过 60）就会在 gap 刚过 256 时多补一圈，正是 I47 那个边界。
+JITTER_MS = 20
 
 
 def _i(v: Any, default: int = 0) -> int:
@@ -604,6 +626,11 @@ class MazeRecorder:
         self._name: Optional[str] = None
         self._last: Optional[Dict[str, Any]] = None     # 最近一次的收尾摘要
         self._maps: Dict[str, MazeWallMap] = {}         # 复盘缓存：name → 重建图
+        #: v10 建图增量通道的重建（改版三十九）。**与比赛页同一份算法**
+        #: （`control/map_live.py`），所以"回放看到的图"与"当时看的图"是同一条来路。
+        #: ⚠️ 只在**记录期间**喂（`feed()` 里 `_rec` 不为 None 才喂）：
+        #:    它的唯一用途是落进这条记录，不记录时留着只是白占内存。
+        self._lm = LiveWallMap()
         # 决策差分的**码表**（上游的名字表与路口分类器）——由适配器注入。
         # 注入不到时 `MazeDecisions` 会如实降级（只产不需要码表的那几类），
         # 而不是自己编一份码表（编一份必然与上游漂移）。见其 docstring。
@@ -801,6 +828,9 @@ class MazeRecorder:
                         "frames": len(self._rec["frames"]),
                         "note": "已经在记录中"}
             self._maps.clear()
+            # 新一段 ⇒ 增量建图从零开始（上一跑的墙不能带进来，否则回放里
+            # 第一条帧还没走，图上就已经有一片墙 —— 那是上一跑的事实）
+            self._lm = LiveWallMap()
             self.start_ms = int(time.time() * 1000)
             # 新一跑 ⇒ 设备时基重新锚（上一段的累计毫秒不跨段沿用）
             self._reset_dev_clock()
@@ -962,8 +992,18 @@ class MazeRecorder:
         delta = (m - self._dev_last8) & 0xFF
         gap = max(0, rx_ms - self._rx_last)
         if gap > 256:
-            # 一个模周期以上 ⇒ 中间可能丢了几圈，按到达间隔就近补整圈
-            k = int(round((gap - delta) / 256.0))
+            # 一个模周期以上 ⇒ 中间可能丢了几圈，按到达间隔补整圈。
+            # ⚠️ 补几圈要用**下取整**，不能 `round`（改版三十九修正 I47 边界）：
+            #    设备时基**不可能比墙钟跑得快** —— 补出来的累计时长一旦超过
+            #    到达间隔，就等于凭空多出时间。实测边界：`delta=100 / gap=260`
+            #    时 `round((260-100)/256)=1` ⇒ 时刻跳 **356 ms**（`t_ms` 从
+            #    `[0,100,200,300]` 变成 `[0,100,200,556]`），而 10 Hz 的设备在
+            #    260 ms 里最多产出 2.6 帧，根本走不了 356 ms。
+            #    `+JITTER_MS`（20 ms）只补偿 `rx` 戳的粒度抖动 —— 不能更大：
+            #    余量给到 60 时 gap=300 又会多补一圈（`t_ms` 跳到 556）。
+            #    真丢了几圈的情形照样对得上：`gap=879 / delta=111` ⇒
+            #    floor((879-111+20)/256)=3 ⇒ 879 ms，与到达间隔一致。
+            k = int((gap - delta + JITTER_MS) // 256)
             if k > 0:
                 delta += 256 * k
         cand = self._dev_abs + delta
@@ -1071,6 +1111,19 @@ class MazeRecorder:
             # 元组第 3 列从"设备时刻"改成**到达时刻**（改版三十五）：
             # 主列已经是设备时基了，这一列留给链路分析（`rx_t_ms`）。
             frames.append((now_ms, rec, rx_ms))
+            # ---- 建图增量通道（改版三十九）：**记录期间**跟着帧攒。
+            # 为什么在这里而不是在 `_build_doc` 里"事后从 frames 重放"：
+            # `mapd` **不在 `channels` 里**（它不是标量通道，`frames` 那几列存不下它），
+            # 落盘后再也拿不回来 ⇒ 只能在收到的当口 apply 一遍、把结果落进 doc。
+            # 成本是一次 dict 查键 + 最多 3 条 entry 的位运算，跑在上游调度线程上是安全的。
+            try:
+                self._lm.feed(rec)
+            except Exception as e:                            # noqa: BLE001
+                if not getattr(self, "_lm_failed", False):
+                    self._lm_failed = True
+                    if self._log:
+                        self._log("warn", f"建图增量通道喂帧失败（后续同类不再重复报）："
+                                          f"{type(e).__name__}: {e}")
             # ---- 采样缺口（改版三十八）：设备时基上**少采了 ≥2 帧**的位置。
             # 判据只用 `t_ms`（设备时基，逐帧唯一）：10 Hz 下正常步进正好 100 ms，
             # 抖不出 250 来。所以 ≥250 ms 只可能是"这段压根没请求"或"真丢了"。
@@ -1469,6 +1522,12 @@ class MazeRecorder:
                 "launch": launch,
             },
             "wall": wm.to_json(),
+            # ---- v10 建图增量通道的重建结果（改版三十九）--------------------
+            # 这是**界面口径**的那张图（与比赛页同一份算法）：`rows` 是每格一个
+            # 十六进制字符（固件 `open4` 原样），`-` = 该格**没被报过**（不是"四面皆墙"）。
+            # 回放的建图**优先用它**；`wall` 那份继续落，但只当对账基准。
+            # 老记录没有这个键 ⇒ 读的人退回从帧重放（见 `_maze_for_view`）。
+            "mapd": MapdRows.dump(self._lm, _i(mazetype, 7)),
         }
         if live:
             # 快照**不是**一份完成的记录：`end_why` 与 `duration_ms` 都还是"到目前为止"。
@@ -1808,14 +1867,20 @@ class MazeRecorder:
 
     @staticmethod
     def _maze_for_view(doc: Dict[str, Any]) -> Dict[str, Any]:
-        """**从帧重放**建一张界面口径的 `{N, goal, v, h}`。
+        """建一张界面口径的 `{N, goal, v, h}`。
 
-        为什么从帧建、而不是读落盘的 `wall_rows`：
-        `wall_rows` 是位掩码 + 十六进制串，写它的时候用哪套方向映射、老记录是哪套，
-        读的人没法一眼确认；而**帧里有车的位置和 dir**，重放一遍就能和画出来的车
-        自洽（同一份数据、同一条来路）。老记录、外部导入的记录都能建。
+        **两条来路，按顺序试**（改版三十九）：
+        ① 记录里有 `mapd`（v10 起）⇒ 直接还原**当时**攒出来的那张图
+           （与比赛页同一份算法、同一份三态口径）。复盘的对象是"当时看到什么"，
+           所以这条优先。
+        ② 没有 `mapd`（老记录 / 外部导入的纯帧文件）⇒ **从帧重放**，即原行为：
+           `wall_rows` 是位掩码 + 十六进制串，写它的时候用哪套方向映射、
+           老记录是哪套，读的人没法一眼确认；而**帧里有车的位置和 dir**，
+           重放一遍就能和画出来的车自洽（同一份数据、同一条来路）。
 
-        `v[y][x]` = (x,y) 与 (x+1,y) 之间有没有墙；`h[y][x]` = (x,y) 与 (x,y+1)。
+        `v[y][x]` = (x,y) 与 (x+1,y) 之间那一面；`h[y][x]` = (x,y) 与 (x,y+1)。
+        **元素是三态**（改版三十九起）：0 可通 / 1 有墙 / 2 未探明 —— 老来路只给
+        0/1（它没有"未探明"这个态，那是它天生的缺陷之一）。
         下标与 `posY` 同一空间（见 `_STEP` 的实测说明）。
         """
         ch = [str(c) for c in (doc.get("channels") or [])]
@@ -1852,6 +1917,32 @@ class MazeRecorder:
                              f" ⇒ 按 {need}×{need} 建图（尺寸字段不可信）")
             n = need
 
+        # ---- 来路①：v10 记下的增量建图结果（改版三十九，**优先**）------------
+        # 为什么它优先：这是**当时**用与比赛页同一份算法攒出来的那张图，
+        # 逐格都是固件报过的事实、且带"未探明"这一态。而下面那条从帧重放的路
+        # 是"事后用相对朝向再推一遍"，两者对不上时，回放要显示的是前者
+        # （复盘的对象是"当时看到什么"，不是"事后能推出什么"）。
+        md = doc.get("mapd") or {}
+        rows = md.get("rows") or []
+        if rows and n >= 2:
+            vw = MapdRows.view(rows, n)
+            out_md: Dict[str, Any] = {
+                "N": vw["N"], "v": vw["v"], "h": vw["h"],
+                "goal": [[x, y] for (x, y) in GOAL_CELLS if x < n and y < n],
+                "src": "mapd",
+                "stats": md.get("stats") or {},
+            }
+            notes = []
+            if note_mismatch:
+                notes.append(note_mismatch)
+            if not out_md["goal"]:
+                notes.append(f"这条记录的迷宫是 {n}×{n}，终点区按 16×16 定在中心 2×2，"
+                             f"这张图上不标终点")
+            if notes:
+                out_md["note"] = "；".join(notes)
+            return out_md
+
+        # ---- 来路②：老记录（v9 及更早）没有 `mapd` ⇒ 从帧重放（原行为）----
         m = MazeWallMap(n)
         for fr in (doc.get("frames") or []):
             rec = {}

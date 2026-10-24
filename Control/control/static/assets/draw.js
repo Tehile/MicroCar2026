@@ -47,6 +47,22 @@ C.draw = (function () {
     g.fillStyle = '#FFFFFF';
     g.fillRect(0, 0, w, w);
 
+    /* 未探明格：极淡底色（改版三十九）。
+       v10 的建图增量通道**只在车走到的格子上有内容**，其余格子在固件里是 0
+       （= 四面皆墙）。不把这件事画出来的话，"没走过"会被看成"一片空地" ——
+       而决策靠的恰恰是"那里到底通不通"。涂一层淡灰就是在说"这片没数据"。
+       ⚠️ **一格都没探到时不涂**：那时整张图就该是纯空白（"还没数据"），
+          涂满一片灰反而像"已经有内容了"。 */
+    const nVisited = m.visited ? Object.keys(m.visited).length : 0;
+    if (nVisited) {
+      g.fillStyle = 'rgba(24,25,28,.05)';
+      for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+          if (!m.visited[x + ',' + y]) g.fillRect(X(x), Y(y + 1), s, s);
+        }
+      }
+    }
+
     g.strokeStyle = '#EFEEE8';
     g.lineWidth = 1;
     for (let i = 0; i <= N; i++) {
@@ -72,21 +88,40 @@ C.draw = (function () {
       g.fillText('GOAL', gx + gw / 2, gy + gh / 2);
     }
 
-    /* 墙：已知实线（黑），未探明点线（浅） */
+    /* 墙：**三态**（改版三十九）—— `0` 可通（不画）/ `1` 有墙 / `2` **未探明**。
+       老记录（v9 及更早）只有 0/1 两种值，`2` 是 v10 增量建图才有的第三态。
+       ⚠️ 未探明**只画在探索前沿**（至少有一侧走过）。整片没走过的区域都画点线，
+          16×16 就是一张虚线网 —— 那堆点线既不是"墙"也不是"待定"，只是噪音，
+          还把真正要看的边界盖住了。没走过的格子已经有淡底色在说"这里没数据"，
+          点线只补一句"这条边到底到没到过"。
+       ⚠️ 未探明绝不许画成实墙 —— 那会把"不知道"变成一个明确的断言，
+          而现场会据此判断"这条路不通"。 */
     function known(cx, cy) { return m.visited[cx + ',' + cy]; }
-    function line(x1, y1, x2, y2, on) {
+    function face(x, y, dir) {
+      const val = dir === 'v' ? m.v[y][x] : m.h[y][x];
+      if (!val) return;
+      if (val !== 1) {
+        const front = dir === 'v'
+          ? !!(known(x, y) || known(x + 1, y))
+          : !!(known(x, y) || known(x, y + 1));
+        if (!front) return;
+      }
       g.beginPath();
-      g.setLineDash(on ? [] : [2, 3.5]);
-      g.strokeStyle = on ? INK : '#D5D3C9';
-      g.lineWidth = on ? 2 : 1;
-      g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2));
+      if (val === 1) {
+        g.strokeStyle = INK; g.lineWidth = 2;
+      } else {
+        g.setLineDash([2, 3.5]);
+        g.strokeStyle = '#C9C7BC'; g.lineWidth = 1;
+      }
+      if (dir === 'v') { g.moveTo(X(x + 1), Y(y)); g.lineTo(X(x + 1), Y(y + 1)); }
+      else { g.moveTo(X(x), Y(y + 1)); g.lineTo(X(x + 1), Y(y + 1)); }
       g.stroke();
-      g.setLineDash([]);
+      if (val !== 1) g.setLineDash([]);
     }
     for (let y = 0; y < N; y++) {
       for (let x = 0; x < N; x++) {
-        if (x < N - 1 && m.v[y][x]) line(x + 1, y, x + 1, y + 1, known(x, y) || known(x + 1, y));
-        if (y < N - 1 && m.h[y][x]) line(x, y + 1, x + 1, y + 1, known(x, y) || known(x, y + 1));
+        if (x < N - 1) face(x, y, 'v');
+        if (y < N - 1) face(x, y, 'h');
       }
     }
     g.strokeStyle = INK; g.lineWidth = 2.4;
@@ -121,8 +156,11 @@ C.draw = (function () {
         const px = X(p[0]), py = Y(p[1]);
         i ? g.lineTo(px, py) : g.moveTo(px, py);
       });
-      g.strokeStyle = INK;
-      g.lineWidth = Math.max(2, s * .13);
+      /* ⚠️ 轨迹不能用纯 INK：那是**墙**的颜色。两者同色时，一条穿过格子中心的
+         黑线看上去就是一道墙 —— 图和墙互相冒充（改版三十九实测：图上"多出来的墙"
+         其实全是轨迹）。40% 墨色读起来像"地上的车辙"，墙仍是最重的那个元素。 */
+      g.strokeStyle = 'rgba(18,19,22,.40)';
+      g.lineWidth = Math.max(2, s * .12);
       g.lineJoin = 'round'; g.lineCap = 'round';
       g.stroke();
     }

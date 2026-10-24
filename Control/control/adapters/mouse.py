@@ -133,6 +133,9 @@ from ..leds import _fw_int as _led_fw_int, led_states
 # 墙图重建（实验 8 的中栏"重构示意"）。复用**同一个类**：实时从环形缓冲重建、
 # 复盘从记录文件重放 —— 两边走同一套方向转换，才不会"实时看到的图与复盘的不一样"。
 from ..maze_rec import MazeWallMap, GOAL_CELLS
+# v10 建图增量通道（改版三十九）：**固件事实**，与上面那套"相对朝向推断"并行。
+# 界面上只画这一张，`MazeWallMap` 降级为对账诊断（见 `map_live` 的模块 docstring）。
+from ..map_live import LiveWallMap, MapdRows
 
 
 def _wallmap_view(m: Any) -> Dict[str, Any]:
@@ -176,7 +179,10 @@ SAMPLE_HZ = 10.0
 #: ⚠️ v9（上游 2.12.0）删了 `pidErr`（控制误差）与 `cellOdom`（格内里程）——
 #: 它们是调参时最想画的两路"误差"，现在上游把它们列为"失去的能力"（§9）。
 #: 本层不塞回帧（那是绕过协议），如实少画两路；要找回得给上游提需求。
-WAVE_CHANNELS = ("speedL", "speedR", "gyroAngle", "encAngle",
+#: ⚠️ v10（上游 `17845f3`）**删了 `encAngle`**（编码器角）—— 腾出的字节给了建图
+#: 增量通道。这里必须跟着删：留着它不会报错，`history_dict()` 只是永远拿不到这一列，
+#: 于是波形页少画一条线而**没有任何提示**（"少了"和"没给"长得一样）。
+WAVE_CHANNELS = ("speedL", "speedR", "gyroAngle",
                  "trackL", "trackR",
                  "irF1", "irF2", "irL", "irR", "battMv")
 
@@ -313,6 +319,14 @@ class MouseAdapter:
         self._live_n: int = 0
         self._live_t: float = 0.0
         self._live_lock = threading.Lock()
+        #: v10 建图增量通道攒出来的那张图（改版三十九）—— **界面显示的唯一真相**。
+        #: 它由 `on_telemetry` **逐帧推着喂**（mapd 条目不在环形缓冲里：那不是标量
+        #: 通道，`history_dict()` 拿不到），所以没有"30 s 窗口滚掉早期墙"的问题。
+        #: 上面那位 `_live_map` 仍然保留，但只用于对账（`face_diff`）。
+        #: ⚠️ 单独一把锁：`_live_lock` 会被 `maze_reconstruct` 拿着喂几百帧，
+        #:    而 `on_telemetry` 跑在**上游调度线程**上 —— 抢同一把锁就是在拖住固件读取。
+        self._live_lm: Optional[LiveWallMap] = LiveWallMap()
+        self._lm_lock = threading.Lock()
         self._load()
 
     def _cfg_pull_n(self) -> int:
@@ -815,11 +829,26 @@ class MouseAdapter:
             所以：第一次失败必须留痕（写清是哪个调用、什么异常），否则这类错只能靠猜。
             """
             rec = self.maze_recorder if hasattr(self, "maze_recorder") else None
-            if rec is None:
-                return
             d = m.data or {}
             frame = d.get("rec") or {}
             if not frame:
+                return
+            # ① 建图（改版三十九）：**与"在不在记录"无关**。mapd 条目是唯一来路
+            #    （它们不在环形缓冲里），漏一帧就少一格、而且**看不出来**（图上只是
+            #    少一条墙，像"那里还没走到"）。所以这一步必须排在任何早退之前。
+            #    只做内存写：不调 mazetype()（那会发 PING）、不取时间锚、不落盘。
+            lm = self._live_lm
+            if lm is not None:
+                try:
+                    with self._lm_lock:
+                        lm.feed(frame)
+                except Exception as e:                        # noqa: BLE001
+                    if not getattr(self, "_lm_feed_failed", False):
+                        self._lm_feed_failed = True
+                        self.bus.log("warn",
+                                     f"建图增量通道喂帧失败（后续同类不再重复报）："
+                                     f"{type(e).__name__}: {e}", source='mouse')
+            if rec is None:
                 return
             # ⚠️ **不能因为"没在记录"就早退**：记录器里还有一个**常驻的决策差分器**，
             # 它要在没记录的时候也把帧差分成决策 —— 否则右栏在"发车之前 / 收尾之后"
@@ -2327,6 +2356,9 @@ class MouseAdapter:
         必须在三个地方调：**重新连接**（换设备/换了迷宫）、**新一跑发车**（上一跑的墙
         不能带进来）、**界面主动清空**。少一处就会"图上还留着上一跑的墙"——那种图
         看起来完全正常，只是其中的格子是假的。
+
+        改版三十九起清零的对象是**两张**图：v10 的 `_live_lm`（界面上那张）和
+        `MazeWallMap`（只做对账）。两张都清，否则对账会把"上一盘的墙"算成"不一致"。
         """
         with self._live_lock:
             self._live_map = None
@@ -2334,22 +2366,40 @@ class MouseAdapter:
             # ⚠️ 不能用 0 —— 0 意味着"ring 里所有帧都算新帧"，于是清零之后第一轮
             #    会把**上一跑的 30 秒**全喂进来（图上一片来自上一跑的墙，看着很正常）。
             #    设为"现在"：只有此刻之后到达的帧才算。
-            self._live_t = time.time()
+            # ⚠️ **必须用单调时钟**（改版三十九修正）：上游 `Store` 里帧的 `t`
+            #    来自 `host.clock.now_monotonic()`，是"开机后的秒数"（如 12345.6），
+            #    而墙钟是 1.7e9 —— 两者相比，`t_i <= _live_t` **恒成立**
+            #    ⇒ 每一帧都被当成"已经喂过"跳过 ⇒ `frames_total` 恒 0、
+            #    `covered_s` 恒 0、图永远空白，而界面上只是写着"等设备帧"
+            #    （帧其实以 30+ Hz 在到）。这类"纪元不一致"不报错、只让结果全空。
+            self._live_t = time.monotonic()
             self._live_start_t = 0.0        # `covered_s` 的零点（第一帧的时间戳）
             self._live_fed = 0              # 累计喂了几帧（整场，不是"这一轮"）
+        # v10 那张：换一个**新对象**而不是 `reset()` —— 既清数据也清计数，
+        # 免得界面上"洞 3 次"这种一眼看过去像刚出事的历史数字赖着不走。
+        with self._lm_lock:
+            self._live_lm = LiveWallMap()
         if why:
             self.bus.log("info", f"实时墙图已清零（{why}）", source="mouse")
 
     def maze_reconstruct(self, seconds: float = 30.0) -> dict:
-        """比赛页中栏的墙图：**本层增量累积**的整场图（不是"最近 30 s"）。
+        """比赛页中栏的墙图。**改版三十九起，这张图来自固件的建图增量通道。**
 
-        ⚠️ 为什么不能每帧只重放环形缓冲：上游 `telemetry_window_s` 默认 30 s，跑过
-        30 s 后早期的帧被挤掉 ⇒ 重放出来的是"最近 30 秒走过的部分"，早期探明的墙
-        **凭空消失**。图上仍然有墙有路（所以看不出错），但少掉的那部分是假的空白。
-        这里改成：首帧按当前尺寸建图，之后**只喂新帧**（按 `t` 去重），整场不丢。
+        来路变了，所以老注释里那些"为什么要累积"的坑要按新情况重读一遍：
 
-        首次调用能拿到的历史仍受环形缓冲限制（最多 `seconds`），返回里 `covered_s`
-        如实说明"这张图覆盖了多久"——不够长时界面自己知道。
+        · v10 之前：主机拿 `wallLeft/Front/Right + dir`（**相对朝向**）逐帧推断。
+          推断有两个天生的缺陷 —— 首帧只能追溯环形缓冲的 30 s（早期墙会被滚出窗口，
+          而图上仍有内容 = 静默错），而且**分不清"没墙"和"没走到"**。
+        · v10 起：固件每走一格把该格 `GucMapBlock & 0x0F` 压进 32 条环，每帧带 ≤3 条
+          （绝对坐标 ⇒ 单条错了最多错一格，不会污染整批）。本层在 `on_telemetry` 里
+          逐帧 apply，**不看窗口、不漏帧**，并且天然有"未探明"这一态。
+
+        与此同时 `MazeWallMap`（老那套）**没有删**：它是完全独立的来路，用来对账。
+        两者对同一面给出不同结论 ⇒ `diff.mismatch` 会涨，界面右上角标出来。
+        这条诊断能抓的正是"协议方向映射写反"——这个项目已经错过两次。
+
+        返回里 `view` 是**界面画的那张**（`source="mapd"` 或 `"ring"`），
+        `ring_view` 是对账基准（主机推断那份，界面默认不画）。
         """
         mc = self._mc
         if mc is None or not mc.is_connected:
@@ -2386,7 +2436,8 @@ class MouseAdapter:
                 self._live_map = MazeWallMap(n)
                 self._live_n = n
                 # 同 reset：尺寸变了就只认"此刻之后"的帧，别把旧尺寸的帧喂进新图
-                self._live_t = time.time()
+                # 同 reset：**单调时钟**（与上游 `Store` 的 `t` 同一纪元）
+                self._live_t = time.monotonic()
                 self._live_start_t = 0.0
                 self._live_fed = 0
             m = self._live_map
@@ -2419,9 +2470,55 @@ class MouseAdapter:
                     "source": "ring+cumulative", "covered_s": covered})
         # 界面直接能画的形状（v/h/visited/trail）—— 位掩码 + 十六进制串那套是**落盘**用的，
         # 让界面自己解位、自己决定 y 方向 = 又多一处"方向约定"的复制品。
-        out["view"] = _wallmap_view(m)
-        out["view"]["frames_used"] = fed
-        out["view"]["covered_s"] = covered
+        ring_view = _wallmap_view(m)
+        ring_view["frames_used"] = fed
+        ring_view["covered_s"] = covered
+
+        # ---- 界面那张图：**优先 v10 增量通道**（改版三十九）----------------------
+        # 上面那一整套（`_live_map` + 环形缓冲）**保留但不显示了**：
+        #   ① 它靠 `wallLeft/Front/Right + dir` **推断**，而 v10 之后固件直接报事实；
+        #   ② 它只能看到 30 s 窗口（虽然有累积，但首帧起点受窗口限制）；
+        #   ③ 它不知道"没走过"这回事 —— 未探明格在它眼里等于"没有墙"。
+        # 现在它退为**对账来路**：两条独立路径对同一面给出不同结论时报数（不合并）。
+        with self._lm_lock:
+            lm = self._live_lm
+            lm_stats = lm.stats() if lm is not None else {}
+            mapd_view = lm.view(n) if lm is not None else None
+            diff = (lm.face_diff(m, n) if (lm is not None and lm_stats.get("frames_mapd"))
+                    else None)
+            lm_cov = lm.covered_s() if lm is not None else 0.0
+        use_mapd = bool(lm_stats.get("frames_mapd"))
+        if use_mapd:
+            view = mapd_view or ring_view
+            # 终点区是**赛道属性**（v9 删了 goalX/goalY，帧里没有这个信号）⇒ 与
+            # `_wallmap_view` 同一份常量、同一个裁剪规矩，装不下就不给。
+            view["goal"] = [[x, y] for (x, y) in GOAL_CELLS if x < n and y < n]
+            # 这张图是**推着攒**的（`on_telemetry` 逐帧喂），没有"这一轮喂了几帧"这个
+            # 概念 ⇒ 给 None。**不许填 0**：0 会被读成"车停着没新数据"。
+            view["frames_used"] = None
+            view["frames_total"] = int(lm_stats.get("frames") or 0)
+            view["covered_s"] = lm_cov
+            view["stats"] = lm_stats
+            view["diff"] = diff
+            out["mapd"] = {"stats": lm_stats, "diff": diff}
+            out["source"] = "mapd"
+            # 顶层 `frames_total` 跟着**显示的那张图**走（它是"这张图一共攒了多少帧"）：
+            # 留着环那套的数会让界面把"环里有多少帧"当成"图上有多少帧"（两份真相）。
+            out["frames_total"] = int(lm_stats.get("frames") or 0)
+            out["ring_frames_total"] = total
+            # 增量流是"每走一格报一格"，跑起来才有条目。没条目但有帧 ⇒ 不是故障，
+            # 是还没动（或这台固件不报建图）。判据：`frames_mapd` 涨不涨。
+            if not lm_stats.get("entries"):
+                view["note"] = ("增量通道里还没有条目：车还没走过新格子"
+                                + ("" if lm_stats.get("frames_mapd") else
+                                   "（这台固件的帧里没有建图字段）"))
+        else:
+            view = ring_view
+            view["src"] = "ring"
+            out["source_note"] = ("这台设备的统一帧里没有 `mapd` 建图增量块（v9 及更早）"
+                                  "⇒ 这张图仍是主机按相对朝向推断的")
+        out["view"] = view
+        out["ring_view"] = ring_view          # 对账基准（主机推断那份），界面默认不画
         # 固件自述的那份（对账用）—— 只是本地缓存读，不发命令
         try:
             fm = mc.maze.last()

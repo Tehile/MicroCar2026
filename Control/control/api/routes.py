@@ -605,8 +605,11 @@ async def _mouse_maze(request: web.Request) -> web.Response:
     ⚠️ 这是一条**命令往返**（真机 ≈1.21 s），跑动中拉会占掉一次拉取的机会。
     所以界面上它是"按需点一下"，不是心跳。
 
-    顺带把它**记进当前记录**（若正在记）：固件这份是**对账基准** ——
-    界面上那张图是主机按帧重建的，两者对不上就说明重建逻辑有问题（真机要验的一条）。
+    ⚠️ **口径修正（改版三十九，v10）**：这份 `MAP DUMP` 是**Flash 存档快照**
+    （`LP_SyncMap()` 全仓无调用点），不是实时图 —— 上电未 `CAL BLOCK` 时它回全 0，
+    跑完一轮也拿不到本轮结果。**对账基准是增量通道**（`/mouse/maze/reconstruct`
+    的 `view`），不是这一条。这里仍然把它记进当前记录（`note_map`），但只当
+    "存档快照"这一路证据留着，别再拿它当"固件真相"去否定界面上的图。
     """
     ctx = request.app["ctx"]
     mc = _need_mouse(ctx)
@@ -685,11 +688,15 @@ async def _maze_record_status(request: web.Request) -> web.Response:
 
 
 async def _maze_reconstruct(request: web.Request) -> web.Response:
-    """**实时**的墙图重建（界面中栏的"重构示意"）—— 从最近一段帧算出来。
+    """**实时**的墙图重建（界面中栏的"重构示意"）。
 
-    为什么不复用 `GET /mouse/maze`（固件那份墙图）：那是**命令往返**（真机 ≈1.21 s），
-    跑动中拉会占掉一次拉取的机会；而这一条是纯内存读（上游环形缓冲，默认 30 s），
-    可以跟着界面刷新走。固件那份作为**对账基准**一并返回（`firmware`），不发命令。
+    改版三十九起它答的是 **v10 建图增量通道**：固件每走一格报一格，本层逐帧 apply
+    （`control/map_live.py`），所以既不受 30 s 环形窗口限制，也有"未探明"这一态。
+    `view.src` 如实说明这张图是哪条来路 —— `"mapd"` 是固件事实，`"ring"` 是
+    老固件（v9 及更早，帧里没有 `mapd` 字段）退回的主机推断。
+
+    为什么不复用 `GET /mouse/maze`（固件那份 `MAP DUMP`）：那是**命令往返**
+    （真机 ≈1.21 s），而且是 **Flash 存档快照**，不是实时图（见该端点的口径修正）。
     """
     ctx = request.app["ctx"]
     sec = _float(request, "seconds", 30.0) or 30.0

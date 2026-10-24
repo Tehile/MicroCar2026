@@ -95,7 +95,7 @@ window.C = (function () {
     logFilter: { src: null, lvl: null, q: '' },
     tel: {
       speedL: 0, speedR: 0, trackL: 4812, trackR: 4805, posX: 1.5, posY: 1.5,
-      gyroAngle: 12.4, encAngle: 274.1, dir: 0, motionTask: 0, mazeTask: 0,
+      gyroAngle: 12.4, dir: 0, motionTask: 0, mazeTask: 0,
       wallLeft: 1, wallFront: 0, wallRight: 1, frontNear: 0, frontFar: 0, frontBoth: 0,
       irSwitch: 1, spurtMode: 0, spurtFlag: 0, goOrBack: 0, spurtTestFlag: 0,
       objectGoToFlag: 0, goaheadnum: 0,
@@ -125,8 +125,8 @@ window.C = (function () {
   /* ── 设备状态：三态（true / false / null=判不了）—— null 不许涂成红 */
   S.health = {
     mouse: {
-      available: true, connected: true, port: 'COM7', fw: '2.13.0', fwInt: 313, proto: 9,
-      link: 'uart 115200', detail: '', caps: { unified_channels: 33, led: true },
+      available: true, connected: true, port: 'COM7', fw: '314', fwInt: 314, proto: 10,
+      link: 'uart 115200', detail: '', caps: { unified_channels: 32, led: true },
     },
     clock: { calibrated: true, offsetMs: 3.2, uncertaintyMs: 1.4, source: 'visual', method: 'rls', samples: 214 },
     timesync: { armed: true, armUpMs: 1420, driftPpm: 12.5, samples: 64 },
@@ -330,7 +330,7 @@ window.C = (function () {
   const GROUPS = [
     { name: '运动与姿态', keys: [
       ['speedL', '左轮速', ' cm/s', 1], ['speedR', '右轮速', ' cm/s', 1],
-      ['gyroAngle', '陀螺角', ' °', 1], ['encAngle', '编码器角', ' °', 1],
+      ['gyroAngle', '陀螺角', ' °', 1],
       ['motionTask', '动作'], ['dir', '朝向']] },
     { name: '里程与位置', keys: [
       ['trackL', '左里程', ' mm', 0], ['trackR', '右里程', ' mm', 0],
@@ -346,7 +346,7 @@ window.C = (function () {
       ['irF1', '前左', ' mm', 0], ['irF2', '前右', ' mm', 0],
       ['irL', '左', ' mm', 0], ['irR', '右', ' mm', 0]] },
     { name: '电源与链路', keys: [
-      ['battMv', '电池', ' mV', 0], ['ms8', '帧时基低 8 位', ' ms', 0], ['flags', '标志位']] },
+      ['battMv', '电池', ' V', 2], ['ms8', '帧时基低 8 位', ' ms', 0], ['flags', '标志位']] },
   ];
 
   /* 通道的展示元信息（单位 / 小数位）**只在 GROUPS 里写一份**，这里建索引。
@@ -357,9 +357,21 @@ window.C = (function () {
     KEYMETA[k[0]] = { unit: (k[2] || '').trim(), dec: k[3] };
   }));
 
+  /* ── 单位与精度的**特例**（只在 `valText` 里生效，且只有这几个键）──────────
+     ⚠️ 为什么不能只靠 `KEYMETA` 里的 `dec`：
+       · `battMv` 在 v10 起是 **u8 = round(mV/50)**，真实分辨率只有 **50 mV**。
+         按 1 mV 打印成 "8412 mV" 是**假精度** —— 末两位永远是 00/50 的取整结果。
+         所以显示到 V（两位小数 = 正好一个量子），并把量子写在标签外的那句里。
+       · 四路红外在 v10 起是 **u8(mm)**，**255 = 饱和**，不是"前方 255 mm"。
+         原样打印成 "255" 会被读成"很远的墙"，而真相是"量程到头了"（可能是真的
+         很近，也可能是没读数）。这是典型的"有值但语义错"，必须显式标。 */
+  const IR_KEYS = { irF1: 1, irF2: 1, irL: 1, irR: 1 };
+
   function valText(k, v) {
     if (v === null || v === undefined) return '—';
     if (CODE[k]) return CODE[k](v);
+    if (k === 'battMv') return util.fmt(v / 1000, 2) + ' V';
+    if (IR_KEYS[k]) return v >= 255 ? '饱和' : util.fmt(v, 0) + ' mm';
     if (k === 'flags') {
       /* 位定义**照抄上游** `host/protocol/codec.py`（改版二十六修正）：
            FLAG_FREEMODE   = 0x01  (1)   自由模式（电机停）
@@ -1339,7 +1351,7 @@ window.C = (function () {
         toast('warn', '已复位', '整机软复位。物理位置不变，发车前请放回起点角。');
         break;
       case 'tare':
-        S.tel.trackL = 0; S.tel.trackR = 0; S.tel.gyroAngle = 0; S.tel.encAngle = 0;
+        S.tel.trackL = 0; S.tel.trackR = 0; S.tel.gyroAngle = 0;
         log('mouse', 'info', '→ TARE · 陀螺角与里程基准清零');
         toast('ok', '已清零', '陀螺角累加器与里程基准归零。');
         break;
@@ -1789,7 +1801,6 @@ window.C = (function () {
       t.posY = Math.round(maze.car.y * 100) / 100;
       t.dir = maze.car.dir;
       t.gyroAngle = (t.gyroAngle + (maze.car.dir !== before ? (before === 1 ? 90 : -90) : 0)) % 360;
-      t.encAngle = (t.encAngle + t.speedL * .12) % 360;
       t.mazeTask = maze.idx < 2 ? 1 : 3;
       t.battMv = Math.max(7600, t.battMv - 0.35);
       const cx = maze.car.x | 0, cy = maze.car.y | 0;
@@ -1999,12 +2010,13 @@ window.C = (function () {
     const ms = 232 + Math.round(Math.random() * 12);
     S.rateLog.push({ seq: ++rateSeq, n: S.pullN, ms: ms, hz: +(S.pullN * 1000 / ms).toFixed(2) });
   }
-  /* 统一帧通道数 = 33（上游 2.13.0：29 + `led1..led4`，改版二十六修正）。
-     ⚠️ 原来写 29 —— 那是 2.12.0 的口径。4 个灯单列在状态行（`S.leds`）**不代表**
-        它们不在帧里；写 29 会与后端 `/health` 的 `mouse.unified_channels` 打架。
-     ⚠️ 通道卡按 `GROUPS` 渲染 31 行 = 29 个真通道 + `frontNear`/`irSwitch` 两个
-        上游派生键。三个数字各有含义，别互相替代。 */
-  S.caps = { unified_channels: 33, led: true };
+  /* 统一帧通道数**只有一处真相**：`S.health.mouse.caps.unified_channels`，
+     由 `applyCaps()` 从后端 `/caps` 的 `unified_channels.length` 写入。
+     ⚠️ 这里原来还有一份 `S.caps = {unified_channels: 33, ...}` —— 没人读、也不会被
+        `/caps` 更新，纯属第二份真相（铁律 54：前端自算/自留的派生值一律不认）。
+        协议涨到 v10 时它没跟着变，删掉。
+     ⚠️ 通道卡的 `GROUPS` 渲染的是 **30 个键 = 28 个真通道 + `frontNear`/`irSwitch`
+        两个上游派生键**；4 个 LED 在状态行单列（`S.leds`）。三者数字不同，别互相替代。 */
 
   /* ── 路由 ─────────────────────────────────────────────────────────────── */
   const NAV = [
@@ -2049,7 +2061,7 @@ window.C = (function () {
 
   /* 初始日志 */
   [
-    ['control', 'info', '服务已起 · 127.0.0.1:8770 · 协议 v9（30 B 统一帧 / 33 通道）'],
+    ['control', 'info', '服务已起 · 127.0.0.1:8770 · 协议 v10（30 B 统一帧 / 32 通道 + 建图增量）'],
     ['mouse', 'info', '串口 COM7 已连接 · fw 2.13.0 · proto 9'],
     ['video', 'info', '视频目录 D:\\video · 3 个 mp4 · 最近解析 21:04'],
     ['control', 'warn', '时间基：设备侧未发车（ARM 未置位），跨机对齐按 assumed 记录'],

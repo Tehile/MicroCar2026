@@ -25,6 +25,22 @@
     box.querySelectorAll('[data-route]').forEach(b => {
       b.onclick = function () { C.go(b.dataset.route); };
     });
+    renderRailMeta();
+  }
+
+  /* 侧栏底部两格：**数据源**与**协议版本 / 通道数**（`index.html` 里留空不写死）。
+     ⚠️ 这两格曾经是 HTML 里写死的 "原型·纯前端 / v9·PROTO 9"：协议升到 v10、
+         前端也接了真机之后它们还在那儿 —— 长得跟真数据一样，是第二个真相。
+     判不了就给 `—`（三态纪律），不猜。 */
+  function renderRailMeta() {
+    const m = S.health.mouse || {};
+    const el = document.getElementById('rail-mode');
+    if (el) el.textContent = C.LIVE.on ? '真机 · 已连后端' : '原型 · 未连后端';
+    const p = document.getElementById('rail-proto');
+    if (!p) return;
+    const n = (m.caps || {}).unified_channels;
+    p.textContent = (m.proto == null ? 'PROTO —' : 'PROTO ' + m.proto)
+      + (n ? ' · ' + n + ' 通道' : '');
   }
 
   /* ── 顶栏设备片：只有两路 ─────────────────────────────────────────────── */
@@ -422,8 +438,15 @@
       C.go(C.VIEWS[id] ? id : 'overview', true);
     });
     const init = (location.hash || '').replace(/^#\//, '');
-    S.route = C.VIEWS[init] ? init : 'overview';
-    renderNav(); renderTop(); renderPage();
+    /* ⚠️ 首屏也必须走 `C.go()`，不能只写 `S.route` 再手动渲染（改版三十九修正）。
+       `go()` 里带着**进这一页该做的事**：
+         · 比赛页 `startRaceTick()` —— 不跑它，迷宫图**永远不会去取**，页面上
+           只有一张空白网格 + 「等待数据」，而顶栏明明写着"实时·已连接"；
+         · 参数页 `syncPull()+needPage()` —— 不跑它，参数表空着（它依赖拉取在跑）。
+       为什么一直没被发现：`V12/V9` 这些判据是**用 `C.go('race')` 跳过去**的，
+       天然绕开了"刷新时正停在这一页"这条路 —— 判据没走过真实入口。
+       `silent=true`：不要因为恢复路由而多压一条 history。 */
+    C.go(C.VIEWS[init] ? init : 'overview', true);
 
     /* 原型便利：?scene=run|estop|down|oldfw|novideo，?dev=mouse|clock */
     const qs = new URLSearchParams(location.search);

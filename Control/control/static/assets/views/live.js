@@ -64,7 +64,11 @@
           '</section>' +
         '</div>' +
 
-        '<div class="sec-title">统一帧通道 <span class="mono" style="letter-spacing:0">· 33</span></div>' +
+        /* 通道数**不写死**（v10 从 33 掉到 32，写死的数字立刻就成谎）。
+           真值只有一处：`/caps` 的 `unified_channels.length` → `S.health.mouse.caps`。
+           判不了（还没探到能力）就显示 `—`，不拿一个记忆中的数顶上去。 */
+        '<div class="sec-title">统一帧通道 <span class="mono" style="letter-spacing:0" id="lv-chan-n">· —</span>' +
+          '<span class="hint" style="margin-left:8px">4 灯在状态行走三态，不在这里重复</span></div>' +
         '<div class="grid g3" id="lv-ch"></div>' +
 
         '<section class="card" style="margin-top:12px">' +
@@ -161,6 +165,13 @@
       const root = this._root;
       if (!root || !root.querySelector('#lv-ch')) return;
       const t = S.tel;
+
+      /* 通道数：能力探到才显示（v10 = 32；判不了给 `—`，不拿记忆里的数顶） */
+      const cnEl = root.querySelector('#lv-chan-n');
+      if (cnEl) {
+        const n = (S.health.mouse.caps || {}).unified_channels;
+        cnEl.textContent = '· ' + (n ? n : '—');
+      }
 
       /* 帧率 */
       const pulling = S.pulling;
