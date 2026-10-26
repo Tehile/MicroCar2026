@@ -48,6 +48,41 @@
       (n > gs.length ? '（明细只留前 ' + gs.length + ' 条）' : '');
   }
 
+  /* 运行区间（改版四十四）：**全部取自后端 `phases`，前端一次都不自算**。
+     `rec.phases == null` = 这条记录没有动作码通道 ⇒ 判不了；
+     `rec.runFrom == null` = 有通道、但车一次没动。两者**不许混成一句**。 */
+  function runInfo(rec) {
+    if (rec.phases == null) {
+      return '判不了（' + (rec.phaseNote || '这条记录没有 motionTask 通道') + '）';
+    }
+    if (rec.runFrom == null) return '全程未动（动作码一直是停）';
+    const to = (rec.runTo == null ? rec.runFrom : rec.runTo);
+    return '发车 ' + dur(rec.runFrom) + ' → 收车 ' + dur(to) +
+      ' · 运行 ' + U.fmt(rec.runTotal == null ? 0 : rec.runTotal, 1) + ' s' +
+      ' / 时长 ' + dur(rec.dur) +
+      (rec.stopGaps ? ' · 中途停过 ' + rec.stopGaps + ' 次' : '');
+  }
+
+  /* 这条记录**有没有位置读数**。判据是样本里真有 `posX/posY`，
+     **不是** `rec.launch` —— `launch` 只说"这条记录是怎么开的"（发车自动/手动），
+     而手动开的记录照样有坐标（改版三十三起回放就是靠这个）。拿 `launch` 当门，
+     手动记录会被写成"无位置"，而右栏同时又把坐标算出来了 —— 自相矛盾。 */
+  function hasPos(rec) {
+    const sm = (rec && rec.samples && rec.samples[0]) || null;
+    return !!(sm && sm.posX != null && sm.posY != null);
+  }
+
+  /* 某一时刻属"在动"还是"停着" —— 查后端给的段，**不是**再判一次动作码。
+     判据只留一份（后端 `motion_phases`），前端自己复算迟早两边分家。 */
+  function phaseAt(rec, t) {
+    if (!rec.phases || t == null) return null;
+    for (let k = 0; k < rec.phases.length; k++) {
+      const p = rec.phases[k];
+      if (t >= p.from_s && t <= p.to_s) return p.kind;
+    }
+    return null;
+  }
+
   C.VIEWS.replay = {
     eyebrow: '记录 · 回放',
     title: '回放',
@@ -93,7 +128,7 @@
                 '<span class="legend"><i></i>已知墙</span>' +
                 '<span class="legend"><i class="dash"></i>未探明</span>' +
                 '<span class="legend"><i class="goal"></i>终点</span>' +
-                (rec.launch ? '' : '<span class="hint">无发车记录 · 无位置</span>') +
+                (hasPos(rec) ? '' : '<span class="hint">这条记录没有位置读数</span>') +
               '</div></div>' +
             '<div class="rp-canvas-wrap" id="rp-mapwrap">' +
               '<canvas id="rp-maze"></canvas>' +
@@ -204,23 +239,8 @@
       this._esc = e => { if (e.key === 'Escape') setSheet(false); };
       document.addEventListener('keydown', this._esc);
 
-      /* 发车刻度 + **采样缺口**（改版三十八）。
-         ⚠️ 缺口画成**带子**（有宽度），不是 1px 刻度：它是一段"没有数据"的区间，
-         画成一条线会被读成"某个时刻发生了什么"。位置用的是 `t_ms` 同一口径
-         （后端已经把绝对墙钟减成相对毫秒），所以和进度条/帧号严格对齐。 */
-      const marks = [];
-      if (rec.launch) marks.push({ p: (rec.launchAt + 1) / rec.dur, t: '发车' });
-      const durMs = Math.max(1, (rec.dur || 0) * 1000);
-      (rec.gaps || []).forEach(g => {
-        const a = U.clamp((g.t_ms_from || 0) / durMs, 0, 1);
-        const b = U.clamp((g.t_ms_to || 0) / durMs, 0, 1);
-        marks.push({ a: a, b: b, t: gapText(g), gap: true });
-      });
-      marks.push({ p: 1, t: '收车' });
-      root.querySelector('#rp-marks').innerHTML = marks.map(m => m.gap
-        ? '<i class="gap" style="left:' + (m.a * 100).toFixed(2) + '%;width:' +
-          Math.max(0.5, (m.b - m.a) * 100).toFixed(2) + '%"><em>' + U.esc(m.t) + '</em></i>'
-        : '<i style="left:' + (m.p * 100).toFixed(2) + '%"><em>' + m.t + '</em></i>').join('');
+      /* 发车/收车标记 + 采样缺口 ⇒ 单独一个方法，见下面的 `paintMarks()` */
+      this.paintMarks();
 
       /* 参数：只在挂载时写一次。
          `rec.params === null` = **这条记录没冻过快照**（改版二十八之前的老记录）。
@@ -286,6 +306,86 @@
       this.paint(true);
     },
 
+    /* 发车 / 收车标记 + **采样缺口**（改版三十八 / 四十四）。
+       ⚠️ 发车收车的判据是**动作码**（后端 `phases`，`motionTask ∉ {0,5}`），
+       不是 `rec.launch` —— 后者只说明"这条记录是发车自动开的还是人手动开的"，
+       而 `launchAt` 对发车记录**恒为 0.0** ⇒ 原来那个标记永远贴在进度条最左端。
+       收车原来更是硬编码 `p:1`（永远在末尾）：实测一条车 4.2 s 就停住、
+       记录却录到 173.1 s，收车刻度错了 169 s。
+       缺口画成**带子**（有宽度），不是 1px 刻度：它是一段"没有数据"的区间，
+       画成一条线会被读成"某个时刻发生了什么"。位置用 `t_ms` 同一口径。
+
+       **为什么单独成方法**（不是写在 `mount()` 里）：判据要能直接驱动它验
+       "判不了时一根都不画"。藏在 mount 里的活，验的人只能重挂页面 ——
+       而重挂会顺带重新拉记录，刚摘掉的 `phases` 又被后端数据盖回来
+       （v44 的 V22 自己踩过一次：改成 `C.go` 之后反而恒红）。 */
+    paintMarks() {
+      const root = this._root;
+      if (!root || !root.querySelector('#rp-marks')) return 0;
+      const rec = C.record(S.recSel);
+      if (!rec) return 0;
+      const marks = [];
+      const durMs = Math.max(1, (rec.dur || 0) * 1000);
+      const pct = v => U.clamp(v, 0, 1) * 100;
+      /* 缺口照画（那是"没采样"，与动作码无关），三个分支共用一份 */
+      const pushGaps = () => {
+        (rec.gaps || []).forEach(g => {
+          const a = U.clamp((g.t_ms_from || 0) / durMs, 0, 1);
+          const b = U.clamp((g.t_ms_to || 0) / durMs, 0, 1);
+          marks.push({ a: a, b: b, t: gapText(g), gap: true });
+        });
+      };
+      /* ⚠️ **判不了排第一**：`phases` 是这件事的唯一权威。
+         只看 `runFrom` 的话，一旦出现"`phases` 没了而 `runFrom` 还留着"的状态，
+         就会照样画两根假的。三个分支的先后本身就是一条判据。 */
+      if (rec.phases == null) {
+        /* 这条记录没有动作码通道 ⇒ 一根发车/收车都不许画（画在哪都是编的） */
+        pushGaps();
+        marks.push({ a: 0, b: 1, t: '无动作码 · 判不了发车/收车', unk: true });
+      } else if (rec.runFrom != null && rec.dur) {
+        const pA = rec.runFrom / rec.dur;
+        const pB = (rec.runTo == null ? pA : rec.runTo / rec.dur);
+        /* 两线挨得近时标签会叠在一起 ⇒ 把「发车」标签翻到线的**左侧**，
+           两个标签朝外分开。判据用 18% 宽：再窄就是这盘车几乎没跑。 */
+        const tight = (pB - pA) < 0.18;
+        /* 窄到放不下两个标签时：左侧还有空间就把「发车」翻到线的左边（`roll`），
+           没有（发车点本身就在最左 15%）就把标签缩成两个字 —— 时刻丢不了，
+           它在「参数 · 记录」那行「运行」里写着。**宁可短，不许叠字**。 */
+        const canRoll = pA > 0.15;
+        /* 两根线之间铺一条**淡色带**：一眼看出"从哪开始到哪结束是发车"。
+           它不是另一条时间轴（还是这条 16 px 的条），只是把区间填出来 ——
+           两根孤线在窄窗口里很容易被当成普通刻度。 */
+        marks.push({ span: true, p: pA, w: Math.max(0, pB - pA) });
+        marks.push({ p: pA,
+          t: (tight && !canRoll) ? '发车' : ('发车 ' + dur(rec.runFrom)),
+          cls: 'mk-start' + ((tight && canRoll) ? ' roll' : '') });
+        pushGaps();
+        marks.push({ p: pB, t: '收车 ' + dur(rec.runTo == null ? rec.runFrom : rec.runTo), cls: 'mk-end' });
+      } else {
+        /* 有通道、但**全程没动过**（`phases` 一整段 stop）。照样不画两根假刻度，
+           只写一行"全程未动" —— 这也是个结论，不是"判不了"。 */
+        pushGaps();
+        marks.push({ a: 0, b: 1, t: '全程未动（动作码一直是停）', unk: true });
+      }
+      root.querySelector('#rp-marks').innerHTML = marks.map(m => {
+        if (m.unk) return '<i class="unk"></i><span class="mk-unk">' + U.esc(m.t) + '</span>';
+        if (m.span) {
+          return '<i class="mk-span" style="left:' + pct(m.p).toFixed(2) + '%;width:' +
+            (m.w * 100).toFixed(2) + '%"></i>';
+        }
+        if (m.gap) {
+          /* 带子只画区间、**不带字**：16 px 的条上放两行字会互相压住，
+             完整文案交给 `title`（悬停可看）与「参数 · 记录」里的缺口明细。 */
+          return '<i class="gap" title="' + U.esc(m.t) + '" style="left:' +
+            pct(m.a).toFixed(2) + '%;width:' +
+            Math.max(0.5, (m.b - m.a) * 100).toFixed(2) + '%"></i>';
+        }
+        return '<i class="' + (m.cls || '') + '" style="left:' + pct(m.p).toFixed(2) +
+          '%"><em>' + U.esc(m.t) + '</em></i>';
+      }).join('');
+      return marks.length;
+    },
+
     paint(first) {
       const root = this._root;
       if (!root || !root.querySelector('#rp-range')) return;
@@ -307,9 +407,9 @@
       pb.innerHTML = C.icon(playing ? 'stop' : 'play') + '<span>' + (playing ? '暂停' : '播放') + '</span>';
 
       const posEl = root.querySelector('#rp-pos');
-      posEl.textContent = rec.launch
-        ? 'x ' + U.fmt(sm.posX, 2) + ' · y ' + U.fmt(sm.posY, 2) + ' · ' + (CH.dirs[sm.dir] || '?')
-        : '无位置';
+      posEl.textContent = (sm.posX == null || sm.posY == null)
+        ? '无位置读数'
+        : 'x ' + U.fmt(sm.posX, 2) + ' · y ' + U.fmt(sm.posY, 2) + ' · ' + (CH.dirs[sm.dir] || '?');
 
       root.querySelector('#rp-state').innerHTML = [
         ['t', '时刻', U.fmt(sm.t, 2) + ' s'],
@@ -319,6 +419,10 @@
         ['mazeTask', '迷宫任务', (CH.tasks[sm.mazeTask] || sm.mazeTask) + ' (' + sm.mazeTask + ')'],
         ['motionTask', '动作', (CH.motionText ? CH.motionText(sm.motionTask)
           : (CH.motions[sm.motionTask] || sm.motionTask)) + ' (' + sm.motionTask + ')'],
+        ['run', '运行', (function () {
+          const k = phaseAt(rec, sm.t);
+          return k === 'run' ? '在动' : k === 'stop' ? '停着' : '判不了';
+        })()],
         ['speedL/speedR', '轮速', U.fmt(sm.speedL, 1) + ' / ' + U.fmt(sm.speedR, 1) + ' cm/s'],
         ['wallL/F/R', '墙', sm.wallLeft + ' / ' + sm.wallFront + ' / ' + sm.wallRight],
         ['battMv', '电池', U.fmt(sm.battMv, 0) + ' mV'],
@@ -330,7 +434,10 @@
         ['start', '开始', rec.start],
         ['dur', '时长', dur(rec.dur)],
         ['frames', '遥测帧', String(rec.frames)],
-        ['launch', '发车记录', rec.launch ? '有 @' + U.fmt(rec.launchAt, 1) + ' s' : '无'],
+        ['launch', '发车记录', rec.launch ? '自动开录（发车触发）' : '手动开录'],
+        // 运行区间（改版四十四）：与上面那行**分开**——那行说"记录是怎么开始录的"，
+        // 这行说"车什么时候真的在动"。混成一句就会把"发车自动开录"读成"车一直在跑"。
+        ['run', '运行', runInfo(rec)],
         ['video', '视频记录', rec.video || '未关联'],
         ['points', '轨迹点', ses ? String(ses.n_valid) : '—'],
         ['ledger', '账本', rec.ledger === true ? '通过'

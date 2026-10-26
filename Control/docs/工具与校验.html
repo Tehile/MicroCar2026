@@ -77,14 +77,14 @@ li{margin:.28em 0}
 <li><a href="#1">1. 六个脚本一览</a></li>
 <li><a href="#2-preflightpy">2. preflight.py —— 启动前自检</a></li>
 <li><a href="#3-drillpy">3. drill.py —— 端到端演练 + 判据</a><ul>
-<li><a href="#31-2026-10-26">3.1 编号现状（2026-10-26 第三次核对）</a></li>
+<li><a href="#31-2026-10-27">3.1 编号现状（2026-10-27 第五次核对）</a></li>
 <li><a href="#32-sim">3.2 --sim 的边界</a></li>
 </ul>
 </li>
 <li><a href="#4-browser_checkpy">4. browser_check.py —— 无头浏览器实测</a><ul>
 <li><a href="#41-v6">4.1 核心是 V6 —— 验"接缝真的接上了"</a></li>
 <li><a href="#42-v5">4.2 负向判据 V5 —— 不许假绿</a></li>
-<li><a href="#43-v0-v20">4.3 组清单（V0 ~ V20）</a></li>
+<li><a href="#43-v0-v22">4.3 组清单（V0 ~ V22）</a></li>
 </ul>
 </li>
 <li><a href="#5-check_iface_tablepy">5. check_iface_table.py —— 防文档漂移</a></li>
@@ -251,12 +251,12 @@ $PY tools/preflight.py --quick    # 跳过网络与 git（离线环境）
 $PY tools/drill.py --sim          # 额外起上游鼠标模拟器（有真数据）
 $PY tools/drill.py --port 8899    # 8770 被占时换端口
 </code></pre>
-<h3 id="31-2026-10-26">3.1 编号现状（2026-10-26 第三次核对）</h3>
-<p>实际存在的编号 <strong>56 个</strong>：</p>
+<h3 id="31-2026-10-27">3.1 编号现状（2026-10-27 第五次核对）</h3>
+<p>实际存在的编号 <strong>59 个</strong>：</p>
 <pre><code>I1  I2  I3  I4  I5  I6      I9  I10     I12           I15 I16 I17 I18 I19
 I20 I21 I22 I23 I24     I27 I28 I29 I30 I31 I32 I33 I34 I35 I36 I37 I38 I39
 I40 I41 I42 I43 I44 I45 I46 I47     I49 I50 I51 I52 I53 I54 I55 I56 I57 I58 I59
-I60 I61 I62 I63 I64
+I60 I61 I62 I63 I64 I65 I66 I67
 </code></pre>
 <p>⚠️ <strong>编号不连续是常态，不是漏写</strong>：<code>I7 I8 I11 I13 I14 I25 I26 I48</code> 这些随相关功能
 下线而被移除，编号<strong>不留补丁、不重号</strong>（改名连判据一起改，见记忆中的相关纪律）。
@@ -277,6 +277,26 @@ I60 I61 I62 I63 I64
   "空集合 ⊆ 任何集合"会让"覆盖上游"<strong>恒真</strong>，所以那种情况给 SKIP 并写明，不硬过。
 - <strong>I64</strong> 收车：帧龄 9 s（没帧源）⇒ <code>waited=false</code>、<code>reliable=None</code>、<strong>耗时 &lt;1 s</strong>；
   帧龄 50 ms ⇒ 仍走等待分支。两个方向缺一不可（详见 §11.43）。</p>
+<p><code>I66</code>/<code>I67</code> 是改版四十四新加的（回放的发车/收车按<strong>动作码</strong>标，详见 §11.44）：
+- <strong>I66</strong> <code>motion_phases()</code>：三段（停/跑/停）的边界时刻、<strong>去抖</strong>（一串单帧"在动"
+  夹在停里不许算成一段运行）、中途停过能数出来、三态（无帧 ⇒ <code>None</code>；全程停 ⇒
+  非 <code>None</code> 但 <code>run_from_s is None</code>）。⚠️ <code>phases is None</code> 与"全程没动"是<strong>两件事</strong>，
+  用空列表冒充就是替设备作证。
+- <strong>I67</strong> 发车锚点 <code>first_run_t_ms</code> 只认 <code>motionTask</code>：① 任务机先起、电机后动 ⇒
+  它<strong>严格晚于</strong> <code>first_task_t_ms</code>（旧判据会相等）；② 任务机在跑但车一直没动（卡死）⇒
+  它是 <code>None</code> 而不是任务机那个时刻。附带验 <code>replay_view()</code> 的 <code>phases</code> 与帧自洽、
+  以及"没有 motionTask 通道 ⇒ <code>phases is None</code> 且带 <code>note</code>"。
+  ⚠️ 合成记录里运行段必须<strong>长于 <code>PHASE_MIN_MS</code>(300 ms)</strong>，否则会被去抖并掉 ——
+  那时判据红的原因跟被测的东西无关（写这条时踩过一次）。</p>
+<p><code>I65</code> 是改版四十五新加的（记录列表分页，详见 §11.45），在 <code>0c4</code> 段（<strong>临时文件</strong>，不依赖模拟器）：
+- <strong>I65</strong> 按页大小 3 翻 7 条记录（3/3/1）：各页 id 按序拼起来必须<strong>等于一次全量</strong>
+  （顺序也一致）、<code>count_records()</code> 等于真实条数、偏移越界返回空列表、
+  <strong>缓存命中的那一遍与首次解析逐字段相同</strong>。
+  ⚠️ 分页最容易出的错不是"少一条"而是<strong>重复/错位</strong>（翻页期间新落一条记录，偏移整体后移
+  ⇒ 下一页首条 == 上页末条），而界面上"同一条记录出现两次"根本看不出是错位。
+  ⚠️ 样本必须<strong>末页不满</strong>（整页整除验不出"末页多给"）。
+  负向验证（不改源码，用 monkeypatch 灌错实现）：忽略 <code>offset</code> ⇒ 拼出 9 条 / 唯一 3 条 ⇒ 判红；
+  拿一页条数冒充总数 ⇒ 3 ≠ 7 ⇒ 判红。</p>
 <h3 id="32-sim">3.2 <code>--sim</code> 的边界</h3>
 <ul>
 <li><strong>不加 <code>--sim</code></strong>：跑不了需要活链路的那些（<code>I15</code>~<code>I17</code>、<code>I22</code>、<code>I23</code>、<code>I27</code>、<code>I28</code>、
@@ -305,7 +325,7 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <p><strong>设备没连上时，界面不许说连上了。</strong> 假"已连接"会让人以为可以去发车。</p>
 </blockquote>
 <p>⚠️ <code>--sim</code> 与不带 <code>--sim</code> 两种情况<strong>断言方向相反</strong> —— 双向都点才叫判据。</p>
-<h3 id="43-v0-v20">4.3 组清单（V0 ~ V20）</h3>
+<h3 id="43-v0-v22">4.3 组清单（V0 ~ V22）</h3>
 <table>
 <thead>
 <tr>
@@ -395,6 +415,16 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <td><strong>断开归零</strong>：喂 <code>connected:false</code> 的 health ⇒ <code>hz2=null</code>、曲线 0 点、动作码 0、<code>running=false</code>、<code>telRxAt=0</code>、<code>posX=null</code>、迷宫图被清；界面帧率写 <code>0</code></td>
 <td>断开前就没有帧率 ⇒ SKIP（判不了"清零"）</td>
 </tr>
+<tr>
+<td>V22</td>
+<td><strong>回放刻度</strong>：发车/收车两根线<strong>在动作码算出的位置</strong>（<code>run_from_s</code>/<code>run_to_s</code> 换算成百分比，误差 ≤1%）、标签写「发车/收车 + 时刻」；把 <code>phases</code> 摘掉 ⇒ <strong>一根都不许留</strong>且必须写「判不了」</td>
+<td>前 8 条记录没有一条动过 ⇒ SKIP（无运行区间可验）</td>
+</tr>
+<tr>
+<td><strong>V21</strong></td>
+<td><strong>列表分页</strong>：首屏 50 条且文案写「已载 50 / 共 N」（此时<strong>不许</strong>出现发车/视频条数）；搜一条只在第 51 条之后的记录 ⇒ <strong>自动载全并命中 1 行</strong>；滚到底 ⇒ 行数长到 N 且 id 无重复；载全后提示行清空</td>
+<td>全库 ≤ 50 条 ⇒ SKIP（一屏装得下，验不到续载）；无滚动容器 ⇒ SKIP</td>
+</tr>
 </tbody>
 </table>
 <p>⚠️ V16 只验"回落"会假绿（"从来没显示过"也通过），所以它验<strong>两段</strong>。
@@ -403,10 +433,19 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 ⚠️ V18 两个方向缺一不可：只验前半会放过"钉不过期"（<strong>永远收不了车</strong>）；
 只验后半会放过"根本没钉"（<strong>改版四十一的那个 bug</strong>）。它验的是
 <code>C.applyRunning()</code> 这个判定函数本身，不走真机发车 —— 那条时序真机未必复现。
+⚠️ V22 的"判不了"那一半必须调 <code>C.VIEWS.replay.paintMarks()</code>，<strong>不能靠重挂页面</strong>：
+重挂会顺带重新拉记录，刚摘掉的 <code>phases</code> 立刻被后端数据盖回来 ⇒ 看起来"标记还在"，
+判据恒红（写这条时踩过一次，那版的刻度正好画在 <code>mount()</code> 里，改成方法之后才验得动）。
 ⚠️ V19 把 <code>C.act</code> 打桩成"1.2 s 后才 resolve"（<strong>只桩网络，不桩界面</strong>）：
 真机上命令可能 30 ms 就回来，300 ms 时早已进观察窗 ⇒ 那样这条会飘。
 ⚠️ V20 必须<strong>先塞一张假迷宫图</strong>再喂 <code>connected:false</code>：本来就 <code>null</code> 的话，
-"清空"这条恒真（假绿）。（这条是老坑，与 V17 的"豁免清零"同族。）</p>
+"清空"这条恒真（假绿）。（这条是老坑，与 V17 的"豁免清零"同族。）
+⚠️ V21 的搜索词<strong>取全库最后一条的 id</strong>（<code>?n=1&amp;offset=total-1</code>），不写死名字 ——
+记录目录是活的，写死的词迟早不存在，那时"搜不到"会被当成功能坏了。
+否定方向两条都验过（临时把 <code>onScroll</code> / <code>ensureAll</code> 变成空实现 ⇒ 判据转红，
+分别报"滚 41 次仍 50 条"和"载入 50 条 / 命中 0 行"），验完立刻还原。
+⚠️ V21 用 <code>reset()</code>（清空已载窗口再 <code>loadRecords()</code>）造"刚进页"的状态，
+<strong>必须先复位再造状态</strong>：上一条判据留下的 344 条会让"首屏 50"恒假。</p>
 <blockquote>
 <p>标"—"的是本项目当前未被 AI 逐条读透的组；<strong>宁可留白也不猜</strong>（下游自证原则）。
 要看某组的确切命题，直接读 <code>tools/browser_check.py</code> 里对应的 <code>record("Vn", …)</code> 及其上方注释。</p>

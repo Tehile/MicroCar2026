@@ -320,12 +320,12 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tbody>
 <tr>
 <td><code>control/adapters/mouse.py</code></td>
-<td>4115</td>
+<td>4116</td>
 <td><strong>最大的一块</strong>。包 <code>host.api.MouseClient</code>：连接、参数、动作、拉取、链路健康（PING 判死 + 命令让路闸 + 拉取自愈）、动作码表（<code>/caps.motions</code>）、决策差分、发车前的 <code>ensure_pull</code></td>
 </tr>
 <tr>
 <td><code>control/maze_rec.py</code></td>
-<td>2162</td>
+<td>2390</td>
 <td>实验 8 记录器。<strong>订阅 <code>Event.TELEMETRY</code></strong>（每帧一次），不订阅"有人看波形才发"的那条</td>
 </tr>
 <tr>
@@ -357,7 +357,7 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tbody>
 <tr>
 <td><code>control/api/routes.py</code></td>
-<td>1918</td>
+<td>1941</td>
 <td>REST 路由表（§6.2 落地）。只负责"触发"与给元信息</td>
 </tr>
 <tr>
@@ -397,7 +397,7 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 </tr>
 <tr>
 <td><code>lib.js</code></td>
-<td>2612</td>
+<td>2699</td>
 <td>原型内核 + <strong>接缝层</strong>：<code>act()</code>/<code>setPull()</code>/<code>pullBatch()</code>/<code>connectMouse()</code>/<code>videoStart()</code>/<code>renameRecord()</code>… 真机模式下这里<strong>真的发请求</strong>（<code>get()</code> 只读、<code>post()</code> 写）；发车状态的判定也在这一层（<code>pinRunning()</code> / <code>applyRunning()</code>，判据是<strong>动作码</strong>）；断开时的归零是 <code>resetTelemetry()</code></td>
 </tr>
 <tr>
@@ -469,13 +469,13 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tr>
 <td><code>#/data</code></td>
 <td><code>data.js</code></td>
-<td>450</td>
-<td>记录管理：搜索/筛选/多选/批量删/导入</td>
+<td>585</td>
+<td>记录管理：搜索/筛选/多选/批量删/导入；<strong>滚到底自动续载</strong>（已载 / 共 N 条分开说）</td>
 </tr>
 <tr>
 <td><code>#/replay</code></td>
 <td><code>replay.js</code></td>
-<td>371</td>
+<td>479</td>
 <td>迷宫记录回放：<strong>从帧重放建</strong>图，不读 <code>wall_rows</code></td>
 </tr>
 </tbody>

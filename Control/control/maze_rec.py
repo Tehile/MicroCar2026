@@ -333,6 +333,21 @@ _TURN_MOTION = frozenset({2, 4, 27, 28, 39, 42, 43, 46, 47,
 #: （"要看得见直行"）加的分类，判据同样取 `motionTask`，但**上游没有对应事件可对照**。
 _STRAIGHT_MOTION = frozenset({1, 17, 30, 32, 33, 34, 44, 45, 49, 50, 51, 52})
 
+#: "车没在动"的动作码（`motionTask ∈ MOTION_STOPPED`）。**全层只有这一份定义**：
+#: `adapters/mouse.py` 从这里 import 再下发给 `/caps` 的 `motion_stopped`，
+#: 界面读 `/caps`、后端算区间读这里 —— 两边都不许写死 `[0,5]`。
+#: 为什么放在记录器这层：`motionTask` 的语义（转弯类/直行类码表）本来就归这里，
+#: 而 `mouse.py` 已经 `from ..maze_rec import ...`，反向 import 会成环。
+#: ⚠️ `0 = NULL`（空闲）与 `5 = STOP`（停车）**都是停**。这两个说反过一次。
+MOTION_STOPPED = (0, 5)
+
+#: 运行段去抖阈值（毫秒）。逐帧直接切段会切出**单帧碎段**：实测
+#: `20261026_221846_mz16` 一条 3 s 的记录，逐帧切是 5 段（其中 3 段只有 10~20 ms），
+#: 而真相是"抖了一下、随即停住"。短于这个阈值的段并入邻段（见 `motion_phases`）。
+#: 取值依据：固件侧自己对道路分类做 20 ms 去抖（`迷宫状态机回传.md` §4），
+#: 而动作码切换实测在 1~3 帧（10~30 ms）量级抖动 ⇒ 300 ms 是"明显抖"与"真停顿"之间。
+PHASE_MIN_MS = 300
+
 #: `ROAD` 去抖：连续这么多帧分类一致才认。
 #: 依据上游 `迷宫状态机回传.md` §4 —— 固件侧做 20 ms 去抖（连续 2 个采样一致），
 #: 而主机侧复刻的 `classify_road()` 是**逐帧瞬时**判断，文档明确要求调用方自行去抖。
@@ -345,6 +360,127 @@ DEC_RING = 3000
 #: 常驻**事件**环的容量。上行事件（`STOPPED` / `ESTOP TRIP`）一盘也就几条到几十条，
 #: 但它是"为什么停的"唯一的答案，所以照样要给右栏那条线供货 —— 见 `feed_event`。
 EV_RING = 500
+
+
+def motion_phases(seq: List[Tuple[int, Optional[int]]],
+                  min_ms: int = PHASE_MIN_MS,
+                  stop: Tuple[int, ...] = MOTION_STOPPED,
+                  ) -> Dict[str, Any]:
+    """把逐帧 `(t_ms, motionTask)` 折成**"在动 / 停着"的区间**（改版四十四）。
+
+    为什么要有这个：回放的"发车 / 收车"标记原来靠两个假的量 ——
+    发车用 `launch_at_s`（发车自动开的记录恒给 `0.0` ⇒ 标记永远贴最左端），
+    收车**硬编码在进度条末尾**。实测 `20261008_150828_mz7`：车在 0.4 s 动、
+    4.2 s 就停住，而记录一直录到 **173.1 s** ⇒ 收车标记错了 169 s。
+
+    判据只有一条：**`motionTask ∉ stop` 就算在动**（不是 `mazeTask`）。
+    这是用户 2026-10-27 定的口径 —— "实际的发车和停车状态应当以状态中
+    是否停止为标准，而不是迷宫任务"。`mazeTask=SEARCH` 却 `motionTask=NULL`
+    的记录真存在（车卡住，任务机还在跑），拿 `mazeTask` 判会把卡死说成在跑。
+
+    ## 去抖
+
+    逐帧切段会切出单帧碎段（实测 3 s 的记录切出 5 段，其中 3 段 10~20 ms）。
+    任何短于 `min_ms` 的段**并入前一段**（首段并入后段），反复直到稳定。
+    并入哪边是有讲究的：一帧"在动"夹在"停着"里，并进前面 ⇒ 仍是"停着"
+    （不凭空造出一段运行）；一帧"停着"夹在"在动"里，并进前面 ⇒ 仍是"在动"
+    （不把一次动作切成两段）。
+
+    ## 三态（**这条最重要**）
+
+    | 情形 | 返回 |
+    |---|---|
+    | **通道缺**（老记录 / 外部导入） | `phases is None` + `note` —— **判不了** |
+    | 通道在、**车一次没动** | `phases` 是一整段 `stop`，且 `run_from_s is None` |
+    | 通道在、动过 | `phases` 里有 `run` 段，`run_from_s` / `run_to_s` 给出首末 |
+
+    ⚠️ 「判不了」**只能**是 `None`。用空列表冒充，界面就会把"老记录读不出
+    动作码"显示成"这盘车没动过" —— 那是替设备作了个它没做的证。
+    ⇒ 所以 `phases` 一定覆盖全记录（首尾相接），"没动过"由 `run_from_s is None`
+    表达，**不靠列表长度**。
+
+    返回：
+      · `phases`   —— 列表，元素 `{"from_s","to_s","kind":"run"|"stop"}`，
+                      **已排序、首尾相接、覆盖全记录**（画轨道用）
+      · `run_from_s` / `run_to_s` —— 第一段运行的起点 / 最后一段运行的终点（`None` = 没动过）
+      · `run_total_s` —— 所有运行段**累加**（不是 `run_to - run_from`：中途停过就不等）
+      · `stop_gaps_n` —— 首末运行段之间夹着的"停着"段数（= 中途停过几次）
+      · `holes`    —— 缺读数的帧数（不产生段边界，如实报出来）
+      · `phase_min_ms` —— 去抖阈值，随结果下发，界面别自己猜
+    """
+    t_len = len(seq)
+    if not t_len:
+        return {"phases": None, "note": "这条记录一帧都没有", "holes": 0,
+                "phase_min_ms": int(min_ms), "run_from_s": None, "run_to_s": None,
+                "run_total_s": None, "stop_gaps_n": None}
+
+    # ---- ① 逐帧切段：读数为 None 的帧**不产生边界**（那一帧没有读数，
+    #         不是"停着"的证据），只计数。段用 [kind, t_from, t_to] 半开区间表示。
+    raw: List[List[Any]] = []
+    holes = 0
+    for (t, mv) in seq:
+        if mv is None or t is None:
+            holes += 1
+            continue
+        kind = "stop" if int(mv) in stop else "run"
+        if not raw:
+            raw.append([kind, int(t), int(t)])
+        elif raw[-1][0] == kind:
+            raw[-1][2] = int(t)
+        else:
+            # ⚠️ 边界时刻用**这一帧**（状态已经变了的那一帧）关上一段，
+            # 而不是留在"上一段的最后一帧"。否则首段会变成一个 0 宽度的段
+            # 而被 `min_ms` 去抖吞掉 —— 实测 `20261008_150828` 开头是
+            # 1 帧空闲 + 440 ms 待机，吞掉之后"发车"标记从 0.44 s 前移到 0.0 s。
+            raw[-1][2] = int(t)
+            raw.append([kind, int(t), int(t)])
+    if not raw:
+        return {"phases": None, "holes": holes, "phase_min_ms": int(min_ms),
+                "note": f"这条记录 {holes} 帧全部没有动作码读数 ⇒ 判不了",
+                "run_from_s": None, "run_to_s": None, "run_total_s": None,
+                "stop_gaps_n": None}
+
+    # ---- ② 去抖：短段并入邻段，反复直到没有短段
+    changed = True
+    while changed and len(raw) > 1:
+        changed = False
+        for i, seg in enumerate(raw):
+            if seg[2] - seg[1] >= min_ms:
+                continue
+            if i > 0:                      # 并入前一段
+                raw[i - 1][2] = seg[2]
+            else:                          # 首段没有前一段 ⇒ 并入后一段
+                raw[i + 1][1] = seg[1]
+            del raw[i]
+            changed = True
+            break
+
+    # ---- ③ 收尾：把最后一段延到最后一帧（去抖后末段可能被并掉一小截）
+    raw[-1][2] = max(raw[-1][2], int(seq[-1][0] or raw[-1][1]))
+
+    phases = [{"from_s": round(a / 1000.0, 3), "to_s": round(b / 1000.0, 3),
+               "kind": k} for (k, a, b) in raw]
+    runs = [p for p in phases if p["kind"] == "run"]
+    run_from = runs[0]["from_s"] if runs else None
+    run_to = runs[-1]["to_s"] if runs else None
+    # 中途停过几次：首段运行与末段运行**之间**的 stop 段数（不含首尾的停）
+    if len(runs) >= 2:
+        i0 = phases.index(runs[0])
+        i1 = len(phases) - 1 - phases[::-1].index(runs[-1])
+        stop_gaps = sum(1 for p in phases[i0:i1 + 1] if p["kind"] == "stop")
+    else:
+        stop_gaps = 0
+    return {
+        "phases": phases,
+        "phase_min_ms": int(min_ms),
+        "run_from_s": run_from,
+        "run_to_s": run_to,
+        "run_total_s": (round(sum(p["to_s"] - p["from_s"] for p in runs), 3)
+                        if runs else 0.0),
+        "stop_gaps_n": stop_gaps,
+        "holes": holes,
+        "note": None,
+    }
 
 
 class MazeDecisions:
@@ -625,6 +761,16 @@ class MazeRecorder:
         #: 但那恰恰是复盘第一个要问的问题。这里留一份，随 `status()` 一起端出去。
         self._last_stop: Optional[Dict[str, Any]] = None
         self._maps: Dict[str, MazeWallMap] = {}         # 复盘缓存：name → 重建图
+        #: **列表摘要的缓存**（改版四十五）：`name -> (mtime_ns, size, row)`。
+        #: 为什么必须有：记录已经到 **309 条 / 13 MB**（平均 43 KB），全量摘要
+        #: 要逐份 `json.loads`，实测 0.4~0.8 s。而"分页翻到底"会连发六七次请求
+        #: ⇒ 没有缓存就是每次重解析同一批文件。
+        #: 失效判据是 **mtime_ns + size**（不靠"记得删"）：改名/覆盖/重新落盘都会变，
+        #: 删除的文件自然不再被 glob 到。不必也不该做"目录监听"那套。
+        self._sum_cache: Dict[str, Tuple[int, int, Dict[str, Any]]] = {}
+        #: 缓存条数上限：正常几百条；给 4000 是防"某天导入了几万份"把内存吃掉。
+        #: 超了**整块丢掉**（不做 LRU —— 这里没有热点，够用且不会写错）。
+        self._sum_cache_max = 4000
         #: v10 建图增量通道的重建（改版三十九）。**与比赛页同一份算法**
         #: （`control/map_live.py`），所以"回放看到的图"与"当时看的图"是同一条来路。
         #: ⚠️ 只在**记录期间**喂（`feed()` 里 `_rec` 不为 None 才喂）：
@@ -1471,8 +1617,13 @@ class MazeRecorder:
 
         # ---- 发车锚点（改版三十八）：两端墙钟 + **设备侧**运动起点
         # "车到底什么时候动的"只能从设备侧找：第一帧 `mazeTask>=2`（SEARCH）或
-        # `motionTask != 0`。这两个信号不同时到（任务机先起 / 电机先动），
-        # **不挑一个**：谁先到就记谁，同时把两个都查出来，读的人能看清先后。
+        # `motionTask` 离开"没在动"那一档。这两个信号不同时到（任务机先起 / 电机先动），
+        # 所以**两个都查出来**，读的人能看清先后。
+        # ⚠️ 但 `first_run`（"真的动了"）**只认 `motionTask ∉ MOTION_STOPPED`**（改版四十四）：
+        #    原判据是 `mz >= 2 or mt != 0`，混进了 `mazeTask` —— 而 `mazeTask=SEARCH`
+        #    却 `motionTask=NULL` 的记录真存在（车卡住、任务机还在跑）。那种记录
+        #    旧算法会把"开始动"记在卡死之前，与回放里的运行区间对不上。
+        #    `first_task` 仍然专门看 `mazeTask`（它就是"任务机什么时候起"）。
         launch = r.get("launch")
         if isinstance(launch, dict):
             launch = dict(launch)
@@ -1483,7 +1634,7 @@ class MazeRecorder:
                 mt = _i(_r.get("motionTask"), 0)
                 if first_task is None and mz >= 2:
                     first_task = t
-                if first_run is None and (mz >= 2 or mt != 0):
+                if first_run is None and mt not in MOTION_STOPPED:
                     first_run = t
                     break
             launch["first_run_t_ms"] = first_run
@@ -1672,8 +1823,30 @@ class MazeRecorder:
         os.replace(tmp, lp)
         return {"name": p.name, "video_sid": sid, "changed": True}
 
-    def summaries(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def count_records(self) -> int:
+        """记录**总条数**（只 glob 文件名，不解析任何 JSON）。
+
+        为什么要单给：列表分页之后，界面得说得出"已载 50 / 共 309"。
+        拿 `len(summaries(...))` 冒充总数在分页时**必然**错（那一页当然只有一页的条数）。
+        glob 一次几千个文件名是毫秒级，而解析它们要几百毫秒 —— 两件事不该捆在一起。
+        """
+        try:
+            return sum(1 for _ in self.root.glob("*.maze.json"))
+        except OSError:
+            return 0
+
+    def summaries(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
         """**列表用的摘要**（界面「比赛记录」表的数据源）。同步读盘 ⇒ 调用方放 executor。
+
+        **分页**（改版四十五）：`offset` 之后取 `limit` 条。为什么必须分页 ——
+        目录实测 **309 条 / 13 MB**，全量逐份 `json.loads` 要 0.4~0.8 s，而界面
+        一进页就要用（一次全给就是"点开记录页卡一下"）。分页之后首屏只解析 50 份。
+
+        **摘要缓存**：每行按 `mtime_ns + size` 缓存（见 `_sum_cache`）。翻到第 7 页时
+        前 6 页的解析结果直接复用 ⇒ 实测全量 309 条的第二次读取 < 30 ms。
+        失效靠 mtime，不靠"记得清缓存"：改名/覆盖/重落盘都会变。
+        ⚠️ 缓存的是**摘要行**，不含 `samples`（那是回放端点的事）—— 两者生命周期不同，
+        混在一起会让"回放取过一条"变成"列表也带着上千帧样本"。
 
         每行 9 列 + 几个辅助字段。口径逐条写清，因为有一半是**本层的定义**，不是上游事实：
 
@@ -1699,12 +1872,26 @@ class MazeRecorder:
             files = sorted(self.root.glob("*.maze.json"), reverse=True)
         except OSError:
             return out
-        for p in files[: max(1, int(limit))]:
+        off = max(0, int(offset or 0))
+        page = files[off: off + max(1, int(limit))]
+        if len(self._sum_cache) > self._sum_cache_max:
+            self._sum_cache.clear()
+        for p in page:
             stem = p.name[: -len(".maze.json")]
             row: Dict[str, Any] = {"id": stem, "name": p.name}
             try:
-                doc = json.loads(p.read_text(encoding="utf-8"))
                 st = p.stat()
+            except OSError as e:
+                row["error"] = f"记录读不出来（{type(e).__name__}）"
+                out.append(row)
+                continue
+            key = (st.st_mtime_ns, st.st_size)
+            hit = self._sum_cache.get(p.name)
+            if hit is not None and hit[0] == key[0] and hit[1] == key[1]:
+                out.append(dict(hit[2]))          # 给副本：调用方改了字段不该污染缓存
+                continue
+            try:
+                doc = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as e:
                 row["error"] = f"记录读不出来（{type(e).__name__}）"
                 out.append(row)
@@ -1745,9 +1932,16 @@ class MazeRecorder:
                 # 记录所在目录（绝对路径：界面要"打开目录/复制路径"，相对路径容易被
                 # 工作目录一变就指错地方）
                 "dir": str(p.parent),
-                "video_sid": self.read_link(p.name),
+                # `video_sid` 不在这里取：关联关系落在**另一个文件**（`.link.json`）里，
+                # 它变了记录的 mtime 不会变 ⇒ 缓存会把它冻在旧值上。
+                # 所以每行都现读一次（一个小文件的 stat，几十微秒）。
+                "video_sid": None,
             })
+            self._sum_cache[p.name] = (key[0], key[1], dict(row))
             out.append(row)
+        # 关联关系**每行现读**（不进缓存，理由见上）
+        for r in out:
+            r["video_sid"] = self.read_link(r["name"]) if r.get("name") else None
         return out
 
     def load(self, name: str, with_map: bool = True) -> Dict[str, Any]:
@@ -1850,6 +2044,28 @@ class MazeRecorder:
                 "flags": val(row, "flags"),
             })
 
+        # ---- 运行区间（改版四十四）：回放的"发车 / 收车"标记**只认这个**
+        # 为什么在抽样之前用**全部帧**算：抽样会跳过段边界处的帧
+        # （1200 样本抽 3000 帧 ⇒ 每 3 帧取 1），边界时刻会被量化到 ±2 帧 ≈ ±20 ms；
+        # 更要紧的是"停 0.2 s 又走"这种短停顿在抽样后可能整段消失 ⇒ 中途停过几次
+        # 会数错。区间是给刻度用的，精度就该按全帧给。
+        mi = pos.get("motionTask")
+        if mi is None:
+            phases = {"phases": None, "holes": 0,
+                      "phase_min_ms": PHASE_MIN_MS,
+                      "note": "这条记录没有 `motionTask` 通道 ⇒ 发车/收车判不了",
+                      "run_from_s": None, "run_to_s": None,
+                      "run_total_s": None, "stop_gaps_n": None}
+        else:
+            seq: List[Tuple[int, Optional[int]]] = []
+            for i in range(n_total):
+                row = frames[i]
+                v = row[mi] if isinstance(row, list) and mi < len(row) else None
+                t = t_ms[i] if i < len(t_ms) else None
+                seq.append((_i(t) if t is not None else None,
+                            _i(v) if isinstance(v, (int, float)) else None))
+            phases = motion_phases(seq)
+
         integ = doc.get("integrity") or {}
         gap = _int_or_none(integ.get("seq_lost_delta"))
         why = str(doc.get("why") or "")
@@ -1866,6 +2082,18 @@ class MazeRecorder:
             "frames": n_total,
             "launch": (why == "maze_run"),
             "launch_at_s": (0.0 if why == "maze_run" else None),
+            # ---- 运行区间（改版四十四）。⚠️ 与 `launch` / `launch_at_s` 不是一回事：
+            # 那两个说"这条记录是怎么开始的"（发车自动开 / 人手动开），
+            # `phases` 说"车什么时候真的在动"。回放的发车/收车标记只认后者 ——
+            # `launch_at_s` 对发车记录恒为 0.0，标出来就是"永远贴最左端"。
+            "phases": phases.get("phases"),
+            "run_from_s": phases.get("run_from_s"),
+            "run_to_s": phases.get("run_to_s"),
+            "run_total_s": phases.get("run_total_s"),
+            "stop_gaps_n": phases.get("stop_gaps_n"),
+            "phase_min_ms": phases.get("phase_min_ms"),
+            "phases_holes": phases.get("holes"),
+            "phases_note": phases.get("note"),
             "end_why": doc.get("end_why"),
             "gap": gap,
             # ---- 采样缺口（改版三十八）。⚠️ 与上面的 `gap` **不是一个东西**：

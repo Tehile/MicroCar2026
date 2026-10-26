@@ -132,7 +132,10 @@ from ..clock import mono_to_ms, now_ms
 from ..leds import _fw_int as _led_fw_int, led_states
 # 墙图重建（实验 8 的中栏"重构示意"）。复用**同一个类**：实时从环形缓冲重建、
 # 复盘从记录文件重放 —— 两边走同一套方向转换，才不会"实时看到的图与复盘的不一样"。
-from ..maze_rec import MazeWallMap, GOAL_CELLS
+# `MOTION_STOPPED`（"车没在动"的动作码）**定义在 `maze_rec`**：那边本来就有
+# `motionTask` 的语义表，回放的运行区间也按它切段 ⇒ 这里只 import，不写第二份。
+# 界面判"发车/收车"读 `/caps` 的 `motion_stopped`，两处必须是同一个值。
+from ..maze_rec import MazeWallMap, GOAL_CELLS, MOTION_STOPPED
 # v10 建图增量通道（改版三十九）：**固件事实**，与上面那套"相对朝向推断"并行。
 # 界面上只画这一张，`MazeWallMap` 降级为对账诊断（见 `map_live` 的模块 docstring）。
 from ..map_live import LiveWallMap, MapdRows
@@ -248,10 +251,8 @@ MOTION_ZH: Dict[int, str] = {
     105: "直冲90", 106: "左90冲", 107: "右90冲",
 }
 
-#: "车没在动"的动作码。**唯一判据在 `control/leds.py` 之外只有这里一份**：
-#: 界面判"发车/收车"读 `/caps` 的 `motion_stopped`，不许自己写死 `[0,5]`
-#: （写死就是第二份真相；上游哪天把 STOP 拆成两档，界面会静默判错）。
-MOTION_STOPPED = (0, 5)
+#: "车没在动"的动作码 —— **定义在 `control/maze_rec.py`**（见文件头的 import 注释）。
+#: 这里不再写 `(0, 5)`：写第二份就是"两处真相"，回放的运行区间与界面门控会分家。
 
 #: 发车/收车"看到待命"的观察窗（秒）。收车后端最多等 2.5 s 新帧、复位约 3 s 才有首帧，
 #: 界面在这段里**不停流**（停流就等于把"确认"的唯一素材掐了），超时才如实说没等到。

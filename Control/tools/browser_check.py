@@ -1057,6 +1057,223 @@ async def run(args) -> int:
                                + ("" if ok14 else
                                   " ⇒ **要么一次点击就删了（没确认），要么删完列表不更新**"))
 
+                # ---------------- V22 回放的发车/收车标记（改版四十四）
+                head("11e. 回放：发车/收车标在「车真的动/停」那一刻，判不了就不画")
+                # 为什么单列：这两根刻度原来是**两个假量** ——
+                #   发车取 `launch_at_s`（对发车自动开录的记录恒 0.0 ⇒ 永远贴最左端），
+                #   收车硬编码 `p:1`（永远在末尾）。实测 `20261008_150828_mz7`：
+                #   车 0.44 s 动、4.18 s 停住，记录却到 173.1 s ⇒ 收车刻度错了 169 s。
+                # 两方向都验：
+                #   ① 有运行区间 ⇒ 两根线**在**算出来的位置上，标签写「发车/收车 + 时刻」；
+                #   ② 把 `phases` 摘掉（模拟没有动作码通道的老记录）⇒ 一根都不许画，
+                #      且必须给出「判不了」。只验 ① 会放过「判不了时照样画两根假的」。
+                if not pick("V22"):
+                    record("V22", "SKIP", "--only 未选中")
+                elif not ui.get("live"):
+                    record("V22", "SKIP", "没进真数据模式 ⇒ 回放无从验起")
+                else:
+                    try:
+                        await cdp.eval("window.C.go('data')")
+                        await asyncio.sleep(1.4)
+                        j22 = json.loads(str(await cdp.eval(
+                            "(async()=>{const C=window.C,S=C.S;"
+                            # 逐条取回放，找一条**真的动过**的：跑过才有运行区间可验。
+                            # （随便挑第一条的话，读到一条「全程没动」的记录会误判成功能坏了）
+                            "let id=null;"
+                            "for(let k=0;k<8&&k<S.records.length;k++){"
+                            "const r=S.records[k];if(!r)continue;"
+                            "await C.loadReplay(r.id);"
+                            "const rr=C.record(r.id);"
+                            "if(rr&&rr.runFrom!=null&&rr.dur){id=rr.id;break;}}"
+                            "if(!id)return JSON.stringify({none:true});"
+                            "S.recSel=id;C.go('replay');"
+                            "await new Promise(r=>setTimeout(r,1300));"
+                            "const rec=C.record(S.recSel);"
+                            "const st=document.querySelector('#rp-marks .mk-start');"
+                            "const en=document.querySelector('#rp-marks .mk-end');"
+                            "const o={id:rec.id,dur:rec.dur,runFrom:rec.runFrom,runTo:rec.runTo,"
+                            "st:!!st,en:!!en,stLeft:st?st.style.left:'',enLeft:en?en.style.left:'',"
+                            "stTxt:st?st.textContent:'',enTxt:en?en.textContent:'',"
+                            "info:(document.querySelector('#rp-info')||{}).textContent||''};"
+                            # 反向：摘掉 phases ⇒ 一根标记都不许留，且必须写「判不了」
+                            # ⚠️ 直接调 `paintMarks()`，**不要**重挂页面：重挂会顺带
+                            #    重新拉记录，刚摘掉的 phases 立刻被后端数据盖回来
+                            #    （这条判据自己踩过一次 ⇒ 那时改成 C.go 之后恒红）。
+                            "const saved=rec.phases;rec.phases=null;"
+                            "C.VIEWS.replay.paintMarks();"
+                            "o.unk=!!document.querySelector('#rp-marks .mk-unk');"
+                            "o.st2=!!document.querySelector('#rp-marks .mk-start');"
+                            "o.en2=!!document.querySelector('#rp-marks .mk-end');"
+                            "rec.phases=saved;C.VIEWS.replay.paintMarks();"
+                            "return JSON.stringify(o);})()") or "{}"))
+                        if j22.get("none"):
+                            record("V22", "SKIP", "前 8 条记录里没有一条动过 ⇒ 无运行区间可验")
+                        else:
+                            def _p(sv):
+                                """'12.34%' → 12.34；取不到给 None（**不是 0**）"""
+                                try:
+                                    return float(str(sv).replace("%", ""))
+                                except (TypeError, ValueError):
+                                    return None
+                            _dur = max(1e-6, j22.get("dur") or 1)
+                            _to = (j22.get("runTo") if j22.get("runTo") is not None
+                                   else j22.get("runFrom")) or 0
+                            exp_a = (j22.get("runFrom") or 0) / _dur * 100
+                            exp_b = _to / _dur * 100
+                            pa, pb = _p(j22.get("stLeft")), _p(j22.get("enLeft"))
+                            pos_ok = (pa is not None and pb is not None
+                                      and abs(pa - exp_a) <= 1.0 and abs(pb - exp_b) <= 1.0)
+                            txt_ok = (str(j22.get("stTxt") or "").startswith("发车")
+                                      and str(j22.get("enTxt") or "").startswith("收车"))
+                            info_ok = ("发车" in str(j22.get("info"))
+                                       and "收车" in str(j22.get("info")))
+                            unk_ok = bool(j22.get("unk") and not j22.get("st2")
+                                          and not j22.get("en2"))
+                            ok22 = bool(j22.get("st") and j22.get("en") and pos_ok
+                                        and txt_ok and info_ok and unk_ok)
+                            record("V22", "PASS" if ok22 else "FAIL",
+                                   f"{j22.get('id')}（时长 {j22.get('dur')} s、发车 "
+                                   f"{j22.get('runFrom')} → 收车 {j22.get('runTo')} s）："
+                                   f"发车线在 {j22.get('stLeft')!r}（应 {exp_a:.2f}%）、"
+                                   f"收车线在 {j22.get('enLeft')!r}（应 {exp_b:.2f}%）、"
+                                   f"标签 {j22.get('stTxt')!r}/{j22.get('enTxt')!r}；"
+                                   f"摘掉 phases ⇒ 剩余标记={j22.get('st2')}/{j22.get('en2')}"
+                                   f"（应 False/False）、写了「判不了」={j22.get('unk')}"
+                                   + ("" if ok22 else
+                                      " ⇒ 要么刻度不在车真的动/停那一刻"
+                                      "（旧实现：发车恒 0%、收车恒 100%），"
+                                      "要么判不了的时候照样画了两根假刻度"))
+                    except Exception as e:                        # noqa: BLE001
+                        record("V22", "SKIP",
+                               f"驱动回放标记出错（判不了）：{type(e).__name__}: {e}")
+
+                # ---------------- V21 记录列表的滚动续载（改版四十五）
+                head("11k. 记录列表：一屏 50 条，滚到底自己续，不许说「就这么多」")
+                # 为什么单列：列表原来**恒取 50 条就到底** —— 目录里有 300 多条时，
+                # 界面不会说"还有 273 条没显示"，用户会以为记录只有 50 份。
+                # 改成滚动续载之后，新的假话换了个方向：**未载全时报"共 3 条发车"**
+                # （那只数了 50 行）。所以这条判据四头都钉：
+                #   ① 首屏 50 条 + 文案必须写"已载 50 / 共 N"（未载全就得出这两个数）；
+                #   ② **搜索一条只在第 51 条之后的记录 ⇒ 自动载全并命中**
+                #      （只在已载的 50 条里搜，"搜不到"会被读成"没有这条记录"——假否定）；
+                #   ③ 滚到底 ⇒ 行数长到 N，且**没有重复 id**（翻页错位的唯一可见症状）；
+                #   ④ 载全之后提示行清空（`#dt-more` 空文本 ⇒ CSS `:empty` 收掉）。
+                # `N ≤ 50` 的库里验不到续载 ⇒ SKIP（如实标，不硬过）。
+                if not pick("V21"):
+                    record("V21", "SKIP", "--only 未选中")
+                elif not ui.get("live"):
+                    record("V21", "SKIP", "没进真数据模式 ⇒ 列表续载无从验起")
+                else:
+                    try:
+                        rec_cnt, crc = _req(base + "/api/v1/records?n=1", timeout=20)
+                        total = (rec_cnt.get("data") or {}).get("total") if crc == 200 else None
+                        if not total or int(total) <= 50:
+                            record("V21", "SKIP",
+                                   f"全库 {total} 条（≤50）⇒ 一屏就装得下，验不到续载（不是失败）")
+                        else:
+                            tot = int(total)
+                            # 取**全库最后一条**的 id 当搜索词：它一定不在首屏 50 条里。
+                            # （绝不硬编一个名字：记录目录是活的，写死的词迟早不存在）
+                            _lr, _lrc = _req(
+                                base + f"/api/v1/records?n=1&offset={tot - 1}", timeout=20)
+                            _rows = ((_lr.get("data") or {}).get("records") or []) if _lrc == 200 else []
+                            kw = str((_rows[0] or {}).get("id") or "") if _rows else ""
+                            if not kw:
+                                kw = "zz_never_exists"
+                            await cdp.eval("window.C.go('data')")
+                            await asyncio.sleep(1.0)
+                            j21 = json.loads(str(await cdp.eval(
+                                "(async()=>{const C=window.C,S=C.S;const o={};"
+                                # 复位成"刚进页"的样子：清空已载窗口再取一次（非续页）
+                                # ⇒ 只拿一页（REC_PAGE）。
+                                "const reset=async()=>{S.records.length=0;await C.loadRecords();"
+                                "await new Promise(r=>setTimeout(r,600));};"
+                                "await reset();"
+                                "o.first=S.records.length;o.total=S.recTotal;"
+                                "o.cnt=(document.querySelector('#dt-count')||{}).textContent||'';"
+                                "o.more=(document.querySelector('#dt-more')||{}).textContent||'';"
+                                "o.sel=(document.querySelector('#dt-sel')||{}).textContent||'';"
+                                # ② 搜索：词只在第 51 条之后 ⇒ 必须先自动载全再筛。
+                                # ⚠️ `loadRecords('all')` **不 emit('state')**（不整页重挂），
+                                #    所以这期间 `#dt-q` 不会被重建成新元素 —— 若哪天改成 emit，
+                                #    这里拿到的就是已经脱离文档的老 input（写进去界面没反应）。
+                                "let qEl=document.querySelector('#dt-q');"
+                                f"qEl.value={json.dumps(kw, ensure_ascii=False)};"
+                                "qEl.dispatchEvent(new Event('input'));"
+                                "await new Promise(r=>setTimeout(r,1200));"
+                                "o.qLoaded=S.records.length;"
+                                "const qr=document.querySelector('#dt-rows tr[data-id]');"
+                                "o.qRows=document.querySelectorAll('#dt-rows tr[data-id]').length;"
+                                "o.qHit=qr?qr.getAttribute('data-id'):'';"
+                                "qEl=document.querySelector('#dt-q');"
+                                "qEl.value='';qEl.dispatchEvent(new Event('input'));"
+                                "await new Promise(r=>setTimeout(r,500));"
+                                "await reset();"
+                                "const sc=document.querySelector('.dt-list-scroll');"
+                                "if(!sc)return JSON.stringify({noScroll:true});"
+                                "let guard=0;"
+                                "while(S.records.length<S.recTotal&&guard++<40){"
+                                "  sc.scrollTop=sc.scrollHeight;"
+                                # 派真事件而不是直接调 onScroll()：要验的是"滚动确实接上了"
+                                # （setter 触发的原生事件不去重也会派一次，`_more` 闸挡住重入）
+                                "  sc.dispatchEvent(new Event('scroll'));"
+                                "  await new Promise(r=>setTimeout(r,450));}"
+                                "o.loop=guard;"
+                                "o.loaded=S.records.length;"
+                                "o.uniq=new Set(S.records.map(r=>r.id)).size;"
+                                "o.rows=document.querySelectorAll('#dt-rows tr[data-id]').length;"
+                                "o.cnt2=(document.querySelector('#dt-count')||{}).textContent||'';"
+                                "o.more2=(document.querySelector('#dt-more')||{}).textContent||'';"
+                                "o.scrollH=sc.scrollHeight;o.top=sc.scrollTop;"
+                                "return JSON.stringify(o);})()") or "{}"))
+                            if j21.get("noScroll"):
+                                record("V21", "SKIP", "记录页没有滚动容器（布局变了？）⇒ 判不了")
+                            else:
+                                if shots:
+                                    # 留一张"列表末尾"的图：提示行与计数文案都在底部，
+                                    # 静态看图才会发现"提示行被表格线切开""字和行挤在一起"。
+                                    shot = await cdp.call("Page.captureScreenshot", {"format": "png"})
+                                    (shots / "data_more.png").write_bytes(
+                                        base64.b64decode(shot.get("data") or ""))
+                                first_ok = (j21.get("first") == 50)
+                                # 未载全 ⇒ 文案里必须同时有"已载"和"共"，且**不许**出现
+                                # 发车/视频条数（那两个数此刻只覆盖已载那批）
+                                txt_ok = ("已载" in str(j21.get("cnt"))
+                                          and "共" in str(j21.get("cnt"))
+                                          and "发车" not in str(j21.get("cnt")))
+                                more_ok = ("已载" in str(j21.get("more"))
+                                           and "滚" in str(j21.get("more")))
+                                # ② 搜索只在第 51 条之后的记录 ⇒ 载全了，且正好命中那一条
+                                q_ok = (j21.get("qLoaded") == tot
+                                        and j21.get("qRows") == 1
+                                        and str(j21.get("qHit")) == kw)
+                                grow_ok = (j21.get("loaded") == tot
+                                           and j21.get("rows") == tot
+                                           and j21.get("uniq") == tot)
+                                done_ok = (str(j21.get("more2")) == ""
+                                           and "已载" not in str(j21.get("cnt2")))
+                                ok21 = bool(first_ok and txt_ok and more_ok and q_ok
+                                            and grow_ok and done_ok)
+                                record("V21", "PASS" if ok21 else "FAIL",
+                                       f"首屏 {j21.get('first')} 条（应 50）、全库 {tot} 条；"
+                                       f"文案 {j21.get('cnt')!r}、提示 {j21.get('more')!r}；"
+                                       f"搜 {kw!r}（只在第 51 条之后）⇒ 载入 "
+                                       f"{j21.get('qLoaded')} 条 / 命中 {j21.get('qRows')} 行 "
+                                       f"{j21.get('qHit')!r}"
+                                       f"；滚 {j21.get('loop')} 次 ⇒ 已载 {j21.get('loaded')} / "
+                                       f"唯一 {j21.get('uniq')} / 表格行 {j21.get('rows')}"
+                                       f"（应都是 {tot}）；载全后提示 {j21.get('more2')!r}"
+                                       f"（应为空）、文案 {j21.get('cnt2')!r}"
+                                       + ("" if ok21 else
+                                          " ⇒ 要么还是只给 50 条（用户会以为记录就这么点），"
+                                          "要么未载全就搜（「搜不到」被读成「没有这条记录」），"
+                                          "要么未载全就把「发车 N」当全库数，"
+                                          "要么翻页重复/漏条"))
+                    except Exception as e:                        # noqa: BLE001
+                        record("V21", "SKIP",
+                               f"驱动列表续载出错（判不了）：{type(e).__name__}: {e}")
+
+
                 # ⚠️ V10 会**把设备断开**（它要验"点不存在的端口不许说已连接"），
                 #    所以必须排在所有"需要活链路"的判据（V9/V11/V12/V13/V14）**之后**。
                 #    放在前面时它们会全 SKIP —— 看着像"没实现"，其实是被 V10 断了。

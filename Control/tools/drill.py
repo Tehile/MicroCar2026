@@ -2442,6 +2442,216 @@ def main(argv=None) -> int:
     except Exception as e:                                    # noqa: BLE001
         record("I64", "FAIL", f"收车不等单测没跑起来：{type(e).__name__}: {e}")
 
+    # ---------------------------------------------------------------- 0c2 运行区间
+    head("0c2. 运行区间：发车/收车按动作码判（不是 mazeTask、也不是进度条末尾）（纯内存）")
+    # 为什么单列：回放的「发车 / 收车」原来是两个**假量**——
+    #   ① 发车取 `launch_at_s`，而它对所有"发车自动开录"的记录**恒为 0.0**
+    #      （那一位只表示"记录起点就是发车点"）⇒ 标记永远贴在进度条最左端；
+    #   ② 收车**硬编码 `p:1`** ⇒ 永远在末尾。
+    # 实测 `20261008_150828_mz7`：时长 173.1 s，车 0.44 s 动、4.18 s 就停住
+    # ⇒ 旧的收车标记错了 **169 s**。用户 2026-10-27 定口径：
+    # "实际发车/停车应当以状态中**是否停止**为标准，而不是迷宫任务"。
+    #
+    # 这条判据钉四件事：
+    #  ① 基本三段（停/跑/停）的边界时刻；
+    #  ② **去抖**：一串单帧"在动"夹在停里，不许切成一段真运行；
+    #  ③ 中途停过能数出来（两段运行之间夹一段停）；
+    #  ④ 三态：无帧 ⇒ `None`（判不了）；全程停 ⇒ 非 None 但 `run_from_s is None`
+    #     （"确认没动"）。两者混成一句就是把"读不出来"说成"没动过"。
+    try:
+        from control.maze_rec import motion_phases
+
+        def _seq(kinds):
+            """kinds 是 (ms, motionTask) 列表，原样转成 seq（100 ms 一格）。"""
+            return [(ms, mv) for (ms, mv) in kinds]
+
+        # ① 5 帧停 + 10 帧直行(32) + 5 帧停
+        three = motion_phases(_seq(
+            [(i * 100, 0) for i in range(5)]
+            + [(500 + i * 100, 32) for i in range(10)]
+            + [(1500 + i * 100, 0) for i in range(5)]))
+        three_ok = (three["run_from_s"] == 0.5 and three["run_to_s"] == 1.5
+                    and three["run_total_s"] == 1.0 and three["stop_gaps_n"] == 0
+                    and len(three["phases"]) == 3)
+        # ② 抖动：停 1 s，中间一帧 32，再停 1 s ⇒ 不许当成"动过"
+        jit = motion_phases(_seq([(i * 100, 0) for i in range(10)]
+                                 + [(1000, 32)]
+                                 + [(1100 + i * 100, 0) for i in range(10)]))
+        jit_ok = jit["run_from_s"] is None and jit["stop_gaps_n"] == 0
+        # ③ 中途停过：跑 1 s → 停 1 s → 再跑 1 s
+        two = motion_phases(_seq([(i * 100, 32) for i in range(10)]
+                                 + [(1000 + i * 100, 0) for i in range(10)]
+                                 + [(2000 + i * 100, 32) for i in range(10)]))
+        two_ok = (two["stop_gaps_n"] == 1
+                  and two["run_from_s"] == 0.0 and two["run_to_s"] == 2.9
+                  and abs((two["run_total_s"] or 0) - 1.9) < 0.05)
+        # ④ 三态：无帧 ⇒ None；全程停 ⇒ 非 None 且 run_from 为 None
+        empty = motion_phases([])
+        still = motion_phases(_seq([(i * 100, 0) for i in range(5)]))
+        tri_ok = (empty["phases"] is None
+                  and still["phases"] is not None and still["run_from_s"] is None
+                  and still["run_total_s"] == 0.0)
+        i66_ok = bool(three_ok and jit_ok and two_ok and tri_ok)
+        record("I66", "PASS" if i66_ok else "FAIL",
+               f"三段：发车 {three['run_from_s']} → 收车 {three['run_to_s']} s"
+               f"（应 0.5/1.5）、运行 {three['run_total_s']} s、中途停 {three['stop_gaps_n']} 次"
+               f"={three_ok}；抖动一帧不认={jit_ok}；"
+               f"中途停一段：{two['stop_gaps_n']} 次（应 1）、"
+               f"发车 {two['run_from_s']} → 收车 {two['run_to_s']}={two_ok}；"
+               f"三态（空={empty['phases']}、全停 run_from={still['run_from_s']}）={tri_ok}"
+               + ("" if i66_ok else
+                  " ⇒ 回放的发车/收车标记会对不上车真正动/停的时刻"
+                  "（实测有一条记录错了 169 s），或把「读不出动作码」说成「车没动过」"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I66", "FAIL", f"运行区间单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---------------------------------------------------------------- 0c3 发车锚点
+    head("0c3. 发车锚点：'真的动了'只认 motionTask，不认 mazeTask（纯内存 + 临时文件）")
+    # 为什么单列：`first_run_t_ms` 原判据是 `mz >= 2 or mt != 0` —— 混进了迷宫任务。
+    # 而 `mazeTask=SEARCH` 却 `motionTask=NULL` 的记录**真存在**（车卡住、任务机还在跑，
+    # 实测 `20261022_162357_mz16` 整整 40 s 是 `mazeTask=2 / motionTask=0 / speed=1`）。
+    # 旧算法会把"开始动"记在那 40 s 之前，与回放里按动作码算出的运行区间**对不上**，
+    # 而两个数字都写在同一个抽屉里，读的人只能猜哪个是真的。
+    # 两个方向都要：
+    #   ① 任务机先起、电机后动 ⇒ `first_run_t_ms` **严格晚于** `first_task_t_ms`；
+    #   ② 任务机起、车始终没动（卡死）⇒ `first_run_t_ms` 是 **None**，不是任务机那个时刻。
+    try:
+        from control.maze_rec import MazeRecorder
+        _d2 = Path(".tmp")
+        _d2.mkdir(exist_ok=True)
+        _chs2 = ["ms8", "posX", "posY", "dir", "mazeTask", "motionTask", "speedL", "speedR"]
+        _f0 = {"posX": 0, "posY": 0, "dir": 0, "speedL": 0, "speedR": 0}
+
+        def _run_rec(mt_after: int, path_out: list):
+            """mazeTask 在第 2 帧就起；motionTask 一直 0，第 mt_after 帧才变。
+
+            ⚠️ 帧数给 10、`mt_after=3`：运行段 300→900 ms 共 **600 ms**，
+            必须明显长于 `PHASE_MIN_MS`(300) —— 给 3 帧(200 ms) 会被去抖并掉，
+            那时 `run_from_s` 是 None 而判据会红，红的原因却跟被测的东西无关。
+            """
+            mr = MazeRecorder(root=_d2, get_channels=lambda: list(_chs2))
+            mr.start(why="maze_run")
+            mr.note_launch(int(time.time() * 1000))
+            for k in range(10):
+                mt = 32 if (mt_after and k >= mt_after) else 0
+                mr.feed(dict(_f0, ms8=52 + k * 100, mazeTask=(2 if k >= 1 else 0),
+                             motionTask=mt, speedL=(1 if mt else 0)))
+            out = mr.stop(why="manual")
+            path_out.append(out["path"])
+            return json.loads(Path(out["path"]).read_text(encoding="utf-8"))
+
+        _late: list = []
+        doc_late = _run_rec(3, _late)
+        lc = (doc_late.get("integrity") or {}).get("launch") or {}
+        fr1, ft1 = lc.get("first_run_t_ms"), lc.get("first_task_t_ms")
+        # ① 电机在第 3 帧才动 ⇒ first_run 必须严格晚于 first_task（旧规则会相等）
+        dir1_ok = (fr1 is not None and ft1 is not None and fr1 > ft1)
+        # ② 卡死：一直没动 ⇒ None（旧规则会给 first_task 那个时刻）
+        _stuck: list = []
+        doc_stuck = _run_rec(0, _stuck)
+        lc2 = (doc_stuck.get("integrity") or {}).get("launch") or {}
+        dir2_ok = (lc2.get("first_run_t_ms") is None
+                   and lc2.get("first_task_t_ms") is not None)
+        # ③ 回放视图的 phases 与帧自洽：第 3 帧（ms8 相对 300 ms）开始动，到 900 ms
+        rv = MazeRecorder(root=_d2).replay_view(Path(_late[0]).name)
+        ph_ok = (rv.get("run_from_s") == 0.3 and rv.get("run_to_s") == 0.9)
+        # ④ 没有 motionTask 通道 ⇒ phases 必须是 None（**不是空列表**）
+        nodoc = json.loads(json.dumps(doc_late))
+        nodoc["channels"] = [c for c in nodoc["channels"] if c != "motionTask"]
+        nodoc["frames"] = [[v for (c, v) in zip(doc_late["channels"], row)
+                            if c != "motionTask"] for row in doc_late["frames"]]
+        _np = _d2 / "zz_drill_no_motion.maze.json"
+        _np.write_text(json.dumps(nodoc, ensure_ascii=False), encoding="utf-8")
+        try:
+            rv2 = MazeRecorder(root=_d2).replay_view(_np.name)
+            none_ok = (rv2.get("phases") is None and rv2.get("phases_note"))
+        finally:
+            try:
+                _np.unlink()
+            except OSError:
+                pass
+        i67_ok = bool(dir1_ok and dir2_ok and ph_ok and none_ok)
+        record("I67", "PASS" if i67_ok else "FAIL",
+               f"任务机先起/电机后动 ⇒ first_run {fr1} > first_task {ft1}={dir1_ok}；"
+               f"卡死（任务机在跑但一直没动）⇒ first_run={lc2.get('first_run_t_ms')}"
+               f"（应 None）={dir2_ok}；回放区间 发车 {rv.get('run_from_s')} → "
+               f"收车 {rv.get('run_to_s')}（应 0.3/0.9）={ph_ok}；"
+               f"无动作码通道 ⇒ phases={rv2.get('phases') if not none_ok else None}"
+               f"（应 None 且带 note）={none_ok}"
+               + ("" if i67_ok else
+                  " ⇒ 「发车时刻」会把卡死的任务机当成车在动；"
+                  "或者没有动作码的老记录被显示成「车没动过」（那是替设备作证）"))
+        for _p in _late + _stuck:
+            try:
+                Path(_p).unlink()
+            except OSError:
+                pass
+    except Exception as e:                                    # noqa: BLE001
+        record("I67", "FAIL", f"发车锚点单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---------------------------------------------------------------- 0c4 分页拼页
+    head("0c4. 记录列表分页：各页按序拼起来 == 一次全量（不重不漏）（临时文件）")
+    # 为什么单列：分页最容易出的错不是"少一条"，而是**重复 / 错位**。翻页期间有人新落
+    # 一条记录，后端的偏移会整体后移一格 ⇒ 第二页的第一条正好是第一页的最后一条。
+    # 界面上"同一条记录出现两次"根本看不出是错位（只会以为记录落了两份）。
+    # 这条判据钉四件事：
+    #   ① 按页大小 3 往后翻，各页 id 按序拼起来 == 一次全量（**顺序也一致**）；
+    #   ② `count_records()` == 真实条数（"共 N 条"不许拿某页条数冒充）；
+    #   ③ 偏移超出尾部 ⇒ 空列表（不是报错、也不是绕回第 0 页）；
+    #   ④ 摘要走缓存命中的那一遍必须与首次解析**逐字段相同**（缓存不能悄悄改口径）。
+    # ⚠️ 造 7 条、页大小 3 ⇒ 3/3/1，**末页必须不满**：整页整除的样本验不出"末页多给"。
+    try:
+        from control.maze_rec import MazeRecorder
+        _d3 = Path(".tmp") / "pg"
+        _d3.mkdir(parents=True, exist_ok=True)
+        _made: list = []
+        for _k in range(7):
+            _mr = MazeRecorder(root=_d3, get_channels=lambda: ["ms8", "motionTask"])
+            _mr.start(why="maze_run")
+            for _i in range(3):
+                _mr.feed({"ms8": 40 + _i * 120, "motionTask": 0})
+            _made.append(_mr.stop(why="manual")["path"])
+        _r = MazeRecorder(root=_d3)
+        # `n=0` 的"全量"语义在路由层展开成 2000（`summaries` 自己 `max(1, limit)`），
+        # 所以这里直接按 2000 要，才是在验"全量 vs 分页"，而不是在验一个边界值。
+        _full_rows = _r.summaries(2000, 0)
+        _full = [x["id"] for x in _full_rows]
+        _p1_rows = _r.summaries(3, 0)
+        _p1 = [x["id"] for x in _p1_rows]
+        _p2 = [x["id"] for x in _r.summaries(3, 3)]
+        _p3 = [x["id"] for x in _r.summaries(3, 6)]
+        _stitched = _p1 + _p2 + _p3
+        _cnt = _r.count_records()
+        _tail = _r.summaries(3, 99)
+        # ④ 缓存命中：第二次读同一页（此时全部命中）必须与首次逐字段一致
+        _again = _r.summaries(3, 0)
+        pg_ok = (_stitched == _full and len(_full) == 7
+                 and len(_p3) == 1 and sorted(_stitched) == sorted(_full))
+        cnt_ok = (_cnt == len(_full))
+        tail_ok = (_tail == [])
+        cache_ok = (_again == _p1_rows)
+        i65_ok = bool(pg_ok and cnt_ok and tail_ok and cache_ok)
+        record("I65", "PASS" if i65_ok else "FAIL",
+               f"分页 3+3+1 拼起来 {len(_stitched)} 条 vs 全量 {len(_full)} 条"
+               f"（顺序一致={_stitched == _full}，末页 {len(_p3)} 条）={pg_ok}；"
+               f"count_records={_cnt}（应 {len(_full)}）={cnt_ok}；"
+               f"偏移越界返回 {len(_tail)} 条（应 0）={tail_ok}；"
+               f"缓存命中与首次逐字段相同={cache_ok}"
+               + ("" if i65_ok else
+                  " ⇒ 翻页会重复或漏条（界面上只表现为'同一条记录出现两次'甚至看不出是错位）；"
+                  "或'共 N 条'拿某页条数冒充；或缓存改了口径"))
+        for _p in _made:
+            try:
+                Path(_p).unlink()
+            except OSError:
+                pass
+        try:
+            _d3.rmdir()
+        except OSError:
+            pass
+    except Exception as e:                                    # noqa: BLE001
+        record("I65", "FAIL", f"分页拼页单测没跑起来：{type(e).__name__}: {e}")
+
     # ---------------------------------------------------------------- 0d v10 建图
     head("0d. v10 建图增量：三态 / 幂等 / 冲突取最新 / 落盘往返（纯内存）")
     # 为什么单列：v10 换成"固件报事实"之后，图上多出**第三态「未探明」**。

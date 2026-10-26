@@ -11,6 +11,20 @@
      5. **底部空白**：列表改成 flex 吃满剩余高度、内部滚（原来 `max-height:
         calc(100vh - 460px)` 在 1400×710 下只给 250 px，剩下的高度全空着）。
    ⚠️ 命名注意：`checked` 是"勾选"，`selId` 是"展开详情"，别互相顶替。
+
+   ── 改版四十五：**列表不再一次要 50 条就到底** ────────────────────────────
+   三个口径必须分开说，混成一个就会撒谎：
+     · `S.records.length` = **已载**条数（随滚动长）；
+     · `S.recTotal`       = **全库**条数（后端 `total`，只 glob 不解析）；
+     · `visible().length` = **当前筛出来**的条数（只在已载的那批里筛）。
+   于是：计数文案写「已载 50 / 共 323」、发车/视频两个数在未载全时加 `≥`、
+   全选写成「全选已载的 N 行」。**不许**在未载全时说"共 3 条发车" —— 那只数了 50 行。
+   两条加载路径：
+     · **滚动续载**：距底 <120 px 且还有没载的 ⇒ 取下一页（`REC_PAGE` 条）；
+       续页**不 `emit('state')`**（整页重挂 ⇒ 滚动归零、搜索框被清，变成"滚一下跳回顶部"）。
+     · **搜索/筛选自动载全**：`/api/v1/records?n=0` 一次全取。
+       为什么要这么做：只在已载的 50 条里搜，"搜不到"会被读成"没有这条记录"，
+       而它可能在第 200 条 —— **假否定**比慢一点糟得多。
    ═══════════════════════════════════════════════════════════════════════════ */
 (function () {
   const S = C.S, U = C.util;
@@ -22,6 +36,7 @@
   let delArm = 0;         // 单条删除的两步确认：第一次点击的时刻（0 = 没在等确认）
   let delArmId = '';      // 等的是哪一条（不然点 A 再点 B 会被当成确认 B）
   let bulkArm = 0;        // 批量删除的两步确认（按"这一批"计时，不按条）
+  let allP = null;        // 「载全」在飞的那一次（去重：连打三个字不该发三个全量请求）
 
   /* 这一条是否正"等第二次点击"。**必须按 id 判**：只按时间判的话，
      用户点 A 的删除 → 又点 B 的删除，B 会被立刻删掉（一次都没确认过）。
@@ -42,6 +57,20 @@
   function session(id) {
     return S.videoSessions.find(v => v.id === id) || null;
   }
+
+  /* 全库条数（后端 `total`）。**没问过就退回已载条数** —— 那样 `partial()` 判 false，
+     界面按"载全了"说话。宁可少喊一句"还有更多"，也不能凭"我只知道 50 条"就
+     断言"全库只有 50 条"。真值到了（`applyRecords` 写入 `S.recTotal`）就以它为准。 */
+  function total() {
+    const n = S.records.length;
+    return (S.recTotal == null ? n : S.recTotal);
+  }
+  function partial() {
+    return S.records.length < total();
+  }
+
+  /* 距底多少像素算"该续了"。120 px ≈ 两三行，滚轮一档之内。 */
+  const MORE_PX = 120;
 
   /* 当前**筛出来**的那批（表格里看得到的）。搜索与 chip 都在这里收口，
      别的地方（全选 / 计数 / 批量删）一律走它 —— 否则"全选"会勾到看不见的行。 */
@@ -77,11 +106,18 @@
 
     actions() {
       const n = S.records.length;
+      const tot = total();
+      const full = !partial();
       const nl = S.records.filter(r => r.launch).length;
       const nv = S.records.filter(r => r.video).length;
-      return '<span class="pill idle"><i></i>' + n + ' 条</span>' +
-        '<span class="pill ' + (nl === n ? 'ok' : 'idle') + '"><i></i>发车 ' + nl + '</span>' +
-        '<span class="pill ' + (nv === n ? 'ok' : 'idle') + '"><i></i>视频 ' + nv + '</span>' +
+      /* 未载全时发车/视频两个数只数了"已载那批"，所以加 `≥` 并在 title 里说明。
+         原样写"发车 3"会让 323 条里明明有 20 条发车也读成 3 条 —— 静默的假数。 */
+      const ge = full ? '' : '≥';
+      const tip = full ? '全部记录' : ('只统计已载的 ' + n + ' 条（全库 ' + tot + ' 条）');
+      return '<span class="pill idle" title="' + tip + '"><i></i>' +
+          (full ? n + ' 条' : '已载 ' + n + ' / ' + tot) + '</span>' +
+        '<span class="pill ' + (full && nl === n ? 'ok' : 'idle') + '" title="' + tip + '"><i></i>发车 ' + ge + nl + '</span>' +
+        '<span class="pill ' + (full && nv === n ? 'ok' : 'idle') + '" title="' + tip + '"><i></i>视频 ' + ge + nv + '</span>' +
         '<button class="btn btn-sm btn-ghost">' + C.icon('download') + '导出</button>';
     },
 
@@ -121,6 +157,10 @@
               '<th style="width:74px">帧</th><th style="width:150px">发车记录</th>' +
               '<th style="width:200px">视频记录</th><th style="width:80px">账本</th>' +
             '</tr></thead><tbody id="dt-rows"></tbody></table>' +
+            /* 续载提示放在**表格外面但同一个滚动容器里**（改版四十五）：
+               放 tbody 里会多出一行，凡按行数断言的判据都会跟着变。
+               空文本时由 CSS `:empty` 收掉，不占高度。 */
+            '<div class="dt-more" id="dt-more"></div>' +
           '</div>' +
         '</section>';
 
@@ -155,13 +195,21 @@
       };
 
       const qEl = root.querySelector('#dt-q');
-      qEl.oninput = () => { q = qEl.value; this.paint(); };
+      /* 整页重挂（`emit('state')`）会把 input 一起重建，而 `q` 是模块级变量 ⇒
+         不写回 value 就会出现"框里空的、列表却已经按旧词筛着"这种自相矛盾的界面。 */
+      qEl.value = q;
+      qEl.oninput = () => { q = qEl.value; this.paint(); this.ensureAll(); };
       /* 搜索不该被整页重挂清掉：`paint()` 只重画 tbody 与工具行状态，不动 input 本体。
          （`renderPage` 只在路由切换 / `emit('state')` 时发生，而这里不触发 state。） */
 
       root.querySelectorAll('#dt-chip [data-chip]').forEach(b => {
-        b.onclick = () => { chip = b.dataset.chip; this.paint(); };
+        b.onclick = () => { chip = b.dataset.chip; this.paint(); this.ensureAll(); };
       });
+
+      /* 滚到底自动续载（改版四十五）。挂 onscroll 而不是定时轮询：
+         只在真的滚的时候问一句"到没到边"，空闲时零开销。 */
+      const sc = root.querySelector('.dt-list-scroll');
+      if (sc) sc.onscroll = () => this.onScroll();
 
       const delBtn = root.querySelector('#dt-del');
       delBtn.onclick = () => {
@@ -221,6 +269,56 @@
       this.paint();
     },
 
+    /* ── 续载 / 载全（改版四十五）───────────────────────────────────────────── */
+
+    /* 滚到底：还有没载的就去取下一页。
+       **只在"没有搜索/筛选"时走这条路** —— 带筛选时续页拿回来的行很可能一条都进不了
+       `visible()`，滚十次也看不到新东西；那种情况交给 `ensureAll()` 一次取全。 */
+    onScroll() {
+      const root = this._root;
+      if (!root || this._more) return;
+      const sc = root.querySelector('.dt-list-scroll');
+      if (!sc) return;
+      if (!C.LIVE.on || !partial()) return;
+      if (q.trim() || chip !== 'all') return;
+      if (sc.scrollTop + sc.clientHeight < sc.scrollHeight - MORE_PX) return;
+      this._more = true;
+      this.paintMore();
+      C.loadRecords(true).then(n => {
+        this._more = false;
+        this.paint();
+        /* 一页（50 条）铺不满一屏时（窗口很高），滚到底之后就没得再滚了 ⇒ 主动再补一页。
+           不补的话"到底了但还有 300 条没载"会停在那儿，看着像已经载全。 */
+        if (n) this.onScroll();
+      });
+    },
+
+    /* 载全：搜索或切筛选时用一次全量请求把 `S.records` 填满。
+       ⚠️ 为什么必须载全再筛：只在已载的 50 条里搜，"搜不到"会被读成"没有这条记录"，
+          而它可能排在第 200 条 —— **假否定比慢一点糟得多**。
+       在飞的那一次不重复发（连打三个字不该发三个 `n=0`）。 */
+    ensureAll() {
+      if (!C.LIVE.on || !partial()) return;
+      if (allP) return;
+      allP = C.loadRecords('all').then(add => {
+        allP = null;
+        if (add) this.paint();
+      }).catch(() => { allP = null; });
+    },
+
+    /* 表格下面那一行提示。只说三件事：已载多少、共多少、在不在加载。
+       载全且没在加载 ⇒ 清空（CSS `:empty` 收掉，不占高度）。 */
+    paintMore() {
+      const root = this._root;
+      const el = root && root.querySelector('#dt-more');
+      if (!el) return;
+      if (!C.LIVE.on || !partial()) { el.textContent = ''; return; }
+      if (this._more) { el.textContent = '正在加载下一批…'; return; }
+      el.textContent = (q.trim() || chip !== 'all')
+        ? ('已载 ' + S.records.length + ' / 共 ' + total() + ' 条 · 搜索/筛选会自动载入全部')
+        : ('已载 ' + S.records.length + ' / 共 ' + total() + ' 条 · 继续往下滚自动加载');
+    },
+
     /* 工具行状态（勾选数 / 按钮门控 / chip 高亮）。**与列表分开**：
        勾一下不该重画整张表（会把滚动位置和正在输入的光标弄丢）。 */
     syncTools() {
@@ -228,8 +326,12 @@
       if (!root || !root.querySelector('#dt-sel')) return;
       const vis = visible();
       const ids = checkedIds();
+      const par = partial();
       const sel = root.querySelector('#dt-sel');
-      sel.textContent = ids.length ? ('已选 ' + ids.length + ' / ' + vis.length) : ('未选 · ' + vis.length + ' 条');
+      /* 未载全时把范围说进文案里：`未选 · 50 条` 会被读成"全库只有 50 条"。 */
+      sel.textContent = ids.length
+        ? ('已选 ' + ids.length + ' / ' + vis.length + (par ? '（已载）' : ''))
+        : ('未选 · ' + (par ? '已载 ' : '') + vis.length + ' 条');
       const del = root.querySelector('#dt-del');
       del.disabled = !ids.length;
       const armed = bulkArmed() && ids.length > 0;
@@ -238,6 +340,11 @@
       const all = root.querySelector('#dt-ckall');
       all.checked = vis.length > 0 && vis.every(r => checked[r.id]);
       all.indeterminate = !all.checked && ids.length > 0;
+      /* 全选只能勾到"已经载进内存"的行 —— 未载全时如实写出来，
+         否则"全选之后批量删除"会被理解成"删掉全部 323 条"。 */
+      all.title = par
+        ? ('全选已载的 ' + vis.length + ' 行（另有 ' + (total() - S.records.length) + ' 条还没载入）')
+        : '全选当前筛选结果';
       root.querySelectorAll('#dt-chip [data-chip]').forEach(b => {
         b.classList.toggle('on', b.dataset.chip === chip);
       });
@@ -260,8 +367,11 @@
               '<td class="num dim">' + dur(r.dur) + '</td>' +
               '<td class="num">' + U.fmt(r.frames, 0) + '</td>' +
               '<td>' + (r.launch
-                ? '<span class="tag ok">发车 @' + U.fmt(r.launchAt, 1) + ' s</span>'
-                : '<span class="tag">无</span>') + '</td>' +
+                /* ⚠️ 不写 `@0.0 s`：`launch_at_s` 对**所有**发车自动开录的记录恒为 0.0
+                   （那一位只表示"记录起点就是发车点"），标出来就是个恒定假数。
+                   真正的发车/收车时刻在回放页（按动作码算的运行区间）。 */
+                ? '<span class="tag ok">自动开录</span>'
+                : '<span class="tag">手动</span>') + '</td>' +
               '<td>' + (r.video
                 ? '<span class="tag blue">' + U.esc(r.video) + '</span>'
                 : '<button class="btn btn-sm btn-ghost" data-assoc="' + r.id + '">' + C.icon('link') + '关联</button>') + '</td>' +
@@ -275,20 +385,42 @@
               '</tr>';
           }).join('')
         /* 空态（改版四十）：原来筛不到东西时表体是**一片空白**，
-           与"加载失败""还没取到"完全分不出来。两种空要说清楚是哪一种。 */
+           与"加载失败""还没取到"完全分不出来。两种空要说清楚是哪一种。
+           改版四十五再补一种：**还没载全**时不许说"没有匹配" —— 那句话是结论，
+           而在只载了 50 / 323 条的时候根本没有资格下这个结论（假否定）。 */
         : '<tr><td colspan="8" class="dt-empty">' +
-          (S.records.length
-            ? '没有匹配的记录（清掉搜索词或换一个筛选）'
-            : (C.LIVE.on ? '还没有记录 · 发车一次会自动落一份，也可以用【导入…】' : '未连后端 · 判不了有没有记录'))
+          (!S.records.length
+            ? (C.LIVE.on ? '还没有记录 · 发车一次会自动落一份，也可以用【导入…】' : '未连后端 · 判不了有没有记录')
+            : (partial()
+              ? ('正在载入全部记录（已载 ' + S.records.length + ' / 共 ' + total()
+                 + ' 条）… 载全之后才能判断有没有匹配')
+              : '没有匹配的记录（清掉搜索词或换一个筛选）'))
           + '</td></tr>';
 
       const cnt = root.querySelector('#dt-count');
       if (cnt) {
         const nl = S.records.filter(r => r.launch).length;
         const nv = S.records.filter(r => r.video).length;
-        cnt.textContent = S.records.length + ' 条 · 发车 ' + nl + ' · 视频 ' + nv
-          + (vis.length === S.records.length ? '' : ' · 筛出 ' + vis.length);
+        const par = partial();
+        /* 未载全时**只报"已载 / 共"与筛出数**，不报发车/视频 —— 那两个数此刻只覆盖
+           已载那批，写成"发车 3"是替全库作证。载全之后才三个数一起报。 */
+        cnt.textContent = par
+          ? ('已载 ' + S.records.length + ' / 共 ' + total() + ' 条'
+             + (vis.length === S.records.length ? '' : ' · 筛出 ' + vis.length))
+          : (S.records.length + ' 条 · 发车 ' + nl + ' · 视频 ' + nv
+             + (vis.length === S.records.length ? '' : ' · 筛出 ' + vis.length));
       }
+      /* 页头右上角那三个胶囊也是**由 `actions()` 现算**的（已载体量 / 发车 / 视频），
+         而 `paint()` 原来只管卡里的表 —— 续载完 344 条之后，那三个胶囊还挂着
+         "已载 50 / 344"，要等下一次 watchdog 的 `emit('state')` 才刷。
+         截图里就这么对上了：卡头写「344 条」、右上角写「已载 50 / 344」。
+         既然两个数都是 `actions()` 算的，就让 `paint()` 一起刷它（内容没变不碰 DOM）。 */
+      const pa = document.getElementById('page-actions');
+      if (pa) {
+        const html = this.actions();
+        if (pa._html !== html) { pa.innerHTML = html; pa._html = html; }
+      }
+      this.paintMore();
       this.syncTools();
 
       /* ── 控制面板：**看**的那一条（与勾选无关） ────────────────────── */
@@ -307,7 +439,7 @@
           '<h2><span class="n">记录</span>' + U.esc(r.id) + '</h2>' +
           '<div class="dt-head-r">' +
             '<span class="tag ' + (r.launch ? 'ok' : '') + '">' +
-              (r.launch ? '发车 @' + U.fmt(r.launchAt, 1) + ' s' : '无发车记录') + '</span>' +
+              (r.launch ? '发车自动开录' : '手动开录') + '</span>' +
             '<span class="tag ' + (r.video ? 'blue' : '') + '">' +
               (r.video ? U.esc(r.video) : '无视频记录') + '</span>' +
             '<div class="dt-acts">' +
@@ -329,7 +461,10 @@
             '<div><dt>开始</dt><dd>' + U.esc(r.start) + '</dd></div>' +
             '<div><dt>时长</dt><dd>' + dur(r.dur) + '</dd></div>' +
             '<div><dt>遥测帧</dt><dd>' + U.fmt(r.frames, 0) + '</dd></div>' +
-            '<div><dt>发车时刻</dt><dd>' + (r.launch ? U.fmt(r.launchAt, 1) + ' s' : '—') + '</dd></div>' +
+            /* 原来是「发车时刻 → 0.0 s」：而 `launch_at_s` 对**所有**发车自动开录的
+               记录恒为 0.0（它只表示"记录起点就是发车点"）⇒ 那一格永远是同一个假数。
+               真正的发车/收车时刻要按动作码算，在回放页（§11.44）。 */
+            '<div><dt>开录方式</dt><dd>' + (r.launch ? '自动（发车触发）' : '手动') + '</dd></div>' +
             '<div><dt>视频会话</dt><dd>' + (r.video || '未关联') + '</dd></div>' +
             '<div><dt>轨迹点</dt><dd>' + (ses ? ses.n_valid : '—') + '</dd></div>' +
             '<div><dt>帧缺口</dt><dd class="' + (r.gap ? 'bad' : '') + '">' + (r.gap == null ? '—' : r.gap) + '</dd></div>' +

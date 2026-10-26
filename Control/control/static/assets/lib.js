@@ -116,6 +116,10 @@ window.C = (function () {
     mazeView: null,
     mazeN: 0,
     recSel: '',
+    /* 分页（改版四十五）：`records.length` = **已载**条数，`recTotal` = **全库**条数。
+       两者分开存，界面才说得出"已载 50 / 共 323"；混用一个量就只能二选一地撒谎。
+       `null` = 还没问过后端（判不了）。 */
+    recTotal: null,
     params: null,
     log: [],
     logFilter: { src: null, lvl: null, q: '' },
@@ -540,7 +544,26 @@ window.C = (function () {
         value: vary(it, rec.seed),
       })),
     }));
-    return Object.assign({}, rec, { maze: m, samples: samples, params: params });
+    /* 演示数据也要带运行区间（改版四十四）：回放页的"发车/收车"标记只认
+       `phases`，界面上**不再自算**。不给的话演示模式会显示"判不了"，
+       而它明明有一条完整的运行段 —— 那是在演示一个不存在的缺陷。
+       这里直接按生成规则写死三段（待机 → 跑 → 待机），与样本里的
+       `motionTask`（running ? 2 : 0）同源。 */
+    const t0d = rec.launch ? rec.launchAt : 0;
+    const t1d = rec.launch ? Math.max(t0d, rec.dur - 4) : 0;
+    const ph = rec.launch
+      ? [{ from_s: 0, to_s: t0d, kind: 'stop' },
+         { from_s: t0d, to_s: t1d, kind: 'run' },
+         { from_s: t1d, to_s: rec.dur, kind: 'stop' }]
+      : [{ from_s: 0, to_s: rec.dur, kind: 'stop' }];
+    return Object.assign({}, rec, {
+      maze: m, samples: samples, params: params,
+      phases: ph,
+      runFrom: rec.launch ? t0d : null,
+      runTo: rec.launch ? t1d : null,
+      runTotal: rec.launch ? Math.max(0, t1d - t0d) : 0,
+      stopGaps: 0, phaseMinMs: 300, phaseHoles: 0, phaseNote: '',
+    });
   }
 
   function makeRecords() { return RECORDS.map(buildRecord); }
@@ -1124,9 +1147,10 @@ window.C = (function () {
     });
   }
 
-  function applyRecords(d) {
-    const rows = (d && d.records) || [];
-    const list = rows.filter(function (r) { return !r.error; }).map(function (r) {
+  /* 一条后端摘要 → 界面记录对象。**列表与续页共用一份**：
+     两处各写一遍，迟早会出现"首页的行有 `endWhy`、续页的行没有"这种静默差异。 */
+  function mapRecord(r) {
+    {
       return {
         id: r.id,
         name: r.name,
@@ -1148,21 +1172,64 @@ window.C = (function () {
         // 回放要用的两块：**按需另取**（一条记录上千帧，列表不该带着走）
         samples: [], params: null, maze: null,
       };
-    });
-    S.records.length = 0;
-    Array.prototype.push.apply(S.records, list);
-    if (!S.records.some(function (r) { return r.id === S.recSel; })) {
-      S.recSel = (list.length ? list[0].id : '');
     }
-    S.recRoot = (d && d.root) || '';
-    return list.length;
   }
 
-  function loadRecords() {
+  /* 把一页摘要并进 `S.records`。`append=false` 就是"重建"（刷新）。
+     ⚠️ **去重按 id**：翻页期间若有人新落一条记录，后端的偏移会整体后移一格
+     ⇒ 下一页的第一条正好是上一页的最后一条。不去重会看到同一个记录出现两次，
+     而"列表里看起来有两条一样的"根本看不出是分页错位。 */
+  function applyRecords(d, append) {
+    const rows = (d && d.records) || [];
+    const list = rows.filter(function (r) { return !r.error; }).map(mapRecord);
+    if (!append) S.records.length = 0;
+    const have = {};
+    S.records.forEach(function (r) { have[r.id] = 1; });
+    let added = 0;
+    list.forEach(function (r) {
+      if (have[r.id]) return;
+      have[r.id] = 1;
+      S.records.push(r);
+      added++;
+    });
+    if (!S.records.some(function (r) { return r.id === S.recSel; })) {
+      S.recSel = (S.records.length ? S.records[0].id : '');
+    }
+    S.recRoot = (d && d.root) || S.recRoot;
+    /* `total` 是**全库条数**，`S.records.length` 是**已载条数** ——
+       两者分开存，界面才说得出"已载 50 / 共 323"。 */
+    if (d && d.total != null) S.recTotal = d.total;
+    else if (!append) S.recTotal = S.records.length;
+    return added;
+  }
+
+  /* 每页条数：与后端默认一致。滚到底就按这个续。 */
+  const REC_PAGE = 50;
+
+  /**
+   * 取记录摘要。
+   * @param {boolean|string} append  `true` = 续页（从已载条数往后取）；
+   *                                 `'all'` = 一次要全部（搜索/筛选前用）。
+   * @returns {Promise<number>} 本次新增条数
+   */
+  function loadRecords(append) {
     if (!LIVE.on) return Promise.resolve(0);
-    return get('/api/v1/records?n=50').then(function (d) {
-      const n = applyRecords(d);
-      emit('state');
+    const all = (append === 'all');
+    const off = (append && !all) ? S.records.length : 0;
+    /* 刷新（非续页）**不退回 50 条**，保持已载窗口。
+       否则用户滚到第 200 条时点一次删除/改名（都会重拉列表），窗口缩回 50 条，
+       滚动位置和他正在看的那条一起消失 —— 表现成"列表自己跳回顶部、选中的记录没了"。
+       回放页更要紧：`needPage('replay')` 会先重拉列表再按 `S.recSel` 找记录，
+       窗口一缩，从第 200 条点进去就找不到了（回放空白）。 */
+    const want = all ? 0 : (append ? REC_PAGE : Math.max(REC_PAGE, S.records.length));
+    const qs = all ? '/api/v1/records?n=0'
+      : ('/api/v1/records?n=' + Math.min(2000, want) + (append ? '&offset=' + off : ''));
+    return get(qs).then(function (d) {
+      const n = applyRecords(d, !!append && !all);
+      /* 续页/载全**不发 `emit('state')`**：那会把整页重挂 —— 滚动位置归零、
+         搜索框里的字被清掉，"无限滚动"会变成"滚一下跳回顶部"。
+         `loadMore` 的调用方自己 `paint()`（只重画 tbody 与工具行）。 */
+      if (!append) emit('state');
       return n;
     }).catch(function (e) {
       log('control', 'warn', '比赛记录取不到：' + ((e && (e.detail || e.message)) || e));
@@ -1254,6 +1321,18 @@ window.C = (function () {
       rec.gaps = Array.isArray(d.gaps) ? d.gaps : [];
       rec.gapsN = (d.gaps_n == null ? rec.gaps.length : d.gaps_n);
       rec.launchCmd = d.launch_cmd || null;
+      /* 运行区间（改版四十四）：**回放的发车/收车标记只认这两组值**。
+         `null` = 这条记录没有 `motionTask` 通道 ⇒ 判不了（**不画标记**）；
+         `phases` 非空但 `runFrom === null` = 确认全程没动过（画"全程未动"）。
+         ⚠️ 不拿 `launchAt` 顶替：它是"这条记录是怎么开的"，对发车记录恒为 0.0。 */
+      rec.phases = Array.isArray(d.phases) ? d.phases : null;
+      rec.runFrom = (d.run_from_s == null ? null : d.run_from_s);
+      rec.runTo = (d.run_to_s == null ? null : d.run_to_s);
+      rec.runTotal = (d.run_total_s == null ? null : d.run_total_s);
+      rec.stopGaps = (d.stop_gaps_n == null ? null : d.stop_gaps_n);
+      rec.phaseMinMs = (d.phase_min_ms == null ? null : d.phase_min_ms);
+      rec.phaseHoles = (d.phases_holes == null ? null : d.phases_holes);
+      rec.phaseNote = d.phases_note || '';
       rec.maze = d.maze || null;
       rec.mazeNote = (d.maze && d.maze.note) || '';
       rec.samples = d.samples || [];
@@ -1276,7 +1355,15 @@ window.C = (function () {
     else if (id === 'data') loadRecords();
     else if (id === 'video') loadVideoSessions();
     else if (id === 'track') loadVideoSessions().then(function () { loadTrajectory(S.videoSel); });
-    else if (id === 'replay') loadRecords().then(function () { loadReplay(S.recSel); });
+    else if (id === 'replay') loadRecords().then(function () {
+      /* 选中那条若落在已载窗口外（页刚刷新、或从很深处点进来），**先载全再找**：
+         `loadReplay` 是按 `S.record` 里的摘要对象取数据的，找不到就直接返回 null
+         ⇒ 界面表现成"回放空白"，而真正的原因是它压根不在窗口里。 */
+      if (S.recSel && !S.records.some(function (r) { return r.id === S.recSel; })) {
+        return loadRecords('all');
+      }
+      return 0;
+    }).then(function () { loadReplay(S.recSel); });
   }
 
   /* ── 设备连接：**真的去连** ────────────────────────────────────────────────

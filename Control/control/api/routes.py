@@ -1675,21 +1675,34 @@ async def _records(request: web.Request) -> web.Response:
     这里只说三件与端点有关的：
 
     ⚠️ **必须走 `run_in_executor`**：读盘 + 逐份 `json.loads`。默认 `n=50`，
-    实际记录平均 ~28 KB、整个目录 1.9 MB ⇒ 50 条约几十毫秒；但记录攒到几百条之后
-    就不该再放在事件循环上（这条端点是"点开记录页"触发的，不是心跳）。
+    实际记录平均 ~43 KB、整个目录 **309 条 / 13 MB**（2026-10-27 实测）⇒
+    首屏 50 条约几十毫秒；全量 309 条要 0.4~0.8 s。这两种代价差一个量级，
+    所以默认分页、要全部得显式 `n=0`。
 
-    ⚠️ **上限 500**：不设上限的话，一条 `?n=100000` 就能把服务拖死几百毫秒。
-    超了不报错，直接按 500 取 —— 但**响应里回实际条数**（`n`），别让调用方以为拿全了。
+    ⚠️ **`n=0` = 全部，上限 2000**：不设上限的话，一条 `?n=100000` 就能把服务
+    拖死几百毫秒。超了不报错，直接按 2000 取 —— 但**响应里回实际条数**（`n`），
+    别让调用方以为拿全了。
+
+    ⚠️ **`offset` + `total`**（改版四十五）：界面滚到底会自己翻页。
+    只给 `n` 不给 `offset` 的话，翻第二页拿到的还是前 50 条（**重复**），
+    而界面会以为"加载了 100 条"——比"只有 50 条"更难看出来。
 
     ⚠️ `ledger` / `maze_seed` 是**本层口径**、且**可能为 `None`**：
     前者是"我们怎么算账本平"，后者记录里根本没有种子。界面必须能显示"判不了"。
     """
     ctx = request.app["ctx"]
-    n = _int(request, "n", 50) or 50
-    n = max(1, min(500, n))
+    # `n=0` 表示"这一页要全部"（界面滚到底/搜索时用）。上限 2000 仍然是防呆：
+    # 一条 `?n=100000` 不该能把服务拖死几百毫秒。
+    n = _int(request, "n", 50)
+    n = 2000 if n <= 0 else min(2000, n)
+    off = max(0, _int(request, "offset", 0))
     loop = asyncio.get_running_loop()
-    rows = await loop.run_in_executor(None, lambda: ctx.maze_rec.summaries(n))
-    return ok({"root": str(ctx.maze_rec.root), "records": rows, "n": len(rows)})
+    rows = await loop.run_in_executor(None, lambda: ctx.maze_rec.summaries(n, off))
+    # `total` 是**全库条数**（只 glob 不解析），与 `n`（这一页几条）是两件事。
+    # 分页之后界面必须能说"已载 50 / 共 309"，拿 `len(rows)` 冒充总数是错的。
+    total = await loop.run_in_executor(None, ctx.maze_rec.count_records)
+    return ok({"root": str(ctx.maze_rec.root), "records": rows,
+               "n": len(rows), "total": total, "offset": off})
 
 
 async def _records_delete(request: web.Request) -> web.Response:

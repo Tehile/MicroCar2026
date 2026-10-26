@@ -181,6 +181,8 @@ li{margin:.28em 0}
 <li><a href="#1141">11.41 改版四十一·链路判死 + 帧率改实测 + 比赛页改半手动（状态：已落地）</a></li>
 <li><a href="#1142">11.42 改版四十二·命令让路期的假复核 + 发车状态被旧帧翻回（状态：已落地）</a></li>
 <li><a href="#1143">11.43 改版四十三·收车观察窗 / 判停改看动作码 / 断开归零（状态：已落地）</a></li>
+<li><a href="#1144">11.44 改版四十四·回放的发车/收车改成"动作码说了算"（状态：已落地）</a></li>
+<li><a href="#1145">11.45 改版四十五·记录列表改成"滚动续载 + 搜索自动载全"（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -3659,7 +3661,7 @@ UnicodeEncodeError: 'gbk' codec can't encode character '\u25b6' in position 11
   <code>PYTHONIOENCODING=utf-8</code> + <code>PYTHONUTF8=1</code> + <code>PYTHONUNBUFFERED=1</code>
   （第三个顺手解决"日志是空的"：不缓冲就立刻落盘）。</li>
 <li><em>加固</em>：<code>_tail()</code> 两段解码（先严格 UTF-8，再退 GBK）—— 用户手动 <code>.cmd</code> 起的旧日志是 GBK，
-  而<strong>日志尾巴是失败时唯一的证据</strong>，读成 <code>����</code> 等于没有证据。</li>
+  而<strong>日志尾巴是失败时唯一的证据</strong>，读成 <code>锟斤拷</code>（乱码本身）等于没有证据。</li>
 <li><em>判据</em>：<strong>I25 必须"在最坏的环境里跑"</strong>：先把父环境临时改成 GBK 风格再代启，
   并断言 ①子进程环境含那三个键 ②日志可<strong>严格</strong> UTF-8 解码 ③无 <code>Traceback</code>
   ④<strong>负向</strong>：把这三个键打掉后必须失败、且失败原因正是 <code>UnicodeEncodeError</code>。
@@ -10248,6 +10250,367 @@ link_lost</strong>，而设备好好的。真机现在没炸，只因默认 <cod
    所以这条路径天生确认不了；界面给的是<strong>可照做的下一步</strong>（点【开始】拉一次帧），不是含糊话。</li>
 <li><strong><code>mazeTask</code> 仍在界面上显示</strong>（「迷宫判定」那一组），只是<strong>不再参与</strong>发车/收车的门控。
    一冷一热两处口径不同不是冗余：一个说"流程走到哪"，一个说"车在不在动"。</li>
+</ol>
+<hr />
+<h3 id="1144">11.44 改版四十四·回放的发车/收车改成"动作码说了算"（状态：<strong>已落地</strong>）</h3>
+<h4 id="_158">一、现象</h4>
+<p>回放页进度条下方那两根刻度（「发车」「收车」）<strong>从来没对上过车真的动/停时刻</strong>：
+发车永远贴在最左端，收车永远在末尾。</p>
+<h4 id="_159">二、根因（两处硬编码，各错一半）</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>旧实现</th>
+<th>错在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>replay.js</code> 发车刻度</td>
+<td><code>(rec.launchAt + 1) / dur</code></td>
+<td>而 <code>launch_at_s</code> 对<strong>所有</strong>"发车自动开录"的记录恒为 <code>0.0</code>（那一位只表示"记录起点就是发车点"）⇒ 刻度<strong>必然</strong>落在 0%</td>
+</tr>
+<tr>
+<td><code>replay.js</code> 收车刻度</td>
+<td><code>p: 1</code>，<strong>写死</strong></td>
+<td>与"车什么时候停"毫无关系</td>
+</tr>
+<tr>
+<td>判据</td>
+<td><code>rec.launch</code>（<code>why == "maze_run"</code>）</td>
+<td>它说的是"这条记录是怎么开的"，不是"车在不在动"</td>
+</tr>
+</tbody>
+</table>
+<p><strong>实测证据</strong>（本机 309 条记录逐条算了一遍）：</p>
+<table>
+<thead>
+<tr>
+<th>记录</th>
+<th>时长</th>
+<th>车真的在动</th>
+<th>旧"收车"刻度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>20261008_150828_mz7</code></td>
+<td><strong>173.1 s</strong></td>
+<td>0.44 → 4.18 s</td>
+<td>173.1 s ⇒ <strong>错 169 s</strong></td>
+</tr>
+<tr>
+<td><code>20261024_095608_mz16</code></td>
+<td>630.5 s</td>
+<td>0.0 → 628.1 s</td>
+<td>630.5 s（这条恰好接近，纯属车跑到底）</td>
+</tr>
+</tbody>
+</table>
+<p>分布：<strong>205 条 1 段运行</strong>、<strong>98 条 0 段</strong>（车一次没动）、<strong>6 条 2 段</strong>（中途停过）。</p>
+<h4 id="_160">三、改法</h4>
+<p><strong>① 判据换成动作码，且全帧计算</strong>（<code>maze_rec.motion_phases()</code>）</p>
+<ul>
+<li><code>motionTask ∉ MOTION_STOPPED(0,5)</code> ⇒ 在动；否则停着。<strong>不再混 <code>mazeTask</code></strong> ——
+  用户 2026-10-27 定的口径："实际发车/停车应当以<strong>是否停止</strong>为标准，而不是迷宫任务"。
+  这不是口味问题：<code>mazeTask=SEARCH</code> 却 <code>motionTask=NULL</code> 的记录<strong>真存在</strong>
+  （<code>20261022_162357_mz16</code> 卡住 40 s，任务机一直在跑）。</li>
+<li><strong>去抖 <code>PHASE_MIN_MS = 300 ms</code></strong>：逐帧直接切会切出单帧碎段（实测 3 s 的记录切成
+  5 段，其中 3 段只有 10~20 ms）。任何短于阈值的段并入<strong>前</strong>一段（首段并入后段）——
+  一帧"在动"夹在停里不凭空造出一段运行；一帧"停着"夹在在动里不把一次动作切成两段。</li>
+<li><strong><code>MOTION_STOPPED</code> 只有一份定义</strong>，放在 <code>maze_rec</code>（<code>motionTask</code> 的语义表本来在那里），
+  <code>adapters/mouse.py</code> 从它 import 再下发 <code>/caps</code> 的 <code>motion_stopped</code>。
+  两处各写一遍的话，上游哪天把 STOP 拆成两档，界面门控与回放区间会<strong>静默分家</strong>。</li>
+</ul>
+<p><strong>② 三态分清（这条最容易做错）</strong></p>
+<table>
+<thead>
+<tr>
+<th>情形</th>
+<th>返回</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>通道缺（老记录 / 外部导入）</td>
+<td><code>phases = null</code> + <code>phases_note</code> ⇒ <strong>判不了</strong></td>
+</tr>
+<tr>
+<td>有通道、车一次没动</td>
+<td><code>phases</code> 是一整段 <code>stop</code>，<code>run_from_s = null</code> ⇒ <strong>全程未动</strong></td>
+</tr>
+<tr>
+<td>动过</td>
+<td><code>run_from_s</code> / <code>run_to_s</code> / <code>run_total_s</code> / <code>stop_gaps_n</code> 都有值</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 「判不了」<strong>只能</strong>是 <code>null</code>。用空数组冒充，界面就会把"这条记录读不出动作码"
+显示成"这盘车没动过" —— 那是替设备作了一个它没做的证。</p>
+<p><strong>③ 界面：不加时间轴，只把两根标记做"真 + 显眼"</strong></p>
+<p>用户明确否掉了"单独拉一条轨道"。所以仍是那条 16 px 的刻度条，只改三件事：</p>
+<ul>
+<li><strong>位置</strong>来自后端的 <code>run_from_s</code> / <code>run_to_s</code>（前端不自算，铁律 54）；</li>
+<li><strong>样子</strong>：2 px 竖线（发车蓝 / 收车绿）+ 加粗标签「发车 00:01.2」/「收车 00:23.1」，
+  两线之间再铺一条 3 px 的<strong>淡色带</strong>（它把"从哪到哪算一趟发车"填出来，
+  不是第二条时间轴）；</li>
+<li><strong>判不了 / 全程未动时不画任何刻度</strong>，只在条上写一句。画在哪都是编的。</li>
+</ul>
+<p>顺带两处同族的假标签（都是"拿 <code>launch</code> 当门"）：</p>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>旧</th>
+<th>新</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>回放页头 / <code>#rp-pos</code></td>
+<td><code>rec.launch ? 坐标 : '无位置'</code></td>
+<td>按<strong>样本里有没有 <code>posX/posY</code></strong> 判（手动开的记录同样有坐标）</td>
+</tr>
+<tr>
+<td>记录列表「发车记录」列</td>
+<td><code>发车 @0.0 s</code>（215 条全是 0.0）</td>
+<td><code>自动开录</code> / <code>手动</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>④ 顺手统一一处判据</strong>：<code>integrity.launch.first_run_t_ms</code>（"车什么时候真的动了"）
+原判据是 <code>mazeTask&gt;=2 or motionTask!=0</code>，混进了任务机。改成<strong>只认 <code>motionTask</code></strong>。
+<code>first_task_t_ms</code> 仍然专门看 <code>mazeTask</code>（它就是"任务机什么时候起"），两个都留着，
+读的人能看清先后。</p>
+<h4 id="_161">四、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+<th>为什么必须这样验</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I66</strong></td>
+<td>三段边界（0.5/1.5 s）、运行总时长、中途停计数；<strong>抖动一帧不认</strong>；三态</td>
+<td>只验"能切出段"会放过"把 10 ms 的抖动切成一次发车"；只验正常记录会放过"判不了被当成没动过"</td>
+</tr>
+<tr>
+<td><strong>I67</strong></td>
+<td><code>first_run_t_ms</code> <strong>严格晚于</strong> <code>first_task_t_ms</code>（任务机先起）；卡死记录 ⇒ <code>first_run_t_ms</code> 为 <code>None</code></td>
+<td>旧判据下这两个时刻<strong>相等</strong>，所以"晚于"是能区分新旧规则的最小断言。卡死方向再钉一次：旧规则会给一个值</td>
+</tr>
+<tr>
+<td><strong>V22</strong></td>
+<td>两根线在 <code>run_from_s/run_to_s</code> 换算的位置（误差 ≤1%）、标签正确；摘掉 <code>phases</code> ⇒ 一根不许留 + 写「判不了」</td>
+<td>只验前半会放过"判不了时照样画两根假的"；而"摘 phases 后重挂页面"会被重新拉数据盖回来（判据自己踩过一次，故刻度渲染抽成 <code>paintMarks()</code>）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_162">五、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>65 PASS / 0 FAIL / 1 SKIP</strong>（新增 I66/I67）</td>
+</tr>
+<tr>
+<td><code>browser_check --sim</code></td>
+<td><strong>25 PASS / 0 FAIL / 1 SKIP</strong>（新增 V22；SKIP 仍是 V10）</td>
+</tr>
+<tr>
+<td>真记录交叉</td>
+<td><code>20261008_150828_mz7</code>：173.1 s / 发车 0.44 s / 收车 4.18 s（旧刻度 173.1 s）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_163">六、如实交代</h4>
+<ol>
+<li><strong><code>phases</code> 用全帧算，不用抽样</strong>：抽 1200 个样本时边界会被量化到 ±2 帧，
+   而"停 0.2 s 又走"这种短停顿可能整段消失 ⇒ 中途停过几次会数错。
+   代价是每次打开回放多扫一遍帧数组（与建图同量级，仍在 executor 里）。</li>
+<li><strong>收车时刻取"第一帧报停"</strong>，不是"真正的静止时刻"：固件 10 Hz 采样，
+   两者最多差 100 ms。这一点写在这里，不假装是精确的。</li>
+<li><strong>中途停过的记录（实测 6 条）只在「运行」那行写"中途停过 N 次"</strong>，
+   刻度上不给每段都画线 —— 条子只有 16 px，标多了就是叠字。</li>
+<li><strong>旧的 <code>launch_at_s</code> 字段仍保留</strong>（列表/接口有消费方）：它现在的意思被写清楚了
+   ——"记录起点就是发车点"，不是时刻。</li>
+</ol>
+<hr />
+<h3 id="1145">11.45 改版四十五·记录列表改成"滚动续载 + 搜索自动载全"（状态：<strong>已落地</strong>）</h3>
+<h4 id="_164">一、现象</h4>
+<p>「比赛记录」的列表<strong>永远只有 50 条就到底</strong>，而且界面上一句话都没有说明还有没有更多。
+用户原话：「列表目前只能显示 50 个数据，而不能一次显示全部数据。这个要么分页，
+要么无限滚动直到显示全部数据。」</p>
+<p>记录目录此时实测 <strong>309 条 / 13 MB</strong>（跑完四套验证又涨到 345 条）——
+也就是说打开这一页，<strong>八成以上的记录根本看不见</strong>，而界面看起来"就这么多"。</p>
+<h4 id="_165">二、根因（三处硬编码，各卡一段）</h4>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>旧实现</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lib.js</code> 取数</td>
+<td><code>'/api/v1/records?n=50'</code></td>
+<td>前端只问 50 条</td>
+</tr>
+<tr>
+<td><code>routes.py</code> <code>_records</code></td>
+<td><code>n = min(500, _int(request,"n",50))</code></td>
+<td>后端默认 50、上限 500</td>
+</tr>
+<tr>
+<td><code>maze_rec.summaries()</code></td>
+<td><code>files[:limit]</code></td>
+<td>没有偏移概念，翻不了第二页</td>
+</tr>
+</tbody>
+</table>
+<p>三处任意一处不改都翻不动页。而"一次全给"也不行：309 条要逐份 <code>json.loads</code>，
+实测 <strong>0.4~0.8 s</strong>，而进页就要用 ⇒ 变成"点开记录页卡一下"。</p>
+<h4 id="_166">三、改法</h4>
+<p><strong>① 后端：<code>offset</code> 分页 + <code>n=0</code> 表全部 + <code>total</code></strong></p>
+<ul>
+<li><code>GET /api/v1/records?n=&lt;每页&gt;&amp;offset=&lt;已载&gt;</code>；<code>n&lt;=0</code> 展开成 <strong>2000</strong>（不是无限，
+  见「如实交代」），响应带 <code>n</code>（本页条数）/ <code>total</code>（全库条数）/ <code>offset</code>。</li>
+<li><code>total</code> 由 <code>count_records()</code> 给：<strong>只 glob 文件名，一份 JSON 都不解析</strong>。
+  用 <code>len(summaries(...))</code> 冒充总数在分页下必然错（那一页当然只有一页的条数）。</li>
+<li><strong>摘要缓存</strong>（<code>_sum_cache</code>：<code>name -&gt; (mtime_ns, size, row)</code>，上限 4000）：
+  失效判据是 <code>mtime_ns + size</code>，不靠"记得清缓存"—— 改名/覆盖/重落盘都会变。
+  ⚠️ <code>video_sid</code> <strong>不进缓存</strong>：关联关系落在另一个 <code>.link.json</code> 里，它变了记录的
+  mtime 不变，缓存会把它冻在旧值上 ⇒ 这一格每行现读（一个小文件 stat，几十微秒）。</li>
+</ul>
+<p><strong>② 前端：滚动续载（不是分页器）</strong></p>
+<ul>
+<li>距底 <code>&lt; 120 px</code> 且还有没载的 ⇒ 取下一页 <code>REC_PAGE = 50</code> 条。</li>
+<li><strong>续页不 <code>emit('state')</code></strong>：那会整页重挂 —— 滚动位置归零、搜索框被清，
+  "无限滚动"变成"滚一下跳回顶部"（这条是这轮最容易踩的坑）。</li>
+<li>续页<strong>按 id 去重</strong>：翻页期间新落一条记录，后端偏移整体后移一格 ⇒
+  下一页首条 == 上页末条。不去重就是"同一条记录出现两次"，而界面上根本看不出是错位。</li>
+<li>一页铺不满一屏（窗口很高）时主动再补一页，否则会卡在"到底了但还有 300 条"。</li>
+<li><strong>刷新不退回 50 条</strong>：删除/改名/导入都会重拉列表，若窗口缩回 50 条，
+  滚动位置和正在看的那条一起消失；回放页更要紧——<code>needPage('replay')</code> 会先重拉、
+  再按 <code>S.recSel</code> 找记录，窗口一缩，从第 200 条点进去就是"回放空白"。</li>
+</ul>
+<p><strong>③ 前端：搜索 / 筛选时自动载全</strong></p>
+<p>只在已载的 50 条里搜，"搜不到"会被读成"<strong>没有这条记录</strong>"，而它可能在第 200 条 ——
+<strong>假否定比慢一点糟得多</strong>。所以输入搜索词或切筛选 chip 时，若未载全就先
+<code>?n=0</code> 全取（同一时刻在飞的那一次复用，连打三个字不发三个全量请求）。
+空态文案同步改口径：未载全时写「正在载入全部记录（已载 50 / 共 345 条）…
+载全之后才能判断有没有匹配」，<strong>不许</strong>说"没有匹配的记录"。</p>
+<p><strong>④ 三个口径分开说（这轮的核心纪律）</strong></p>
+<table>
+<thead>
+<tr>
+<th>量</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>S.records.length</code></td>
+<td><strong>已载</strong>条数</td>
+</tr>
+<tr>
+<td><code>S.recTotal</code></td>
+<td><strong>全库</strong>条数（后端 <code>total</code>）</td>
+</tr>
+<tr>
+<td><code>visible().length</code></td>
+<td><strong>当前筛出</strong>的条数（只在已载那批里筛）</td>
+</tr>
+</tbody>
+</table>
+<p>于是：卡头写「已载 50 / 共 345 条」；未载全时发车/视频两个胶囊加 <code>≥</code>（只统计已载那批）；
+全选按钮的 <code>title</code> 改「全选已载的 N 行（另有 M 条还没载入）」；工具行写「未选 · 已载 50 条」。
+<strong>不许</strong>在未载全时说"共 3 条发车"——那只数了 50 行。</p>
+<h4 id="_167">四、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+<th>为什么必须这样验</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I65</strong></td>
+<td>按页大小 3 翻 7 条（3/3/1）：各页 id 按序拼起来 == 一次全量（顺序也一致）、<code>count_records()</code> == 真实条数、偏移越界返回空列表、缓存命中与首次解析逐字段相同</td>
+<td>分页的典型错不是"少一条"而是<strong>重复/错位</strong>；样本必须<strong>末页不满</strong>，整页整除验不出"末页多给"</td>
+</tr>
+<tr>
+<td><strong>V21</strong></td>
+<td>首屏 50 条 + 文案「已载 50 / 共 N」且<strong>不含</strong>发车/视频条数；搜一条只在第 51 条之后的记录 ⇒ 自动载全并命中 1 行；滚到底 ⇒ 行数长到 N 且 id 无重复；载全后提示行清空</td>
+<td>只验"能滚出更多"会放过"未载全就报全库发车数"和"未载全就下'搜不到'的结论"这两个假否定；搜索词取<strong>全库最后一条的 id</strong>（不写死名字）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_168">五、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>66 PASS / 0 FAIL / 1 SKIP</strong>（新增 I65）</td>
+</tr>
+<tr>
+<td><code>browser_check --sim</code></td>
+<td><strong>26 PASS / 0 FAIL / 1 SKIP</strong>（新增 V21；SKIP 仍是 V10，因为设备连着不去试错端口）</td>
+</tr>
+<tr>
+<td>V21 真数据</td>
+<td>首屏 <strong>50</strong> 条 → 滚 <strong>6</strong> 次 → <strong>345</strong> 条（唯一 345、表格行 345）；搜第 346 条之后的记录 ⇒ 载入 345 条、命中 1 行</td>
+</tr>
+<tr>
+<td>请求耗时（345 条，缓存已热）</td>
+<td>首页 <strong>49 ms</strong>、第二页 <strong>47 ms</strong>、offset=300 <strong>41 ms</strong>、全量 <strong>176~204 ms</strong></td>
+</tr>
+<tr>
+<td>全量耗时（309 条，冷启）</td>
+<td><strong>0.4~0.8 s</strong>（所以进页只取一页，"载全"留给搜索）</td>
+</tr>
+<tr>
+<td>负向验证</td>
+<td>临时把 <code>onScroll</code> 变空实现 ⇒ V21 红（"滚 41 次仍 50 条"）；把 <code>ensureAll</code> 变空实现 ⇒ V21 红（"载入 50 条 / 命中 0 行"）；I65 用 monkeypatch 灌"忽略 offset" ⇒ 拼出 9 条 / 唯一 3 条 ⇒ 红。两处临时改动验完立即还原（<code>grep 'if (1) return'</code> 确认为空）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_169">六、如实交代</h4>
+<ol>
+<li><strong>"全量"其实有上限 2000 条</strong>：<code>n&lt;=0</code> 展开成 2000 而不是真无限。超过 2000 的库，
+   搜索只会搜前 2000 条 —— 又回到"假否定"。当前 345 条离上限很远，<strong>没有</strong>做
+   "超过上限时明确提示"。这是已知的缺口，不假装不存在。</li>
+<li><strong>续载与"页头胶囊"的刷新</strong>：续页刻意不发 <code>emit('state')</code>（见改法②），代价是
+   页头那三个胶囊（已载/发车/视频）不会自己重画。第一版就是这样：截图里卡头写
+   「345 条」、右上角还挂着「已载 50 / 344」——两个数都是 <code>actions()</code> 算的，
+   于是让 <code>paint()</code> 一起刷它（内容没变不碰 DOM）。<strong>这条是看图才发现的</strong>，
+   纯文本断言两个数各自都对。</li>
+<li><strong><code>S.recTotal</code> 缺失时退回"已载条数"</strong>：拿不到 <code>total</code>（后端旧版本/请求失败）时
+   按"已载全"说话 —— 宁可少喊一句"还有更多"，也不能凭"我只知道 50 条"断言
+   "全库只有 50 条"。</li>
+<li><strong>V21 全库 ≤ 50 条时 SKIP</strong>：一屏就装得下，续载无从验起（不是失败）。</li>
+<li><strong>"共 N 条"会随测试跑动</strong>：每跑一次 drill/发车就多一份记录，所以本文里的
+   309 / 344 / 345 都是"当时那一刻"的数，不是常量。</li>
 </ol>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
