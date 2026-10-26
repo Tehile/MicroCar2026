@@ -320,12 +320,12 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tbody>
 <tr>
 <td><code>control/adapters/mouse.py</code></td>
-<td>3383</td>
-<td><strong>最大的一块</strong>。包 <code>host.api.MouseClient</code>：连接、参数、动作、拉取、决策差分、发车前的 <code>&lt;@=ensure_pull</code></td>
+<td>4115</td>
+<td><strong>最大的一块</strong>。包 <code>host.api.MouseClient</code>：连接、参数、动作、拉取、链路健康（PING 判死 + 命令让路闸 + 拉取自愈）、动作码表（<code>/caps.motions</code>）、决策差分、发车前的 <code>ensure_pull</code></td>
 </tr>
 <tr>
 <td><code>control/maze_rec.py</code></td>
-<td>~1500</td>
+<td>2162</td>
 <td>实验 8 记录器。<strong>订阅 <code>Event.TELEMETRY</code></strong>（每帧一次），不订阅"有人看波形才发"的那条</td>
 </tr>
 <tr>
@@ -397,8 +397,8 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 </tr>
 <tr>
 <td><code>lib.js</code></td>
-<td>2256</td>
-<td>原型内核 + <strong>接缝层</strong>：<code>act()</code>/<code>setPull()</code>/<code>pullBatch()</code>/<code>connectMouse()</code>/<code>videoStart()</code>/<code>renameRecord()</code>… ⚠️ 这里没有一行网络请求</td>
+<td>2612</td>
+<td>原型内核 + <strong>接缝层</strong>：<code>act()</code>/<code>setPull()</code>/<code>pullBatch()</code>/<code>connectMouse()</code>/<code>videoStart()</code>/<code>renameRecord()</code>… 真机模式下这里<strong>真的发请求</strong>（<code>get()</code> 只读、<code>post()</code> 写）；发车状态的判定也在这一层（<code>pinRunning()</code> / <code>applyRunning()</code>，判据是<strong>动作码</strong>）；断开时的归零是 <code>resetTelemetry()</code></td>
 </tr>
 <tr>
 <td><code>draw.js</code></td>
@@ -433,8 +433,8 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tr>
 <td><code>#/live</code></td>
 <td><code>live.js</code></td>
-<td>317</td>
-<td>实时：波形 + 4 灯三态 + 拉取档位</td>
+<td>351</td>
+<td>实时：波形 + 4 灯三态 + 拉取档位。大数 = <strong>2 s 实测</strong>，6 s 降为脚注趋势；未连接写 <strong>0</strong> 且曲线画贴底水平线</td>
 </tr>
 <tr>
 <td><code>#/params</code></td>
@@ -445,8 +445,8 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tr>
 <td><code>#/race</code></td>
 <td><code>race.js</code></td>
-<td>429</td>
-<td>比赛：墙图 + 发车/收车。⚠️ <strong>舞台页</strong>，需 <code>fitMain()</code> 现算高度</td>
+<td>681</td>
+<td>比赛：墙图 + 发车/收车。⚠️ <strong>舞台页</strong>，需 <code>fitMain()</code> 现算高度；拉取<strong>半手动</strong>；收车/复位走<strong>观察窗</strong>（点击即 pending，看到动作码归零才停流）</td>
 </tr>
 <tr>
 <td><code>#/maint</code></td>
@@ -484,6 +484,35 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <p><strong>&lt;舞台页&gt;</strong>（<code>race</code> / <code>replay</code>）有专门的高度纪律：地图边长由<strong>可用高度</strong>决定，
 且必须量自身、不量视口（<code>fitMain()</code>）。详见 static/README.md。</p>
 </blockquote>
+<p><strong>拉取按页开门有两张表，不要合成一张</strong>（改版四十一）：</p>
+<table>
+<thead>
+<tr>
+<th>表</th>
+<th>含哪些页</th>
+<th>管什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NEED_PULL</code></td>
+<td>overview / live / params / race / maint</td>
+<td><strong>进页开一次</strong></td>
+</tr>
+<tr>
+<td><code>GUARD_PULL</code></td>
+<td>overview / live / params / maint（<strong>没有 race</strong>）</td>
+<td>停了自己<strong>补开</strong>（带退避、静默）</td>
+</tr>
+</tbody>
+</table>
+<p>比赛页之所以只在第一张表里：那页是<strong>半手动</strong> —— 进页开一次，停车/收车/复位就停，
+发车时由后端 <code>ensure_pull()</code> 兜。它在两张表里都出现过，于是"复位后不停弹开始拉流、
+发不出命令"就成了那个循环。</p>
+<p><strong>停流时机也分两档</strong>（改版四十二）：【收车】必须等回执<strong>回来之后</strong>才停 ——
+后端 <code>maze_stop()</code> 内部要等一帧新帧才能读任务机，帧先停了它就永远等不到
+（<code>reliable=null</code>），界面只能瞎猜。【复位】则可以立刻停：它靠 <code>PING</code> 的 <code>rst=SW</code>
+复核，不依赖新帧。</p>
 <hr />
 <h2 id="6">6. 运行时模型</h2>
 <p><strong>一个重要的事实</strong>：PySide6 那套的事件循环 ≠ 这里的线程模型。这里有三类执行体：</p>

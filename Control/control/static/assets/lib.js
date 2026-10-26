@@ -75,7 +75,22 @@ window.C = (function () {
   const S = {
     route: 'overview',
     running: false,
+    /* 发车状态由**帧**驱动（`mazeTask >= 2`），但命令刚回来的那一小段有陷阱：
+       收车时手上还压着**停车前采的帧**（`mazeTask` 仍是 2），它一到就把
+       "已发车"翻回来 ⇒ 界面看起来是"收车没生效"（改版四十二）。
+       `runPin = {v, at, ms}` 在这段窗口里**钉住**命令的结果；窗口一过就作废，
+       由**下一个到达的帧**接管 —— 到那时到的帧一定是命令之后采的（WS 延迟 ~ms）。
+       `null` = 没钉。 */
+    runPin: null,
     estop: false,
+    /* 动作码表判据（改版四十三）。`motionStop` = "车没在动"的动作码，**由 `/caps` 覆盖**
+       （默认 [0,5] = NULL/STOP，与后端 `MOTION_STOPPED` 同源）。发车/收车按钮的门控
+       只认它 —— 原来读 `mazeTask >= 2`，那是**迷宫流程态**：车早就停了、任务机回 WAIT
+       之前它仍为真 ⇒ 出现"任务机明明已经 WAIT，发车键还是灰的"。 */
+    motionStop: [0, 5],
+    /* 收车/复位的观察窗（秒）。`/caps` 覆盖（后端 `STOP_WATCH_S`/`RESET_WATCH_S`）。
+       窗口内**不停流**：停了就没有帧来判断"到底收住没有"，等于把确认的素材掐掉。 */
+    watchS: { stop: 8, reset: 10 },
     session: { active: false, id: '', t0: 0, frames: 0, ledger: 'pass' },
     /* 迷宫记录器（改版四十）——**后端那一份**状态，与会话（`session`）无关。
        为什么要单开一格：后端早就在**自动收尾**（车停 / 回 WAIT / 断链 / 超帧数都会
@@ -84,7 +99,11 @@ window.C = (function () {
        字段全部**照抄后端 `MazeRecorder.status()`**，前端不推：
          on / frames / name / why / autoEnd / last（收尾摘要）/ stopReason+stopText（为何停）。 */
     rec: { on: false, frames: 0, name: '', why: '', autoEnd: '',
-           stopReason: '', stopText: '', stopAt: 0, last: null, saving: false },
+           stopReason: '', stopText: '', stopAt: 0, last: null, saving: false,
+           /* 这一份"落盘成功"的时刻（改版四十一）。比赛页的按钮只在 4 s 内显示
+              "已保存 · 名 · N 帧"，之后**回落**成"停止并保存" —— 那是个中间态，
+              不是按钮的新名字。 */
+           savedAt: 0 },
     /* 拉取只有批式：一次往返取 N 帧，N 决定帧率 */
     pullMode: 'batch',
     pullN: 1,
@@ -126,12 +145,23 @@ window.C = (function () {
       irF1: null, irF2: null, irL: null, irR: null, battMv: null,
       flags: null, rate: null, ageMs: null, batchMs: null, fifo: null,
       bps: null, streaming: null, tFlags: null, seq: null,
+      /* 帧率的三个口径（改版四十一）。**它们回答不同的问题，不许互相顶替**：
+           · `rate`  —— 6 s 趋势（判据与历史读数读它，换口径会让新旧不可比）；
+           · `hz2`   —— 最近 2 s 实测（界面那个**大数**用它）；
+           · `hzInst` —— 最近一批的即时值，`hzInstAge` 是它有多久没更新。
+         `null` = 判不了（从没收到过帧），`0` = 真的这一秒没来帧 —— 两者不同。 */
+      hz2: null, hzInst: null, hzInstAge: null,
       /* 解码器现算的派生键（上游 `dirName`/`mazeTaskName`/`roadName`/`freemode` 等）。
          这四个与 `dir`/`mazeTask`/`goOrBack`/`flags` 是同一份事实，界面**不重复显示**；
          新增的、前端不认识的键由实时页报数（`#lv-unk`），信息不丢也不摆两份读数。 */
       extra: {},
     },
     hist: { rate: [] },
+    /* 最后一帧**到达浏览器的墙钟**（改版四十三）。为什么单独记：
+       `tel.ageMs` 是**后端推帧那一刻**的龄期（恒接近 0），拿它判"帧是不是新的"
+       永远成立 —— 复位后"等首帧"就会在设备还没重启完时被判定成功。
+       0 = 这一轮还没收到过帧（断开时清回 0）。 */
+    telRxAt: 0,
     /* 4 灯三态（led1..led4）。null = 未知：固件没实现 / 通道不在帧里 / 没连接。
        与后端 leds.py 同一套判据：先看 fw ≥ 311，再看通道清单。
        ⚠️ 初始**全是 null**，不是"三亮一灭"——没连接时那盏灯亮不亮无从得知，
@@ -341,14 +371,36 @@ window.C = (function () {
   /* ── 统一帧通道：29 个 / 六组；实时与比赛共用同一份码表 ──────────────── */
   const DIRS = ['北', '东', '南', '西'];
   const TASKS = ['WAIT', 'START', 'SEARCH', 'SPURT', 'SPURT45', 'SPURT90', 'END'];
-  const MOTIONS = ['停止', '直行', '转弯', '斜走', '贴墙'];
+  /* ── 动作码（改版四十三）────────────────────────────────────────────────
+     ⚠️ **真值来自后端 `/caps` 的 `motions`**（适配器从上游 `MOTION_TASK_NAMES`
+     现生成 + 中文短名），这里只是**离线兜底**（后端没连时原型模式还得画得出字）。
+     为什么必须换掉原来那张 5 项表：固件 `MotionTask_t` 有 30 余项
+     （0/1/2/4/5、12~18、27~45、101~107），旧表只有 5 项 ⇒ 5 以后的**全是裸数字**
+     （现场看到"动作 14"根本判读不出车在干什么）；而且旧表 `0='停止'`、**根本没有 5**，
+     恰好把 `NULL`(空闲) 与 `STOP`(停车) 说反了 —— 5 反而落进 `|| v` 显示成 "5"。
+     未收录的码显示 `未知(123)`，**不许**退回裸数字（那会被当成"某个已知动作"）。 */
+  const MOTION_FALLBACK = {
+    0: '空闲', 1: '直行', 2: '转弯', 4: '掉头', 5: '停车',
+    12: '超直行', 13: '红外直行', 14: '左快转', 15: '右快转', 16: '急停',
+    17: '45°直行', 18: '快直行', 27: '90°前', 28: '180°前', 29: '180°后',
+    30: '智能直行', 31: '变速', 32: '智能快直', 33: '红外闭环', 34: '极柱直行',
+    35: '加速', 36: '减速', 37: '提速', 38: '贴墙距', 39: '原地90°',
+    40: '沿边直行', 41: '前向IR测', 42: '90盲冲', 43: '90红外冲',
+    44: '智能冲刺', 45: '智能左冲',
+    101: '左90搜索', 102: '右90搜索', 103: '原地右90', 104: '原地左90',
+    105: '直冲90', 106: '左90冲', 107: '右90冲',
+  };
+  /* 就地改写**同一个对象**：`C.channels.motions` 拿的是它的引用，换对象会让
+     那些已经取过引用的视图（race/replay）一直用旧表。 */
+  const MOTIONS = Object.assign({}, MOTION_FALLBACK);
+  const motionText = v => MOTIONS[v] || ('未知(' + v + ')');
   const SPURT = ['未选', '90_LOW', '45_LOW', 'MEDIUM', 'HIGH'];
   const FRONT = ['无墙', '近端', '远端'];
 
   const CODE = {
     dir: v => (DIRS[v] || v) + ' (' + v + ')',
     mazeTask: v => (TASKS[v] || v) + ' (' + v + ')',
-    motionTask: v => (MOTIONS[v] || v) + ' (' + v + ')',
+    motionTask: v => motionText(v) + ' (' + v + ')',
     spurtMode: v => (SPURT[v] || v) + ' (' + v + ')',
     frontNear: v => (FRONT[v] || v) + ' (' + v + ')',
     frontFar: v => (FRONT[v] || v) + ' (' + v + ')',
@@ -654,6 +706,21 @@ window.C = (function () {
       S.ledSupported = d.unified_channels.indexOf('led1') >= 0;
     }
     if (d.pull && d.pull.n != null) { S.pullN = Number(d.pull.n); S.tel.batchN = S.pullN; }
+    /* 动作码表：**后端那份是权威**，就地覆盖离线兜底（同一个对象，见 MOTIONS 的注）。
+       `d.motions` 是 `[{v,name,label}]`；老后端没有这个键 ⇒ 保留兜底表，不报错。 */
+    if (Array.isArray(d.motions) && d.motions.length) {
+      Object.keys(MOTIONS).forEach(k => { delete MOTIONS[k]; });
+      d.motions.forEach(it => {
+        if (it && it.v != null) MOTIONS[it.v] = it.label || it.name || ('未知(' + it.v + ')');
+      });
+    }
+    /* "车没在动"的码（默认 [0,5]）：**由后端给**，界面不许自己写死一份。
+       0 = NULL(空闲)、5 = STOP(停车)，两个都是停 —— 这条曾经说反过。 */
+    if (Array.isArray(d.motion_stopped) && d.motion_stopped.length) {
+      S.motionStop = d.motion_stopped.map(Number);
+    }
+    if (d.stop_watch_s != null) S.watchS.stop = Number(d.stop_watch_s);
+    if (d.reset_watch_s != null) S.watchS.reset = Number(d.reset_watch_s);
   }
 
   /* ⚠️ `/health` 的形状：`{ok, all_ready, readiness:{items}, mouse:{...}, video:{...},
@@ -664,6 +731,7 @@ window.C = (function () {
     if (!d) return;
     const mo = d.mouse || {};
     const m = S.health.mouse;
+    const wasConn = !!m.connected;
     m.available = mo.available !== false;
     m.connected = !!mo.connected;
     m.port = mo.port || '';
@@ -672,6 +740,15 @@ window.C = (function () {
     m.streamMode = mo.stream_mode || m.streamMode || '';
     // 拉取的**真值**来自后端（改版三十一：连上不再自动拉，按页面开）
     if (typeof mo.stream_on === 'boolean') S.pulling = mo.stream_on;
+    /* 链路健康（改版四十一）：**与 `connected` 分开两个概念**。
+       `connected` 只说明串口开着；`link.link_dead` 有值 = 后端已经 PING 验过
+       并**主动断开**了。两者曾经是同一个布尔，于是"串口开着但设备不应答"
+       在界面上一直显示"已连接"，而现场一帧都拿不到。 */
+    const lk = mo.link || null;
+    m.linkDead = (lk && lk.link_dead) ? lk.link_dead : null;
+    m.wantStream = lk ? !!lk.want_stream : null;
+    m.frameAgeMs = (lk && lk.frame_age_ms != null) ? lk.frame_age_ms : null;
+    m.stalled = lk ? !!lk.stalled : null;
     S.estop = !!mo.estop_locked;
     if (d.clock) {
       S.health.clock.calibrated = !!d.clock.calibrated;
@@ -695,12 +772,50 @@ window.C = (function () {
     } else if (d.session === null) {
       S.session.active = false;
     }
+    /* ⚠️ 两个**边沿**要做的事（改版四十三）。做在这里而不是在各页面里：
+       每个页面都自己判一遍，迟早有一页忘了 —— 而"忘了清"的表现正是
+       "拔了线帧率还写着 10.4"，看起来像界面卡住，不像故障。 */
+    const nowConn = !!m.connected;
+    if (wasConn && !nowConn) {
+      /* 下降沿：链路没了 ⇒ 读数归零（含迷你曲线、4 灯、比赛页那张迷宫图）。 */
+      resetTelemetry(m.linkDead ? '链路判死' : '串口已断开');
+    } else if (!wasConn && nowConn) {
+      /* 上升沿：链路刚回来 ⇒ **按当前页补一次拉取**。
+         ⚠️ 这是 `startLive()` 那条老 bug 的补丁面：那里拿到 `/health` 却把应答丢了，
+         `syncPull()` 读到的还是初始的 `connected=false` 就 `return false`；
+         而 `race` 故意不在 `GUARD_PULL` 里 ⇒ **从记录页/刷新进比赛页，流永远不开**（探针实测）。
+         现在只要"连接"这件事发生过一次上升，就重新问一遍这一页要不要帧。 */
+      if (LIVE.on) syncPull(S.route, { quiet: true });
+    }
     /* ⚠️ **必须通知外壳重画**（只重画顶栏/设备片/准备清单，不重挂页面）。
        踩过：数据更新了但顶栏还挂着上一次渲染的"已连接 COM7"，
        于是"后端说没连、界面上还写着 COM7"——判据 V5 就是这么抓到的。
        为什么不用 `emit('state')`：那个会**整页重挂**，每秒一次会把参数页
        正在输入的框清掉。 */
     emit('health');
+  }
+
+  /* 后端主动报错（改版四十一补上分发）。⚠️ 这条**一直在推**，而分发里没有分支
+     ⇒ 到浏览器门口被丢掉（与改版四十的 `mouse.upevent` 是同一个坑，第二次踩）。
+     两类事件必须分开：
+       · `link_lost` —— 上游**自己怀疑**断链（`_frame_gap` 判的）。它**会误报**：
+         发车命令占链路 0.9~5.4 s、`resume()` 不刷新 `_t0` ⇒ `n≥2` 时第一拍就报。
+         所以这里只写日志，等后端 PING 复核的结果。
+       · `link_dead` —— 后端已经 PING ×2 都不通、**并主动断开了串口**。
+         这才是真事，必须弹出来（不然人只会看到界面忽然"未连接"而不知道为什么）。 */
+  function applyMouseError(m) {
+    const kind = m.kind || '';
+    const msg = m.msg || '';
+    const hint = m.hint || '';
+    log('mouse', kind === 'link_dead' ? 'bad' : 'warn',
+        '链路 · ' + (kind || '未知') + ' · ' + msg + (hint ? ' ／ ' + hint : ''));
+    if (kind !== 'link_dead') return;
+    /* 判死只做三件事（用户裁决：**不加常驻 banner**，顶栏本来会跟着变）：
+       ① 拉取标记归零；② 让外壳重画（`emit('health')`，**不是** `emit('state')`，
+       那个会整页重挂、清掉正在输入的框）；③ 一条 7 s 的 bad toast。 */
+    S.pulling = false;
+    emit('health');
+    toast('bad', '电脑鼠链路已断', hint || msg, 7000);
   }
 
   /* WS 遥测 → S。**4 灯直接取后端的 `leds`，不再前端重算**（铁律 54：
@@ -711,6 +826,7 @@ window.C = (function () {
 
   function applyTelemetry(msg) {
     const u = msg.unified || {};
+    S.telRxAt = Date.now();             // "这一帧什么时候真的到了"（见 S.telRxAt 的说明）
     /* 已知通道写进 tel；**不认识的键不许丢** —— 上游解码器会现算一批派生键
        （`dirName`/`mazeTaskName`/`roadName`/`freemode`…），丢掉之后界面上少一块，
        而"少了"和"设备没给"长得一模一样。收进 `extra` 原样展示。 */
@@ -728,15 +844,18 @@ window.C = (function () {
     if (msg.streaming != null) S.tel.streaming = !!msg.streaming;
     if (msg.flags != null) S.tel.tFlags = msg.flags;
     const r = (msg.rate && msg.rate.unified) || {};
-    if (r.hz != null) {
-      S.tel.rate = r.hz;
-      /* 波形数据（改版四十）：原先是**只有原型 tick 才 push**（`tickN % 4`），
-         而 `tick()` 在 `LIVE.on` 时第一行就 return ⇒ 真机分支永远不攒点，
-         `draw.spark` 判 `rawPeak < .2` 就写"等待第一批"，接上真机后永远停在那句。
-         现在真帧也进同一条队列（上限 60 点，与原型一致）。
-         ⚠️ 只在 `hz != null` 时 push：判不了 ≠ 0 Hz，填 0 会把波形压成贴地直线。 */
+    /* 帧率：**三个口径分开**（改版四十一）。
+       ⚠️ 大数不能再用 `r.hz`（6 s 滑动平均）：突然掉到一半时它要 3 s 才走到
+       中间值，现场看到的是"数字慢慢滑下去"，而真相是这一秒就没帧了。 */
+    if (r.hz != null) S.tel.rate = r.hz;              // 6 s 趋势（旧口径保留）
+    if (r.hz_2s != null) S.tel.hz2 = r.hz_2s;         // 2 s 实测（大数）
+    if (r.hz_inst != null) { S.tel.hzInst = r.hz_inst; S.tel.hzInstAge = r.hz_inst_age_ms; }
+    /* 波形也用 2 s 实测（与大数同一个数，否则"波形很平、数字在跳"）。
+       ⚠️ 只在 `hz_2s != null` 时 push：判不了 ≠ 0 Hz，填 0 会把波形压成贴地直线。
+       注意 `0` 是**真的可能**出现的（链路停了），那时该压到 0 —— 这正是要看的东西。 */
+    if (r.hz_2s != null) {
       const h = S.hist.rate;
-      h.push(+r.hz.toFixed(2));
+      h.push(+r.hz_2s.toFixed(2));
       if (h.length > 60) h.shift();
     }
     if (r.age_ms != null) S.tel.ageMs = r.age_ms;
@@ -757,7 +876,76 @@ window.C = (function () {
       }
     }
     // 状态位：`mazeTask >= 2` 才算"在跑"（速度过零会闪，任务机是状态不是瞬时量）
-    S.running = (S.tel.mazeTask | 0) >= 2;
+    applyRunning();
+  }
+
+  /* ── 发车状态的唯一入口（改版四十二）──────────────────────────────────────
+     为什么不能直接在 `applyTelemetry` 里写 `S.running = mazeTask >= 2`：
+     命令的回执（HTTP）与帧（WS）是**两条互不同步的来路**，而帧可能是在命令
+     之前采的。收车那一刻手上压着的最后一帧 `mazeTask` 还是 2 ⇒ 它一到就把
+     "已收车"翻回"已发车"，然后流停了、再也没有帧来纠正它 ⇒ **永久停在错的**。
+     现场看到的就是："已发车 → 开始发车 → 又变回已发车"。
+
+     钉住窗口取 2.5 s（近似后端 `maze_stop` 等新帧的上限 2.5 s）。
+     ⚠️ 只是"压住旧帧"，不是真相：窗口一过，谁后到谁说了算。
+     ⚠️ 窗口内**一帧都没有**时（流已停）就保持命令的结果 —— 那是对的：
+        车已经收了，没有帧能把这句话推翻。 */
+  function pinRunning(v, ms) {
+    S.runPin = { v: !!v, at: Date.now(), ms: ms || 2500 };
+    S.running = !!v;
+  }
+
+  function applyRunning() {
+    const p = S.runPin;
+    if (p) {
+      if (Date.now() - p.at < p.ms) { S.running = p.v; return; }
+      S.runPin = null;              // 过期作废：这一帧（命令之后采的）说了算
+    }
+    /* ⚠️ 改版四十三：判据换成**动作码**（`motionTask`），不再是 `mazeTask`。
+       "车在不在动"是动作机的属性；`mazeTask` 是**迷宫流程态**（2..5 = SEARCH/SPURT，
+       6 = END），它会在车停稳之后仍停在高位（或该回落时没回落）⇒ 发车键一直灰着，
+       而任务机其实早就回 WAIT 了。现场报的"任务机已经 WAIT、发车键还是灰的"就是这条。
+       `null`（这一帧没给动作码）⇒ **保持上一位**，不猜（三态纪律）。 */
+    const mt = S.tel.motionTask;
+    if (mt == null) return;
+    S.running = S.motionStop.indexOf(mt | 0) < 0;
+  }
+
+  /* ── "整条链路没数据"= 0（改版四十三）────────────────────────────────────
+     与"零基线两条"**不冲突，管的是不同的事**：
+       · 零基线两条：**一帧之内**某个字段没读到 ⇒ `null` ⇒ 渲染成 `—`；
+       · 这里：**整条链路断开**（0 帧，也没有下一帧会到）⇒ 累计量 0、测量量 null。
+     为什么必须清：`applyTelemetry` **只在有值时才覆盖**（那是零基线那条的正确做法），
+     于是断开之后 `S.tel` 就**冻结在最后一帧**上 —— 实测的现场现象是
+     "拔了线/停了流，帧率还是 10.41 Hz 一动不动，迷你曲线还停在那条线上"，
+     而帧龄从 406 ms 一路涨到 8069 ms。读数不是"过期"，是**没了**。
+     为什么大数给 0 而不是 `—`：链路断开是**可判定的事实**（"现在一帧/秒都不进"），
+     不是"判不了"。`—` 留给"有链路但这一项没读到"。 */
+  const TEL_ZERO = ['trackL', 'trackR', 'gyroAngle', 'goaheadnum', 'ms8', 'lost'];
+  const TEL_CODE = ['dir', 'motionTask', 'mazeTask', 'goOrBack',
+                    'spurtMode', 'spurtFlag', 'spurtTestFlag', 'objectGoToFlag'];
+  const TEL_NULL = ['speedL', 'speedR', 'posX', 'posY',
+                    'wallLeft', 'wallFront', 'wallRight',
+                    'frontNear', 'frontFar', 'frontBoth', 'irSwitch',
+                    'irF1', 'irF2', 'irL', 'irR', 'battMv',
+                    'flags', 'rate', 'ageMs', 'batchMs', 'fifo', 'bps', 'streaming',
+                    'tFlags', 'seq', 'hz2', 'hzInst', 'hzInstAge'];
+
+  function resetTelemetry(why) {
+    const t = S.tel;
+    TEL_ZERO.forEach(k => { t[k] = 0; });
+    TEL_CODE.forEach(k => { t[k] = 0; });
+    TEL_NULL.forEach(k => { t[k] = null; });
+    t.evq = false;
+    t.batchN = S.pullN || 1;
+    t.extra = {};
+    S.hist.rate.length = 0;             // 迷你曲线：断开就没有"最近 60 拍"这回事
+    S.rateLog = [];
+    Object.keys(S.leds).forEach(k => { S.leds[k] = null; });   // 就地清，保住引用
+    S.running = false; S.runPin = null;
+    S.telRxAt = 0;                      // 没有"最后一帧"这回事了
+    S.mazeView = null;                  // 比赛页那张图**不许**留着当现状（见 race.js）
+    if (why) log('mouse', 'info', '链路断开 ⇒ 遥测读数归零（' + why + '）');
   }
 
   function applyMaze(msg) {
@@ -785,6 +973,9 @@ window.C = (function () {
       /* ⚠️ 改版四十补上：这条一直在推，分发里却没有分支 ⇒ 到浏览器门口被丢掉。
          "车为什么停的"（TIME / IR / ESTOP / USER / END）只能从这条流里知道。 */
       else if (m.type === 'mouse.upevent') applyUpevent(m);
+      /* ⚠️ 改版四十一补上：`mouse.error` 同样一直在推、同样没有分支 ⇒ 被丢掉。
+         `link_dead`（后端已验并断开）不接住的话，界面只会忽然变"未连接"。 */
+      else if (m.type === 'mouse.error') applyMouseError(m);
       else if (m.type === 'hello' && m.health) applyHealth(m.health);
       else if (m.type === 'log') log(m.source || 'control', m.level || 'info', m.text || '');
     };
@@ -795,7 +986,14 @@ window.C = (function () {
   function startLive() {
     const tryOnce = function () {
       // 读一律用 `get()`：`post()` 会发 POST，而 `/health` 只挂了 GET（405 ⇒ 静默不生效）
-      return get('/api/v1/health').then(function () {
+      /* ⚠️ 改版四十三修掉一条真 bug：这里原来 `get('/api/v1/health').then(function () {`
+         —— **应答被丢掉了**。于是下面 `syncPull()` 读到的还是初始的
+         `S.health.mouse.connected === false`，它第一行就 `return false`（"没连设备别开流"），
+         而后端明明连着；`race` 又故意不在 `GUARD_PULL` 里 ⇒ **从记录页/刷新进比赛页，
+         流永远不会自动开**（探针实测：进场 `pull=false`，面板 Hz 一直是 —）。
+         现在把这份应答喂给 `applyHealth`：连接态、帧龄、链路判死一次到位。 */
+      return get('/api/v1/health').then(function (h) {
+        applyHealth(h);
         return get('/api/v1/caps').then(function (c) {
           applyCaps((c && c.mouse) || null);
         });
@@ -1216,23 +1414,48 @@ window.C = (function () {
     if (raceTimer) { clearInterval(raceTimer); raceTimer = null; }
   }
 
-  /* ── 拉取看门狗 ───────────────────────────────────────────────────────────
-     为什么需要：拉取可能被别处关掉（另一次 setPull 的响应晚到、上游自己掉、
-     人工点了结束忘了开）。而**比赛页没有新帧就等于瞎了**（发车前检查、任务机、
-     迷宫全读帧）。所以只要"这页需要帧 + 连着设备 + 拉取是停的"，就自动重开。
+  /* ── 拉取看门狗（改版四十一：**静默 + 指数退避 + 不管比赛页**）──────────────
+     旧行为每 2 s 无条件重开、每次成功都 toast「拉取已开始」，而 `n≥2` 开流失败时
+     上游要重试 `CMD_TRIES=3 × 2.0 s` ⇒ 一次开流最坏堵命令通道 6.5 s。
+     于是"失败 → 2 s 后重开 → 弹框 → 又失败"就占满了整条链路 ——
+     现场看到的是"复位后不停弹框、发不出任何命令"。
 
-     不跟用户抢：#人工**主动**停止是明确意图（排障），所以停止后 8 s 内不自动重开
-     （`LIVE.pullOffAt`），超过 8 s 仍停着才认为"是被意外关掉的"。
-     这也是"不能有间断"的具体落法 —— 间隙最多就是这么一次重连（~1 s）。 */
+     现在：
+       · 只在 `GUARD_PULL` 的页面补（比赛页不补，那页半手动）；
+       · 退避 2→4→8→16→30 s，**开流成功即归零**；
+       · **全程静默**（只写日志）；连续失败 2 次时**只提示一次**，不反复弹；
+       · 链路已判死就一次都不补（后端已关串口，补开只会多一条失败日志）。 */
+  const GUARD_GAP_MIN = 2000, GUARD_GAP_MAX = 30000;
+
+  function guardBackoff(ok) {
+    if (ok) { LIVE.guardGap = GUARD_GAP_MIN; LIVE.guardFail = 0; return; }
+    LIVE.guardFail = (LIVE.guardFail || 0) + 1;
+    LIVE.guardGap = Math.min((LIVE.guardGap || GUARD_GAP_MIN) * 2, GUARD_GAP_MAX);
+    if (LIVE.guardFail === 2) {
+      toast('warn', '自动开拉取没成功',
+        '已放慢重试（' + Math.round(LIVE.guardGap / 1000) + ' s 一次）并改为静默。'
+        + '要用帧请手动按【开始拉取】；先到【维护】页看链路。');
+    }
+  }
+
   function startPullGuard() {
     if (LIVE.guard) return;
+    LIVE.guardGap = LIVE.guardGap || GUARD_GAP_MIN;
+    LIVE.guardAt = 0;
+    LIVE.guardFail = LIVE.guardFail || 0;
     LIVE.guard = setInterval(function () {
       if (!LIVE.on || !S.health.mouse.connected) return;
-      if (!NEED_PULL[S.route]) return;
+      if (!GUARD_PULL[S.route]) return;
       if (S.pulling || LIVE.pullBusy) return;
       if (LIVE.pullOffAt && (Date.now() - LIVE.pullOffAt) < 8000) return;
-      log('mouse', 'warn', '这页要实时帧，但拉取是停的 ⇒ 自动重开');
-      setPull(true, S.pullN);
+      /* 链路判死 ⇒ 一次都别补：后端已经主动关掉串口了，这时补开只会得到
+         "未连接"，而人该做的是断电 3~5 s 重连。 */
+      if (S.health.mouse.linkDead) return;
+      if (Date.now() - (LIVE.guardAt || 0) < LIVE.guardGap) return;
+      LIVE.guardAt = Date.now();
+      log('mouse', 'info', '这页要实时帧，但拉取是停的 ⇒ 自动重开（静默）');
+      const p = setPull(true, S.pullN, { quiet: true });
+      if (p && p.then) p.then(function (ok) { guardBackoff(!!ok); });
     }, 2000);
   }
 
@@ -1245,6 +1468,10 @@ window.C = (function () {
         所以这里只做"读到什么就说什么"，绝不发 `record/stop`——重复发等于把一段
         已经落盘的数据再收一次，第二次只会得到"当前没有在记录"。 */
   let recSavedName = '';        // 已经提示过"已保存"的那一份（1 s 一轮，防重复 toast）
+  /* 两个名字标记**必须分开**（改版四十一）：`recSavedName` 管"按钮上的已保存打点"，
+     `recToastedName` 管"toast 只弹一次"。合成一个的话，打点那一步先把名字占了，
+     后面 toast 的分支就永远判断成"已经提示过" ⇒ 自动收尾一声不响。 */
+  let recToastedName = '';
 
   function applyRecStatus(d) {
     if (!d) return;
@@ -1267,12 +1494,25 @@ window.C = (function () {
     const last = d.last || null;
     /* `pending` = 后端正在落盘（`stop()` 里先占位、写完再给真摘要）。
        撞上这个窗口就只说"保存中"，别把上一条的名字当这一条报出去。 */
+    const wasOn0 = was;
     r.saving = !!(last && last.pending);
-    if (last && !last.pending) r.last = last;
-    else if (!last) r.last = null;
+    if (last && !last.pending) {
+      r.last = last;
+      /* 打点"刚保存"（改版四十一）：比赛页按钮据此只显示 4 s 的"已保存…"。
+         ⚠️ 判据是 **`last` 里出现了新名字且 ok**，不是"`on` 由真变假" ——
+         手动点【停止并保存】时，上一拍 `on` 就已经是 false 了（后端先置 pending），
+         那个下降沿**根本不会再来一次** ⇒ 按钮会永远停在"保存中…"或旧的"已保存"。 */
+      if (last.ok && last.name && last.name !== recSavedName) {
+        recSavedName = last.name;
+        r.savedAt = Date.now();
+      }
+    } else if (!last) {
+      r.last = null;
+    }
 
-    if (was && !r.on && r.last && r.last.ok && r.last.name && r.last.name !== recSavedName) {
-      recSavedName = r.last.name;
+    if (wasOn0 && !r.on && r.last && r.last.ok && r.last.name
+        && r.last.name !== recToastedName) {
+      recToastedName = r.last.name;               // 同一份只 toast 一次
       const nm = String(r.last.name).replace(/\.maze\.json$/, '');
       const whyTxt = r.stopText ? (' · ' + r.stopText) : '';
       log('mouse', 'info', '记录已自动保存 · ' + nm + ' · ' + (r.last.frames || 0) + ' 帧' + whyTxt);
@@ -1506,11 +1746,18 @@ window.C = (function () {
   /* ── 动作 ─────────────────────────────────────────────────────────────── */
   function act(name, arg) {
     // 真机模式：走后端（下面那套 switch 是原型的本地状态机，只在连不上时用）
-    if (LIVE.on) { actLive(name, arg); return; }
+    // ⚠️ 改版四十二起**返回 Promise**（真机分支）：调用方要"等这一趟真回来再
+    //    做下一件事"（例如收车后停拉取 —— 抢在回执前面停流，后端就等不到新帧，
+    //    收车永远确认不了）。原型分支没有 Promise，调用方自己判 `if (p && p.then)`。
+    if (LIVE.on) { return actLive(name, arg); }
     switch (name) {
       case 'estop':
-        S.estop = true; S.running = false;
+        pinRunning(false);
+        S.estop = true;
         S.tel.mazeTask = 0; S.tel.speedL = 0; S.tel.speedR = 0;
+        /* 动作码也要落：判"在不在跑"现在读**动作**（改版四十三），
+           只清 `mazeTask` 的话钉一过期就又被判成"在跑"。 */
+        S.tel.motionTask = 5;
         log('mouse', 'warn', '急停已下发 · 锁存中，需【解锁】才能再发车');
         toast('bad', '急停已下发', '电机断电并锁存。');
         break;
@@ -1522,8 +1769,8 @@ window.C = (function () {
       case 'launch':
         if (S.estop) { toast('warn', '发车被拦', '急停锁存中 ⇒ 先解锁急停。'); return; }
         if (!S.health.mouse.connected) { toast('warn', '发车被拦', '未连接电脑鼠 ⇒ 先到顶栏连串口。'); return; }
-        S.running = true; maze.idx = 0; maze.frac = 0;
-        S.tel.mazeTask = 1; S.tel.motionTask = 2;
+        pinRunning(true, 3000); maze.idx = 0; maze.frac = 0;
+        S.tel.mazeTask = 1; S.tel.motionTask = 1;
         S.tel.trackL = 0; S.tel.trackR = 0; S.tel.goaheadnum = 0;
         log('mouse', 'info', '→ MAZE RUN RACE · 已发车，按 Flash 地图选档');
         toast('ok', '已发车（RACE）', '记录器自动开录 · 目标锁定中心 2×2');
@@ -1531,12 +1778,14 @@ window.C = (function () {
         break;
       case 'mazeStop':
         if (!S.running) { toast('warn', '没有在跑', '任务机已是待机。'); return; }
-        S.running = false; S.tel.mazeTask = 0; S.tel.speedL = 0; S.tel.speedR = 0;
+        pinRunning(false); S.tel.mazeTask = 0; S.tel.motionTask = 0;
+        S.tel.speedL = 0; S.tel.speedR = 0;
         log('mouse', 'info', '→ MAZE STOP · 已收车');
         toast('ok', '已收车', '任务机回 WAIT。');
         break;
       case 'rescue':
-        S.running = false; S.tel.mazeTask = 0; S.estop = false;
+        pinRunning(false, 4000); S.tel.mazeTask = 0; S.tel.motionTask = 0;
+        S.estop = false;
         log('mouse', 'warn', '→ MCU RESET · 整机软复位，约 3 s 后首帧');
         toast('warn', '已复位', '整机软复位。物理位置不变，发车前请放回起点角。');
         break;
@@ -1570,66 +1819,71 @@ window.C = (function () {
     };
     switch (name) {
       case 'estop':
-        post('/api/v1/mouse/estop').then(function () {
-          S.estop = true; S.running = false;
+        return post('/api/v1/mouse/estop').then(function () {
+          /* 急停解锁锁存后设备会立刻把速度清零，但 `mazeTask` 可能还停在原档位
+             （要等固件主循环自己退）⇒ 钉住"没在跑"，别让旧帧把"已发车"翻回来。 */
+          S.estop = true; pinRunning(false, 3000);
           log('mouse', 'warn', '急停已下发 · 锁存中，需【解锁】才能再发车');
           toast('bad', '急停已下发', '电机断电并锁存。');
           emit('state');
         }).catch(fail);
-        return;
       case 'unlock':
         // 解锁发的是 STOP —— 上游语义：`STOP` 会解锁急停锁存
-        post('/api/v1/mouse/stop').then(function () {
+        return post('/api/v1/mouse/stop').then(function () {
           S.estop = false;
           log('mouse', 'info', '急停已解锁（STOP）');
           toast('ok', '急停已解锁', '现在可以发车。');
           emit('state');
         }).catch(fail);
-        return;
       case 'launch':
-        post('/api/v1/timesync/maze_run', { target: 'RACE' }).then(function (d) {
-          S.running = true; S.estop = false;
+        return post('/api/v1/timesync/maze_run', { target: 'RACE' }).then(function (d) {
+          /* 钉住"在跑"3 s：发车回执到得比**发车前采的帧**晚，那些帧的 `mazeTask`
+             还是 0/1 ⇒ 不钉的话按钮会"已发车 → 比赛发车"抖一下，
+             而那一抖正好把发车键又变成可点的。 */
+          pinRunning(true, 3000);
+          S.estop = false;
           log('mouse', 'info', '→ MAZE RUN RACE · 已发车'
             + (d && d.record && d.record.name ? ' · 记录 ' + d.record.name : ''));
           toast('ok', '已发车（RACE）', '记录器自动开录 · 目标锁定中心 2×2');
           emit('state');
         }).catch(fail);
-        return;
       case 'mazeStop':
-        post('/api/v1/mouse/maze/stop').then(function (d) {
-          S.running = false;
-          log('mouse', 'info', '→ MAZE STOP · 已收车'
-            + (d && d.reliable === false ? '（⚠ 运动中来不及，如实报告）' : ''));
-          toast('ok', '已收车', '任务机回 WAIT。');
-          emit('state');
-        }).catch(fail);
-        return;
+        /* 收车（改版四十三）：**这里只负责发命令并把应答交回去**。
+           "车到底停没停"的判定与全部提示都搬去了比赛页的观察窗
+           （`race.js:_startPend`）—— 因为回执只说明"命令被接受"，
+           真正的判据是**后续帧的动作码**，而那是页面每拍都看得见的东西。
+           旧版在这里抢答"已收车"，紧接着停车前那一帧又把它翻回"已发车"，
+           就是现场那个"已发车 → 开始发车 → 又变回已发车"。
+           ⚠️ 失败**返回 `{error}` 而不是 reject**：`act()` 的调用方（比赛页、
+           顶栏抽屉）都不该为了"命令失败"再写一遍 catch，而一个没人接的
+           reject 在浏览器里只会变成一条 console 警告 —— 那等于静默。 */
+        return post('/api/v1/mouse/maze/stop').then(function (d) {
+          log('mouse', 'info', '→ MAZE STOP 回执 ' + ((d && d.status) || 'OK')
+            + (d && d.fresh ? '（有新帧）' : '（没等到新帧）'));
+          return d;
+        }, function (e) { fail(e); return { error: (e && (e.detail || e.message)) || String(e) }; });
       case 'rescue':
-        post('/api/v1/mouse/rescue').then(function () {
-          S.running = false; S.estop = false;
-          log('mouse', 'warn', '→ MCU RESET · 整机软复位，约 3 s 后首帧');
-          toast('warn', '已复位', '物理位置不变，发车前请放回起点角。');
-          emit('state');
-        }).catch(fail);
-        return;
+        return post('/api/v1/mouse/rescue').then(function (d) {
+          log('mouse', 'warn', '→ MCU RESET · 整机软复位（rst=' + ((d && d.rst) || '—')
+            + (d && d.elapsed_s != null ? ' · ' + d.elapsed_s + ' s' : '') + '）');
+          /* ⚠️ 必须把应答交回去：页面要读 `verified/rst` 判"重启完没有" */
+          return d;
+        }, function (e) { fail(e); return { error: (e && (e.detail || e.message)) || String(e) }; });
       case 'tare':
-        post('/api/v1/mouse/tare').then(function () {
+        return post('/api/v1/mouse/tare').then(function () {
           log('mouse', 'info', '→ TARE · 陀螺角与里程基准清零');
           toast('ok', '已清零', '');
         }).catch(fail);
-        return;
       case 'raw':
-        post('/api/v1/mouse/raw', { line: String(arg || '') }).then(function () {
+        return post('/api/v1/mouse/raw', { line: String(arg || '') }).then(function () {
           log('mouse', 'info', '→ ' + arg);
           toast('', arg, '已下发，等待设备应答');
         }).catch(fail);
-        return;
       case 'saveRecord':
-        post('/api/v1/mouse/maze/record/stop').then(function (d) {
+        return post('/api/v1/mouse/maze/record/stop').then(function (d) {
           log('mouse', 'info', '记录已保存 · ' + ((d && d.name) || ''));
           toast('ok', '记录已保存', ((d && d.name) || ''));
         }).catch(fail);
-        return;
       default:
         log('control', 'warn', '这个动作还没有后端通路：' + name);
         return;
@@ -1715,14 +1969,27 @@ window.C = (function () {
      结束拉取 = 关流。上游 v2.1 的 `off()` **立刻丢弃在途请求**，是排空蓝牙
      透传缓冲的唯一手段 ⇒ 它是**排障手段**，不是省流量开关。
      三态纪律：没生效就说没生效，不许让界面继续显示"已生效"。 */
+  /* 拉取开关的**请求令牌**（改版四十一）：晚到的响应不许改状态。
+     只在 `setPull()` 里递增；`pullBatch()` 自己不碰它。 */
+  let pullSeq = 0;
+
   function setPull(on, n, opts) {
     // `auto=true` = 页面切走顺带停。后端在"车在跑"时会**扣留**（返回 kept=true），
     // 那时必须继续显示"拉取中"，否则界面说结束、设备还在发帧。
     const auto = !!(opts && opts.auto);
+    /* `quiet=true`（看门狗补开）：**一个 toast 都不弹**。看门狗是在人没操作时
+       自己动的，"自动动作引起弹框"是最招人烦的一类 —— 而且失败时会连弹，
+       看起来就像"陷入了循环"。 */
+    const quiet = !!(opts && (opts.quiet || opts.guard));
+    /* 请求令牌（改版四十一）：晚到的响应**不许**改状态。
+       踩过：人在 2 s 内点了【结束】又点了【开始】，先发的那个响应后到 ⇒
+       界面停在"已结束"，而设备其实在发帧（或反过来）。令牌让"最后一次"说了算。 */
+    const my = ++pullSeq;
+    const stale = function () { return my !== pullSeq; };
     // 防重入：看门狗每 2 s 看一眼，若上一次开流还没回来就再发一条，
     // 会在链路上堆命令（停等是串行的，堆两条就多两次往返）。
     LIVE.pullBusy = true;
-    const done = function (v) { LIVE.pullBusy = false; return v; };
+    const done = function (v) { if (!stale()) LIVE.pullBusy = false; return v; };
     if (!on) {
       if (!LIVE.on) {
         S.pulling = false;
@@ -1731,6 +1998,7 @@ window.C = (function () {
         return Promise.resolve(false);
       }
       return post('/api/v1/mouse/stream', { on: false, auto: auto }).then(function (d) {
+        if (stale()) return done(false);        // 过期响应：丢弃（最后一次说了算）
         // 后端扣留（车在跑）：**不许**把界面改成"已结束"
         if (d && d.kept) {
           S.pulling = true;
@@ -1742,13 +2010,13 @@ window.C = (function () {
         S.pulling = false;
         if (!auto) LIVE.pullOffAt = Date.now();   // 人工停 ⇒ 看门狗让 8 s
         log('mouse', 'info', '→ 拉取器已关 · 在途已丢弃');
-        if (!auto) toast('', '拉取已结束', '档位保留 n=' + S.pullN + '（8 s 内不会被自动重开）');
+        if (!auto && !quiet) toast('', '拉取已结束', '档位保留 n=' + S.pullN + '（8 s 内不会被自动重开）');
         emit('health');
         return done(true);
       }).catch(function (e) {
         const msg = (e && e.message) ? e.message : String(e);
         log('mouse', 'warn', '拉取器没关掉：' + msg);
-        toast('bad', '没关掉', String(msg).slice(0, 120));
+        if (!quiet) toast('bad', '没关掉', String(msg).slice(0, 120));
         emit('health');
         return done(false);
       });
@@ -1768,29 +2036,31 @@ window.C = (function () {
       return Promise.resolve(true);
     }
     return pullBatch(n, true).then(function (r) {
+      if (stale()) return done(false);
       if (!r.ok) {
-        toast('bad', '拉取没开起来', String(r.msg).slice(0, 120));
-        return false;
+        if (!quiet) toast('bad', '拉取没开起来', String(r.msg).slice(0, 120));
+        return done(false);
       }
       if (S.pulling) {   /* 流本来就是开的 ⇒ 这次只换了 N */
-        toast('ok', '已切到 n=' + r.n, '一次往返取 ' + r.n + ' 帧');
+        if (!quiet) toast('ok', '已切到 n=' + r.n, '一次往返取 ' + r.n + ' 帧');
         emit('health');
-        return true;
+        return done(true);
       }
       return post('/api/v1/mouse/stream', { on: true }).then(function (d) {
+        if (stale()) return done(false);
         S.pulling = true;
         log('mouse', 'info', '→ 拉取器已开 · n=' + r.n
           + (d && d.hz != null ? ' · 实测 ' + util.fmt(d.hz, 1) + ' Hz' : ''));
-        toast('ok', '拉取已开始', '档 n=' + r.n
+        if (!quiet) toast('ok', '拉取已开始', '档 n=' + r.n
           + (d && d.hz != null ? ' · 实测 ' + util.fmt(d.hz, 1) + ' Hz' : ''));
         emit('health');
         return done(true);
       }).catch(function (e) {
         const msg = (e && e.message) ? e.message : String(e);
         log('mouse', 'warn', '拉取没开起来：' + msg);
-        toast('bad', '拉取没开起来', String(msg).slice(0, 120));
+        if (!quiet) toast('bad', '拉取没开起来', String(msg).slice(0, 120));
         emit('health');
-        return false;
+        return done(false);
       });
     });
   }
@@ -1813,16 +2083,98 @@ window.C = (function () {
         （3 s 超时、只回 38/41 项）⇒ 参数表会空。所以「参数设定」在这张表里。 */
   const NEED_PULL = { overview: 1, live: 1, params: 1, race: 1, maint: 1 };
 
-  /* 返回 Promise：进页时要**先开拉取再取数**（参数页尤其如此，否则读表 409）。 */
-  function syncPull(route) {
+  /* 看门狗**只补这几页**（改版四十一）。与 `NEED_PULL` 差一个 `race`，这是有意的：
+       · `NEED_PULL`（进页开一次）—— 比赛页也要，否则进页是空白图；
+       · `GUARD_PULL`（停了自己补开）—— 比赛页**不补**。用户裁决：那页是"半手动"，
+         停车/复位后必须停着，等发车时由后端 `ensure_pull()` 兜。
+         以前它在两张表里都有 ⇒ 复位后 `resume()` 静默保持停 → 看门狗 2 s 后重开
+         → 开流失败（`n≥2` 要重试 3×2 s，命令通道被占）→ 再失败 →
+         **一边弹"开始拉流"一边发不出任何新命令**，就是现场那个循环。 */
+  const GUARD_PULL = { overview: 1, live: 1, params: 1, maint: 1 };
+
+  /* 返回 Promise：进页时要**先开拉取再取数**（参数页尤其如此，否则读表 409）。
+     `opts.guard` = 这是看门狗在补（用 `GUARD_PULL` 且静默、不弹框）。 */
+  function syncPull(route, opts) {
     if (!LIVE.on) return Promise.resolve(false);
     // 没连设备就没什么可开的 —— 打过去必然 409，只会在日志里刷"拉取没开起来"
     if (!S.health.mouse.connected) return Promise.resolve(false);
     const id = route || S.route;
-    const need = !!NEED_PULL[id];
-    if (need && !S.pulling) return setPull(true, S.pullN);
+    const tbl = (opts && opts.guard) ? GUARD_PULL : NEED_PULL;
+    const need = !!tbl[id];
+    if (need && !S.pulling) {
+      return setPull(true, S.pullN,
+        { quiet: !!(opts && (opts.guard || opts.quiet)) });
+    }
     if (!need && S.pulling) return setPull(false, null, { auto: true });
     return Promise.resolve(S.pulling);
+  }
+
+  /* ── 拉取小面板（改版四十一）：比赛页的"半手动"控制台 ──────────────────────
+     为什么抽成一份：切 N 只有**一条**正确姿势 —— 先停流、再改 N、再开流。
+     上游 `stream.on()` 每次都会 `configure(1, t_ms)`，档没在位就开流 ⇒ 设备按
+     n=1 发、界面写着 n=3，而现场**完全看不出来**。两处各写一遍必然漂移。
+
+     用法：`const pp = C.pullPanel(el); pp.paint();`（视图每次 paint 时调）。
+     只放四个东西：Hz 大数、一行状态、N、开始/结束 —— 这一页是舞台页，
+     面板每多一行，右栏就多滚一屏（发车按钮会被挤出视野）。 */
+  function pullPanel(host) {
+    if (!host) return { paint: function () {} };
+    host.innerHTML =
+      '<div class="pull-line">' +
+        '<span class="pl-hz"><b>—</b><i>Hz</i></span>' +
+        '<span class="pl-meta">—</span>' +
+        '<label class="pl-n">N <input class="input sm" value="1" inputmode="numeric"></label>' +
+        '<button class="btn btn-sm btn-primary" data-r="pp-on">' + icon('play') + '开始</button>' +
+        '<button class="btn btn-sm" data-r="pp-off">' + icon('stop') + '结束</button>' +
+      '</div>';
+    const hzEl = host.querySelector('.pl-hz b');
+    const metaEl = host.querySelector('.pl-meta');
+    const nin = host.querySelector('.pl-n .input');
+    const onB = host.querySelector('[data-r="pp-on"]');
+    const offB = host.querySelector('[data-r="pp-off"]');
+    onB.onclick = function () { onB.disabled = true; setPull(true, nin.value); };
+    offB.onclick = function () { offB.disabled = true; setPull(false); };
+    /* 停着时按回车 = 开（与实时页同一个习惯动作，不然两个页的手感不一样） */
+    nin.onkeydown = function (e) {
+      if (e.key === 'Enter' && !S.pulling) { e.preventDefault(); onB.click(); }
+    };
+    return {
+      paint: function () {
+        const t = S.tel;
+        const pulling = S.pulling;
+        const ld = S.health.mouse.linkDead;
+        /* 大数与实时页同源（`hz2` = 最近 2 s 实测）—— 两页显示不同的数就是两处。
+           `hz2` 判不了时退回 6 s 趋势（`t.rate`），但**不把两个数混着显示**。
+           未连接一律写 **0**（可判定的事实：一帧都不进），与实时页同口径。 */
+        const conn = !!S.health.mouse.connected;
+        const shown = !conn ? 0 : ((t.hz2 != null) ? t.hz2 : t.rate);
+        hzEl.textContent = shown == null ? '—' : util.fmt(shown, 1);
+        hzEl.classList.toggle('off', shown == null || !conn);
+        /* 状态行只说三件事：帧龄 / 模式 / 为什么没在拉。
+           **不重复"已连接"** —— 那在顶栏有，一行里说两遍就没人读了。 */
+        const bits = [];
+        if (!S.health.mouse.connected) bits.push(ld ? '链路已断' : '未连接');
+        else if (!pulling) bits.push('未拉取');
+        else if (t.ageMs == null) bits.push('等第一帧');
+        else {
+          bits.push(t.ageMs >= 1000 ? util.fmt(t.ageMs / 1000, 1) + ' s 前'
+                                    : util.fmt(t.ageMs, 0) + ' ms 前');
+          if (t.ageMs > 2500) bits.push('帧停了');
+        }
+        bits.push(S.pullN <= 1 ? '停等' : '批式 n=' + S.pullN);
+        if (t.hzInstAge != null && t.hzInstAge > 15000 && pulling) {
+          bits.push('数字已冻 ' + Math.round(t.hzInstAge / 1000) + ' s');
+        }
+        metaEl.textContent = bits.join(' · ');
+        metaEl.title = metaEl.textContent;     // 窄栏会被省略号截，全文留在这里
+        metaEl.classList.toggle(
+          'bad', !!(ld || (pulling && t.ageMs != null && t.ageMs > 2500)));
+        nin.disabled = pulling;                              // 切档必须先停流
+        if (document.activeElement !== nin) nin.value = S.pullN;
+        onB.disabled = pulling || !S.health.mouse.connected;
+        offB.disabled = !pulling;
+      },
+    };
   }
 
   /* ── 视频会话动作 ─────────────────────────────────────────────────────── */
@@ -2231,21 +2583,25 @@ window.C = (function () {
   recomputeLeds();
 
   return {
-    S, util, icon, on, emit, log, toast, go, boot, act,
+    S, util, icon, on, emit, log, toast, go, boot, act, pinRunning, applyRunning,
     sessionStart, sessionStop,
     videoStart, videoCancel, videoTick,
     recomputeLeds, pullBatch,
-    setPull, syncPull,
+    setPull, syncPull, pullPanel,
     loadMazeView, clearMazeView, startRaceTick, stopRaceTick, deleteRecord, linkVideo,
     renameRecord, bulkDeleteRecords, importRecord, loadRecStatus, fitMain,
     // 真后端接入：`startLive()` 由 shell 的 `boot()` 起；`LIVE` 只读（判据与排障要看它）
     startLive, LIVE,
+    /* 判据 V20 直接驱动这两个：`applyHealth` 要验**下降沿**真的会清读数，
+       `resetTelemetry` 要验清的东西齐不齐（少清一样就冻在最后一帧上）。 */
+    applyHealth, resetTelemetry,
     // 四页数据（按页拉取 + 形状翻译）
     loadParams, loadRecords, loadVideoSessions, loadTrajectory, loadReplay, needPage,
     replayViewLive,
     // 设备连接（真的要动硬件的按钮走这里）
     connectMouse, disconnectMouse, listPorts,
-    channels: { groups: GROUPS, text: valText, dirs: DIRS, tasks: TASKS, motions: MOTIONS, spurt: SPURT, front: FRONT },
+    channels: { groups: GROUPS, text: valText, dirs: DIRS, tasks: TASKS, motions: MOTIONS,
+                motionText: motionText, spurt: SPURT, front: FRONT },
     records: S.records,
     record(id) { return S.records.find(r => r.id === id) || S.records[0] || null; },
     recordView: recordView,

@@ -1814,34 +1814,55 @@ def main(argv=None) -> int:
     print("Control 端到端演练（无鼠 / 无视频素材 / 无场地）")
     print("=" * 78)
 
-    # ---------------------------------------------------------------- 0 纯本地：远近墙
-    head("0. 墙图：近墙落本格、远墙落外一格（纯内存，不碰服务）")
+    # ---------------------------------------------------------------- 0 纯本地：前墙落位
+    head("0. 墙图：`wallFront` 只说「前方有墙」，`frontFar` **不参与落位**（纯内存）")
     # 为什么单列一条**不依赖链路**的判据：模拟器的 `frontFar` 恒 0，
-    # 所以"远墙画在一格之外"这件事在联调里**永远验不到**。而它错了也不会崩，
+    # 所以"两档怎么落位"在联调里**永远验不到**。而它错了也不会崩，
     # 只是图上少一格距离（照图判断"还有一格能走"就撞了）。
+    #
+    # ⚠️ **语义在 2026-10-26 改过一次，判据必须跟着改** —— 不改就是一条永远红的
+    #    假警报（比假绿好一点，但同样会让人不再看它）。
+    #    · 旧：`wallFront=1 & frontFar=1` ⇒ 墙画在**外一格**（本格 front=False）；
+    #    · 新：`frontFar` 是**距离档位**（"不在贴脸 65 mm 以内"），格距 180 mm ⇒
+    #      65..180 mm 全都算"远"，而它**仍然挡在本格前方** ⇒ 只看 `wallFront`。
+    #    证据：v10 建图增量验收的一次 10 格短跑，7 面不一致里 3 面
+    #    （(3,2)v / (3,3)h / (4,3)v）正是旧规则把**有墙画成可通**，而固件 `open4`
+    #    位在这三处全部正确。
     try:
         from control.maze_rec import MazeWallMap
-        # dir=0 是 +y（向上）。本格 (2,2) 前方 (2,3) 有远墙 ⇒
-        #   本格 (2,2) 的 front 必须是 False（贴脸是空的）
-        #   (2,3) 的 front 必须是 True （墙在再前一格的边上）
+        # dir=0 是 +y（向上）。本格 (2,2) 前方有墙、且报"远" ⇒
+        #   ① 本格 (2,2) 的 front(d=0) 必须是 True（墙挡在本格前方）
+        #   ② 邻居 (2,3) 的**反向**面(d=2，南面) 也必须是 True（一道墙两格共有）
+        #   ③ 墙**不许**跑到 (2,3) 的北面(d=0) 去 —— 那是旧规则"外一格"的错法
         m_far = MazeWallMap(16)
         m_far.feed({"posX": 2, "posY": 2, "dir": 0, "wallFront": 1, "frontFar": 1,
                     "wallLeft": 0, "wallRight": 0})
-        far_ok = (m_far.wall[2][2][0] is False and m_far.wall[2][3][0] is True
-                  and m_far.known[2][2][0] is True)
-        # 负向：frontFar=0（近墙）⇒ 墙就在本格前沿，下一格必须是 False
+        far_ok = (m_far.wall[2][2][0] is True
+                  and m_far.known[2][2][0] is True
+                  and m_far.wall[2][3][2] is True
+                  and m_far.known[2][3][0] is False)
+        # 负向：frontFar=0（近墙）⇒ **本格结果必须与上面一模一样**。
+        # 两个档位在本格给出不同答案，就说明 `frontFar` 又在参与落位了。
         m_near = MazeWallMap(16)
         m_near.feed({"posX": 2, "posY": 2, "dir": 0, "wallFront": 1, "frontFar": 0,
                      "wallLeft": 0, "wallRight": 0})
-        near_ok = (m_near.wall[2][2][0] is True and m_near.wall[2][3][0] is False)
-        i46_ok = bool(far_ok and near_ok)
+        same_ok = (m_near.wall[2][2][0] == m_far.wall[2][2][0] is True)
+        # 第三向：`wallFront=0` ⇒ 本格确认"没有墙"（`known` True 而 `wall` False），
+        # 这一条抓"把所有前向都写成有墙"的另一种错法。
+        m_open = MazeWallMap(16)
+        m_open.feed({"posX": 2, "posY": 2, "dir": 0, "wallFront": 0, "frontFar": 0,
+                     "wallLeft": 0, "wallRight": 0})
+        open_ok = (m_open.known[2][2][0] is True and m_open.wall[2][2][0] is False)
+        i46_ok = bool(far_ok and same_ok and open_ok)
         record("I46", "PASS" if i46_ok else "FAIL",
-               f"frontFar=1 ⇒ 本格 front={m_far.wall[2][2][0]}（应 False）、"
-               f"下一格 front={m_far.wall[2][3][0]}（应 True）={far_ok}；"
-               f"frontFar=0 ⇒ 本格={m_near.wall[2][2][0]}（应 True）、"
-               f"下一格={m_near.wall[2][3][0]}（应 False）={near_ok}"
+               f"frontFar=1 ⇒ 本格 front={m_far.wall[2][2][0]}（应 True）、"
+               f"邻居反向={m_far.wall[2][3][2]}（应 True）、"
+               f"邻居北面 known={m_far.known[2][3][0]}（应 False）={far_ok}；"
+               f"frontFar=0 与 =1 本格一致={same_ok}；"
+               f"wallFront=0 ⇒ 确认无墙={open_ok}"
                + ("" if i46_ok else
-                  " ⇒ **远墙被当成近墙画了**：图上少一格距离（照图判断会撞）"))
+                  " ⇒ **要么把远墙画到外一格（本格显示可通 ⇒ 照图走就撞），"
+                  "要么反过来把每个前向都写成有墙**"))
     except Exception as e:                                    # noqa: BLE001
         record("I46", "FAIL", f"墙图单测没跑起来：{type(e).__name__}: {e}")
 
@@ -1964,6 +1985,462 @@ def main(argv=None) -> int:
             pass
     except Exception as e:                                    # noqa: BLE001
         record("I50", "FAIL", f"缺口单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---------------------------------------------------------------- 0e 链路健康
+    head("0e. 帧率口径 / 判死处置 / PING 退避（改版四十一，纯内存 + 假上游）")
+    # 为什么单列：这一轮改的三处**全是"没数据也照常显示"的静默错** ——
+    #   ① 帧率是 6 s 滑动平均 ⇒ 掉一半要 3 s 才看得出来，现场只看到"数字慢慢滑"；
+    #   ② 链路死了 `is_connected` 仍 True（串口开着）⇒ 界面显示"已连接"，
+    #      而采样循环每 100 ms 把**同一帧**再推一遍 ⇒ "没数据还在刷新"；
+    #   ③ 命令超时之后没人复核 ⇒ "命令没到设备"与"设备做了但没回"分不开。
+    # 这三条**读数字验不出来**，所以必须构造假上游把时序捏在手里。
+
+    class _FakeTel:
+        def __init__(self):
+            self.n = 0
+            self.age = None
+            self.hz2 = 0.0
+
+        def samples(self): return self.n
+        def last_frame_age(self): return self.age
+        def hz(self): return self.hz2
+
+    class _FakeStream:
+        mode = "stop-and-wait"
+
+        def __init__(self):
+            self.toggles = []
+            self.is_on = False
+            self.stats_d = {"batches": 0, "n": 1, "lost_batches": 0}
+
+        def stats(self): return dict(self.stats_d)
+
+        def toggle(self, on):
+            self.toggles.append(bool(on))
+            self.is_on = bool(on)
+            return type("R", (), {"ok": True, "status": "OK"})()
+
+    class _FakeMaze:
+        """收车那一趟要用的最小面：`stop()` 与 `state()`。"""
+
+        def __init__(self):
+            self.stops = 0
+            self.task = 0
+
+        def stop(self, timeout=3.0):
+            self.stops += 1
+            return type("R", (), {"ok": True, "status": "OK", "data": {}})()
+
+        def state(self):
+            return {"task": self.task, "motion": 0}
+
+    class _FakeMC:
+        def __init__(self):
+            self.telemetry = _FakeTel()
+            self.stream = _FakeStream()
+            self.maze = _FakeMaze()
+            self.is_connected = True
+            self.disconnects = 0
+
+        def disconnect(self):
+            self.disconnects += 1
+            self.is_connected = False
+
+    class _FakeBus:
+        def __init__(self):
+            self.pub = []
+            self.logs = []
+
+        def publish(self, topic, data, **kw): self.pub.append((topic, data))
+        def log(self, level, msg, **kw): self.logs.append((level, msg))
+
+    class _FakeStore:
+        def __init__(self): self.marks = []
+
+        def mark(self, *a, **kw): self.marks.append(a)
+
+    class _FakeRec:
+        def __init__(self): self.down = 0
+
+        def feed_link_down(self): self.down += 1
+
+    def _mk():
+        """造一个**只补了本段判据要用的那几位**的适配器（不跑 `__init__`）。
+
+        为什么不跑真的 `__init__`：它要读配置、探上游能力、开锁 —— 那会让这条
+        判据依赖"上游在不在"，而它要验的是**本层自己的时序判定**，与上游无关。
+        """
+        from control.adapters.mouse import MouseAdapter as _MA
+        ad = _MA.__new__(_MA)
+        ad._rate_hist = {}
+        ad._batch_hist = []
+        ad._batch_seen = None
+        ad._batch_seq = 0
+        ad._rate_last = {}
+        ad._inst = None
+        ad._unified_hz_nominal = 217.0
+        ad._want_stream = False
+        ad._link_dead = None
+        ad._probe_armed = None
+        ad._probe_last = 0.0
+        ad._probe_busy = False
+        ad._probe_next_at = 0.0
+        ad._probe_backoff = 0.0
+        ad._reset_at = 0.0
+        ad._frame_grow_at = 0.0
+        ad._frame_grow_n = 0
+        # 改版四十二的几位：命令占链路 / 自愈
+        ad._cmd_inflight = 0
+        ad._cmd_exit_at = 0.0
+        ad._held_seen_at = 0.0
+        ad._revive_at = 0.0
+        ad._revive_tries = 0
+        ad._revive_pending = False
+        ad._want_on = False
+        ad._mc = _FakeMC()
+        ad.bus = _FakeBus()
+        ad.store = _FakeStore()
+        ad.maze_recorder = _FakeRec()
+        return ad
+
+    # ---- I56 帧率三个口径分开，且重连清窗
+    try:
+        ad = _mk()
+        mc = ad._mc
+        # ① 从没收到过帧 ⇒ `hz_2s` 判不了（None）。上游此时返回 0，而 0 会被读成
+        #    "测到了 0 Hz" —— 那是编出来的读数。
+        empty_none = (ad._rate_snapshot(mc)["unified"].get("hz_2s") is None)
+        # ② 6 s 趋势与 2 s 实测**必须不同源**：把窗口起点推到 2.5 s 前、样本从 25 涨到 40
+        #    ⇒ `hz`≈6.0；而上游 2 s 口径给 4.0。两个数不相等才算真的分开算了。
+        mc.telemetry.n = 40
+        mc.telemetry.age = 0.05
+        mc.telemetry.hz2 = 4.0
+        ad._rate_hist["unified"] = [(time.monotonic() - 2.5, 25)]
+        r_split = ad._rate_snapshot(mc)["unified"]
+        hz6, hz2 = r_split.get("hz"), r_split.get("hz_2s")
+        split_ok = (hz2 == 4.0 and hz6 is not None and abs(hz6 - 6.0) < 0.6)
+        # ③ 最近一批的即时值要带龄期（"数字冻住多久"本身是现场信息）
+        mc.stream.stats_d = {"batches": 1, "n": 1, "lost_batches": 0}
+        ad._rate_snapshot(mc)                      # 只建基线
+        time.sleep(0.05)
+        mc.stream.stats_d = {"batches": 2, "n": 1, "lost_batches": 0}
+        r_inst = ad._rate_snapshot(mc)["unified"]
+        inst_ok = (r_inst.get("hz_inst") is not None
+                   and isinstance(r_inst.get("hz_inst_age_ms"), int))
+        # ④ 重连清窗：四样少清一样就会出"重连后的假数"
+        ad._reset_rate_windows()
+        cleared = (ad._rate_hist == {} and ad._batch_hist == []
+                   and ad._batch_seen is None and ad._inst is None
+                   and ad._rate_last == {})
+        i56_ok = bool(empty_none and split_ok and inst_ok and cleared)
+        record("I56", "PASS" if i56_ok else "FAIL",
+               f"从没收到帧时 hz_2s=None={empty_none}；6 s 趋势={hz6} vs 2 s 实测={hz2}"
+               f"（**不同源**={split_ok}）；最近一批 hz_inst={r_inst.get('hz_inst')}"
+               f"（龄 {r_inst.get('hz_inst_age_ms')} ms）；重连清窗={cleared}"
+               + ("" if i56_ok else
+                  " ⇒ 界面上那个大数仍是 6 s 平滑值（掉一半要 3 s 才看出来），"
+                  "或重连后前 6 s 还是上一段的均值"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I56", "FAIL", f"帧率口径单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I57 上游报 link_lost / 超时判死 ⇒ 停流 + 收尾 + 标死 + 断开（且幂等）
+    try:
+        ad = _mk()
+        mc = ad._mc
+        mc.stream.is_on = True
+        ad._want_stream = True
+        first = ad._declare_dead("测试判死")
+        dead = ad.link_health()
+        pubs = [p for p in ad.bus.pub
+                if p[0] == "mouse.error" and (p[1] or {}).get("kind") == "link_dead"]
+        i57_ok = bool(first
+                      and mc.stream.toggles == [False]       # ① 停流（一次，且是 False）
+                      and ad.maze_recorder.down == 1         # ② 记录收尾
+                      and mc.disconnects == 1                # ③ 串口断开
+                      and dead.get("link_dead")              # ④ 界面能读到"已判死"
+                      and dead.get("want_stream") is False   #    不再"想要帧"
+                      and len(pubs) == 1)                    # ⑤ 前端收得到
+        # 幂等：再判一次**什么都不做**（否则会重复发 WS、重复断串口）
+        again = ad._declare_dead("再来一次")
+        idem = (again is False and mc.disconnects == 1 and ad.maze_recorder.down == 1
+                and len(ad.bus.pub) == 1)
+        i57_ok = bool(i57_ok and idem)
+        record("I57", "PASS" if i57_ok else "FAIL",
+               f"停流={mc.stream.toggles}、记录收尾 {ad.maze_recorder.down} 次、"
+               f"断开 {mc.disconnects} 次、link_dead={bool(dead.get('link_dead'))}、"
+               f"want_stream={dead.get('want_stream')}、WS 通知 {len(pubs)} 条；幂等={idem}"
+               + ("" if i57_ok else
+                  " ⇒ 链路死了却不停流 ⇒ 采样循环会把**同一帧**每 100 ms 再推一遍"
+                  "（界面上的数字看着在变，设备早已没答话）"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I57", "FAIL", f"判死单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I58 复核时机：无帧才查、复位宽限、被点名优先、PING 不通才判死
+    try:
+        ad = _mk()
+        now = time.monotonic()
+        ad._want_stream = True
+        ad._frame_grow_at = now - 5.0
+        r_stall = ad._probe_should_run(now)                    # 该查
+        ad._reset_at = now - 1.0                               # 刚复位 1 s ⇒ 宽限内
+        r_grace = ad._probe_should_run(now)
+        ad._reset_at = now - 5.0                               # 宽限已过 ⇒ 该查
+        r_after = ad._probe_should_run(now)
+        # 被点名（命令超时 / 上游 link_lost）时**无视 want_stream**：
+        # 否则用户一停流，"上游说断链"就再没人管。
+        ad._want_stream = False
+        ad._probe_armed = (now, "upstream:link_lost")
+        r_armed = ad._probe_should_run(now)
+        # PING 不通 ⇒ 真的判死
+        ad._probe_armed = None
+        ad._reset_at = 0.0
+        ad._probe_last = 0.0
+        ad.verify_link = lambda tries=None: {"ok": False, "tries": 2,
+                                             "status": "TIMEOUT", "ms": 2}
+        ad._probe_once("测试超时")
+        dead_after = ad.link_health().get("link_dead") is not None
+        i58_ok = bool(r_stall and not r_grace and r_after and r_armed and dead_after)
+        record("I58", "PASS" if i58_ok else "FAIL",
+               f"无帧 5 s⇒{r_stall!r}；复位后 1 s⇒{r_grace!r}（应为 None）；"
+               f"复位后 5 s⇒{r_after!r}；被点名（want_stream=False）⇒{r_armed!r}；"
+               f"PING 不通后已判死={dead_after}"
+               + ("" if i58_ok else
+                  " ⇒ 要么复位瞬间就被判成断链（车正常重启却要人断电重连），"
+                  "要么停流之后上游报的 link_lost 无人复核"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I58", "FAIL", f"复核时机单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I59 PING 通 ⇒ 只退避、**不自动重开**（后端不替人做决定）
+    try:
+        ad = _mk()
+        mc = ad._mc
+        ad._want_stream = True
+        ad.verify_link = lambda tries=None: {"ok": True, "tries": 1,
+                                             "status": "OK", "ms": 20}
+        gaps = []
+        for _ in range(4):
+            ad._probe_last = 0.0       # 绕过冷却，模拟"时间已经过去"
+            ad._probe_next_at = 0.0
+            ad._probe_once("测试")
+            gaps.append(ad._probe_backoff)
+        next_ok = ad._probe_next_at > time.monotonic()
+        # ⚠️ "不自动重开"要拿**真的会发生的动作**来验：`mc.stream.toggle()` 是唯一
+        #    能开流的出口（`set_stream` 最终也落到它或 `pace()`）。若某天有人在
+        #    `_probe_once` 里加了 `set_stream(True)`，这里会立刻看到一条 `True`。
+        #    自欺的写法是把 `set_stream` 换成 lambda 再断言"没被调用"—— 那条永远成立。
+        no_reopen = (mc.stream.toggles == [])
+        i59_ok = bool(gaps[:3] == [8.0, 16.0, 30.0] and gaps[3] == 30.0
+                      and no_reopen and next_ok)
+        record("I59", "PASS" if i59_ok else "FAIL",
+               f"PING 通时退避序列 {gaps}（上限 30 s）；开流命令 {mc.stream.toggles}"
+               f"（应为空=**不自动重开**）；下次复核已推迟={next_ok}"
+               + ("" if i59_ok else
+                  " ⇒ 要么每 4 s 白问一遍 PING（把日志刷满），"
+                  "要么后端擅自把拉取重开了（人刚停的流又活了，且无从解释）"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I59", "FAIL", f"退避单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I60 命令占链路时**一次都不复核**（改版四十二）
+    # 为什么必须单列：`send_cmd()` 对 urgent 命令先 `stream.suspend()`、回来再
+    # `resume()` 重发 `RATE PULL`。整段 0.9~5.1 s 一帧都没有（真机实测）。这段时间
+    # 去 PING 会**和那条 `RATE PULL` 抢同一个 1 ms 命令窗口**（固件每 ms 只消费一行）
+    # ⇒ `RATE PULL` 被吃掉 ⇒ 拉取静默保持停 ⇒ 现场"发完车很久没有数据"。
+    # 这条**读数字验不出来**，只能把时序捏在手里。
+    try:
+        o = {}
+        # ① 本层自己登记的命令在途
+        ad = _mk()
+        ad._want_stream = True
+        ad._want_on = True
+        ad._frame_grow_at = time.monotonic() - 9.0            # 早就"该查"了
+        ad._cmd_enter()
+        o["inflight"] = ad._probe_should_run(time.monotonic())
+        # ② 上游拉着链路（本层没包装的 urgent 命令，如 ESTOP / MOVE / PARAMS SAVE）
+        ad2 = _mk()
+        ad2._want_stream = True
+        ad2._want_on = True
+        ad2._frame_grow_at = time.monotonic() - 9.0
+        ad2._mc.stream._suspends = 1                          # 让路计数 >0
+        o["held"] = ad2._probe_should_run(time.monotonic())
+        o["held_stamped"] = ad2._held_seen_at > 0
+        # ③ `_cmd_exit` 必须把"停帧计时"挪到**放手那一刻**（否则命令刚回来就 ≥4 s）
+        ad3 = _mk()
+        ad3._want_stream = True
+        ad3._want_on = True
+        ad3._frame_grow_at = time.monotonic() - 20.0
+        ad3._cmd_enter()
+        t_exit = time.monotonic()
+        ad3._cmd_exit("发车")
+        o["grow_moved"] = ad3._frame_grow_at >= t_exit
+        o["after_exit"] = ad3._probe_should_run(time.monotonic())
+        ok60 = (o["inflight"] is None and o["held"] is None and o["held_stamped"]
+                and o["grow_moved"] and o["after_exit"] is None)
+        record("I60", "PASS" if ok60 else "FAIL",
+               f"命令在途⇒{o['inflight']!r}（应 None）；上游让路(_suspends=1)⇒"
+               f"{o['held']!r}（应 None，已记账={o['held_stamped']}）；"
+               f"_cmd_exit 把停帧计时挪到现在={o['grow_moved']}；放手后立刻⇒"
+               f"{o['after_exit']!r}（应 None）"
+               + ("" if ok60 else
+                  " ⇒ **命令占着链路时还在 PING**：PING 与 `resume()` 的 `RATE PULL` "
+                  "抢同一个 1 ms 窗口 ⇒ 那条被吃掉 ⇒ 拉取静默保持停（发完车没数据），"
+                  "或者两次 PING 都被吃掉 ⇒ 把活着的链路判死、断开串口"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I60", "FAIL", f"命令让路单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I61 `_cmd_exit` 清"让路误报"、**保留**"真没问出结果"（改版四十二）
+    # 两个都清 ⇒ 命令超时之后再没人复核；两个都不清 ⇒ n≥2 发车后第一拍那条
+    # `link_lost`（上游 `_frame_gap` 的已知假阳性）会去 PING 甚至判死。
+    try:
+        up = _mk()
+        up._want_stream = True
+        up._probe_armed = (time.monotonic(), "upstream:link_lost")
+        up._cmd_enter()
+        up._cmd_exit("发车")
+        cleared = up._probe_armed is None
+        to = _mk()
+        to._want_stream = True
+        to._probe_armed = (time.monotonic(), "cmd_timeout:maze_run")
+        to._cmd_enter()
+        to._cmd_exit("发车")
+        kept = (to._probe_armed is not None
+                and str(to._probe_armed[1]).startswith("cmd_timeout"))
+        ok61 = bool(cleared and kept)
+        record("I61", "PASS" if ok61 else "FAIL",
+               f"让路造成的 upstream:link_lost 已被清={cleared}；"
+               f"真·命令超时标记仍保留={kept}（{to._probe_armed}）"
+               + ("" if ok61 else
+                  " ⇒ 要么把假阳性当真（n≥2 发车后必报 link_lost ⇒ 白 PING 甚至误判死），"
+                  "要么把真超时也清了（命令没到设备这件事再没人复核）"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I61", "FAIL", f"误报清理单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I62 拉取自愈：想要帧却**没在跑** ⇒ 补一次；人明确停了 ⇒ 绝不补
+    # 为什么必须有：`resume()` 三次重试用尽后是**静默保持停**（上游原话），而前端
+    # 只在切页时调 `syncPull()` ⇒ 发完车不切页，帧再也回不来。
+    # 负向同样重要：不留"人停了它还自己开"的口子 —— 那正是改版四十一拆掉的行为。
+    try:
+        ad = _mk()
+        mc = ad._mc
+        now = time.monotonic()
+        ad._want_on = True
+        ad._revive_pending = True
+        ad._cmd_exit_at = now - 10.0
+        ad._held_seen_at = now - 10.0
+        r_need = ad._revive_reason(now)                       # 该补
+        # ① 人明确停了（`_want_on=False`）⇒ 不补，且**一条开流命令都不许发**
+        ad._want_on = False
+        r_stop = ad._revive_reason(now)
+        no_open = (mc.stream.toggles == [])
+        # ② 命令刚放手 1 s 内 ⇒ 不补（让 resume 自己那三次重试先跑完）
+        ad._want_on = True
+        ad._cmd_exit_at = now - 0.2
+        r_quiet = ad._revive_reason(now)
+        # ③ 补满 REVIVE_MAX 次 ⇒ 停手（补多了就是命令风暴，比慢一点更糟）
+        ad._cmd_exit_at = now - 10.0
+        ad._revive_tries = ad.REVIVE_MAX
+        r_max = ad._revive_reason(now)
+        # ④ 帧回来了 ⇒ 意愿与计数一起归零（下一次"没在跑"要重新计数）
+        ad._track_frames(mc)
+        mc.telemetry.n = 5
+        ad._track_frames(mc)
+        reset_ok = (ad._revive_pending is False and ad._revive_tries == 0)
+        ok62 = bool(r_need and r_stop is None and no_open and r_quiet is None
+                    and r_max is None and reset_ok)
+        record("I62", "PASS" if ok62 else "FAIL",
+               f"想要帧+没在跑⇒{r_need!r}；人停了⇒{r_stop!r}（应 None，开流命令="
+               f"{mc.stream.toggles!r}）；命令刚放手⇒{r_quiet!r}（应 None）；"
+               f"补满 {ad.REVIVE_MAX} 次⇒{r_max!r}（应 None）；帧回来后计数归零={reset_ok}"
+               + ("" if ok62 else
+                  " ⇒ 要么 resumer 失败后再也没人把拉取开回来（发完车一直没数据），"
+                  "要么替人把刚停掉的流又开回来（「我明明停了它又活了」）"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I62", "FAIL", f"拉取自愈单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I63 动作码表：`/caps` 那份必须盖住上游全部码，且每个都有中文短名
+    # 为什么单列：这台设备上"动作"显示成裸数字是**看得出来但读不懂**的错 ——
+    # 现场看到"动作 14"无法判断车在左快转还是急停，而这正是判"收车收住没有"的
+    # 唯一依据（改版四十三把发车/收车的门控从迷宫任务改成动作码）。
+    # 旧前端那张 5 项表还有两个硬伤：`0='停止'`（真值是 NULL 空闲）、**根本没有 5**
+    # （STOP 停车）⇒ 恰好把"空闲"和"停车"说反，而 5 落进 `|| v` 变成裸数字。
+    # 这条判据钉三件事：
+    #   ① 码集合 ⊇ 上游 `MOTION_TASK_NAMES`（上游加码不能漏成裸数字）；
+    #   ② 每个 code 都带**中文**短名（不是英文原名、更不是数字）；
+    #   ③ "没在动"的码表恰好是 {0,5}：0/5 算停，1/12/101 算在动。
+    try:
+        from control.adapters.mouse import MOTION_STOPPED, motion_codes
+        # 上游静态表：`host_dir` 的取法与 I22/I63 之外几处**同一份真相**。
+        # ⚠️ 不注入 path 就直接 import ⇒ `ModuleNotFoundError` ⇒ 上游表是空集合，
+        #    而"空集合 ⊆ 任何集合"会让"覆盖上游"这句**恒真**（典型的假绿）。
+        try:
+            _hd = ROOT.parent / "RemoteControl" / "host"
+            if str(_hd) not in sys.path:
+                sys.path.insert(0, str(_hd))
+            from host.protocol.codec import MOTION_TASK_NAMES as _UP
+        except Exception:                                    # noqa: BLE001
+            _UP = {}
+        codes = motion_codes()
+        got = {int(c["v"]) for c in codes}
+        cover = bool(_UP) and set(_UP) <= got
+        # 中文短名：至少含一个汉字（`45°直行`/`原地右90` 都算），且不等于码本身
+        no_zh = [c for c in codes
+                 if not any("\u4e00" <= ch <= "\u9fff" for ch in str(c["label"] or ""))]
+        stop_ok = (set(MOTION_STOPPED) == {0, 5}
+                   and all(v in MOTION_STOPPED for v in (0, 5))
+                   and all(v not in MOTION_STOPPED for v in (1, 12, 101)))
+        i63_ok = bool(cover and not no_zh and stop_ok
+                      and len(codes) == len(set(_UP) | set(c["v"] for c in codes)))
+        record("I63", "PASS" if i63_ok else ("SKIP" if not _UP and not no_zh and stop_ok
+                                             else "FAIL"),
+               f"码表 {len(codes)} 项（上游 {len(_UP)} 项）；覆盖上游={cover}；"
+               f"缺中文短名的码={[c['v'] for c in no_zh] or '无'}；"
+               f"『没在动』={sorted(MOTION_STOPPED)}（应为 [0,5]）={stop_ok}"
+               + ("（上游码表取不到 ⇒ 覆盖性判不了，其余两项已验）" if not _UP else "")
+               + ("" if i63_ok else
+                  " ⇒ 界面上会显示裸数字或英文原名（现场没法判读车在做什么），"
+                  "或者把 NULL(空闲) 与 STOP(停车) 判反（发车/收车按钮跟着错）"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I63", "FAIL", f"动作码表单测没跑起来：{type(e).__name__}: {e}")
+
+    # ---- I64 收车：**没有帧源就不许白等**（改版四十三）
+    # 探针实测（2026-10-26）：半手动模式点【收车】时流已停 ⇒ `_wait_fresh_frame`
+    # 永远等不到新帧 ⇒ 干等满 2.5 s 才回"判不了"，加上命令 3 s ⇒ **5.5 s 无反馈**，
+    # 现场就是"点了没反应"。这条判据两个方向都要：
+    #   ① 帧龄 >2 s（没帧源）⇒ `waited=False`、`reliable=None`、**耗时 <1 s**；
+    #   ② 帧龄 50 ms（有帧源）⇒ 仍然走等待分支（不能为了快就不确认了）。
+    try:
+        import threading as _th
+        ad = _mk()
+        # `available` 是**只读属性**（`self._import_error is None`）：设 `_import_error`
+        # 才是它的真相点，直接 `ad.available = True` 会 AttributeError。
+        ad._import_error = None
+        ad._lock = _th.Lock()
+        # `maze_stop` 判能力、`timesync` 判入口（`_need("timesync", "收车")` 两道闸）
+        ad._features = {"maze_stop": True, "timesync": True}
+        mc = ad._mc
+        # ① 没帧源：帧龄 9 s
+        mc.telemetry.age = 9.0
+        _t0 = time.monotonic()
+        r1 = ad.maze_stop()
+        dt1 = time.monotonic() - _t0
+        fast_ok = (r1.get("waited") is False and r1.get("reliable") is None
+                   and r1.get("fresh") is False and dt1 < 1.0)
+        # ② 有帧源：把"等待"本身打桩（这条验的是**闸**，不是等待循环）
+        mc.telemetry.age = 0.05
+        mc.telemetry.n = 10
+        ad._wait_fresh_frame = lambda m, n0, timeout=2.5: True
+        r2 = ad.maze_stop()
+        wait_ok = (r2.get("waited") is True and r2.get("fresh") is True
+                   and r2.get("reliable") is True)
+        i64_ok = bool(fast_ok and wait_ok)
+        record("I64", "PASS" if i64_ok else "FAIL",
+               f"无帧源（帧龄 9 s）⇒ waited={r1.get('waited')}、"
+               f"reliable={r1.get('reliable')}、耗时 {dt1 * 1000:.0f} ms（应 <1000）；"
+               f"有帧源（50 ms）⇒ waited={r2.get('waited')}、reliable={r2.get('reliable')}"
+               + ("" if i64_ok else
+                  " ⇒ 要么没有帧源时仍在干等 2.5 s（现场是「点了没反应」），"
+                  "要么反过来：为了快就不等新帧，拿停车前那一帧判「收住了没有」"))
+    except Exception as e:                                    # noqa: BLE001
+        record("I64", "FAIL", f"收车不等单测没跑起来：{type(e).__name__}: {e}")
 
     # ---------------------------------------------------------------- 0d v10 建图
     head("0d. v10 建图增量：三态 / 幂等 / 冲突取最新 / 落盘往返（纯内存）")

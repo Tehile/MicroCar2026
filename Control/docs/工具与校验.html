@@ -77,14 +77,14 @@ li{margin:.28em 0}
 <li><a href="#1">1. 六个脚本一览</a></li>
 <li><a href="#2-preflightpy">2. preflight.py —— 启动前自检</a></li>
 <li><a href="#3-drillpy">3. drill.py —— 端到端演练 + 判据</a><ul>
-<li><a href="#31-2026-10-25">3.1 编号现状（2026-10-25 核对）</a></li>
+<li><a href="#31-2026-10-26">3.1 编号现状（2026-10-26 第三次核对）</a></li>
 <li><a href="#32-sim">3.2 --sim 的边界</a></li>
 </ul>
 </li>
 <li><a href="#4-browser_checkpy">4. browser_check.py —— 无头浏览器实测</a><ul>
 <li><a href="#41-v6">4.1 核心是 V6 —— 验"接缝真的接上了"</a></li>
 <li><a href="#42-v5">4.2 负向判据 V5 —— 不许假绿</a></li>
-<li><a href="#43-v0-v15">4.3 组清单（V0 ~ V15）</a></li>
+<li><a href="#43-v0-v20">4.3 组清单（V0 ~ V20）</a></li>
 </ul>
 </li>
 <li><a href="#5-check_iface_tablepy">5. check_iface_table.py —— 防文档漂移</a></li>
@@ -251,15 +251,32 @@ $PY tools/preflight.py --quick    # 跳过网络与 git（离线环境）
 $PY tools/drill.py --sim          # 额外起上游鼠标模拟器（有真数据）
 $PY tools/drill.py --port 8899    # 8770 被占时换端口
 </code></pre>
-<h3 id="31-2026-10-25">3.1 编号现状（2026-10-25 核对）</h3>
-<p>实际存在的编号 <strong>47 个</strong>：</p>
+<h3 id="31-2026-10-26">3.1 编号现状（2026-10-26 第三次核对）</h3>
+<p>实际存在的编号 <strong>56 个</strong>：</p>
 <pre><code>I1  I2  I3  I4  I5  I6      I9  I10     I12           I15 I16 I17 I18 I19
 I20 I21 I22 I23 I24     I27 I28 I29 I30 I31 I32 I33 I34 I35 I36 I37 I38 I39
-I40 I41 I42 I43 I44 I45 I46 I47     I49 I50 I51 I52 I53 I54 I55
+I40 I41 I42 I43 I44 I45 I46 I47     I49 I50 I51 I52 I53 I54 I55 I56 I57 I58 I59
+I60 I61 I62 I63 I64
 </code></pre>
 <p>⚠️ <strong>编号不连续是常态，不是漏写</strong>：<code>I7 I8 I11 I13 I14 I25 I26 I48</code> 这些随相关功能
 下线而被移除，编号<strong>不留补丁、不重号</strong>（改名连判据一起改，见记忆中的相关纪律）。
 所以"缺号"不代表"还没做"。</p>
+<p><code>I56</code>~<code>I59</code> 是改版四十一新加的（帧率口径 / 判死处置 / 复核时机 / PING 退避），
+全在 <code>drill.py</code> 的 <code>0e</code> 段，<strong>纯内存 + 假上游</strong>，不依赖模拟器 —— 因为这三处
+改的正是"没数据也照常显示"的静默错，读数字验不出来。</p>
+<p><code>I60</code>~<code>I62</code> 是改版四十二新加的，同样在 <code>0e</code> 段：
+- <strong>I60</strong> 命令占链路（<code>_cmd_inflight</code> / 上游 <code>_suspends&gt;0</code>）时<strong>一次都不复核</strong>，
+  且 <code>_cmd_exit</code> 把"停帧计时"挪到放手那一刻；
+- <strong>I61</strong> 放手时清 <code>upstream:link_lost</code>（自己 suspend 出来的假阳性）、
+  <strong>保留</strong> <code>cmd_timeout:*</code>（真没问出结果）；
+- <strong>I62</strong> 拉取自愈：想要帧+没在跑 ⇒ 补一次；<strong>人明确停了 ⇒ 一条开流命令都不许发</strong>；
+  命令刚放手不补；补满 2 次停手；帧回来计数归零。</p>
+<p><code>I63</code>/<code>I64</code> 是改版四十三新加的，同样在 <code>0e</code> 段：
+- <strong>I63</strong> 动作码表（<code>/caps</code> 的 <code>motions</code>）必须<strong>盖住上游全部 38 项</strong>、每项都有中文短名、
+  <code>motion_stopped</code> 恰为 <code>{0,5}</code>（1/12/101 明确不在）。⚠️ 上游码表取不到时
+  "空集合 ⊆ 任何集合"会让"覆盖上游"<strong>恒真</strong>，所以那种情况给 SKIP 并写明，不硬过。
+- <strong>I64</strong> 收车：帧龄 9 s（没帧源）⇒ <code>waited=false</code>、<code>reliable=None</code>、<strong>耗时 &lt;1 s</strong>；
+  帧龄 50 ms ⇒ 仍走等待分支。两个方向缺一不可（详见 §11.43）。</p>
 <h3 id="32-sim">3.2 <code>--sim</code> 的边界</h3>
 <ul>
 <li><strong>不加 <code>--sim</code></strong>：跑不了需要活链路的那些（<code>I15</code>~<code>I17</code>、<code>I22</code>、<code>I23</code>、<code>I27</code>、<code>I28</code>、
@@ -288,7 +305,7 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <p><strong>设备没连上时，界面不许说连上了。</strong> 假"已连接"会让人以为可以去发车。</p>
 </blockquote>
 <p>⚠️ <code>--sim</code> 与不带 <code>--sim</code> 两种情况<strong>断言方向相反</strong> —— 双向都点才叫判据。</p>
-<h3 id="43-v0-v15">4.3 组清单（V0 ~ V15）</h3>
+<h3 id="43-v0-v20">4.3 组清单（V0 ~ V20）</h3>
 <table>
 <thead>
 <tr>
@@ -335,12 +352,12 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 </tr>
 <tr>
 <td>V11</td>
-<td><strong>拉取按页开关</strong>：要帧的页才开门拉（<code>overview/live/params/race/maint</code>），其余页不拉</td>
+<td><strong>拉取按页开关</strong>：要帧的页才开门拉（<code>overview/live/params/maint</code>），其余页不拉</td>
 <td>未连设备 ⇒ SKIP</td>
 </tr>
 <tr>
 <td>V12</td>
-<td>实时图</td>
+<td>实时图（尺寸 = 设备 mazetype，且 4 s 内帧数在涨）</td>
 <td>未连设备 ⇒ SKIP</td>
 </tr>
 <tr>
@@ -353,8 +370,43 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <td>清空动作</td>
 <td>未连设备 ⇒ SKIP</td>
 </tr>
+<tr>
+<td>V16</td>
+<td>「已保存 · 名 · N 帧」<strong>是中间态</strong>：保存后出现过，5 s 后必须回「停止并保存」</td>
+<td>造不出记录 ⇒ SKIP（并写原因）</td>
+</tr>
+<tr>
+<td>V17</td>
+<td>比赛页拉取<strong>半手动</strong>：进页开一次、手动停后<strong>把 8 s 豁免清零</strong>再等 4.5 s 仍是停</td>
+<td>未连设备 ⇒ SKIP</td>
+</tr>
+<tr>
+<td>V18</td>
+<td><strong>发车状态 vs 旧帧</strong>：钉住窗口内旧帧（<strong>动作码=直行</strong>）不许把 <code>running</code> 翻成 true；窗口过后<strong>同一帧</strong>必须说了算（且钉已清）</td>
+<td>不需要硬件（直接驱动判定函数）；取不到函数 ⇒ SKIP</td>
+</tr>
+<tr>
+<td>V19</td>
+<td>收车<strong>点击即反馈</strong>：点下去 300 ms 内按钮含「收车中」+ disabled、发车键 disabled、<code>_pend</code> 存在；确认后（动作码空闲）回「收车」且<strong>拉取已停</strong></td>
+<td>未连设备 ⇒ SKIP（按钮本来就禁用）</td>
+</tr>
+<tr>
+<td>V20</td>
+<td><strong>断开归零</strong>：喂 <code>connected:false</code> 的 health ⇒ <code>hz2=null</code>、曲线 0 点、动作码 0、<code>running=false</code>、<code>telRxAt=0</code>、<code>posX=null</code>、迷宫图被清；界面帧率写 <code>0</code></td>
+<td>断开前就没有帧率 ⇒ SKIP（判不了"清零"）</td>
+</tr>
 </tbody>
 </table>
+<p>⚠️ V16 只验"回落"会假绿（"从来没显示过"也通过），所以它验<strong>两段</strong>。
+⚠️ V17 必须先把 <code>LIVE.pullOffAt</code> 清零：否则 8 s 内的静默是"人工停豁免"给的，
+验不出 <code>race</code> 是否还在 <code>GUARD_PULL</code> 里 —— 那样这条永远假绿。
+⚠️ V18 两个方向缺一不可：只验前半会放过"钉不过期"（<strong>永远收不了车</strong>）；
+只验后半会放过"根本没钉"（<strong>改版四十一的那个 bug</strong>）。它验的是
+<code>C.applyRunning()</code> 这个判定函数本身，不走真机发车 —— 那条时序真机未必复现。
+⚠️ V19 把 <code>C.act</code> 打桩成"1.2 s 后才 resolve"（<strong>只桩网络，不桩界面</strong>）：
+真机上命令可能 30 ms 就回来，300 ms 时早已进观察窗 ⇒ 那样这条会飘。
+⚠️ V20 必须<strong>先塞一张假迷宫图</strong>再喂 <code>connected:false</code>：本来就 <code>null</code> 的话，
+"清空"这条恒真（假绿）。（这条是老坑，与 V17 的"豁免清零"同族。）</p>
 <blockquote>
 <p>标"—"的是本项目当前未被 AI 逐条读透的组；<strong>宁可留白也不猜</strong>（下游自证原则）。
 要看某组的确切命题，直接读 <code>tools/browser_check.py</code> 里对应的 <code>record("Vn", …)</code> 及其上方注释。</p>

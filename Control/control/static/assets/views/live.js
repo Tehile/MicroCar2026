@@ -34,6 +34,10 @@
                 '<div class="rate-delta" id="lv-delta">—</div>' +
                 '<div class="rate-spark"><canvas id="lv-spark"></canvas></div>' +
               '</div>' +
+              /* 大数是**最近 2 s 实测**（改版四十一），这一行给另外两个口径：
+                 6 s 趋势（看"是不是真在降"）与最近一批（看"这一趟多快"）。
+                 三个数放一处必须标明各自是什么 —— 否则现场一定读错层级。 */
+              '<div class="hint mono" id="lv-rate-note" style="margin:-4px 0 6px">—</div>' +
               '<div class="pull-row">' +
                 '<span class="pu-k">拉取</span>' +
                 '<label class="pu-n">N <input class="input sm" id="lv-n" value="1" inputmode="numeric"></label>' +
@@ -174,13 +178,39 @@
         cnEl.textContent = '· ' + (n ? n : '—');
       }
 
-      /* 帧率（改版四十）：显示条件从"拉取中"改成"**真有一个帧率**"。
-         原来没帧率时一律写 `—`（哪怕拉取开着），而"拉取开着但还没测出来"与
-         "没开拉取"是两件事；反过来，拉取关着但 `rate` 有值（刚停那一刻）也不该抹掉。 */
+      /* 帧率（改版四十一）：大数换成**最近 2 s 实测**（`t.hz2`）。
+         原来那个数是 6 s 滑动平均 —— 突然掉一半时它要 3 s 才走到中间值，
+         看起来像"慢慢降速"，而真相是这一秒就没有帧了。
+         `t.rate`（6 s）不删：它降为脚注里的"趋势"，判据与历史读数都还读它。 */
       const rateEl = root.querySelector('#lv-rate');
+      /* ⚠️ 改版四十三：**未连接就写 0**，不写 `—`。
+         "没连设备"是**可判定的事实**（一帧/秒都不进），不是"判不了"；
+         而 `—` 留给"连着、但这一项没读到"。同时 `resetTelemetry()` 已经把
+         `hz2` 清成 null 且清空了 `S.hist.rate` —— 不清的话大数与曲线会**冻在
+         最后一帧**上（实测："拔线后帧率还是 10.41，一动不动"）。 */
+      const conn = !!S.health.mouse.connected;
+      const shown = !conn ? 0 : ((t.hz2 != null) ? t.hz2 : t.rate);
       if (rateEl) {
-        rateEl.textContent = (t.rate == null) ? '—' : U.fmt(t.rate, 1);
-        rateEl.classList.toggle('off', t.rate == null);
+        rateEl.textContent = (shown == null) ? '—' : U.fmt(shown, 1);
+        rateEl.classList.toggle('off', shown == null || !conn);
+      }
+      const rnEl = root.querySelector('#lv-rate-note');
+      if (rnEl) {
+        if (!conn) {
+          rnEl.textContent = '未连接 · 无帧（0 是事实，不是占位）';
+          rnEl.classList.remove('bad');
+        } else {
+          const parts = [];
+          /* 三态：`null` 写"—"（判不了），`0` 照实写 0（真的没帧）。 */
+          parts.push('2 s 实测');
+          parts.push('6 s 趋势 ' + (t.rate == null ? '—' : U.fmt(t.rate, 1)));
+          parts.push('最近一批 ' + (t.hzInst == null ? '—' : U.fmt(t.hzInst, 1))
+            + (t.hzInstAge == null ? '' : '（' + (t.hzInstAge / 1000 >= 1
+              ? U.fmt(t.hzInstAge / 1000, 1) + ' s' : U.fmt(t.hzInstAge, 0) + ' ms') + ' 前）'));
+          rnEl.textContent = parts.join(' · ');
+          /* 数字冻住要说出来：批式两批之间不动是正常的，但"冻了十几秒"就是另一回事。 */
+          rnEl.classList.toggle('bad', (t.hzInstAge != null && t.hzInstAge > 15000));
+        }
       }
       const log = S.rateLog;
       const last = log[log.length - 1], prev = log[log.length - 2];
@@ -223,7 +253,11 @@
       if (offB) offB.disabled = !pulling;
 
       const sp = root.querySelector('#lv-spark');
-      if (sp && sp.clientWidth) C.draw.spark(sp, [{ data: S.hist.rate, color: '#2B4FF2' }], {});
+      if (sp && sp.clientWidth) {
+        /* 未连接 ⇒ 画一条**贴底的水平线**（那是"0 Hz"的样子），不是留白。
+           留白会被读成"还没画"；而事实是"这段确实一帧都没有"。 */
+        C.draw.spark(sp, [{ data: conn ? S.hist.rate : [0, 0], color: '#2B4FF2' }], {});
+      }
 
       /* 4 灯：只画后端判定的三态 */
       const leds = S.leds;

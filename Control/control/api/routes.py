@@ -588,6 +588,10 @@ async def _mouse_maint(request: web.Request) -> web.Response:
         None, lambda: ctx.mouse.maint(item, step=step, confirm=bool(d.get("confirm"))))
     res = _res(r)
     data = res.get("data") or {}
+    # 维护命令超时 8~12 s，超时最可能是"设备进了菜单出不来"（进得去退不出来，
+    # 之后就不应答）⇒ 登记复核，让链路巡检去 PING 判一下（改版四十一）。
+    if str(res.get("status") or "").upper() in getattr(ctx.mouse, "DEAD_STATUS", ()):
+        ctx.mouse.note_cmd_timeout("maint." + item.lower(), str(res.get("status")))
     ctx.store.mark("mouse", "mouse.maint." + item.lower(), item,
                    "ok=%s status=%s" % (res["ok"], res["status"]))
     if not res["ok"] and res["status"] == "NEED_CONFIRM":
@@ -1025,6 +1029,8 @@ async def _mouse_move(request: web.Request) -> web.Response:
     else:
         raise ApiError(400, "kind 只能是 forward / backward / rotate / run / servo")
     r = await loop.run_in_executor(None, fn)
+    if str(getattr(r, "status", "") or "").upper() in getattr(ctx.mouse, "DEAD_STATUS", ()):
+        ctx.mouse.note_cmd_timeout(f"move.{kind}", str(getattr(r, "status", "")))
     ctx.store.mark("mouse", f"move.{kind}", "", json.dumps(d, ensure_ascii=False))
     return ok({"result": _res(r), "task": mc.move.current_task()})
 
@@ -1089,6 +1095,10 @@ async def _simple_cmd(request: web.Request, name: str) -> web.Response:
                             f"相近的登记名：{near[:6]}")
     loop = asyncio.get_running_loop()
     r = await loop.run_in_executor(None, lambda: mc.send_cmd(name, timeout=3.0))
+    # 没问出结果 ⇒ 登记链路复核（改版四十一）。**急停也在这一支上** ——
+    # 急停超时是最危险的一态：你以为停了，其实命令没到设备。
+    if str(getattr(r, "status", "") or "").upper() in getattr(ctx.mouse, "DEAD_STATUS", ()):
+        ctx.mouse.note_cmd_timeout(name, str(getattr(r, "status", "")))
     ctx.store.mark("mouse", f"cmd.{name.replace('.', '_')}", str(r.status), f"ok={r.ok}")
     return ok({"result": _res(r)})
 

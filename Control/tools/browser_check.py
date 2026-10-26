@@ -702,6 +702,252 @@ async def run(args) -> int:
                            + ("" if ok15 else
                               " ⇒ **要么没清掉，要么清完立刻又被上一盘的旧帧填满**"))
 
+                # ---------------- V16 比赛页"已保存…"是**中间态**（改版四十一）
+                head("11f. 比赛页：「已保存 · 名 · N 帧」4 s 后回落成「停止并保存」")
+                # 为什么单列：原来那一行一旦成立就**永久**停在那里（按钮还是灰的）。
+                # 下次要停记录时，按钮上写着上一份的名字 ⇒ 人只能猜"我还能不能停"。
+                # 判据必须是两段：① 保存后**确实**出现过"已保存"；② 过 4 s 必须回落。
+                # 只验①会把"卡死"放过；只验②会在"从来没显示过"时也通过（假绿）。
+                if not pick("V16"):
+                    record("V16", "SKIP", "--only 未选中")
+                elif not (ui.get("live") and api_mouse.get("connected")):
+                    record("V16", "SKIP", "没连设备 ⇒ 造不出记录，按钮状态无从验起")
+                else:
+                    try:
+                        await cdp.eval("window.C.go('race')")
+                        await asyncio.sleep(1.5)
+                        _req(base + "/api/v1/mouse/maze/record/start",
+                             {"why": "browser-check-v16"}, timeout=20)
+                        await asyncio.sleep(2.0)
+                        _req(base + "/api/v1/mouse/maze/record/stop", {}, timeout=20)
+                        # 最多等 5 s 等"已保存"出现（前端 1 s 轮询 + 后端落盘）
+                        seen_saved, seen_txt = False, ""
+                        for _i in range(10):
+                            await asyncio.sleep(0.5)
+                            seen_txt = str(await cdp.eval(
+                                "(()=>{const b=document.getElementById('rc-recstop');"
+                                "return b?b.textContent.trim():'';})()") or "")
+                            if "已保存" in seen_txt:
+                                seen_saved = True
+                                break
+                        # 再等 5 s（> 4 s 窗）⇒ 必须回落
+                        await asyncio.sleep(5.0)
+                        back = json.loads(str(await cdp.eval(
+                            "(()=>{const b=document.getElementById('rc-recstop');"
+                            "return JSON.stringify({t:b?b.textContent.trim():'',"
+                            "d:b?b.disabled:null});})()") or "{}"))
+                        ok16 = bool(seen_saved and back.get("t") == "停止并保存")
+                        record("V16", "PASS" if ok16 else "FAIL",
+                               f"保存后按钮={seen_txt!r}（出现过「已保存」={seen_saved}）；"
+                               f"5 s 后={back.get('t')!r}（disabled={back.get('d')}）"
+                               + ("" if ok16 else
+                                  " ⇒ 要么从没显示过（保存这一下没人知道），"
+                                  "要么**卡在「已保存」回不来**：下次要用这个按钮，"
+                                  "上面写着上一份的名字、还是灰的"))
+                    except Exception as e:                        # noqa: BLE001
+                        record("V16", "SKIP", f"造记录时出错（判不了）：{type(e).__name__}: {e}")
+
+                # ---------------- V17 比赛页拉取是**半手动**（改版四十一）
+                head("11g. 比赛页：进页开一次，手动停之后看门狗**不许**自己重开")
+                # 为什么单列：这就是现场那个"复位后不停弹开始拉流、发不出命令"的循环。
+                # 因果链是：`resume()` 静默保持停 → 看门狗 2 s 后重开 → `n≥2` 开流要
+                # 重试 3×2 s（命令通道被占）→ 又失败 → 再重开。
+                # ⚠️ 必须**去掉"人工停 8 s 豁免"**再等：否则 8 s 内的静默是豁免给的，
+                #    验不出 race 是否还在 `GUARD_PULL` 里（那样这条判据永远假绿）。
+                if not pick("V17"):
+                    record("V17", "SKIP", "--only 未选中")
+                elif not (ui.get("live") and api_mouse.get("connected")):
+                    record("V17", "SKIP", "没连设备 ⇒ 拉取状态无从验起")
+                else:
+                    await cdp.eval("window.C.go('race')")
+                    await asyncio.sleep(2.5)
+                    j1 = json.loads(str(await cdp.eval(
+                        "(()=>{const S=window.C.S;"
+                        "const h=document.querySelector('#rc-pull .pl-hz b');"
+                        "return JSON.stringify({pull:!!S.pulling,hz:h?h.textContent:'',"
+                        "hasOn:!!document.querySelector('#rc-pull [data-r=pp-on]'),"
+                        "hasOff:!!document.querySelector('#rc-pull [data-r=pp-off]')});})()")
+                        or "{}"))
+                    # 进页那一次可能已经被人（或前面的组）停掉 ⇒ 先手动开起来再验"停"
+                    if not j1.get("pull"):
+                        await cdp.eval("(()=>{const b=document.querySelector("
+                                       "'#rc-pull [data-r=pp-on]');if(b&&!b.disabled)b.click();})()")
+                        await asyncio.sleep(2.5)
+                        j1["pull"] = bool(await cdp.eval("window.C.S.pulling"))
+                    await cdp.eval("(()=>{const b=document.querySelector("
+                                   "'#rc-pull [data-r=pp-off]');if(b&&!b.disabled)b.click();})()")
+                    await asyncio.sleep(2.0)
+                    st2 = bool(await cdp.eval("window.C.S.pulling"))
+                    # 去掉 8 s 豁免 ⇒ 看门狗立刻有资格补开（若 race 还在表里就会补）
+                    await cdp.eval("(()=>{window.C.LIVE.pullOffAt=0;})()")
+                    await asyncio.sleep(4.5)      # ≥2 个 2 s 节拍
+                    st3 = bool(await cdp.eval("window.C.S.pulling"))
+                    ok17 = bool(j1.get("hasOff") and j1.get("pull")
+                                and st2 is False and st3 is False)
+                    record("V17", "PASS" if ok17 else "FAIL",
+                           f"面板={'有' if j1.get('hasOn') and j1.get('hasOff') else '缺按钮'}"
+                           f"·Hz={j1.get('hz')!r}；拉取 进页={j1.get('pull')} → "
+                           f"手动停后={st2} → 再等 4.5 s（豁免清零）={st3}"
+                           + ("" if ok17 else
+                              " ⇒ **要么进页没开（比赛页整页读不到帧），"
+                              "要么停不住：看门狗又把拉取开回来了** —— 正是现场那个"
+                              "「不停弹开始拉流、发不出命令」的循环"))
+
+                # ---------------- V18 发车状态：命令结果 vs 旧帧（改版四十二/四十三）
+                head("11h. 发车状态：命令刚回来时不被旧帧推翻，窗口过后交回帧")
+                # 为什么单列：这就是"收车成功 → 已发车 闪成 开始发车 → 又变回 已发车"。
+                # 收车那一刻手上还压着**停车前采的帧**（动作码仍是"直行"），它一到
+                # 就把按钮翻回去；而流随即停掉 ⇒ 再没有帧来纠正 ⇒ **永久停在错的**。
+                # ⚠️ 改版四十三把判据从 `mazeTask` 换成了 `motionTask`（动作码）：
+                #    迷宫流程态在车停稳后可能仍停在高位，用它判"在不在跑"会让发车键
+                #    一直灰着（现场："任务机 WAIT 了，发车键还是灰的"）。
+                #    这条判据两个方向都验：
+                #      ① 钉住窗口内：旧帧（动作=直行）不许把 `running` 翻成 true；
+                #      ② 窗口过后：同一帧说了算（必须 true，且钉已清）。
+                #    只验①会放过"钉永远不会过期"（永远收不了车）；
+                #    只验②会放过"根本没钉"（那正是当时的 bug）。
+                if not pick("V18"):
+                    record("V18", "SKIP", "--only 未选中")
+                else:
+                    try:
+                        j18 = json.loads(str(await cdp.eval(
+                            "(()=>{const C=window.C,S=C.S;"
+                            "const bak={r:S.running,m:S.tel.motionTask,p:S.runPin};const o={};"
+                            "C.pinRunning(false);S.tel.motionTask=1;C.applyRunning();"
+                            "o.pinned=S.running;"
+                            "S.runPin.at-=6000;C.applyRunning();"
+                            "o.expired=S.running;o.cleared=(S.runPin===null);"
+                            "S.running=bak.r;S.tel.motionTask=bak.m;S.runPin=bak.p;"
+                            "return JSON.stringify(o);})()") or "{}"))
+                        ok18 = (j18.get("pinned") is False and j18.get("expired") is True
+                                and j18.get("cleared") is True)
+                        record("V18", "PASS" if ok18 else "FAIL",
+                               f"钉住期间旧帧(动作=直行)⇒running={j18.get('pinned')!r}"
+                               f"（应为 False）；窗口过后⇒{j18.get('expired')!r}"
+                               f"（应为 True）、钉已清={j18.get('cleared')}"
+                               + ("" if ok18 else
+                                  " ⇒ 要么没钉住（收车后会被停车前那一帧翻回「已发车」，"
+                                  "而流停了再没人纠正）；要么钉不过期（永远收不了车）"))
+                    except Exception as e:                        # noqa: BLE001
+                        record("V18", "SKIP", f"驱动判定函数出错（判不了）：{type(e).__name__}: {e}")
+
+                # ---------------- V19 收车/复位：点下去**当拍**要有反馈（改版四十三）
+                head("11i. 收车：点击 300 ms 内进 pending，确认后才停流")
+                # 为什么单列：探针实测（2026-10-26）旧版点击后 **2 s 内按钮文案、
+                # `disabled`、hint 一个字都不变** —— 因为界面在等"命令 3 s + 等新帧
+                # 2.5 s"那条最长 5.5 s 的静默链。现场就是"点了没反应，只好再点一遍"。
+                # ⚠️ 这里**把 `C.act` 打桩成 1.2 s 后才 resolve**（只桩网络，不桩界面）：
+                #    真机/模拟器上命令可能 30 ms 就回来，300 ms 时已经进观察窗 ——
+                #    那样这条会飘。桩住之后"cmd 阶段"是确定的，验的是**界面自己**。
+                # ⚠️ 两个方向都要：只验"出现过收车中…"会放过"永远停在那里"，
+                #    所以后半段放开动作码，验它**会自己收尾并停流**。
+                if not pick("V19"):
+                    record("V19", "SKIP", "--only 未选中")
+                elif not (ui.get("live") and api_mouse.get("connected")):
+                    record("V19", "SKIP", "没连设备 ⇒ 比赛页按钮是禁用的，验不了")
+                else:
+                    try:
+                        await cdp.eval("window.C.go('race')")
+                        await asyncio.sleep(2.0)
+                        # 先把流开起来（"确认后才停流"要能观察到 stopPullOnce）
+                        await cdp.eval("(()=>{const b=document.querySelector("
+                                       "'#rc-pull [data-r=pp-on]');if(b&&!b.disabled)b.click();})()")
+                        await asyncio.sleep(2.0)
+                        await cdp.eval(
+                            "(()=>{const C=window.C;window.__act=C.act;"
+                            "C.act=function(n){if(n!=='rescue'&&n!=='mazeStop')return window.__act(n);"
+                            "return new Promise(function(res){setTimeout(function(){"
+                            "res({ok:true,status:'OK',reliable:null,waited:true,fresh:false});},1200);});};"
+                            "document.querySelector('#rc-mstop').click();})()")
+                        await asyncio.sleep(0.3)          # 只等 300 ms
+                        j19a = json.loads(str(await cdp.eval(
+                            "(()=>{const q=s=>document.querySelector(s);"
+                            "const mb=q('#rc-mstop'),run=q('#rc-run'),h=q('#rc-hint');"
+                            "return JSON.stringify({txt:mb?mb.textContent:'',dis:mb?mb.disabled:null,"
+                            "runDis:run?run.disabled:null,hint:h?h.textContent:'',"
+                            "pend:!!(window.C.VIEWS.race._pend)});})()") or "{}"))
+                        # 放开判据：动作码报"空闲" ⇒ 观察窗应当确认收车并停流
+                        await cdp.eval("(()=>{window.C.S.tel.motionTask=0;})()")
+                        await asyncio.sleep(2.4)
+                        j19b = json.loads(str(await cdp.eval(
+                            "(()=>{const C=window.C,q=s=>document.querySelector(s);"
+                            "if(window.__act)C.act=window.__act;"
+                            "return JSON.stringify({txt:q('#rc-mstop')?q('#rc-mstop').textContent:'',"
+                            "pend:!!C.VIEWS.race._pend,pull:!!C.S.pulling});})()") or "{}"))
+                        ok19 = (("收车中" in str(j19a.get("txt")))
+                                and j19a.get("dis") is True and j19a.get("runDis") is True
+                                and j19a.get("pend") is True
+                                and ("收车中" not in str(j19b.get("txt")))
+                                and j19b.get("pend") is False and j19b.get("pull") is False)
+                        record("V19", "PASS" if ok19 else "FAIL",
+                               f"300 ms 时：按钮={j19a.get('txt')!r}、disabled={j19a.get('dis')}、"
+                               f"发车键 disabled={j19a.get('runDis')}、hint={j19a.get('hint')!r}；"
+                               f"确认后：按钮={j19b.get('txt')!r}、pending={j19b.get('pend')}、"
+                               f"拉取={j19b.get('pull')}"
+                               + ("" if ok19 else
+                                  " ⇒ 要么点下去没有即时反馈（现场是「点了没反应」），"
+                                  "要么确认之后不收尾／不停流（观察窗卡死或流一直开着）"))
+                    except Exception as e:                        # noqa: BLE001
+                        record("V19", "SKIP", f"驱动收车界面出错（判不了）：{type(e).__name__}: {e}")
+
+                # ---------------- V20 断开 ⇒ 读数归零（改版四十三）
+                head("11j. 断开之后：帧率写 0、曲线清空，不许冻在最后一帧")
+                # 为什么单列：实测（2026-10-26）停流后 `hz2` **恒等于 10.41 不动**，
+                # 而帧龄从 406 ms 一路涨到 8069 ms —— 因为 `applyTelemetry` 只在有值时
+                # 覆盖，`applyHealth` 又从不重置 ⇒ 读数**冻在最后一帧**上。
+                # 现场看到的不是"过期"，而是"界面卡住了"。
+                # ⚠️ 必须同时验两件事：`resetTelemetry` 清干净 + **下降沿真的会调它**
+                #    （只验前者会放过"没人调"；只验后者会放过"少清几项"）。
+                if not pick("V20"):
+                    record("V20", "SKIP", "--only 未选中")
+                elif not ui.get("live"):
+                    record("V20", "SKIP", "没进真数据模式 ⇒ 无从验起")
+                else:
+                    try:
+                        await cdp.eval("window.C.go('live')")
+                        await asyncio.sleep(1.6)
+                        j20 = json.loads(str(await cdp.eval(
+                            "(()=>{const C=window.C,S=C.S;const o={};"
+                            "o.before={hz2:S.tel.hz2,hist:S.hist.rate.length};"
+                            # 先塞一张"上一段的迷宫图"，才**验得出**它会被清掉
+                            # （本来就 null 的话，"清空"这条恒真 —— 假绿）
+                            "S.mazeView={N:8};"
+                            # 下降沿：喂一份"未连接"的 health（真值源就是它）
+                            "C.applyHealth({mouse:{connected:false}});"
+                            "o.after={hz2:S.tel.hz2,hist:S.hist.rate.length,"
+                            "mt:S.tel.motionTask,running:S.running,maze:S.mazeView,"
+                            "telRxAt:S.telRxAt,pos:S.tel.posX};"
+                            "C.VIEWS.live.paint(true);"
+                            "o.rateTxt=(document.querySelector('#lv-rate')||{}).textContent;"
+                            "o.noteTxt=(document.querySelector('#lv-rate-note')||{}).textContent;"
+                            "return JSON.stringify(o);})()") or "{}"))
+                        b = j20.get("before") or {}
+                        a = j20.get("after") or {}
+                        if b.get("hz2") is None:
+                            record("V20", "SKIP", "断开前就没有帧率（没在拉）⇒ 判不了清零")
+                        else:
+                            ok20 = (a.get("hz2") is None and a.get("hist") == 0
+                                    and a.get("mt") == 0 and a.get("running") is False
+                                    and a.get("maze") is None and a.get("telRxAt") == 0
+                                    and a.get("pos") is None
+                                    and str(j20.get("rateTxt")).strip() in ("0.0", "0"))
+                            record("V20", "PASS" if ok20 else "FAIL",
+                                   f"断开前 hz2={b.get('hz2')}（曲线 {b.get('hist')} 点）→ "
+                                   f"断开后 hz2={a.get('hz2')}、曲线 {a.get('hist')} 点、"
+                                   f"动作码={a.get('mt')}、running={a.get('running')}、"
+                                   f"迷宫图={a.get('maze')}；界面帧率={j20.get('rateTxt')!r}、"
+                                   f"脚注={j20.get('noteTxt')!r}"
+                                   + ("" if ok20 else
+                                      " ⇒ 断开之后读数还冻在最后一帧上（帧率不动、曲线还在），"
+                                      "现场看起来像界面卡住而不是链路没了"))
+                        # 收尾：把真 health 拉回来（下一条判据还要用）
+                        await cdp.eval("fetch('/api/v1/health').then(r=>r.json())"
+                                       ".then(j=>window.C.applyHealth(j.data))")
+                        await asyncio.sleep(1.2)
+                    except Exception as e:                        # noqa: BLE001
+                        record("V20", "SKIP", f"驱动断开清零出错（判不了）：{type(e).__name__}: {e}")
+
+
                 # ---------------- V13/V14 记录的回放与删除（改版三十三）
                 head("11d. 记录：手动开的也能回放，删除点两次才删一条")
                 # 造一条**手动开的**记录（`launch=false`）：以前前端拿 `launch` 当

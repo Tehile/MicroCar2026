@@ -178,6 +178,9 @@ li{margin:.28em 0}
 <li><a href="#1138-124-s">11.38 改版三十七·发车前先拉取（那 1~2.4 s 缺口的成因与"对轴"）（状态：本层已落地；改上游那条是设计）</a></li>
 <li><a href="#1139-v10">11.39 改版三十九·协议 v10：建图增量通道（地图从"推断"变"事实"）+ 通道瘦身（状态：已落地）</a></li>
 <li><a href="#1140">11.40 改版四十·界面九条：零基线 / 停车即已保存 / 三列各滚 / 记录增删查改（状态：已落地）</a></li>
+<li><a href="#1141">11.41 改版四十一·链路判死 + 帧率改实测 + 比赛页改半手动（状态：已落地）</a></li>
+<li><a href="#1142">11.42 改版四十二·命令让路期的假复核 + 发车状态被旧帧翻回（状态：已落地）</a></li>
+<li><a href="#1143">11.43 改版四十三·收车观察窗 / 判停改看动作码 / 断开归零（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -787,9 +790,12 @@ EVQ 完整性框只留状态 + 复跑动作。<strong>可照做的清单（"⇒ 
 · <strong>比赛页加【清空】</strong>：<code>POST /mouse/maze/reconstruct/clear</code> ⇒ <code>reset_live_map()</code>。
   只清这张图，记录/设备/拉取都不动；清零基线是<strong>现在</strong>（不是 0，否则会把上一盘
   的 30 秒喂回来）。
-· <strong>远近墙分开画</strong>：<code>wallFront=1 &amp; frontFar=0</code> ⇒ 近墙落<strong>本格</strong>前沿；
-  <code>frontFar=1</code> ⇒ 远墙落<strong>外一格</strong>前沿（并给本格写 <code>front=False</code>，因为"贴脸是空的"
-  本身就是决策依据）。两档差一格位置，这就是"能分辨"的依据（与旧版一致）。
+· <strong>远近墙分开画</strong>：~~<code>wallFront=1 &amp; frontFar=0</code> ⇒ 近墙落<strong>本格</strong>前沿；
+  <code>frontFar=1</code> ⇒ 远墙落<strong>外一格</strong>前沿~~ ⇒ <strong>2026-10-26 被真机推翻，已改</strong>：
+  <code>frontFar</code> 是<strong>距离档位</strong>（"不在贴脸 65 mm 内"），格距 180 mm ⇒ 65..180 mm
+  全算"远"，而它<strong>仍然挡在本格前方</strong> ⇒ 只看 <code>wallFront</code>，<code>frontFar</code> 不参与落位。
+  证据：一次 10 格短跑里 7 面不一致中有 3 面（(3,2)v / (3,3)h / (4,3)v）正是
+  旧规则把<strong>有墙画成可通</strong>，而固件 <code>open4</code> 位全对。判据 I46 已同步改向。
 · <strong>测试提速</strong>：<code>browser_check</code> 加<strong>线程级看门狗</strong>（<code>--timeout</code> 默认 150 s，
   到点打印"卡在哪一段"再 <code>os._exit</code>）与 <code>--only V12,V13</code>（段级跳过）。
   实测 5 分钟 → <strong>30 s</strong>。
@@ -8709,26 +8715,30 @@ x 轴刻度从顶部挪到底部（原点在左下）。</p>
 * 不二次确认：它<strong>可重建</strong>（继续跑几秒就回来了），而且清的不是任何落盘的东西。</p>
 <p><strong>实测</strong>：点【清空】⇒ 页面 <code>mazeView=null</code>、后端 <code>frames_total</code> 3259 → 0，
 再取一次是 33（清空之后新累积的），<code>source=ring+cumulative</code>。</p>
-<h4 id="_121">三、近墙 / 远墙分开画（与旧版一致）</h4>
+<h4 id="2026-10-26">三、近墙 / 远墙分开画（⚠️ <strong>部分作废：2026-10-26 真机修正</strong>）</h4>
 <p>上游 v9 的前墙是<strong>两档</strong>（<code>RemoteControl/docs/算法详解.md</code>）：</p>
 <pre><code>frontFar  = wallSns.front &amp;&amp; min(f1,f2) &gt;= irCfg.thrFrontNear   /* 提前量 */
 frontNear = wallFront &amp;&amp; !frontFar                               /* 贴脸 */
 恒等式：frontNear | frontFar == wallFront
 </code></pre>
 <p><code>MazeWallMap.feed</code> 原来把 <code>wallFront=1</code> 一律当"本格前沿有墙"⇒ <strong>远墙被画成近墙</strong>，
-图上少一格距离。现场后果很具体：看着"前面一格就是墙"，实际还有一格能走。</p>
-<p>改法（<code>feed</code> 里）：
-| 输入 | 落点 |
-|---|---|
-| <code>wallFront=1, frontFar=0</code> | <code>_set(x, y, front, True)</code> —— 本格前沿 |
-| <code>wallFront=1, frontFar=1</code> | <code>_set(x, y, front, **False**)</code> + <code>_set(x+dx, y+dy, front, True)</code> |
-| <code>wallFront=0</code> | <code>_set(x, y, front, False)</code> |</p>
-<p>远墙那条同时要写 <code>False</code>：<strong>"贴脸那格是空的"本身就是决策依据</strong>，
-不写的话界面会以为"这里还没探过"。若下一格出界（本格已贴边）则不写远墙。</p>
-<p><code>frontFar</code> 一并加进取帧的 <code>keys</code>（实时 <code>maze_reconstruct</code>、回放的样本字段、
-<code>rebuild_map</code> 三处）—— 少一处，回放的图就和实时的不一样。</p>
-<p><code>frontFar</code> 缺通道（老固件/老记录）时按 <code>False</code> 处理（当近墙）：宁可把墙画近一点
-（人不会往那儿走），也不要把贴脸的墙画到一格之外。</p>
+图上少一格距离。</p>
+<p>改法（本节当时写的）：| <code>wallFront=1, frontFar=1</code> | <code>_set(x, y, front, **False**)</code>
++ <code>_set(x+dx, y+dy, front, True)</code> | —— <strong>这条后来被证明是错的，已撤销</strong>。</p>
+<blockquote>
+<p>🔴 <strong>2026-10-26 真机修正：<code>frontFar</code> 是距离档位，不是"墙在第几格"。</strong></p>
+<p>格距 180 mm、<code>thrFrontNear</code> = 65 mm ⇒ "远"只表示这面墙不在 65 mm 以内（贴脸），
+<strong>65..180 mm 全都算"远"，而它仍然挡在本格前方</strong>。
+实测代价（v10 建图增量验收，一次 10 格短跑）：7 面不一致里有 3 面
+—— (3,2)v / (3,3)h / (4,3)v —— 正是上面的规则把<strong>有墙画成可通</strong>、把<strong>可通画成有墙</strong>，
+而固件 <code>GucMapBlock</code> 的 <code>open4</code> 位在这三处全部正确。</p>
+<p>现在的 <code>feed</code>：<strong>只看 <code>wallFront</code></strong>，<code>frontFar</code> 不参与落位（只留给界面区分近/远）。
+<code>frontFar</code> 仍然要进取帧的 <code>keys</code>（三处）—— 它有别的用处（画法/诊断），只是不决定墙在哪。
+判据 <strong>I46</strong> 已同步改向：验"两档在本格结果一致"与"墙不许跑到外一格"。这个坑很典型：
+<strong>代码按新证据改了，判据还按旧语义断言 ⇒ 一条永远红的假警报。</strong></p>
+</blockquote>
+<p><code>frontFar</code> 缺通道（老固件/老记录）时按 <code>False</code> 处理（当近墙）：
+宁可把墙画近一点（人不会往那儿走），也不要把贴脸的墙画到一格之外。</p>
 <h4 id="5-30">四、测试提速：5 分钟 → 30 秒</h4>
 <p>这一轮最贵的不是写代码，是<strong>两次"跑了 3~5 分钟还没动静"</strong>。两个真凶：</p>
 <table>
@@ -8764,7 +8774,7 @@ frontNear = wallFront &amp;&amp; !frontFar                               /* 贴�
 </table>
 <p>另外加 <code>--only V12,V13</code>：<strong>段级</strong>跳过（连等待一起省），改一处前端就只跑相关那几条。</p>
 <p><strong>实测</strong>：<code>--only V12</code> 从"5 分钟无输出"变成 <strong>30 s、15 PASS / 0 FAIL / 3 SKIP</strong>。</p>
-<h4 id="_122">五、判据</h4>
+<h4 id="_121">五、判据</h4>
 <table>
 <thead>
 <tr>
@@ -8792,7 +8802,7 @@ frontNear = wallFront &amp;&amp; !frontFar                               /* 贴�
 <h4 id="12">一、现场：1~2 帧的时刻一样</h4>
 <p>两条记录（88 帧 / 147 帧）里，<code>t_ms</code> 分别有 18 / 43 组相邻同戳，其中一组是 3 帧。
 组大小分布是 <strong><code>1帧×59 / 2帧×41 / 3帧×2</code></strong> —— 也就是 43 次"一次收到 2 帧"。</p>
-<h4 id="_123">二、不是时钟粒度，是"同一批一次处理"</h4>
+<h4 id="_122">二、不是时钟粒度，是"同一批一次处理"</h4>
 <p>同戳那两帧的 <code>ms8</code>（设备毫秒低 8 位）差<strong>正好 100 ms</strong>（含 256 回绕）：
 <code>152→252</code>、<code>164→8</code>、<code>90→190</code>。固件 10 Hz 采样完全正常。</p>
 <p>100 ms 远大于 Windows 上 <code>time.time()</code> 的 ~15.6 ms 粒度 ⇒ <strong>只可能是同一批</strong>：</p>
@@ -8870,7 +8880,7 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 之间的常数偏移"会让时长差出几百毫秒。</p>
 <p>⚠️ 决策差分与事件<strong>跟着 <code>t_ms</code> 一起</strong>换成设备时基 —— 两份时间轴不能混，
 否则"事件插在帧序列的哪一帧"会系统性偏移（偏移量正好是链路时延）。</p>
-<h4 id="_124">五、判据</h4>
+<h4 id="_123">五、判据</h4>
 <table>
 <thead>
 <tr>
@@ -8887,7 +8897,7 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 </tr>
 </tbody>
 </table>
-<h4 id="_125">六、实测</h4>
+<h4 id="_124">六、实测</h4>
 <table>
 <thead>
 <tr>
@@ -8914,7 +8924,7 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 </tr>
 </tbody>
 </table>
-<h4 id="_126">七、顺手修的两个测试工具坑（都是"报错指向错误方向"）</h4>
+<h4 id="_125">七、顺手修的两个测试工具坑（都是"报错指向错误方向"）</h4>
 <table>
 <thead>
 <tr>
@@ -8933,7 +8943,7 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 </table>
 <hr />
 <h3 id="1138-124-s">11.38 改版三十七·<strong>发车前先拉取</strong>（那 1~2.4 s 缺口的成因与"对轴"）（状态：<strong>本层已落地；改上游那条是设计</strong>）</h3>
-<h4 id="_127">一、现场（用户报的）</h4>
+<h4 id="_126">一、现场（用户报的）</h4>
 <blockquote>
 <p>"第一次发出发车命令后间隔了一段时间后实时记录的数据才跟上记录，中间有一段时间的数据
 缺失和数据不变了。应当<strong>先拉取再发车</strong>。"</p>
@@ -8997,13 +9007,13 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 <p>⇒ 这段窗口 <strong>1~2.4 s 零帧</strong>。这是上游为"命令不被拉取挤掉"付的代价（固件 <code>link.c</code>
 每 1 ms 只消费一行、其余直接丢；<code>ESTOP</code> 不独占时实测 3220 ms 才停 vs 751 ms），
 <strong>本层不该也不能绕过</strong>。⇒ <strong>"先拉取再发车"消不掉这一段</strong>，只能消掉下面那一半。</p>
-<h4 id="_128">三、本层能消掉的那一半：发车时拉取<strong>本来就没在跑</strong></h4>
+<h4 id="_127">三、本层能消掉的那一半：发车时拉取<strong>本来就没在跑</strong></h4>
 <p><code>auto_stream: false</code>（拉取按页开门）⇒ 若发车那一刻拉取不在跑：
 <code>suspend()</code> 直接 <code>return</code>、<code>resume()</code> 因为 <code>_was_running=False</code> <strong>成为空操作</strong>
 ⇒ <strong>发完车仍然不拉</strong>。而前端 <code>syncPull()</code> 只在启动/切页调用（没有周期兜底）
 ⇒ 现场就是"过一会儿（切页）数据才跟上"。</p>
 <p><code>20261022_162357</code> 开头的形状正是这个：帧 0/1 正常，帧 1→2 断 <strong>949 ms</strong>，两帧都还是待机值。</p>
-<h4 id="_129">四、改法（已落地）：先拉取 → 等到一帧 → 再开记录 → 最后发车</h4>
+<h4 id="_128">四、改法（已落地）：先拉取 → 等到一帧 → 再开记录 → 最后发车</h4>
 <table>
 <thead>
 <tr>
@@ -9040,7 +9050,7 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 </table>
 <p>⚠️ 顺序不能换成"先开记录再拉取"：记录器<strong>只在收到帧时才写文件</strong>，而文件头决定
 "开录那一刻链路的状态"——先拉取，帧 0/1 才是"已经在出帧"的帧（I49 验的就是这个）。</p>
-<h4 id="_130">五、缺口怎么"对轴"（已落地：只标注、<strong>不补帧</strong>）</h4>
+<h4 id="_129">五、缺口怎么"对轴"（已落地：只标注、<strong>不补帧</strong>）</h4>
 <p>原则：<strong>缺口不补帧</strong> —— 插值出来的帧没有设备时基依据，会把"没采到"变成"看起来采到了"
 （比缺一段更坏）。只<strong>标注</strong>、不造假：</p>
 <table>
@@ -9084,7 +9094,7 @@ ms8       : 52, 152, 252,  64, 164,   8, 109, 209,   53,  233 ...
 <p>⚠️ 派生字段不进帧区（铁律 15）：<code>gaps</code> / <code>launch</code> 是<strong>元信息</strong>，帧数组一个字节都不动。
 ⚠️ 本层回放页<strong>没有帧率曲线</strong>（曲线在实时页），所以"曲线在缺口处断开"这一条
 <strong>当前不适用</strong>；将来给回放加曲线时按 <code>gaps</code> 断开，不许连成平滑线。</p>
-<h4 id="_131">六、设计（<strong>未落地，需上游同意</strong>）：把"写命令"和"等应答"拆开</h4>
+<h4 id="_130">六、设计（<strong>未落地，需上游同意</strong>）：把"写命令"和"等应答"拆开</h4>
 <pre><code class="language-python">if spec.urgent:
     self.stream.suspend()
 try:
@@ -9102,7 +9112,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
   （<code>MAZE RUN</code> 行先发，拉取在其后）。</li>
 <li>本层不改上游 ⇒ 短期内靠"四、已落地"+"五、标注"兜底。</li>
 </ul>
-<h4 id="_132">七、判据</h4>
+<h4 id="_131">七、判据</h4>
 <table>
 <thead>
 <tr>
@@ -9125,7 +9135,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </tbody>
 </table>
 <p>低电被拦 ⇒ I49 记 <strong>SKIP</strong>（判不了 ≠ 不通过）。</p>
-<h4 id="_133">八、实测</h4>
+<h4 id="_132">八、实测</h4>
 <table>
 <thead>
 <tr>
@@ -9153,7 +9163,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </tbody>
 </table>
 <h3 id="1139-v10">11.39 改版三十九·协议 v10：建图增量通道（地图从"推断"变"事实"）+ 通道瘦身（状态：<strong>已落地</strong>）</h3>
-<h4 id="_134">一、上游变了什么</h4>
+<h4 id="_133">一、上游变了什么</h4>
 <p><code>RemoteControl</code> 提交 <code>17845f3</code>（2026-10-23）把协议推到 <strong>PROTO 10 / FW 314 / API 2.14.0</strong>。
 帧长仍是 <strong>30 B</strong>，但字段<strong>重排</strong>，并新增一块<strong>建图增量通道</strong>（偏移 23..29）：</p>
 <table>
@@ -9194,7 +9204,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </table>
 <p>固件侧（<code>LINK_Tick</code>）以 1 kHz 盯 <code>GmcMouse</code> 坐标变化，每走一格把该格
 <code>GucMapBlock[x][y] &amp; 0x0F</code>（<strong>四向可通位，绝对方向，1=通</strong>）压进 32 条环。</p>
-<h4 id="_135">二、旧那张图错在哪（三处，全都"不报错但结论错"）</h4>
+<h4 id="_134">二、旧那张图错在哪（三处，全都"不报错但结论错"）</h4>
 <table>
 <thead>
 <tr>
@@ -9270,7 +9280,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </table>
 <p>界面侧（<code>draw.maze</code> 第三态）：已知墙<strong>实线</strong>、未探明<strong>虚线</strong>、没走到过的格<strong>淡底</strong>（<code>rgba(24,25,28,.05)</code>）。
 一格都没探到时不涂底（那时整张图就该是纯空白，涂满反而像"已经有内容"）。</p>
-<h4 id="_136">四、四个必须知道的边界</h4>
+<h4 id="_135">四、四个必须知道的边界</h4>
 <ol>
 <li><strong><code>mapd</code> 不在 <code>channels</code> 里</strong> ⇒ 不进环形缓冲，只能从 <code>Event.TELEMETRY</code> 的 <code>rec</code> 逐帧 apply。</li>
 <li><strong>帧号键叫 <code>_seq</code></strong>，而上游 <code>MapReplayer.apply()</code> 读 <code>frame["seq"]</code> ⇒ 直接透传会让它认为
@@ -9308,7 +9318,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </tr>
 </tbody>
 </table>
-<h4 id="_137">五之二、这轮实测抓到的两个<strong>静默错</strong></h4>
+<h4 id="_136">五之二、这轮实测抓到的两个<strong>静默错</strong></h4>
 <table>
 <thead>
 <tr>
@@ -9332,7 +9342,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </table>
 <p>两条的共性：<strong>目标消失时读数还"有值"</strong>（I45 那次红了，但话术指向"重放滑动窗口"，
 把人引向完全无关的方向）。所以判据除了断言数值，还要断言<strong>来路</strong>（<code>source == "mapd"</code>）。</p>
-<h4 id="_138">六、判据</h4>
+<h4 id="_137">六、判据</h4>
 <table>
 <thead>
 <tr>
@@ -9359,7 +9369,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </tr>
 </tbody>
 </table>
-<h4 id="_139">七、实测</h4>
+<h4 id="_138">七、实测</h4>
 <table>
 <thead>
 <tr>
@@ -9394,7 +9404,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </tr>
 </tbody>
 </table>
-<h4 id="_140">七之二、落地时又踩到的四处（都是"看着正常、其实在骗人"）</h4>
+<h4 id="_139">七之二、落地时又踩到的四处（都是"看着正常、其实在骗人"）</h4>
 <table>
 <thead>
 <tr>
@@ -9433,7 +9443,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 <p>这一轮全部来自用户在一次真机试跑后的九条反馈。<strong>七条现象只对应四个根因</strong>，而且其中三条
 （帧率、地图缩放、停车保存）当初的推断都与事实不同 —— 记在这里，因为"看起来像是什么"
 与"实际是什么"之间的差，正是这一层最容易复发的地方。</p>
-<h4 id="_141">一、现象 → 根因</h4>
+<h4 id="_140">一、现象 → 根因</h4>
 <table>
 <thead>
 <tr>
@@ -9544,7 +9554,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 </tr>
 </tbody>
 </table>
-<h4 id="_142">三、两次"想当然"被实测打回</h4>
+<h4 id="_141">三、两次"想当然"被实测打回</h4>
 <p>这两条是本轮最值得记的：<strong>都是我自己先想出来、再被数字否掉的</strong>。</p>
 <table>
 <thead>
@@ -9570,7 +9580,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 <p>顺带钉死了一条口径：地图画布的宽度<strong>只由 <code>fitMaze()</code> 写 <code>style.width</code></strong>，CSS 里不再有
 <code>width:100%</code>（否则它把边长拉成卡片宽，与"按高度算出来的边长"互相打架）。因此
 "布局好了没"的闸<strong>不能</strong>再用 <code>cv.clientWidth</code>（首帧恒 0 ⇒ 变成永远不画），改成 <code>cap != 0</code>。</p>
-<h4 id="_143">四、判据</h4>
+<h4 id="_142">四、判据</h4>
 <table>
 <thead>
 <tr>
@@ -9602,7 +9612,7 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 看起来像"改名把文件搬坏了"；② <code>#vd-err</code> 是常驻的 <code>display:none</code> 占位，
 <code>querySelectorAll</code> 数到了它；③ <code>Failed to load resource: 409</code> 是网络层记录（没连设备时
 <code>/params/grouped</code> 本来就 409，界面已 toast），不是脚本错误。<strong>判据红了先怀疑判据自己。</strong></p>
-<h4 id="_144">五、实测</h4>
+<h4 id="_143">五、实测</h4>
 <table>
 <thead>
 <tr>
@@ -9637,6 +9647,608 @@ ok = self._wait_pending(p, to)        # ACK 异步等
 <code>{groups:{}, count:0, connected:false}</code> 却是 <strong>HTTP 200</strong> —— 走到 <code>params_grouped()</code> 里
 <code>mc is None</code> 那条兜底分支（模拟器重连窗口）。这条路本轮没动，判据也没有削弱；
 "200 + 空表"本身是个<strong>真问题</strong>（空表是"读到 0 项"这个假事实），已记入 §12.2。</p>
+<hr />
+<h3 id="1141">11.41 改版四十一·链路判死 + 帧率改实测 + 比赛页改半手动（状态：<strong>已落地</strong>）</h3>
+<p>用户这一轮报了五条，读代码后确认：<strong>其中三条共用一个根因</strong> —— 拉取器"死了但链路还开着"，
+前端既收不到断链通知、又靠一个每 2 s 无条件重开的看门狗，于是形成重试风暴。</p>
+<h4 id="_144">一、五条的现场现象与代码事实</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>现象</th>
+<th>代码事实</th>
+<th>判定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>帧率像被平滑过</td>
+<td><code>_rate_snapshot()</code> 的 <code>RATE_WIN_S=6.0</code>，<code>hz=(Δ样本)/span</code> ⇒ <strong>6 s 滑动平均</strong>；且 <code>_rate_hist</code> 重连时<strong>不清</strong> ⇒ 重连后前 6 s 是上一段的均值</td>
+<td>真是平滑值</td>
+</tr>
+<tr>
+<td>2</td>
+<td>断开后仍刷新数据</td>
+<td>上游 <code>_check_link()</code> 判死后只置 <code>stream.dead=True</code>，<strong><code>link.is_open</code> 仍为 True</strong> ⇒ <code>connected</code> 仍报已连接；<code>sampler_loop</code> 每 100 ms 把<strong>同一帧</strong>再推一遍</td>
+<td>真问题</td>
+</tr>
+<tr>
+<td>2b</td>
+<td>断链没有提示</td>
+<td>后端推 <code>mouse.error{kind:link_lost}</code>，前端分发里<strong>没有这个分支</strong> ⇒ 到浏览器门口被丢掉（与改版四十的 <code>upevent</code> 同一个坑，第二次踩）</td>
+<td>真问题</td>
+</tr>
+<tr>
+<td>3</td>
+<td>比赛页反复弹"开始拉流"、命令发不出</td>
+<td><code>NEED_PULL</code> 含 <code>race</code> + 看门狗每 2 s 无条件重开 + 每次开流成功都 toast ⇒ <strong>失败→重开→弹框→再失败</strong>；而 <code>n≥2</code> 开流失败要重试 <code>CMD_TRIES=3 × 2.0 s</code>，<strong>一次开流最多堵命令通道 6.5 s</strong></td>
+<td>根因确认</td>
+</tr>
+<tr>
+<td>4</td>
+<td>"已保存…"卡住不回</td>
+<td>一旦 <code>last.ok</code> 就把按钮文本永久改成"已保存 · 名 · N 帧"</td>
+<td>确认</td>
+</tr>
+<tr>
+<td>5</td>
+<td>比赛页要半手动</td>
+<td>同 3：<code>race</code> 在自动补开表里</td>
+<td>确认</td>
+</tr>
+</tbody>
+</table>
+<h4 id="2026-10-26_1">二、决议（用户 2026-10-26 逐条拍板）</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>定论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>比赛页拉取入口</td>
+<td><strong>进页开一次，失败不重试</strong></td>
+</tr>
+<tr>
+<td>判死做到哪步</td>
+<td><strong>PING ×2（间隔 0.5 s）都不通</strong> ⇒ 停流 + 记录收尾 + 标 <code>link_dead</code> + <strong>自动断开串口</strong></td>
+</tr>
+<tr>
+<td>PING 通但没帧</td>
+<td><strong>后端只报状态，不自动重开</strong>（<code>link_dead / want_stream / stalled</code> 三个状态端出来）</td>
+</tr>
+<tr>
+<td>比赛中保活</td>
+<td><strong>先不补</strong>；留 <code>suspect</code> 判据，实测再定</td>
+</tr>
+<tr>
+<td>帧率口径</td>
+<td>大数 = <strong>上游 <code>telemetry.hz()</code> 的 2 s 实测</strong>；6 s 降为脚注里的"趋势"</td>
+</tr>
+<tr>
+<td>已保存</td>
+<td>按钮短暂变（保存中 / 已保存 · 名 · N 帧），<strong>4 s 回落"停止并保存"</strong></td>
+</tr>
+<tr>
+<td>小面板位置</td>
+<td>压成一行塞进「发车」卡片顶部，<strong>不动中栏地图</strong></td>
+</tr>
+<tr>
+<td>停车判据</td>
+<td>记录收尾 ∪ <code>S.running</code> 真→假 ∪ 点收车/复位，<strong>1 s 去抖，只停一次</strong></td>
+</tr>
+<tr>
+<td>断链提示</td>
+<td><strong>只弹 toast（bad，7 s）+ 日志</strong>；不加常驻 banner（顶栏本来会跟 <code>connected</code> 变）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_145">三、做法</h4>
+<p><strong>① 帧率给三个口径（不换掉旧的，而是分开）</strong></p>
+<p>新增 <code>hz_2s</code>（上游 2 s 实测，界面大数）与 <code>hz_inst</code>（最近一批 <code>n/Δms</code>）+ <code>hz_inst_age_ms</code>。
+<code>hz</code> <strong>保留为 6 s 趋势</strong> —— 换掉它会让判据 I11/I50 系列与历史读数不可比。
+<code>connect()</code> / <code>disconnect()</code> 调 <code>_reset_rate_windows()</code> 清四样（<code>_rate_hist</code> / <code>_batch_hist</code> /
+<code>_batch_seen</code> / <code>_inst</code> / <code>_rate_last</code>），少清一样就会看到"重连后的假数"。</p>
+<p>⚠️ 写这段时踩了一个顺序坑：<code>_batch_rows()</code> <strong>会写</strong> <code>self._inst</code>，而 <code>hz_inst</code> 在它之前读
+⇒ 永远差一拍（表现是"这个数总比别的慢半秒"，很难看出是 bug）。改成先算 <code>batches</code> 再读 <code>_inst</code>。</p>
+<p><strong>② 判死：PING 复核 + 自动断开</strong></p>
+<table>
+<thead>
+<tr>
+<th>落点</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>link_health()</code></td>
+<td><code>{link_dead, want_stream, frame_age_ms, stalled}</code>，<strong>三个概念分开</strong>，不许合成一个布尔</td>
+</tr>
+<tr>
+<td><code>verify_link()</code></td>
+<td><code>PING ×2</code>、单次 ≤1.2 s。用它而不用 <code>TELEM</code>：<code>TELEM</code> 正是此刻在超时的那个探针</td>
+</tr>
+<tr>
+<td><code>note_cmd_timeout()</code></td>
+<td>命令超时（<code>TIMEOUT</code> / <code>NO_REPLY</code>）<strong>只登记</strong>，由采样循环下一拍去 PING。为什么不在命令路径上就地 PING：那里已经在等超时了，再叠一趟就把延迟翻倍，而"设备忙"是超时最常见的真因</td>
+</tr>
+<tr>
+<td><code>_probe_once()</code></td>
+<td>通 ⇒ 退避 + 日志（<strong>不自动重开</strong>）；不通 ⇒ <code>_declare_dead()</code></td>
+</tr>
+<tr>
+<td><code>_declare_dead()</code></td>
+<td>停流 → <code>feed_link_down()</code> → 推 <code>mouse.error{link_dead}</code> → <code>mc.disconnect()</code>。<strong>幂等</strong>，第二次直接返回 False</td>
+</tr>
+<tr>
+<td><code>on_error(link_lost)</code></td>
+<td><strong>只置标记</strong>（<code>_probe_armed</code>）。这个回调跑在<strong>上游 1 kHz 调度线程</strong>上，在那里停流/断串口就是拿同步 IO 去堵最不能碰的那条线程</td>
+</tr>
+<tr>
+<td><code>sampler_loop</code></td>
+<td>巡检排在<strong>所有 <code>continue</code> 之前</strong>（没人开浏览器时也要判）；已判死 ⇒ <strong>一帧都不推</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>一个顺带修掉的假阳性</strong>：上游 <code>_frame_gap</code> 取 <code>min(距最后一帧, 距本次 start)</code>，而 <code>start()</code>
+才刷新 <code>_t0</code>。发车命令占链路 5.4 s + <code>n≥2</code>（判死阈值 3 s）⇒ <strong>resume 后第一拍就被判
+link_lost</strong>，而设备好好的。真机现在没炸，只因默认 <code>N=1</code>（停等阈值 7 s）刚好兜住。
+用 PING 复核正好把这类误报与真断链分开：通的就是误报。</p>
+<p>为什么判死必须<strong>断开串口</strong>：这条链路断了不自愈（上游原话是"请断电 3~5 s 再重连"），
+而 <code>link.is_open</code> 仍是 True ⇒ 界面一直显示"已连接"，用户点【连接】也不会重新打开串口。</p>
+<p><strong>③ 拆重试风暴</strong></p>
+<p><code>NEED_PULL</code>（进页开一次）仍含 <code>race</code>；新增 <code>GUARD_PULL</code>（看门狗补开）<strong>不含 race</strong>。
+一张表决定"进页要不要开"，另一张决定"停了自己补不补" —— 以前合成一张，
+于是"进页要开"顺带把"无条件补开"也给了比赛页。
+看门狗改指数退避 2→4→8→16→30 s、成功归零、<strong>全程静默</strong>、连续失败 2 次只提示一次；
+<code>setPull()</code> 加<strong>请求令牌</strong>丢弃过期响应（晚到的响应会把 <code>S.pulling</code> 改回错的一态）。</p>
+<p><strong>④ "已保存"是中间态</strong></p>
+<p><code>S.rec.savedAt</code> 只在"<code>last</code> 里出现新名字且 ok"时打点，按钮据此只显示 4 s。
+⚠️ 判据不能用"<code>on</code> 由真变假"：手动点【停止并保存】时上一拍 <code>on</code> 就已经是 false
+（后端先置 <code>pending</code>），那个下降沿<strong>不会再来一次</strong> ⇒ 按钮会永远停在"保存中…"。</p>
+<p><strong>⑤ 比赛页半手动</strong></p>
+<p>抽 <code>C.pullPanel()</code>（Hz 大数 / 帧龄 / 模式 / N / 开始 / 结束，压成一行 <code>.pull-line</code>）。
+为什么抽成一份：切 N 只有一条正确姿势（<strong>先停流、再改 N、再开流</strong>），上游 <code>stream.on()</code>
+每次都会 <code>configure(1, t_ms)</code>；两处各写一遍必然漂移，而漂移的后果是"界面 n=3、设备按 n=1 发"，
+现场完全看不出来。
+停车停流三信号取或、<strong>跳变才触发</strong>、1 s 去抖：取电平的话，车没在跑就一直在发"停拉取"，
+人刚按【开始】就会被立刻停掉 —— 那是"命令挤压"的另一种形态。</p>
+<h4 id="_146">四、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>验什么</th>
+<th>为什么必须这样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I56</strong></td>
+<td><code>hz_2s</code> 与 6 s 趋势<strong>不同源</strong>（构造 25→40 样本 / 2.5 s、上游给 4.0 ⇒ <code>hz</code>≈6.0）；从没收到帧时 <code>hz_2s=None</code>；重连四样清空</td>
+<td>两个数不相等才算真的分开算了。只验"有值"会把"同一个数换个名字"放过</td>
+</tr>
+<tr>
+<td><strong>I57</strong></td>
+<td>判死 ⇒ 停流一次（且是 <code>False</code>）+ 记录收尾 + 断开 + <code>link_dead</code> 可见 + WS 一条；<strong>幂等</strong></td>
+<td>幂等不验的话，重复判死会连发 WS、连断两次串口</td>
+</tr>
+<tr>
+<td><strong>I58</strong></td>
+<td>无帧 5 s ⇒ 该查；复位后 1 s ⇒ <strong>不查</strong>；复位后 5 s ⇒ 又查；<strong>被点名时无视 <code>want_stream</code></strong>；PING 不通 ⇒ 真判死</td>
+<td>宽限不验 ⇒ 复位瞬间就被判断链（车正常重启却要人断电重连）。"点名优先"不验 ⇒ 用户一停流，上游报的 link_lost 就再没人管</td>
+</tr>
+<tr>
+<td><strong>I59</strong></td>
+<td>PING 通时退避 8→16→30（封顶 30）；<strong>开流命令 0 条</strong>；下次复核已推迟</td>
+<td>"不自动重开"必须拿 <code>mc.stream.toggle()</code> 验（唯一开流出口）。<strong>自欺的写法</strong>是把 <code>set_stream</code> 换成 lambda 再断言"没被调用" —— 那条永远成立</td>
+</tr>
+<tr>
+<td><strong>V16</strong></td>
+<td>保存后<strong>确实出现过</strong>"已保存"，5 s 后必须回"停止并保存"</td>
+<td>只验回落 ⇒ "从来没显示过"也通过（假绿）；只验出现 ⇒ "卡死"被放过</td>
+</tr>
+<tr>
+<td><strong>V17</strong></td>
+<td>进页开着 → 手动停 → <strong>把 8 s 豁免清零</strong>再等 4.5 s ⇒ 仍是停</td>
+<td>不清豁免的话，8 s 内的静默是豁免给的，验不出 race 是否还在 <code>GUARD_PULL</code> 里（永远假绿）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_147">五、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>58 PASS / 0 FAIL / 1 SKIP</strong>（新增 I56~I59；SKIP 仍是 V1 真视频）</td>
+</tr>
+<tr>
+<td><code>browser_check --sim</code></td>
+<td>见下方如实记录（V16 需造记录、V17 需等 4.5 s）</td>
+</tr>
+<tr>
+<td><code>preflight</code></td>
+<td>见下方</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_148">六、如实交代</h4>
+<ol>
+<li><strong><code>N≥2</code> 发车那条假阳性仍然存在</strong>（上游 <code>_frame_gap</code> 用 <code>start()</code> 的 <code>_t0</code> 当基准，
+   <code>resume()</code> 不刷新）。按决议本层<strong>不自动补流</strong>，所以那一次仍可能空跑 ——
+   区别是现在会留下 <code>link.dead</code> / 巡检日志与变红的状态行，不再无声。这是上游缺陷，
+   本层不动上游源码。</li>
+<li><strong>toast-only 意味着 7 s 后就没了</strong>。顶栏会变"未连接"，但不会自己回连（上游明说
+   断链不自愈）。</li>
+<li>②的"命令超时"复核对链路是<strong>额外一趟 PING</strong>（≤1.2 s × 2）。在 4~6 Hz 的停等链路上
+   这是可感的代价，所以只在超时/无帧时触发，正常命令一律不加。</li>
+</ol>
+<hr />
+<h3 id="1142">11.42 改版四十二·命令让路期的假复核 + 发车状态被旧帧翻回（状态：<strong>已落地</strong>）</h3>
+<p>改版四十一上线后现场回报两条，都是<strong>改动自己带出来的</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>现象</th>
+<th>代码事实</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td>点【收车】/【复位】弹成功，但按钮「已发车」<strong>闪成「比赛发车」又变回「已发车」</strong></td>
+<td>①<code>race.js</code> 的 onclick 里 <code>stopPullOnce()</code> 与 <code>C.act('mazeStop')</code> <strong>并发</strong>下发，停流几乎总是先到 ⇒ 后端 <code>maze_stop()</code> 里 <code>_wait_fresh_frame(n0, 2.5)</code> 等不到新帧 ⇒ <code>reliable=null</code>（判不了）<br>②前端拿到 <code>reliable=null</code> 后<strong>自己猜</strong>"成功了"，写 <code>S.running=false</code><br>③下一帧（<strong>停车前采的</strong>，<code>mazeTask</code> 仍是 2）到达 ⇒ <code>applyTelemetry</code> 无条件 <code>S.running = mazeTask&gt;=2</code> 翻回 true<br>④此时流已停，<strong>再没有帧来纠正</strong> ⇒ 永久停在错的</td>
+<td>三条错叠加：<strong>前端抢答 + 停流抢跑 + 派生值被陈旧帧改写</strong></td>
+</tr>
+<tr>
+<td>②</td>
+<td>发车开始一小段时间收不到数据（<strong>改版三十七已修过，又回来了</strong>）</td>
+<td><code>send_cmd()</code> 对 urgent 命令先 <code>stream.suspend()</code>、回来 <code>resume()</code> 重发 <code>RATE PULL</code>（3 次 × ≤2 s，首条常丢）；整段 0.9~5.1 s 无帧。改版四十一新加的巡检把这段当成"停帧"⇒ 4 s 后 PING ⇒ <strong>PING 与那条 <code>RATE PULL</code> 抢同一个 1 ms 命令窗口</strong>（固件每 ms 只消费一行）⇒ <code>RATE PULL</code> 被吃掉；<code>resume()</code> 三次重试用尽后是<strong>静默保持停</strong>（上游原话），而前端只在切页时 <code>syncPull()</code> ⇒ 不切页就再也收不到</td>
+<td>巡检<strong>不该在命令占链路时复核</strong>；且"拉取器没在跑"要有<strong>自愈</strong>，不能只报"设备在听、只是没有帧"</td>
+</tr>
+</tbody>
+</table>
+<h4 id="grill-me">一、九条决议（grill-me 逐条裁决）</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>岔路</th>
+<th>裁决</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>收车后谁说了算</td>
+<td><strong>后端</strong>。<code>maze_stop()</code> 已经等过一帧新帧读任务机（<code>reliable</code> / <code>state.task</code>），前端只消费</td>
+</tr>
+<tr>
+<td>2</td>
+<td>停流时机</td>
+<td><strong>等收车回执之后再停</strong>（复位例外：它靠 <code>rst=SW</code> 复核，不靠新帧）</td>
+</tr>
+<tr>
+<td>3</td>
+<td>回执 ≠ 车停住</td>
+<td>三种说法分开：<code>reliable=true</code> ⇒「已收车」；<code>task&gt;=2</code> ⇒「<strong>还没收住</strong>」+ 下一步；判不了 ⇒「收车已下发」</td>
+</tr>
+<tr>
+<td>4</td>
+<td>旧帧要不要认</td>
+<td>命令回执后的 <strong>2.5 s 内钉住</strong>（<code>S.runPin</code>），之后<strong>下一个到达的帧</strong>说了算</td>
+</tr>
+<tr>
+<td>5</td>
+<td>钉子会不会永久</td>
+<td>不会：窗口一过 <code>runPin=null</code>。窗口内一帧都没有（流已停）就保持命令结果——那是对的</td>
+</tr>
+<tr>
+<td>6</td>
+<td>命令在途时能不能 PING</td>
+<td><strong>一次都不许</strong>。<code>_cmd_inflight &gt; 0</code> 或上游 <code>_suspends &gt; 0</code> ⇒ <code>_probe_should_run()</code> 返回 <code>None</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>link_lost</code> 误报怎么办</td>
+<td>命令放手时<strong>清掉 <code>upstream:</code> 开头的</strong>标记（那是我们自己 suspend 出来的），<code>cmd_timeout:*</code> <strong>保留</strong></td>
+</tr>
+<tr>
+<td>8</td>
+<td>拉取器没在跑怎么办</td>
+<td><strong>自愈</strong>：想要帧 + 上游 <code>is_on=False</code> + 链路最近没被占（≥2.5 s）⇒ 补开一次，<strong>最多 2 次</strong>，然后停手并说清下一步</td>
+</tr>
+<tr>
+<td>9</td>
+<td>自愈会不会替人开流</td>
+<td>不会：只认<strong>意愿位</strong> <code>_want_on</code>（人明确停 ⇒ False）。"命令占过链路"不等于"要帧"</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_149">二、做法（落点）</h4>
+<p><strong>后端 <code>control/adapters/mouse.py</code></strong></p>
+<ul>
+<li>新位：<code>_cmd_inflight / _cmd_exit_at / _held_seen_at / _revive_at / _revive_tries / _revive_pending / _want_on</code>。</li>
+<li><code>_cmd_enter()</code> / <code>_cmd_exit(what)</code>：包住 <code>maze_run</code> / <code>maze_stop</code> / <code>rescue</code> 三条 urgent 命令。
+  放手时<strong>把 <code>_frame_grow_at</code> 挪到现在</strong>（不挪的话命令刚回来就 ≥ <code>STALL_PROBE_S</code>，
+  下一拍照样 PING）、退避归零、清 <code>upstream:</code> 误报；若此时拉取器没在跑 ⇒ 允许<strong>立刻</strong>补开。</li>
+<li><code>_pull_state()</code>：三态读上游 —— <code>on</code>（<code>mc.stream.is_on</code>）、<code>held</code>（<code>_suspends&gt;0</code>，facade 与
+  puller 两层都探）、<code>off</code>（想要帧却没在跑）。<code>_suspends</code> 是私有字段，按纪律 <code>getattr</code> + 类型判定。</li>
+<li><code>_probe_should_run()</code> 新增三道闸（顺序有讲究，见判据 I60/I61）：
+  <code>_cmd_inflight</code> → <code>held</code>（顺手记 <code>_held_seen_at</code>）→ 复位宽限/冷却/命令静默 →
+  <strong>被点名</strong>（<code>armed</code>）→ <code>off</code> → 想不想要帧 → 停帧计时。
+  ⚠️ <code>off</code> 必须排在 <code>armed</code> <strong>之后</strong>：<code>cmd_timeout + 拉取器停着</code> 恰恰最该 PING。</li>
+<li><code>_revive_reason()</code> + <code>_safe_stream_on()</code>：自愈判定与实际补开（executor 里调）。</li>
+<li><code>set_stream()</code> 写 <code>_want_on</code>；<code>connect/disconnect/_declare_dead</code> 都清自愈记账。</li>
+</ul>
+<p><strong>前端 <code>control/static/assets/lib.js</code> + <code>views/race.js</code></strong></p>
+<ul>
+<li><code>S.runPin</code> + <code>pinRunning(v, ms)</code> / <code>applyRunning()</code>：把 <code>applyTelemetry</code> 里那句
+  <code>S.running = mazeTask&gt;=2</code> 换成 <code>applyRunning()</code> —— 窗口内钉住，窗口外交给帧。</li>
+<li><code>act()</code> 在真机分支<strong>返回 Promise</strong>（原型分支没有，调用方 <code>if (p &amp;&amp; p.then)</code>）。</li>
+<li><code>actLive('mazeStop')</code> 按 <code>reliable</code> / <code>state.task</code> 三态说话；<code>launch</code> 钉 3 s、
+  <code>rescue</code> 钉 4 s（盖住 <code>RESET_GRACE_S</code>）、<code>estop</code> 钉 3 s。</li>
+<li><code>race.js</code> 的【收车】：<code>const p = C.act('mazeStop'); p.then(() =&gt; this.stopPullOnce())</code>；
+  【复位】仍立刻停（它不靠新帧下结论）。</li>
+</ul>
+<h4 id="_150">三、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+<th>为什么必须这样验</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I60</strong></td>
+<td>命令在途 / 上游让路（<code>_suspends=1</code>）时 <code>_probe_should_run</code> 必须 <code>None</code>；<code>_cmd_exit</code> 必须把 <code>_frame_grow_at</code> 挪到放手那一刻；放手后 1 s 内仍 <code>None</code></td>
+<td>这四件事<strong>读数字验不出来</strong>（都是"该不该做"的时序判定），只能把时序捏在手里</td>
+</tr>
+<tr>
+<td><strong>I61</strong></td>
+<td>放手时 <code>upstream:link_lost</code> 被清、<code>cmd_timeout:*</code> 保留</td>
+<td>两个都清 ⇒ 命令超时再没人复核；两个都不清 ⇒ <code>n≥2</code> 发车后必报假 <code>link_lost</code></td>
+</tr>
+<tr>
+<td><strong>I62</strong></td>
+<td>想要帧+没在跑 ⇒ 该补；<strong>人停了 ⇒ 一条开流命令都不许发</strong>（<code>toggles==[]</code>）；命令刚放手不补；补满 2 次停手；帧回来计数归零</td>
+<td>自愈是"后端替人做决定"，正反两面都得钉住，否则就是改版四十一拆掉的"我停了它又活了"</td>
+</tr>
+<tr>
+<td><strong>V18</strong></td>
+<td>钉住期间旧帧（<code>task=2</code>）不许翻成 true；窗口过后<strong>同一帧</strong>必须说了算（且钉已清）</td>
+<td>只验前半会放过"钉不过期"（永远收不了车）；只验后半会放过"根本没钉"（就是现在这个 bug）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_151">四、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>61 PASS / 0 FAIL / 1 SKIP</strong>（新增 I60/I61/I62；SKIP 仍是 V1 真视频）</td>
+</tr>
+<tr>
+<td><code>browser_check --sim</code></td>
+<td><strong>22 PASS / 0 FAIL / 1 SKIP</strong>（新增 V18；SKIP 是 V10 已连设备不试错端口）</td>
+</tr>
+<tr>
+<td><code>preflight</code> / <code>check_iface_table</code></td>
+<td>22 通过 / 1 警告（上游 42 处改动，老账）；5 PASS / 0 FAIL</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_152">五、如实交代</h4>
+<ol>
+<li><strong>命令让路造成的缺口本身消不掉</strong>（上游为"命令不被拉取挤掉"付的代价，见 <code>TelemetryPuller.suspend()</code>）。
+   本层能做的是：那段<strong>不去打扰它</strong>（不 PING）、放手后<strong>立刻确认拉取真的起来了</strong>（自愈）。
+   缺口长度仍是 0.9~5.1 s，记录里也仍会有那一段 —— 两端锚点 <code>sent</code>/<code>ack</code> 照旧标着。</li>
+<li><strong>自愈最多补 2 次</strong>。补两次失败就停手并写日志让人手动开关一次 —— 再多就是命令风暴，
+   比"慢一点出帧"更糟（那正是改版四十一花力气拆掉的那条路）。</li>
+<li><strong>钉住窗口是"压住旧帧"，不是真相</strong>。窗口 2.5 s 是照后端 <code>_wait_fresh_frame</code> 的上限取的；
+   上游若哪天把这个上限改了，这个数要一起改（两处都在注释里点名了对方）。</li>
+<li><strong>真机上"已收车"仍可能不够快</strong>：<code>maze_stop()</code> 内部最多等 2.5 s 新帧再回执，
+   那段时间界面显示的是"已发车"（真的还在跑）+ 按钮不可点。这是<strong>如实</strong>，不是卡顿。</li>
+</ol>
+<h3 id="1143">11.43 改版四十三·收车观察窗 / 判停改看动作码 / 断开归零（状态：<strong>已落地</strong>）</h3>
+<p>改版四十二之后现场又报四条。<strong>没有一条是"界面没刷新"</strong>，四条各自的代码事实如下：</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>现象</th>
+<th>代码事实</th>
+<th>根因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td>任务机明明已 WAIT，「比赛发车」<strong>仍是灰的</strong>（不是"已发车"态）</td>
+<td><code>race.js</code> 置灰判据是 <code>S.running \|\| S.estop \|\| !connected</code>，而 <code>S.running = (mazeTask\|0) &gt;= 2</code> —— 读的是<strong>迷宫流程态</strong>（2..5 = SEARCH/SPURT 四档）。车停稳后流程态仍可能停在高位、或该回落时没回落</td>
+<td><strong>判据挂错了状态量</strong>：<code>mazeTask</code> 是"流程走到哪一步"，不是"车在不在动"</td>
+</tr>
+<tr>
+<td>②</td>
+<td>点【收车】/【复位】之后<strong>没有任何反馈</strong>；手动开一下拉取才看到 WAIT</td>
+<td><code>maze_stop()</code> 内部要等一帧新帧再读任务机（最多 2.5 s），而半手动模式下<strong>流已经停了</strong> ⇒ 新帧永远不来 ⇒ <code>reliable=null</code>；界面又把"判不了"当"等一等"，于是 3 s + 2.5 s = <strong>最长 5.5 s 静默</strong>，按钮/文案/hint 一个字不变（探针实测：第二次点收车后 2 s 内三个键无任何变化）</td>
+<td><strong>为了确认先把帧源掐掉</strong>，还附带一段长静默</td>
+</tr>
+<tr>
+<td>③</td>
+<td>未连接时帧率<strong>不是 0</strong>、曲线还停在老位置</td>
+<td><code>applyTelemetry</code> <strong>只在有值时才覆盖</strong>（那是零基线两条的正确做法），而 <code>applyHealth</code> 从不重置 <code>S.tel</code> ⇒ 断开后读数<strong>冻在最后一帧</strong>。探针实测：停流后 <code>hz2</code> 恒 10.41 不动，帧龄却从 406 ms 涨到 8069 ms</td>
+<td>把"没过期"当成了"还有值"</td>
+</tr>
+<tr>
+<td>④</td>
+<td>「动作」一栏有时显示<strong>裸数字</strong></td>
+<td>前端 <code>MOTIONS</code> 只有 5 项（0..4），而固件 <code>MotionTask_t</code> 有 38 项（0/1/2/4/5、12~18、27~45、101~107）⇒ 5 及以后全落进 <code>\|\| v</code>。<strong>且旧表把 <code>0=NULL</code>(空闲) 写成"停止"、<code>5=STOP</code>(停车) 根本没收录</strong> —— 恰好说反</td>
+<td>码表是<strong>静态副本</strong>，与上游漂了（上游 v2.3 就专门修过一次"漏 12/14/16"）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_153">一、五条做法（用户裁决）</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>决议</th>
+<th>落地</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>收车/复位<strong>停流前留观察窗</strong></td>
+<td>点击 → 命令 → <strong>不停流</strong> → 每拍看动作码 → 看到"没在动"才停流；超时才停并如实说没等到。窗口 8 s（复位 10 s），<code>/caps</code> 的 <code>stop_watch_s</code>/<code>reset_watch_s</code> 是唯一来源</td>
+</tr>
+<tr>
+<td>2</td>
+<td>判不了<strong>不自动开流</strong></td>
+<td>半手动不破例：点收车时流本来就停着 ⇒ 后端 0.3 s 内回 <code>reliable=null</code> + <code>frame_age_ms</code> + <code>waited=false</code>，界面当场说「收车已下发 · 判不了 · 点【开始】拉一次帧即可确认」</td>
+</tr>
+<tr>
+<td>3</td>
+<td>未连接 = <strong>0</strong>（不是 <code>—</code>、不是保留旧值）</td>
+<td><code>applyHealth</code> 检 <code>connected</code> <strong>下降沿</strong> → <code>resetTelemetry()</code>：累计量 0、测量量 null、<code>S.hist.rate=[]</code>、<code>rateLog=[]</code>、4 灯回"未知"、<code>running/estop</code> 复位、<code>telRxAt=0</code>、<code>mazeView=null</code>；未连接时大数<strong>写 0</strong>、波形画 0 基线</td>
+</tr>
+<tr>
+<td>4</td>
+<td>比赛页迷宫图：断开<strong>清空并标注</strong></td>
+<td>不保留旧图（"留着对照"会被当成"当前的墙"读）。断开时 <code>#rc-note</code> 写「未连接 · 无数据（上图已清空，不拿上一段的墙当现状）」</td>
+</tr>
+<tr>
+<td>5</td>
+<td>动作码表<strong>由后端下发</strong></td>
+<td><code>/caps</code> 的 <code>motions</code> = 适配器从上游 <code>MOTION_TASK_NAMES</code> 现生成 + 中文短名；<code>motion_stopped=[0,5]</code> 一并下发。前端那份只作<strong>离线兜底</strong></td>
+</tr>
+</tbody>
+</table>
+<h4 id="_154">二、做法（落点）</h4>
+<p><strong>后端 <code>control/adapters/mouse.py</code></strong></p>
+<ul>
+<li>模块级：<code>MOTION_ZH</code>（38 项中文短名）、<code>MOTION_STOPPED=(0,5)</code>、<code>STOP_WATCH_S=8.0</code>、<code>RESET_WATCH_S=10.0</code>、
+  <code>motion_codes()</code>（码集合 = 上游 ∪ 本表，<code>label</code> 缺了就退英文名，<strong>绝不给裸数字</strong>）。</li>
+<li><code>caps()</code> 新增四项：<code>motions</code> / <code>motion_stopped</code> / <code>stop_watch_s</code> / <code>reset_watch_s</code>（纯静态，零设备访问 ⇒ 不连也答得出）。</li>
+<li><code>maze_stop()</code>：命令回来先看 <code>link_health().frame_age_ms</code>，<strong>&gt;2 s（或从没来过）就不等</strong>那 2.5 s，
+  直接回 <code>reliable=None</code> + <code>fresh=False</code> + <code>waited=False</code> + <code>frame_age_ms</code>。回执里多了两个字段，
+  界面据此说"没有新帧可判"，而不是含糊的"看状态机"。</li>
+</ul>
+<p><strong>前端 <code>control/static/assets/lib.js</code></strong></p>
+<ul>
+<li><code>MOTIONS</code> 换成<strong>可被就地改写</strong>的对象（离线兜底 38 项）；<code>CODE.motionTask</code> / <code>CH.motionText(v)</code> 未知值给 <code>未知(123)</code>。</li>
+<li><code>S.motionStop</code>（默认 <code>[0,5]</code>，<code>/caps</code> 覆盖）、<code>S.watchS.stop/reset</code>、<code>S.telRxAt</code>（<strong>帧到达浏览器的墙钟</strong>）。</li>
+<li><code>applyRunning()</code>：判据换成 <code>motionTask ∉ motionStop</code>（<code>null</code> ⇒ 保持上一位，不猜）。</li>
+<li><code>applyCaps()</code>：吃 <code>motions</code> / <code>motion_stopped</code> / 两个窗口。</li>
+<li><code>resetTelemetry(why)</code> + <code>applyHealth</code> 两个边沿：<strong>下降沿</strong>清读数；<strong>上升沿</strong> <code>syncPull(S.route,{quiet:true})</code>。</li>
+<li>修掉一条老 bug：<code>startLive()</code> 拿到 <code>/health</code> 应答却<strong>丢掉</strong>（紧接着 <code>syncPull</code> 读到 <code>connected=false</code> 就放弃，
+  而 <code>race</code> 不在 <code>GUARD_PULL</code> 里 ⇒ 从记录页/刷新进比赛页，流永远不开）。现在把应答喂给 <code>applyHealth</code>。</li>
+<li><code>actLive('mazeStop'/'rescue')</code> <strong>只发命令 + 交回应答</strong>（失败返回 <code>{error}</code> 而不是 reject）；提示与判定全归页面。</li>
+</ul>
+<p><strong>前端 <code>control/static/assets/views/race.js</code></strong></p>
+<ul>
+<li><code>_pend = {kind, at, phase:'cmd'|'watch', t0, res}</code>：点击<strong>当拍</strong>进 pending（按钮禁用 + 「收车中…」/「复位中…」</li>
+<li>toast + hint），重复点被吞。</li>
+<li><code>_startPend(kind)</code>：命令回来后按<strong>后端三态</strong>分岔 —— <code>reliable=true</code> 当场收尾；<code>reliable=false</code> 进观察窗；
+  <code>null &amp;&amp; waited=false</code> 立刻说"判不了"（不假等）。</li>
+<li><code>_watchTick()</code>（<code>paint()</code> 顶部调）：<code>motionTask ∈ motionStop</code> ⇒ <code>pinRunning(false)</code> + 收尾 + 停流；
+  复位还要求"0.8 s 后且 1.5 s 内确实有帧到达"（不能拿复位前那一帧的空闲当成功）。
+  <strong>等确认期间断链 ⇒ 如实说"未确认"</strong>，不许把归零的 <code>motionTask</code> 当成"车停了"。</li>
+<li>发车键置灰：<code>!connected / pending / estop / running</code>，<strong>同一个字符串</strong>同时进 <code>title</code> 与 <code>#rc-hint</code>。</li>
+<li><code>views/live.js</code>：未连接 ⇒ 大数写 <code>0</code>、脚注写「未连接 · 无帧（0 是事实，不是占位）」、迷你曲线画贴底水平线。</li>
+</ul>
+<h4 id="_155">三、判据</h4>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>守什么</th>
+<th>为什么必须这样验</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I63</strong></td>
+<td><code>/caps</code> 那份码表<strong>盖住上游全部 38 项</strong>、每项都有中文短名、<code>motion_stopped</code> 恰为 <code>{0,5}</code>（1/12/101 明确<strong>不在</strong>）</td>
+<td>上游码表取不到时"空集合 ⊆ 任何集合"会让"覆盖上游"<strong>恒真</strong> —— 典型的假绿，所以取不到就 SKIP 并写明</td>
+</tr>
+<tr>
+<td><strong>I64</strong></td>
+<td>帧龄 9 s（没帧源）⇒ <code>waited=false</code>、<code>reliable=None</code>、<strong>耗时 &lt;1 s</strong>；帧龄 50 ms ⇒ 仍走等待分支</td>
+<td>只验"快"会放过"为了快就不确认"；只验"等"会放过现场那个 5.5 s 静默</td>
+</tr>
+<tr>
+<td><strong>V18</strong>（改）</td>
+<td>钉住期间旧帧（<strong>动作码=直行</strong>）不许翻成 true；窗口过后同一帧必须说了算</td>
+<td>判据跟着口径改：原来钉的是 <code>mazeTask=2</code>，而新版 <code>running</code> 已经不读它（判据不跟着改就是一条永远红的假警报）</td>
+</tr>
+<tr>
+<td><strong>V19</strong></td>
+<td>点【收车】后 <strong>300 ms</strong> 内：按钮文案含「收车中」+ disabled、发车键 disabled、<code>_pend</code> 存在；随后动作码报空闲 ⇒ 收尾回「收车」且<strong>拉取已停</strong></td>
+<td>只验"出现过收车中"会放过"永远停在那里"；所以后半段放开动作码，验它会自己收尾</td>
+</tr>
+<tr>
+<td><strong>V20</strong></td>
+<td>喂一份 <code>connected:false</code> 的 health ⇒ <code>hz2=null</code>、曲线 0 点、动作码 0、<code>running=false</code>、<code>telRxAt=0</code>、<code>posX=null</code>、<strong>迷宫图被清</strong>；界面帧率写 <code>0</code></td>
+<td>只验 <code>resetTelemetry</code> 会放过"根本没人调它"；只验下降沿会放过"少清几项"。另：先塞一张假迷宫图，否则"清空"恒真</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_156">四、实测</h4>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drill --sim</code></td>
+<td><strong>63 PASS / 0 FAIL / 1 SKIP</strong>（新增 I63/I64；SKIP 仍是 V1 真视频）</td>
+</tr>
+<tr>
+<td><code>browser_check --sim</code></td>
+<td><strong>24 PASS / 0 FAIL / 1 SKIP</strong>（新增 V19/V20；SKIP 是 V10 已连设备不试错端口）</td>
+</tr>
+<tr>
+<td><code>preflight</code> / <code>check_iface_table</code></td>
+<td>22 通过 / 1 警告 / 0 失败（警告是上游 42 处改动这笔老账）；5 PASS / 0 FAIL</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_157">五、如实交代</h4>
+<ol>
+<li><strong>那 0.9~5.1 s 的发车缺口仍在</strong>（上游为"命令不被拉取挤掉"付的代价）。本轮没有动它，
+   只保证"命令期间不 PING、放手后自愈"（改版四十二）。</li>
+<li><strong>观察窗会让"已收车"晚 0.2~1 s 出现</strong>：以前是回执到就立刻喊成功（那是抢答），现在要<strong>看到动作码归零</strong>。
+   窗口内按钮显示「收车中…」且两个键都禁用 —— 这是如实，不是卡顿。</li>
+<li><strong>点收车时流本来就停着 ⇒ 只能给"判不了"</strong>。"自动补开取一帧"被用户否掉了（会推翻半手动），
+   所以这条路径天生确认不了；界面给的是<strong>可照做的下一步</strong>（点【开始】拉一次帧），不是含糊话。</li>
+<li><strong><code>mazeTask</code> 仍在界面上显示</strong>（「迷宫判定」那一组），只是<strong>不再参与</strong>发车/收车的门控。
+   一冷一热两处口径不同不是冗余：一个说"流程走到哪"，一个说"车在不在动"。</li>
+</ol>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>
 <table>

@@ -259,15 +259,17 @@ class MazeWallMap:
             # 轨迹太长就没用了（一盘迷宫几千帧）；240 个格子点足够画出走法
             if len(self.track) < 240:
                 self.track.append([x, y])
-        # 三面墙：值 1 = **有墙**（上游 `wallLeft/Front/Right` 的语义）
-        # ⚠️ **前墙分两档**（改版三十四），别把远墙画成近墙：
-        #   `wallFront=1 & frontFar=0` ⇒ 近墙（贴脸，`min(f1,f2) < thrFrontNear`），
-        #                                墙在**本格**前方；
-        #   `wallFront=1 & frontFar=1` ⇒ 远墙（提前量），墙在**外一格**前方
-        #                                （= 本格前方那格的**再前一格**）。
-        #   两档画在**不同位置**（差一格），这正是"近墙/远墙"在图上能分辨的唯一依据。
-        #   同时必须给本格写 `front=False`：远墙意味着**贴脸那格是空的**，
-        #   不写的话界面会以为"这里还没探过"，而决策靠的就是这个"空"。
+        # 三面墙：值 1 = **有墙**（上游 `wallLeft/Front/Right` 的语义）。
+        #
+        # ⚠️ **`frontFar` 是距离档位，不是"墙在第几格"**（2026-10-26 真机修正）。
+        #   早期这里把 `wallFront=1 & frontFar=1` 当成"墙在外一格"，于是给本格写
+        #   `front=False`、把墙写到邻居格的前沿。**这是错的**：格距 180 mm、
+        #   `thrFrontNear` = 65 mm，"远"只表示这面墙不在 65 mm 以内（贴脸），
+        #   65..180 mm 全都算"远"，而它**仍然挡在本格前方**。
+        #   实测代价（v10 建图增量通道验收，一次 10 格短跑）：7 面不一致里有 3 面
+        #   —— (3,2)v / (3,3)h / (4,3)v —— 就是这条规则把有墙画成可通、把可通画成
+        #   有墙，而固件 `GucMapBlock` 的 open4 位在这三处全部正确。
+        #   所以这里**只看 has**，`frontFar` 不参与落位（它留给界面区分近/远用）。
         for key, has in (("left", rec.get("wallLeft")),
                          ("right", rec.get("wallRight"))):
             if has is None:
@@ -276,16 +278,7 @@ class MazeWallMap:
 
         fw = rec.get("wallFront")
         if fw is not None:
-            has = bool(_i(fw))
-            far = bool(_i(rec.get("frontFar"))) if rec.get("frontFar") is not None else False
-            if has and far:
-                dx, dy = _STEP[f["front"]]
-                nx2, ny2 = x + dx, y + dy
-                self._set(x, y, f["front"], False)      # 贴脸这格：确认**没有**墙
-                if 0 <= nx2 < n and 0 <= ny2 < n:
-                    self._set(nx2, ny2, f["front"], True)   # 远墙落在下一格的前沿
-            else:
-                self._set(x, y, f["front"], has)
+            self._set(x, y, f["front"], bool(_i(fw)))
 
     def to_json(self) -> Dict[str, Any]:
         return {

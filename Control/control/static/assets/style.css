@@ -921,6 +921,26 @@ body.drawer-open .toasts{right:calc(min(420px,94vw) + 14px)}
 .pull-row .pu-n .input:disabled{background:var(--panel-2);color:var(--muted);cursor:not-allowed}
 .pull-row .pu-note{margin-left:auto}
 
+/* 比赛页的拉取小面板（改版四十一）：**压成一行**塞进「发车」卡片顶部。
+   为什么必须一行：这一页是舞台页，中栏地图边长 = min(可用高, 可用宽)，
+   右栏变高不直接压地图（三列各滚各的），但右栏一滚就看不到发车按钮了。
+   所以这里只放四个东西：Hz 大数、一行状态（帧龄/模式）、N、开始/结束。 */
+.pull-line{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow:hidden;
+  padding:0 0 7px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.pull-line .pl-hz{display:inline-flex;align-items:baseline;gap:3px;flex:none}
+.pull-line .pl-hz b{font-family:var(--mono);font-size:19px;line-height:1;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums}
+.pull-line .pl-hz b.off{color:var(--muted)}
+.pull-line .pl-hz i{font-style:normal;font-size:9px;color:var(--muted)}
+.pull-line .pl-meta{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:9.5px;
+  color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pull-line .pl-meta.bad{color:var(--amber)}
+.pull-line .pl-n{display:inline-flex;align-items:center;gap:4px;flex:none;
+  font-family:var(--mono);font-size:10px;color:var(--muted)}
+.pull-line .pl-n .input{width:44px;text-align:right;padding:2px 4px}
+.pull-line .pl-n .input:disabled{background:var(--panel-2);color:var(--muted);cursor:not-allowed}
+.pull-line .btn{flex:none}
+
 /* ═══ 记录：列表 + 关联 ═════════════════════════════════════════════════ */
 /* ═══ 记录：控制面板置顶（吸顶）+ 列表独立滚动 ═════════════════════════ */
 /* 面板放底部时，列表一变长（真机几十条）就会把按钮推到视野外 ⇒ 面板吸在

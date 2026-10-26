@@ -317,7 +317,8 @@
         ['posX/posY', '位置', U.fmt(sm.posX, 2) + ', ' + U.fmt(sm.posY, 2)],
         ['dir', '朝向', (CH.dirs[sm.dir] || '?') + ' (' + sm.dir + ')'],
         ['mazeTask', '迷宫任务', (CH.tasks[sm.mazeTask] || sm.mazeTask) + ' (' + sm.mazeTask + ')'],
-        ['motionTask', '动作', (CH.motions[sm.motionTask] || sm.motionTask) + ' (' + sm.motionTask + ')'],
+        ['motionTask', '动作', (CH.motionText ? CH.motionText(sm.motionTask)
+          : (CH.motions[sm.motionTask] || sm.motionTask)) + ' (' + sm.motionTask + ')'],
         ['speedL/speedR', '轮速', U.fmt(sm.speedL, 1) + ' / ' + U.fmt(sm.speedR, 1) + ' cm/s'],
         ['wallL/F/R', '墙', sm.wallLeft + ' / ' + sm.wallFront + ' / ' + sm.wallRight],
         ['battMv', '电池', U.fmt(sm.battMv, 0) + ' mV'],

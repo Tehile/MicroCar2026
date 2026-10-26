@@ -3,6 +3,21 @@
   const S = C.S, U = C.util;
   const CH = C.channels;
 
+  /* 收车/复位这条"待办"的标题（mount 与 paint 共用一份，别两处各写一句） */
+  function pendTitle(kind) { return kind === 'reset' ? '复位' : '收车'; }
+  function pendBusy(kind) { return kind === 'reset' ? '复位中…' : '收车中…'; }
+  /* 动作码 → 文字。**走 `C.channels.motionText`**（后端 `/caps` 下发的码表），
+     不再 `CH.motions[v] || v` —— 那个 `|| v` 会把未知码显示成裸数字。 */
+  function motionName(v) {
+    if (v == null) return '—';
+    return typeof CH.motionText === 'function' ? CH.motionText(v) : (CH.motions[v] || v);
+  }
+  /* 帧龄 → 一句话。`null` = 从没来过（不是"刚刚"）。 */
+  function fmtAge(ms) {
+    if (ms == null) return '从没来过';
+    return ms >= 1000 ? U.fmt(ms / 1000, 1) + ' s' : U.fmt(ms, 0) + ' ms';
+  }
+
   C.VIEWS.race = {
     eyebrow: '小车控制 · MAZE RUN RACE',
     title: '比赛',
@@ -61,6 +76,10 @@
           /* 右：发车 + 冲刺 + 状态机 */
           '<div class="stack race-side">' +
             '<section class="card launch-card">' +
+              /* 拉取小面板（改版四十一）：这一页改成**半手动**——进页开一次
+                 （`NEED_PULL.race`），之后停车/收车/复位就停，看门狗**不再补**。
+                 面板压成一行塞在卡片顶部：中栏地图吃高度，右栏一滚就看不到发车按钮。 */
+              '<div id="rc-pull"></div>' +
               '<div>' +
                 '<div class="sec-title" style="margin:0 0 6px">发车前检查</div>' +
                 '<div class="check-list" id="rc-checks"></div>' +
@@ -106,12 +125,38 @@
 
       root.querySelector('#rc-run').onclick = () => {
         if (S.running) { C.toast('warn', '已在跑', '先【收车】'); return; }
+        if (this._pend) { C.toast('warn', pendTitle(this._pend.kind) + '中', '等这一条走完再发车。'); return; }
         C.act('launch');
         this.paint(true);
       };
-      root.querySelector('#rc-mstop').onclick = () => { C.act('mazeStop'); this.paint(true); };
-      root.querySelector('#rc-rescue').onclick = () => { C.act('rescue'); this.paint(true); };
+      /* ── 收车 / 复位（改版四十三：**点击即有反馈，停流放到确认之后**）────────
+         旧写法有两个错：
+           ① 点下去之后界面**一声不响**（要等后端 3 s 命令 + 2.5 s 等新帧才回话），
+              而且当时 `maze_stop` 在流已停时永远等不到新帧 ⇒ "点了没反应"；
+           ② 收车还**先停流**，等于为确认先把帧源掐掉。
+         现在：`_startPend()` 当拍进 pending（按钮禁用 + 文案 + toast），
+         命令回来后进**观察窗**（不停流），看到动作码"没在动"才收尾停流。 */
+      root.querySelector('#rc-mstop').onclick = () => {
+        if (this._pend) return;          // 一条链路只排一条：重复点被吞（不是"再发一次"）
+        this._startPend('stop');
+      };
+      root.querySelector('#rc-rescue').onclick = () => {
+        if (this._pend) return;
+        this._startPend('reset');
+      };
       root.querySelector('#rc-recstop').onclick = () => { C.act('saveRecord'); };
+
+      /* 拉取小面板（与实时页同一套门控：切 N 必须先停流） */
+      this._pp = C.pullPanel(root.querySelector('#rc-pull'));
+      /* 停车判据的**基线**：跳变才有意义，所以挂载时先记一份现值。 */
+      this._wasRun = S.running;
+      this._wasRec = !!S.rec.on;
+      this._pullStopAt = 0;
+      /* 收车/复位这条待办（改版四十三）。`null` = 没有在等任何东西。
+         `{kind:'stop'|'reset', at, phase:'cmd'|'watch', t0, res}`：
+           cmd   = 命令已下发、还没回来（这期间界面必须给反馈，不许静默）；
+           watch = 命令回来了、在**观察窗**里等"车真的停"（这期间**不停流**）。 */
+      this._pend = null;
       /* 清空：只清**这张图**（后端 `reset_live_map`），记录、设备、拉取都不动。
          凭什么敢直接删（不二次确认）：它**可重建**——继续跑几秒图就回来了，
          而且清的只是"我看到了什么"，不是任何落盘的东西。 */
@@ -161,15 +206,45 @@
         '<span>' + c.label + '</span>' +
         '<span class="v">' + c.val + '</span></div>').join('');
 
+      /* ── 发车键（改版四十三）────────────────────────────────────────────
+         `S.running` 现在读**动作码**（不再读迷宫任务）；pending 期间也禁用 ——
+         那是"车上还有一条命令在飞"，不是"按钮坏了"。
+         ⚠️ **灰着必须说得出为什么**：同一个字符串既进 `title` 也进 `#rc-hint`，
+         两处各写一句就会出现"灰着但没人说原因"（旧版 hint 只看三个条件、
+         真正的置灰理由却可能是 `S.running` 被一帧旧数据翻起来）。 */
+      this._watchTick();                 // 先判一次观察窗（可能就在这一拍收尾）
       const btn = root.querySelector('#rc-run');
-      btn.disabled = S.running || S.estop || !S.health.mouse.connected;
+      const pend = this._pend;
+      const mt = t.motionTask;
+      let why = '';
+      if (!S.health.mouse.connected) why = '未连接电脑鼠';
+      else if (pend) why = pendTitle(pend.kind) + '中 · 等设备确认';
+      else if (S.estop) why = '急停锁存 · 先解锁';
+      else if (S.running) why = '跑位中（动作 ' + motionName(mt) + '） · 先【收车】';
+      btn.disabled = !!why;
+      btn.title = why || '发车：先确认拉取在跑，再下发 MAZE RUN RACE';
       btn.classList.toggle('running', S.running);
       btn.querySelector('span').textContent = S.running ? '已发车' : '比赛发车';
 
-      root.querySelector('#rc-hint').textContent = !S.health.mouse.connected ? '未连接电脑鼠'
-        : S.estop ? '急停锁存 · 先解锁'
-        : S.running ? '跑位中 · 收车 0.2~1 s 退出'
-        : '预检通过';
+      root.querySelector('#rc-hint').textContent = why || '预检通过';
+
+      /* 收车 / 复位两个键的 pending 态：**点下去当拍就要有变化**。
+         以前这三个键在点击后的 2 s 内一个字都不变（探针实测），看起来像没点上。 */
+      const mb = root.querySelector('#rc-mstop');
+      if (mb) {
+        mb.disabled = !!pend || !S.health.mouse.connected;
+        mb.textContent = (pend && pend.kind === 'stop') ? pendBusy('stop') : '收车';
+        mb.title = pend ? ('等' + pendTitle(pend.kind) + '走完（≤'
+          + (pend.kind === 'stop' ? S.watchS.stop : S.watchS.reset) + ' s）')
+          : '收车：MAZE STOP（复位发车状态 + 解锁急停）';
+      }
+      const rbR = root.querySelector('#rc-rescue');
+      if (rbR) {
+        rbR.disabled = !!pend || !S.health.mouse.connected;
+        rbR.textContent = (pend && pend.kind === 'reset') ? pendBusy('reset') : '复位';
+        rbR.title = pend ? ('等' + pendTitle(pend.kind) + '走完')
+          : '整机软复位（物理位置不变，复位后请放回起点角）';
+      }
 
       /* ── 【停止并保存】= 记录器状态的镜像（改版四十）───────────────────────
          为什么不再是一个单纯的按钮：后端在**车停 / 回 WAIT / 断链 / 超帧数**时
@@ -195,10 +270,22 @@
           rb.disabled = true;
           rb.title = '记录器正在写盘';
         } else if (R.last && R.last.ok) {
-          lbl.textContent = '已保存 · ' + shortName(R.last.name) + ' · ' + (R.last.frames || 0) + ' 帧';
-          rb.disabled = true;
-          rb.className = 'btn wide ok';
-          rb.title = '已落盘（' + String(R.last.name || '') + '）· 路径 ' + String(R.last.path || '');
+          /* ⚠️ "已保存 · 名 · N 帧"是**中间态**（改版四十一）：只显示 4 s，
+             之后必须回落成按钮本来的"停止并保存"。
+             原来它一旦成立就永久停在那里 ⇒ 下次要用这个按钮时，按钮上写着
+             上一份的名字、还是灰的，人只能猜"是不是已经存好了、我还能不能停"。 */
+          const fresh = R.savedAt && (Date.now() - R.savedAt) < 4000;
+          if (fresh) {
+            lbl.textContent = '已保存 · ' + shortName(R.last.name) + ' · ' + (R.last.frames || 0) + ' 帧';
+            rb.disabled = true;
+            rb.className = 'btn wide ok';
+            rb.title = '已落盘（' + String(R.last.name || '') + '）· 路径 ' + String(R.last.path || '');
+          } else {
+            lbl.textContent = '停止并保存';
+            rb.disabled = true;
+            rb.className = 'btn wide';
+            rb.title = '当前没有在记录 · 上一份已保存（' + shortName(R.last.name) + '）；发车会自动开录';
+          }
         } else if (R.last && R.last.ok === false) {
           lbl.textContent = '没记成 · ' + shortName(R.last.note || '没有收到帧');
           rb.disabled = true;
@@ -236,7 +323,7 @@
 
       root.querySelector('#rc-state').innerHTML = kv([
         ['mazeTask', '迷宫任务', (CH.tasks[t.mazeTask] || t.mazeTask) + ' (' + t.mazeTask + ')'],
-        ['motionTask', '动作', (CH.motions[t.motionTask] || t.motionTask) + ' (' + t.motionTask + ')'],
+        ['motionTask', '动作', motionName(t.motionTask) + ' (' + t.motionTask + ')'],
         ['dir', '朝向', (CH.dirs[t.dir] || '?') + ' (' + t.dir + ')'],
         ['posX/posY', '位置', U.fmt(t.posX, 2) + ', ' + U.fmt(t.posY, 2)],
         ['GOAL', '终点区', '(7,7)–(8,8)'],
@@ -245,7 +332,12 @@
       const note = root.querySelector('#rc-note');
       const task = t.mazeTask;
       let n = '', k = '';
-      if (!S.health.mouse.connected) { k = 'warn'; n = '未连接 · 读数为缓存'; }
+      if (!S.health.mouse.connected) {
+        /* 改版四十三（用户裁决）：断开就**清空并标注**，不保留旧图。
+           旧图留着会被当成"当前的墙"读 —— 而它只是上一段跑出来的历史，
+           连着的时候看着一样、断开之后含义完全变了（"这里没墙" vs "这里不知道"）。 */
+        k = 'warn'; n = '未连接 · 无数据（上图已清空，不拿上一段的墙当现状）';
+      }
       else if (task === 0) n = 'WAIT · 可发车';
       else if (task === 1) n = 'START · 读 Flash 地图选档';
       else if (task === 2) n = 'SEARCH · 2 s 未出会软复位';
@@ -344,7 +436,7 @@
       trEl.textContent = mv
         ? ('轨迹 ' + (view.trail || []).length + ' 点 · ' + (mv.frames_total || 0) + ' 帧'
            + (mv.covered_s ? ' · ' + U.fmt(mv.covered_s, 0) + ' s' : ''))
-        : '等设备帧';
+        : (S.health.mouse.connected ? '等设备帧' : '未连接 · 无帧');
       /* 这一行是 `flex-wrap:nowrap` + 省略号：窄窗口下可能被截，所以把全文放 `title`。
          不给 `title` 就成了"数字被截掉还看不出截了"。 */
       trEl.title = trEl.textContent;
@@ -362,6 +454,166 @@
           car: car,
         }, cap);
       }
+
+      /* 拉取小面板（改版四十一）：与实时页同源的数字，只是压成一行。 */
+      if (this._pp) this._pp.paint();
+      /* ── 停车 ⇒ 停拉取（本页"半手动"的落法）────────────────────────────
+         三个来路取"或"，**跳变**才触发（不是电平）：
+           ① 记录自动收尾（`S.rec.on` 真→假）—— 后端权威：车停/回 WAIT/断链/超帧数；
+           ② 任务机退出（`S.running` 真→假）。
+         ③ 点【收车】/【复位】在两个 onclick 里直接调（见 `stopPullOnce`）。
+         为什么必须是跳变：取电平的话，只要车没在跑就会一直发"停拉取"，
+         而人刚按了【开始】就会被立刻停掉 —— 这正是"命令挤压"的另一种形态。 */
+      const wasRun = this._wasRun, wasRec = this._wasRec;
+      this._wasRun = S.running;
+      this._wasRec = !!S.rec.on;
+      if ((wasRun && !S.running) || (wasRec && !S.rec.on)) this.stopPullOnce();
+    },
+
+    /* 停拉取**只停一次**（1 s 去抖）。
+       三条来路可能在同一拍里都成立（收车后 `running` 与 `rec.on` 一起变假），
+       不去抖就会连发两三条约等于同一件事的命令，而停等链路上每条都要一次往返。 */
+    stopPullOnce() {
+      const now = Date.now();
+      if (this._pullStopAt && (now - this._pullStopAt) < 1000) return;
+      if (!S.pulling) return;
+      this._pullStopAt = now;
+      C.log('mouse', 'info', '车已停 ⇒ 比赛页停拉取（半手动，发车时后端会自动开回来）');
+      C.setPull(false, null, { quiet: true });
+    },
+
+    /* ── 收车/复位：点击即反馈，停流放到确认之后（改版四十三）────────────────
+       旧顺序是「点击 → 命令 → 等新帧 → 回执 → **立刻停流**」：等于为了确认先把
+       帧源掐掉，还要最长 5.5 s（3 s 命令 + 2.5 s 等新帧）静默无反馈。现在：
+         ① 点击**当拍**给反馈（按钮禁用 + 文案 + toast），不等后端；
+         ② 命令回来**不停流**，进观察窗，每拍看**动作码**；看到"没在动"就算收住；
+         ③ 确认后才停流；超时才停流，并**如实**说没等到 + 给出下一步。
+       ⚠️ 停流不能提前，也不能延后太久：半手动时人可能早就停了流，那时**没有帧可判**——
+          后端 0.3 s 内就回"判不了"（`waited=false`），界面当场照实说，不干等。 */
+    _startPend(kind) {
+      const now = Date.now();
+      const isStop = kind === 'stop';
+      this._pend = { kind: kind, at: now, phase: 'cmd', t0: now, res: null };
+      C.log('mouse', 'info', isStop ? '→ MAZE STOP · 收车已下发'
+                                    : '→ MCU RESET · 复位已下发');
+      C.toast('', isStop ? '收车已下发' : '复位已下发',
+        '等设备回待命（≤' + (isStop ? S.watchS.stop : S.watchS.reset) + ' s）');
+      this.paint(true);
+      const p = C.act(isStop ? 'mazeStop' : 'rescue');
+      const done = (d) => {
+        if (!this._pend || this._pend.at !== now) return;   // 这一轮已被接管
+        /* 命令失败走的是 `{error}`（不是 reject —— 见 `lib.js` 的 `mazeStop`）：
+           失败是**结论**，不是异常；但界面必须当场说，不许把它当成"判不了"。 */
+        if (d && d.error) { bad(d); return; }
+        this._pend.phase = 'watch';
+        this._pend.t0 = Date.now();
+        this._pend.res = d || null;
+        if (isStop) {
+          /* 后端三种结论，界面**照抄**，不许自己猜（三态纪律）：
+               reliable=true  → 它等到过新帧且任务机已回待命 ⇒ 当场收尾；
+               reliable=false → 新帧说"还没退出来" ⇒ 进观察窗等它；
+               reliable=null  → 判不了。**没有帧源时不要等满 8 s**（那是假等待）。 */
+          if (d && d.reliable === true) {
+            C.pinRunning(false);
+            this._settle(true, '已收车', '任务机回待命 · ' + this._stateText(d));
+            return;
+          }
+          const noSrc = (d && d.waited === false) || !S.pulling;
+          if (noSrc && !(d && d.reliable === false)) {
+            this._settle(false, '收车已下发 · 判不了',
+              '没有拉到新帧可判（帧龄 ' + fmtAge(d && d.frame_age_ms)
+              + '） · 点【开始】拉一次帧即可确认');
+            return;
+          }
+        } else {
+          /* 复位：后端已经复核过 `rst=SW` ⇒ 不必等帧（复位后约 3 s 才有首帧）。
+             没核实到才进观察窗等首帧。 */
+          const okRst = !!(d && (d.verified || d.rst === 'SW'));
+          if (okRst) {
+            this._settle(true, '已复位', '设备已重启 · 物理位置不变，发车前请放回起点角');
+            return;
+          }
+          if (!S.pulling) {
+            this._settle(false, '复位已下发 · 判不了',
+              '没拉到帧确认重启（' + ((d && d.status) || '无回执') + '） · 看串口是否还在');
+            return;
+          }
+        }
+        this.paint(true);                // 进观察窗：按钮保持 pending，hint 说在等什么
+      };
+      const bad = (e) => {
+        if (!this._pend || this._pend.at !== now) return;
+        const why = (e && (e.detail || e.message)) || '命令未返回结果';
+        this._pend = null;
+        C.toast('bad', isStop ? '收车失败' : '复位失败', why);
+        this.stopPullOnce();
+        this.paint(true);
+      };
+      if (p && p.then) p.then(done, bad); else done(null);
+    },
+
+    /* 收尾（成功/判不了/超时都走这里）。**不在这里调 `paint()`**：
+       它会在 `paint()` 里被 `_watchTick()` 调到，重入一次 paint 只会烧掉一帧。 */
+    _settle(ok, title, note) {
+      this._pend = null;
+      C.toast(ok ? 'ok' : 'warn', title, note || '');
+      if (!ok) C.log('mouse', 'warn', title + (note ? ' · ' + note : ''));
+      this.stopPullOnce();
+    },
+
+    /* 观察窗的每拍检查（由 `paint()` 顶部调；1 s 心跳 + 每次数据变化都会进来）。
+       判据是**动作码**：车真停 ⇔ 动作机说停（`S.motionStop`，由 `/caps` 下发）。
+       用 `mazeTask` 判会漏：车停稳后流程态可能还停在高位。 */
+    _watchTick() {
+      const p = this._pend;
+      if (!p || p.phase !== 'watch') return;
+      const stop = p.kind === 'stop';
+      /* ⚠️ 等确认期间断了链路 ⇒ **不许**把"归零的动作码"当成"车停了"。
+         `resetTelemetry()` 在断开时会把 `motionTask` 清成 0（那是"没数据"的占位），
+         拿它判 `stopped` 就会报一个假成功 —— 这正是"判据假绿"的典型形态。 */
+      if (!S.health.mouse.connected) {
+        this._settle(false, (stop ? '收车' : '复位') + '未确认',
+          '等确认期间链路断开 · ' + (S.health.mouse.linkDead
+            ? '后端已判链路死，需断电 3~5 s 再重连' : '重连串口后再确认'));
+        return;
+      }
+      const mt = S.tel.motionTask;
+      const stopped = (mt != null) && S.motionStop.indexOf(mt | 0) >= 0;
+      const limit = (stop ? S.watchS.stop : S.watchS.reset) * 1000;
+      const spent = Date.now() - (p.t0 || p.at);
+      if (stopped) {
+        if (stop) {
+          C.pinRunning(false);
+          this._settle(true, '已收车', '动作机 ' + motionName(mt) + ' · 任务机 '
+            + (CH.tasks[S.tel.mazeTask] || S.tel.mazeTask));
+          return;
+        }
+        /* 复位：动作码"空闲"还必须**配一帧新的**（复位前那一帧也可能是空闲），
+           并且给 0.8 s 的起步时间，否则会在设备还没重启完时就下结论。
+           ⚠️ 用 `S.telRxAt`（**帧到达的墙钟**）判"新"，不用 `t.ageMs`：
+              那是后端推帧那一刻的龄期，恒接近 0，拿它判"刚来过"永远成立。 */
+        const fresh = S.telRxAt && (Date.now() - S.telRxAt) < 1500;
+        if (spent > 800 && fresh) {
+          this._settle(true, '已复位', '首帧已到 · 物理位置不变，发车前请放回起点角');
+          return;
+        }
+      }
+      if (spent >= limit) {
+        this._settle(false,
+          stop ? '收车未确认' : '复位未确认',
+          '等了 ' + (limit / 1000) + ' s 没看到待命 · '
+          + (stop ? '点【开始】拉一次帧可确认，或再点一次【收车】'
+                  : '检查串口是否还在（复位后可能掉线）'));
+      }
+    },
+
+    /* 后端回执里的任务机/动作，压成一句给人看的（`—` = 后端没给） */
+    _stateText(d) {
+      const st = (d && d.state) || null;
+      if (!st) return '状态判不了';
+      const t = CH.tasks[st.task];
+      const mo = motionName(st.motion);
+      return '任务机 ' + (t || st.task) + ' · 动作 ' + mo;
     },
     onTick() {
       /* 高度先量：窗口大小 / 日志坞展开收起都会变，而这三个区是"一边跑一边看"的。
