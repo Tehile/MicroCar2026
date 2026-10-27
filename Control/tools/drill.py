@@ -2589,6 +2589,110 @@ def main(argv=None) -> int:
     except Exception as e:                                    # noqa: BLE001
         record("I67", "FAIL", f"发车锚点单测没跑起来：{type(e).__name__}: {e}")
 
+    # ------------------------------------------------ 0c3b 回放全通道（改版四十六）
+    head("0c3b. 回放全通道：字段清单 == 记录通道 + 两个派生量（临时文件）")
+    # 为什么单列：回放原来只透 14 个字段（界面显示出来是 11 项），而记录里存的是
+    # **整行 32 列** ⇒ 回放页的「状态」比实时页少一大截（四路红外、陀螺角、左右里程、
+    # 冲刺四项、前墙两档、帧时基都没有）。用户只会得出"回放本来就没这些数据"，
+    # 而数据一直在，是被一层白名单挡住的。
+    # 这条钉五件事：
+    #   ① `fields` **恰好** = 记录 channels + (frontNear, irSwitch)，顺序也一致；
+    #   ② 样本 `v` 与原始 row **逐列相同**（不错位、不吞字段）；
+    #   ③ 派生量恒等式（照抄上游 `codec.py`）：`frontNear = wallFront & !frontFar`、
+    #      `irSwitch = flags & 0x10`；缺一侧 ⇒ **None**（不是 0）；
+    #   ④ 4 灯三态：有 `fw≥311` + led 通道 ⇒ True/False；**没存 fw ⇒ 全 None**；
+    #   ⑤ 上一版缺的那批键（红外四路 / 陀螺 / 里程 / 冲刺 / 前冲计数 / ms8）确实在。
+    try:
+        from control.maze_rec import MazeRecorder as _MR3
+        _d3 = Path(".tmp")
+        _d3.mkdir(exist_ok=True)
+        _ch3 = ["ms8", "irF1", "irF2", "irL", "irR", "battMv", "speedL", "speedR",
+                "gyroAngle", "trackL", "trackR", "dir", "mazeTask", "objectGoToFlag",
+                "motionTask", "spurtFlag", "goOrBack", "wallLeft", "wallFront",
+                "wallRight", "frontFar", "frontBoth", "flags", "posX", "posY",
+                "spurtMode", "spurtTestFlag", "goaheadnum",
+                "led1", "led2", "led3", "led4"]
+        _b3 = {"ms8": 900, "irF1": 123, "irF2": 255, "irL": 44, "irR": 33,
+               "battMv": 7000, "speedL": 12, "speedR": 12, "gyroAngle": 3,
+               "trackL": 100, "trackR": 101, "dir": 1, "mazeTask": 2,
+               "objectGoToFlag": 0, "motionTask": 32, "spurtFlag": 1, "goOrBack": 0,
+               "wallLeft": 0, "wallFront": 1, "wallRight": 0, "frontFar": 0,
+               "frontBoth": 0, "flags": 0x10, "posX": 3, "posY": 4,
+               "spurtMode": 2, "spurtTestFlag": 0, "goaheadnum": 7,
+               "led1": 1, "led2": 0, "led3": 1, "led4": 0}
+
+        def _mk3(dev, tag: str, drop: str = "") -> str:
+            """造一条记录，返回文件名。`drop` = 要摘掉的通道（验派生量缺一侧）。"""
+            mr3 = _MR3(root=_d3, get_channels=lambda: list(_ch3), get_device=dev)
+            mr3.start(why="maze_run")
+            for k in range(4):
+                mr3.feed(dict(_b3, ms8=_b3["ms8"] + k * 100))
+            outp = mr3.stop(why="manual")
+            src = Path(outp["path"])
+            if not drop:
+                return src.name
+            doc = json.loads(src.read_text(encoding="utf-8"))
+            keep = [j for (j, c) in enumerate(doc["channels"]) if c != drop]
+            doc["channels"] = [doc["channels"][j] for j in keep]
+            doc["frames"] = [[row[j] for j in keep] for row in doc["frames"]]
+            dst = _d3 / f"zz_drill_allch_{tag}.maze.json"
+            dst.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            try:
+                src.unlink()
+            except OSError:
+                pass
+            return dst.name
+
+        _made3: list = []
+        _n1 = _mk3(lambda: {"fw": 314}, "ok")
+        _made3.append(_d3 / _n1)
+        rv3 = _MR3(root=_d3).replay_view(_n1)
+        f3 = rv3.get("fields") or []
+        # ① 字段清单：必须**恰好**是记录通道 + 两个派生量（多一个少一个都算错）
+        order_ok = (f3 == _ch3 + ["frontNear", "irSwitch"])
+        # ② 逐列相同（列顺序错位时界面会把"电池"显示在"陀螺角"的位置，且看不出来）
+        s0 = (rv3.get("samples") or [{}])[0]
+        want_v = [_b3[c] for c in _ch3] + [1, 1]     # wallFront=1/frontFar=0 ⇒ 近墙；flags&0x10 ⇒ 1
+        raw_ok = (list(s0.get("v") or []) == want_v)
+        # ④ 4 灯三态（fw=314、led=1/0/1/0）
+        leds_ok = (s0.get("leds") == [True, False, True, False])
+        # ⑤ 上一版缺的那批键
+        _want3 = ("irF1", "irF2", "irL", "irR", "gyroAngle", "trackL", "trackR",
+                  "spurtMode", "spurtFlag", "goOrBack", "spurtTestFlag",
+                  "objectGoToFlag", "goaheadnum", "ms8", "frontNear", "irSwitch")
+        miss3 = [k for k in _want3 if k not in f3]
+        # ③ 缺 frontFar ⇒ `frontNear` 必须是 None（**不许**按 wallFront 猜）
+        _n2 = _mk3(lambda: {"fw": 314}, "nofar", drop="frontFar")
+        _made3.append(_d3 / _n2)
+        rv3b = _MR3(root=_d3).replay_view(_n2)
+        d3b = dict(zip(rv3b.get("fields") or [], (rv3b.get("samples") or [{}])[0].get("v") or []))
+        fn_none_ok = ("frontNear" in d3b and d3b["frontNear"] is None)
+        # ④b 没存 fw（老记录）⇒ 4 灯全 None 且必须带一句原因
+        _n3 = _mk3(None, "nofw")
+        _made3.append(_d3 / _n3)
+        rv3c = _MR3(root=_d3).replay_view(_n3)
+        _s3c = (rv3c.get("samples") or [{}])[0]
+        led_none_ok = (list(_s3c.get("leds") or []) == [None, None, None, None]
+                       and bool(rv3c.get("leds_note")))
+        i68_ok = bool(order_ok and raw_ok and leds_ok and fn_none_ok
+                      and led_none_ok and not miss3)
+        record("I68", "PASS" if i68_ok else "FAIL",
+               f"字段 {len(f3)} 项（应 {len(_ch3) + 2}）且顺序一致={order_ok}；"
+               f"样本逐列相同={raw_ok}；4 灯 {s0.get('leds')}"
+               f"（应 [True,False,True,False]）={leds_ok}；"
+               f"缺 frontFar ⇒ frontNear={d3b.get('frontNear')}（应 None）={fn_none_ok}；"
+               f"老记录无 fw ⇒ 4 灯 {_s3c.get('leds')} + 说明={led_none_ok}；"
+               f"上一版缺的键还少 {miss3 or '无'}；段平均帧率 {rv3.get('fps_avg')!r}"
+               + ("" if i68_ok else
+                  " ⇒ 回放的信息量又比实时少了一截，或者把'判不了'画成了 0"))
+        for _p3 in _made3:
+            try:
+                Path(_p3).unlink()
+            except OSError:
+                pass
+    except Exception as e:                                    # noqa: BLE001
+        record("I68", "FAIL", f"回放全通道单测没跑起来：{type(e).__name__}: {e}")
+
     # ---------------------------------------------------------------- 0c4 分页拼页
     head("0c4. 记录列表分页：各页按序拼起来 == 一次全量（不重不漏）（临时文件）")
     # 为什么单列：分页最容易出的错不是"少一条"，而是**重复 / 错位**。翻页期间有人新落

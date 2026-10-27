@@ -399,6 +399,15 @@ window.C = (function () {
   const MOTIONS = Object.assign({}, MOTION_FALLBACK);
   const motionText = v => MOTIONS[v] || ('未知(' + v + ')');
   const SPURT = ['未选', '90_LOW', '45_LOW', 'MEDIUM', 'HIGH'];
+  /* ⚠️ 这张"档位名"表**不再给 `frontFar`/`frontBoth` 用**（改版四十六修正）。
+     上游 `codec.py` 的语义是三个**不同的量**：
+       `STATE_C_FRONT_FAR = 0x08`：1 = **远墙档**（不是"远端/近端"的枚举值）；
+       `STATE_C_FRONT_BOTH = 0x10`：双传感器互证**成立**（布尔）；
+       `FRONT_NAMES = {0:无墙, 1:近端, 2:远端}` 是给**派生量 `fmode`** 用的（0/1/2 三档）。
+     旧代码把这三个 0/1 位都当 `fmode` 查表 ⇒ `frontFar=1` 印成"近端"，
+     界面上出现「前墙·远端 近端 (1)」这种自相矛盾的话；`frontBoth=1` 印"近端"更是
+     无中生有（它是"两路互证成立"）。保留这张表只为兼容导出（`channels.front`），
+     **新代码不要拿它解释 0/1 位**。 */
   const FRONT = ['无墙', '近端', '远端'];
 
   const CODE = {
@@ -406,9 +415,13 @@ window.C = (function () {
     mazeTask: v => (TASKS[v] || v) + ' (' + v + ')',
     motionTask: v => motionText(v) + ' (' + v + ')',
     spurtMode: v => (SPURT[v] || v) + ' (' + v + ')',
-    frontNear: v => (FRONT[v] || v) + ' (' + v + ')',
-    frontFar: v => (FRONT[v] || v) + ' (' + v + ')',
-    frontBoth: v => (FRONT[v] || v) + ' (' + v + ')',
+    // 前墙两档各问"这一档命中了吗"；`frontBoth` 问"两路互证成立吗"。
+    // 三者都是 0/1 位，**不是** 0/1/2 的档位枚举 —— 混了就会出现上面那种矛盾。
+    frontNear: v => (v ? '命中 (1)' : '未命中 (0)'),
+    frontFar: v => (v ? '命中 (1)' : '未命中 (0)'),
+    frontBoth: v => (v ? '成立 (1)' : '不成立 (0)'),
+    // 红外采样开关（`flags & 0x10` 的派生量）：0/1 直接印"1"会被读成某个计数。
+    irSwitch: v => (v ? '开 (1)' : '关 (0)'),
     goOrBack: v => (v ? '回程' : '去程') + ' (' + v + ')',
   };
 
@@ -569,6 +582,19 @@ window.C = (function () {
   function makeRecords() { return RECORDS.map(buildRecord); }
 
   /* 记录 → 某一时刻的迷宫视图（车在格中心，轨迹只到当前帧） */
+  /* 一条回放样本里某个通道的值（改版四十六）。
+     为什么要有这层间接：后端把整行通道压成**数组** `v`（与 `fields` 同序），
+     具名字段只剩 `t/frame/posX/posY`。数组比"再铺一遍 32 个键名"小得多，
+     但读的人需要一个按名字取的入口 —— 否则每个消费方各写一遍下标，改错没人发现。
+     `fields` 里没有这个键（老记录缺通道）⇒ `null`，**不是 0**。 */
+  function fieldValue(rec, sm, k) {
+    if (!rec || !sm || !sm.v) return null;
+    const j = (rec.fieldPos ? rec.fieldPos[k] : null);
+    if (j == null) return null;
+    const v = sm.v[j];
+    return (v === undefined ? null : v);
+  }
+
   function recordView(rec, i) {
     if (!rec) return null;
     // 真记录（后端回放视图）：迷宫来自帧重放，样本是设备给的
@@ -605,7 +631,13 @@ window.C = (function () {
       path: [],                       // 回放同样只有 trail，没有规划路径
       car: { x: (sm.posX == null ? .5 : sm.posX),
              y: (sm.posY == null ? .5 : sm.posY),
-             dir: (sm.dir == null ? 0 : sm.dir) },
+             /* 朝向从**全通道数组**里取（改版四十六）：样本不再带具名 `dir`，
+                避免同一份读数存两遍。缺通道 ⇒ 0 只是"往北画"，图上有车没朝向，
+                而不是把 0 当成"确认朝北"。 */
+             dir: (function () {
+               const d = fieldValue(rec, sm, 'dir');
+               return (d == null ? 0 : d);
+             })() },
     };
   }
 
@@ -1336,6 +1368,20 @@ window.C = (function () {
       rec.maze = d.maze || null;
       rec.mazeNote = (d.maze && d.maze.note) || '';
       rec.samples = d.samples || [];
+      /* 全通道（改版四十六）：`fields` 与样本里的 `v` **同序同长**。
+         建索引放这里（不是每次画都扫一遍），键重复时保第一个 —— 后端拼的是
+         "记录通道 + 派生量"，理论上不会重名，真重了也不该让后一个顶掉真通道。 */
+      rec.fields = Array.isArray(d.fields) ? d.fields : [];
+      rec.fieldPos = {};
+      rec.fields.forEach(function (k, j) {
+        if (!(k in rec.fieldPos)) rec.fieldPos[k] = j;
+      });
+      // 开录时的固件（老记录 ⇒ null）与 4 灯"为什么判不了"的原话
+      rec.fw = (d.fw == null ? null : d.fw);
+      rec.ledsNote = d.leds_note || '';
+      // 段平均帧率（改版四十六）：与实时页"最近 2 s 实测"不是同一个统计量，
+      // 界面文案里必须写明"本段平均"，否则会被当成当时的瞬时值。
+      rec.fpsAvg = (d.fps_avg == null ? null : d.fps_avg);
       // 老记录 → null（界面显示「未记录」）；有快照就转成**分组数组**
       rec.params = d.params ? paramsToArray(d.params) : null;
       rec.paramsAtMs = d.params_at_ms;
@@ -2692,6 +2738,7 @@ window.C = (function () {
     records: S.records,
     record(id) { return S.records.find(r => r.id === id) || S.records[0] || null; },
     recordView: recordView,
+    fieldValue: fieldValue,
     maze, Maze,
     NAV, VIEWS,
     fmt: util.fmt,

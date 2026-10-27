@@ -1273,6 +1273,95 @@ async def run(args) -> int:
                         record("V21", "SKIP",
                                f"驱动列表续载出错（判不了）：{type(e).__name__}: {e}")
 
+                # ---------------- V23 回放的状态卡 == 实时通道卡（同一份信息量）
+                head("11l. 回放：状态卡与实时通道卡同一张码表、同一份取值")
+                # 为什么单列：**数据一直在记录里**（整行 32 列），而回放原来只透
+                # 14 个字段（界面显示 11 项）⇒ 少一大截（四路红外 / 陀螺角 / 左右里程 /
+                # 冲刺四项 / 前墙两档 / 帧时基）。用户看到的结论只能是"回放本来就没
+                # 这些数据" —— 而这是**显示层把数据挡掉了**，不是设备没给。
+                # 这条钉四件事：
+                #   ① 两边渲染出的键集合**完全相同**（都来自 `CH.groups` 这张码表）；
+                #   ② 顺序也一致（同一张表 ⇒ 不该出现"回放把红外排到前面"）；
+                #   ③ 当前样本里**有值**的键，界面上不许显示 `—`（逐个比，不比"看着挺多"）；
+                #   ④ 4 灯在（4 格三态）；把 `fieldPos` 摘掉 ⇒ **所有**值必须变 `—`
+                #      （负向：证明这些数字真是从样本里取的，不是别处抄来的）。
+                if not pick("V23"):
+                    record("V23", "SKIP", "--only 未选中")
+                elif not ui.get("live"):
+                    record("V23", "SKIP", "没进真数据模式 ⇒ 通道卡无从比对")
+                else:
+                    try:
+                        await cdp.eval("window.C.go('live')")
+                        await asyncio.sleep(0.7)
+                        live_keys = json.loads(str(await cdp.eval(
+                            "JSON.stringify(Array.from("
+                            "document.querySelectorAll('#lv-ch [data-k]'))"
+                            ".map(e=>e.dataset.k))")) or "[]")
+                        await cdp.eval("window.C.go('replay')")
+                        await asyncio.sleep(2.0)
+                        j23 = json.loads(str(await cdp.eval(
+                            "(async()=>{const C=window.C,S=C.S;"
+                            "const rec=C.record(S.recSel)||{};"
+                            "if(!rec.samples||!rec.samples.length){await C.loadReplay(rec.id);"
+                            "await new Promise(r=>setTimeout(r,900));}"
+                            "const rec2=C.record(S.recSel)||{};"
+                            "const o={id:rec2.id,samples:(rec2.samples||[]).length,"
+                            "fields:(rec2.fields||[]).length};"
+                            "const dds=Array.from(document.querySelectorAll('#rp-ch [data-k]'));"
+                            "o.keys=dds.map(e=>e.dataset.k);"
+                            "const vals=dds.map(e=>(e.textContent||'').trim());"
+                            "o.dash=vals.filter(t=>t==='—').length;"
+                            "const sm=(rec2.samples||[])[0]||{};"
+                            "const fp=rec2.fieldPos||{};"
+                            "const v=sm.v||[];"
+                            "o.expect=o.keys.filter(k=>{const j=fp[k];"
+                            "return j!=null&&v[j]!=null&&v[j]!==undefined;}).length;"
+                            "o.shown=vals.filter(t=>t&&t!=='—').length;"
+                            "o.leds=Array.from(document.querySelectorAll('#rp-leds .l-state'))"
+                            ".map(e=>e.textContent);"
+                            "o.run=(document.querySelector('#rp-run')||{}).textContent||'';"
+                            # 负向：摘掉字段索引 ⇒ 界面上必须**一个值都不剩**
+                            "const save=rec2.fieldPos;"
+                            "rec2.fieldPos={};C.VIEWS.replay.paint(true);"
+                            "o.dashAfter=Array.from(document.querySelectorAll('#rp-ch [data-k]'))"
+                            ".filter(e=>(e.textContent||'').trim()==='—').length;"
+                            "rec2.fieldPos=save;C.VIEWS.replay.paint(true);"
+                            "o.restored=Array.from(document.querySelectorAll('#rp-ch [data-k]'))"
+                            ".filter(e=>(e.textContent||'').trim()!=='—').length;"
+                            "return JSON.stringify(o);})()") or "{}"))
+                        rp_keys = j23.get("keys") or []
+                        n_keys = len(rp_keys)
+                        shown = int(j23.get("shown") or 0)
+                        expect = int(j23.get("expect") or 0)
+                        if not j23.get("samples"):
+                            record("V23", "SKIP",
+                                   f"记录 {j23.get('id')!r} 没取到回放样本 ⇒ 状态卡无从比对")
+                        else:
+                            same_ok = (rp_keys == live_keys)
+                            many_ok = n_keys >= 28
+                            # 「有值的键」逐个比：界面显示的非 `—` 数 == 样本里非 null 数
+                            val_ok = (shown == expect and shown > 0)
+                            leds_ok = (len(j23.get("leds") or []) == 4
+                                       and all(t in ("亮", "灭", "未知")
+                                               for t in (j23.get("leds") or [])))
+                            neg_ok = (int(j23.get("dashAfter") or 0) == n_keys
+                                      and int(j23.get("restored") or 0) == shown)
+                            ok23 = bool(same_ok and many_ok and val_ok and leds_ok and neg_ok)
+                            record("V23", "PASS" if ok23 else "FAIL",
+                                   f"回放 {n_keys} 项 / 实时 {len(live_keys)} 项，"
+                                   f"键集合与顺序一致={same_ok}、≥28 项={many_ok}；"
+                                   f"当前样本有值的 {expect} 个键，界面显示 "
+                                   f"{shown} 个（应相等）={val_ok}；"
+                                   f"4 灯 {j23.get('leds')}={leds_ok}；运行={j23.get('run')!r}；"
+                                   f"摘掉字段索引 ⇒ {j23.get('dashAfter')}/{n_keys} 项变「—」，"
+                                   f"还原后有值 {j23.get('restored')} 项={neg_ok}"
+                                   + ("" if ok23 else
+                                      " ⇒ 回放的状态卡又比实时少了几项，"
+                                      "或者那些数字不是从这条记录的样本里取的"))
+                    except Exception as e:                        # noqa: BLE001
+                        record("V23", "SKIP",
+                               f"驱动回放状态卡出错（判不了）：{type(e).__name__}: {e}")
+
 
                 # ⚠️ V10 会**把设备断开**（它要验"点不存在的端口不许说已连接"），
                 #    所以必须排在所有"需要活链路"的判据（V9/V11/V12/V13/V14）**之后**。

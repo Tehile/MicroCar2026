@@ -87,6 +87,7 @@ from typing import Any, Dict, List, Optional, Tuple
 # v10 建图增量通道的重建（改版三十九）。**与比赛页共用同一个类**：
 # "回放看到的图"必须与"当时看的图"同一条来路，否则复盘时两边对不上，
 # 而没人能说清该信哪一张（这个项目在"两套墙图"上已经踩过一次）。
+from .leds import LED_KEYS, led_states
 from .map_live import LiveWallMap, MapdRows
 
 #: 落盘格式号。**改结构就要改它** —— 导入端按它判断能不能读。
@@ -347,6 +348,17 @@ MOTION_STOPPED = (0, 5)
 #: 取值依据：固件侧自己对道路分类做 20 ms 去抖（`迷宫状态机回传.md` §4），
 #: 而动作码切换实测在 1~3 帧（10~30 ms）量级抖动 ⇒ 300 ms 是"明显抖"与"真停顿"之间。
 PHASE_MIN_MS = 300
+
+#: 红外采样的 flags 位（照抄上游 `host/protocol/codec.py`：`FLAG_IR_SWITCH = 0x10`）。
+FLAG_IR_SWITCH = 0x10
+
+#: 回放要补出来的**派生量**（改版四十六）：它们**不占帧列** —— 上游 `decode()` 是
+#: 现算的（`host/protocol/codec.py:469-475`：`frontNear = wallFront and not frontFar`、
+#: `irSwitch = flags & FLAG_IR_SWITCH`），而记录里存的是 `channels` 原列。
+#: 不补的后果：界面的通道卡有这两项、回放没有 ⇒ **"回放的信息量比实时少"**，
+#: 而少的恰好是"前墙贴脸没贴脸"和"红外采样开没开"这两个判读关键。
+#: ⚠️ 任一侧缺值 ⇒ `None`（判不了），**绝不按 0 算** —— 0 的意思是"确认没有"。
+DERIVED_FIELDS = ("frontNear", "irSwitch")
 
 #: `ROAD` 去抖：连续这么多帧分类一致才认。
 #: 依据上游 `迷宫状态机回传.md` §4 —— 固件侧做 20 ms 去抖（连续 2 个采样一致），
@@ -738,7 +750,8 @@ class MazeRecorder:
 
     def __init__(self, root: Path, get_channels=None,
                  codes: Optional[Dict[str, Any]] = None,
-                 get_link_stats=None, get_params=None) -> None:
+                 get_link_stats=None, get_params=None,
+                 get_device=None) -> None:
         self.root = Path(root)
         self._get_channels = get_channels or (lambda: [])
         # 完整性差量的取数（可缺）：回**上位机本地**链路统计 dict（含
@@ -748,6 +761,13 @@ class MazeRecorder:
         #: 为什么由外面注入：参数在鼠适配器（要能力探测、要缓存），记录器不该再摸上游。
         #: 取不到就存 `None` —— 回放页显示「未记录」，**绝不拿当前参数冒充发车时的**。
         self._get_params = get_params
+        #: 设备信息的取数（可缺），**开录时冻一次**（改版四十六）：`{"fw": 314}`。
+        #: 为什么必须落进记录：4 灯的三态判据里有一半是"固件到底会不会填这 4 位"
+        #: （`leds.LED_MIN_FW=311` 以下那 4 位是预留的**恒 0**）。记录里只有
+        #: `led1..4` 四个 0/1 时，回放**没法分辨"真灭"与"固件没实现"** ——
+        #: 这正是 `control/leds.py` 整个模块存在的理由。取不到就是 `None`，
+        #: 回放如实显示"判不了"，**不猜灭**。
+        self._get_device = get_device
         self._lock = threading.RLock()
         self._rec: Optional[Dict[str, Any]] = None      # 在记的一段（None = 没在记）
         self.start_ms: Optional[int] = None
@@ -1011,6 +1031,9 @@ class MazeRecorder:
                 # 回头改这份，否则"回放看到的"与"当时用的"就不是一回事了。
                 # 取不到就是 `None`（界面显示「未记录」），不拿当前值冒充。
                 "params": self._params_snapshot(),
+                # 设备信息（改版四十六）：4 灯的"预留位"判据要靠 `fw`，
+                # 而它是**开录那一刻**的固件版本（见 `_device_snapshot`）。
+                "device": self._device_snapshot(),
                 # 这一段**自己的**差分器与零点 —— **不复用常驻那个**。
                 # 虽然 `start()` 已经把常驻环清成同一纪元（两者现在会算出同一串），
                 # 但常驻环是**环形缓冲**（超 `DEC_RING` 就丢最老的），而落盘那份必须
@@ -1547,6 +1570,25 @@ class MazeRecorder:
             return None
         return snap or None
 
+    def _device_snapshot(self) -> Optional[Dict[str, Any]]:
+        """开录那一刻的设备信息（目前只有 `fw`）；取不到 ⇒ `None`。
+
+        与 `_params_snapshot` 同一条纪律：**附件不许拖垮主线**，任何异常都吞成
+        `None`，回放那边按"判不了"显示。为什么不等到收尾再问：那时设备可能已经
+        断开/重连，`fw` 会变成"另一次连接"的版本，而这一段的 4 灯语义是被
+        **开录时的固件**决定的。
+        """
+        if self._get_device is None:
+            return None
+        try:
+            dev = self._get_device()
+        except Exception:                                    # noqa: BLE001
+            return None
+        if not isinstance(dev, dict):
+            return None
+        fw = _int_or_none(dev.get("fw"))
+        return None if fw is None else {"fw": fw}
+
     def _build_doc(self, r: Dict[str, Any], why: str = "manual",
                    firmware_map: Optional[Dict[str, Any]] = None,
                    text: Optional[str] = None, end_at: Optional[int] = None,
@@ -1673,6 +1715,9 @@ class MazeRecorder:
             # 却没人发现的情况。老记录这个键不存在 ⇒ 读的时候按 None 处理。
             "params": r.get("params"),
             "params_at_ms": ((r.get("params") or {}).get("at_ms")),
+            # 设备信息（改版四十六）：老记录没有这个键 ⇒ 读的人按 None 处理
+            # （回放据此把 4 灯说成"判不了"，**不是**"全灭"）。
+            "device": r.get("device"),
             "integrity": {
                 "frames": len(frames),
                 "t0_pc_ms": t0,
@@ -2006,16 +2051,45 @@ class MazeRecorder:
         n_total = len(frames)
         step = max(1, int(math.ceil(n_total / float(max_samples)))) if max_samples else 1
 
-        # 逐帧只需要这几个量；缺通道 ⇒ None（**不是 0**）
-        keys = ("posX", "posY", "dir", "mazeTask", "motionTask",
-                "speedL", "speedR", "wallLeft", "wallFront", "wallRight",
-                "frontFar", "battMv", "flags")
-
         def val(row: Any, k: str) -> Any:
             j = pos.get(k)
             if j is None or not isinstance(row, list) or j >= len(row):
                 return None
             return row[j]
+
+        # ---- 全通道透传（改版四十六）----------------------------------------
+        # 以前这里只给上面那 14 个字段（实际显示出来是 11 项），而记录里存的是
+        # **整行 32 列**。于是回放页的「状态」比实时页少一大截（四路红外、陀螺角、
+        # 左右里程、冲刺档位/标志/前冲计数、帧时基全没有），用户以为"回放没这么多
+        # 数据" —— 数据一直在，是被这一层白名单挡住。
+        # 现在：`fields` = 记录通道原序 + 两个派生量；每个样本带一条 `v` 数组与之对齐。
+        # 为什么用**数组**而不是再铺一遍具名字段：具名字段等于同一份读数存两遍，
+        # 两处迟早不一致（而且 32 个键名 × 1200 样本，光键名就比数据大）。
+        fields = list(ch) + list(DERIVED_FIELDS)
+        #: 4 灯的固件版本门槛（`leds.LED_MIN_FW`）。老记录没存 `device` ⇒ None ⇒
+        #: 4 灯一律"判不了"，**不许**把预留位的 0 显示成"灭"。
+        dev = doc.get("device") or {}
+        fw = _int_or_none(dev.get("fw"))
+
+        def derive(row: Any) -> List[Any]:
+            """两个派生量，恒等式照抄上游 `codec.py`。任一侧缺 ⇒ None。"""
+            wf, ff = val(row, "wallFront"), val(row, "frontFar")
+            fl = val(row, "flags")
+            fn = None
+            if isinstance(wf, (int, float)) and isinstance(ff, (int, float)):
+                fn = 1 if (int(wf) and not int(ff)) else 0
+            irs = None
+            if isinstance(fl, (int, float)) and not isinstance(fl, bool):
+                irs = 1 if (int(fl) & FLAG_IR_SWITCH) else 0
+            return [fn, irs]
+
+        def leds_of(row: Any) -> List[Any]:
+            """4 灯三态（唯一判定在 `control/leds.py`，**不在这里重写**）。"""
+            if not isinstance(row, list):
+                return [None, None, None, None]
+            frame = {n: (row[j] if j < len(row) else None) for j, n in enumerate(ch)}
+            st = led_states(frame, ch, fw)
+            return [st.get(k) for k in LED_KEYS]
 
         samples: List[Dict[str, Any]] = []
         for i in range(0, n_total, step):
@@ -2024,24 +2098,19 @@ class MazeRecorder:
             if i < len(t_ms):
                 t = round(_i(t_ms[i]) / 1000.0, 3)
             px, py = val(row, "posX"), val(row, "posY")
+            raw = ([row[j] if j < len(row) else None for j in range(len(ch))]
+                   if isinstance(row, list) else [None] * len(ch))
             samples.append({
                 "t": t,
                 "frame": i,
                 # ⚠️ 格中心口径：帧里给的是格索引，画车要 +0.5（与 draw.js 的约定一致）
                 "posX": (round(float(px) + 0.5, 3) if isinstance(px, (int, float)) else None),
                 "posY": (round(float(py) + 0.5, 3) if isinstance(py, (int, float)) else None),
-                "dir": val(row, "dir"),
-                "mazeTask": val(row, "mazeTask"),
-                "motionTask": val(row, "motionTask"),
-                "speedL": val(row, "speedL"),
-                "speedR": val(row, "speedR"),
-                "wallLeft": val(row, "wallLeft"),
-                "wallFront": val(row, "wallFront"),
-                "wallRight": val(row, "wallRight"),
-                # 前墙两档：近墙/远墙在图上画在隔一格的位置，回放也必须带上
-                "frontFar": val(row, "frontFar"),
-                "battMv": val(row, "battMv"),
-                "flags": val(row, "flags"),
+                #: 全通道读数，与 `fields` **同序同长**。这里是**原值**（格索引也原样），
+                #: 上面的 `posX/posY` 才是 +0.5 的画图口径 —— 两者别混着用。
+                "v": raw + derive(row),
+                #: 4 灯三态：True 亮 / False 灭 / None 判不了（见 `control/leds.py`）
+                "leds": leds_of(row),
             })
 
         # ---- 运行区间（改版四十四）：回放的"发车 / 收车"标记**只认这个**
@@ -2112,7 +2181,22 @@ class MazeRecorder:
             "mazetype": doc.get("mazetype"),
             "maze": self._maze_for_view(doc),
             "samples": samples,
+            # ---- 全通道（改版四十六）：`fields` 与每个样本的 `v` **同序同长**。
+            # 界面拿 `fields` 建索引、按实时页那张码表逐项渲染 ⇒ 两边信息量一致。
+            # ⚠️ `fields` = 记录通道 + `DERIVED_FIELDS`（派生量不占帧列，见其注释）。
+            "fields": fields,
+            #: 开录时的固件（老记录 ⇒ None）。4 灯"判不了"的唯一合理理由就是它缺。
+            "fw": fw,
+            "leds_note": ("" if fw is not None else
+                          "这条记录没存固件版本 ⇒ 4 灯判不了"
+                          "（老记录；新记录会在开录时冻一份 fw）"),
             "n_total": n_total,
+            # 实测帧率（本段平均）。为什么回放也要给：实时页最显眼的那个数就是帧率，
+            # 而复盘时"这一段到底多少 Hz、有没有被发车占链路拉低"是第一个要问的。
+            # `t_ms` 是设备时基且逐帧唯一 ⇒ `(n-1)/时长` 站得住；它是**段平均**，
+            # 不是实时页那个"最近 2 s 实测"，两者不能互相顶替。
+            "fps_avg": (round((n_total - 1) / (dur_ms / 1000.0), 2)
+                        if (dur_ms and n_total >= 2) else None),
             "sampled": step,
             "params": doc.get("params"),
             "params_at_ms": doc.get("params_at_ms"),

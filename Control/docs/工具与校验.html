@@ -77,14 +77,14 @@ li{margin:.28em 0}
 <li><a href="#1">1. 六个脚本一览</a></li>
 <li><a href="#2-preflightpy">2. preflight.py —— 启动前自检</a></li>
 <li><a href="#3-drillpy">3. drill.py —— 端到端演练 + 判据</a><ul>
-<li><a href="#31-2026-10-27">3.1 编号现状（2026-10-27 第五次核对）</a></li>
+<li><a href="#31-2026-10-27">3.1 编号现状（2026-10-27 第六次核对）</a></li>
 <li><a href="#32-sim">3.2 --sim 的边界</a></li>
 </ul>
 </li>
 <li><a href="#4-browser_checkpy">4. browser_check.py —— 无头浏览器实测</a><ul>
 <li><a href="#41-v6">4.1 核心是 V6 —— 验"接缝真的接上了"</a></li>
 <li><a href="#42-v5">4.2 负向判据 V5 —— 不许假绿</a></li>
-<li><a href="#43-v0-v22">4.3 组清单（V0 ~ V22）</a></li>
+<li><a href="#43-v0-v23">4.3 组清单（V0 ~ V23）</a></li>
 </ul>
 </li>
 <li><a href="#5-check_iface_tablepy">5. check_iface_table.py —— 防文档漂移</a></li>
@@ -251,12 +251,12 @@ $PY tools/preflight.py --quick    # 跳过网络与 git（离线环境）
 $PY tools/drill.py --sim          # 额外起上游鼠标模拟器（有真数据）
 $PY tools/drill.py --port 8899    # 8770 被占时换端口
 </code></pre>
-<h3 id="31-2026-10-27">3.1 编号现状（2026-10-27 第五次核对）</h3>
-<p>实际存在的编号 <strong>59 个</strong>：</p>
+<h3 id="31-2026-10-27">3.1 编号现状（2026-10-27 第六次核对）</h3>
+<p>实际存在的编号 <strong>61 个</strong>：</p>
 <pre><code>I1  I2  I3  I4  I5  I6      I9  I10     I12           I15 I16 I17 I18 I19
 I20 I21 I22 I23 I24     I27 I28 I29 I30 I31 I32 I33 I34 I35 I36 I37 I38 I39
 I40 I41 I42 I43 I44 I45 I46 I47     I49 I50 I51 I52 I53 I54 I55 I56 I57 I58 I59
-I60 I61 I62 I63 I64 I65 I66 I67
+I60 I61 I62 I63 I64 I65 I66 I67 I68
 </code></pre>
 <p>⚠️ <strong>编号不连续是常态，不是漏写</strong>：<code>I7 I8 I11 I13 I14 I25 I26 I48</code> 这些随相关功能
 下线而被移除，编号<strong>不留补丁、不重号</strong>（改名连判据一起改，见记忆中的相关纪律）。
@@ -297,6 +297,16 @@ I60 I61 I62 I63 I64 I65 I66 I67
   ⚠️ 样本必须<strong>末页不满</strong>（整页整除验不出"末页多给"）。
   负向验证（不改源码，用 monkeypatch 灌错实现）：忽略 <code>offset</code> ⇒ 拼出 9 条 / 唯一 3 条 ⇒ 判红；
   拿一页条数冒充总数 ⇒ 3 ≠ 7 ⇒ 判红。</p>
+<p><code>I68</code> 是改版四十六新加的（回放与实时参数同源，详见 §11.46），在 <code>0c3b</code> 段
+（<strong>纯内存 + 临时文件</strong>，不依赖模拟器）：
+- <strong>I68</strong> 造一条 32 通道的记录再调 <code>replay_view()</code>，钉四件事：
+  ① <code>fields</code> <strong>恰好</strong> = 记录 <code>channels</code> 原序 + <code>(frontNear, irSwitch)</code>，<strong>顺序也一致</strong>
+  （白名单只要再冒出来，长度或顺序就一定对不上）；
+  ② 样本 <code>v</code> 与原始 row <strong>逐列相同</strong>（列错位的症状是"电池显示在陀螺角的位置"，看不出来）；
+  ③ 派生量恒等式 <code>frontNear = wallFront &amp; !frontFar</code>、<code>irSwitch = flags &amp; 0x10</code>，
+  且<strong>缺一侧 ⇒ <code>None</code></strong>（摘掉 <code>frontFar</code> 那条要 <code>None</code>，不许按 <code>wallFront</code> 猜）；
+  ④ 4 灯三态两方向：<code>fw=314</code> + <code>led=1/0/1/0</code> ⇒ <code>[True,False,True,False]</code>；
+  <strong>不存 <code>device</code> ⇒ 全 <code>None</code> 且必须有 <code>leds_note</code></strong>（老记录不许画成"灭"）。</p>
 <h3 id="32-sim">3.2 <code>--sim</code> 的边界</h3>
 <ul>
 <li><strong>不加 <code>--sim</code></strong>：跑不了需要活链路的那些（<code>I15</code>~<code>I17</code>、<code>I22</code>、<code>I23</code>、<code>I27</code>、<code>I28</code>、
@@ -325,7 +335,7 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <p><strong>设备没连上时，界面不许说连上了。</strong> 假"已连接"会让人以为可以去发车。</p>
 </blockquote>
 <p>⚠️ <code>--sim</code> 与不带 <code>--sim</code> 两种情况<strong>断言方向相反</strong> —— 双向都点才叫判据。</p>
-<h3 id="43-v0-v22">4.3 组清单（V0 ~ V22）</h3>
+<h3 id="43-v0-v23">4.3 组清单（V0 ~ V23）</h3>
 <table>
 <thead>
 <tr>
@@ -421,6 +431,11 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <td>前 8 条记录没有一条动过 ⇒ SKIP（无运行区间可验）</td>
 </tr>
 <tr>
+<td>V23</td>
+<td><strong>回放的状态卡与实时通道卡同源</strong>：两边的键集合<strong>与顺序</strong>完全相同、≥28 项；当前样本里有值的键界面上不许是 <code>—</code>（逐个比数）；4 灯 4 格三态；<strong>负向</strong>：摘掉 <code>fieldPos</code> ⇒ 全部变 <code>—</code></td>
+<td>记录没取到样本 ⇒ SKIP（判不了）</td>
+</tr>
+<tr>
 <td><strong>V21</strong></td>
 <td><strong>列表分页</strong>：首屏 50 条且文案写「已载 50 / 共 N」（此时<strong>不许</strong>出现发车/视频条数）；搜一条只在第 51 条之后的记录 ⇒ <strong>自动载全并命中 1 行</strong>；滚到底 ⇒ 行数长到 N 且 id 无重复；载全后提示行清空</td>
 <td>全库 ≤ 50 条 ⇒ SKIP（一屏装得下，验不到续载）；无滚动容器 ⇒ SKIP</td>
@@ -445,7 +460,13 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 否定方向两条都验过（临时把 <code>onScroll</code> / <code>ensureAll</code> 变成空实现 ⇒ 判据转红，
 分别报"滚 41 次仍 50 条"和"载入 50 条 / 命中 0 行"），验完立刻还原。
 ⚠️ V21 用 <code>reset()</code>（清空已载窗口再 <code>loadRecords()</code>）造"刚进页"的状态，
-<strong>必须先复位再造状态</strong>：上一条判据留下的 344 条会让"首屏 50"恒假。</p>
+<strong>必须先复位再造状态</strong>：上一条判据留下的 344 条会让"首屏 50"恒假。
+⚠️ V23 的三条腿<strong>缺一不可</strong>：只比键集合会放过"挂着 30 个标签、值全是 <code>—</code>"（那正是
+白名单时代的症状）；只比个数会放过"两边都空"（<code>0 == 0</code> 也算相等，所以另有 ≥28 项这条）；
+负向那条（摘 <code>fieldPos</code> ⇒ 全 <code>—</code>）是为了证明那些数字<strong>真是从这条记录的样本里取的</strong>，
+而不是从别处抄来的。摘完必须还原，否则同一轮后面的判据看到的是空表。
+⚠️ V23 的实时侧键集合取自 <code>#lv-ch [data-k]</code>（<strong>渲染出来的 DOM</strong>，不是 JS 里的常量）：
+拿 <code>CH.groups</code> 直接比等于自己跟自己比 —— 两边都用同一张表，永远相等。</p>
 <blockquote>
 <p>标"—"的是本项目当前未被 AI 逐条读透的组；<strong>宁可留白也不猜</strong>（下游自证原则）。
 要看某组的确切命题，直接读 <code>tools/browser_check.py</code> 里对应的 <code>record("Vn", …)</code> 及其上方注释。</p>

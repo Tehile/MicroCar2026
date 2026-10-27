@@ -54,7 +54,11 @@ class Ctx:
             # 发车时的参数快照（改版二十八）。走 `refresh=False` ⇒ **纯读缓存、
             # 不碰设备**：开录这一步绝不能因为"读参数"而多一次串口往返（发车时序
             # 本来就在等一条命令）。缓存空着就回 None ⇒ 回放显示「未记录」。
-            get_params=self._rec_params)
+            get_params=self._rec_params,
+            # 开录时的设备信息（改版四十六）：只有 `fw`，给回放的 4 灯三态用。
+            # 同样**纯读缓存**（`caps()` 不碰设备）：开录这一步多一次串口往返，
+            # 就是在发车时序上多加一段。取不到 ⇒ None ⇒ 回放说"判不了"。
+            get_device=self._rec_device)
         # 决策差分的**码表**（上游的路口分类器与名字表）—— 从鼠适配器取，不在这里
         # import 上游（路径注入、能力探测都在适配器里，这一层不该再摸一遍）。
         # 适配器那时**可能还没装载完**（`ctx` 先于 `_load()` 的某些时机）⇒ 取不到就不注入，
@@ -143,6 +147,21 @@ class Ctx:
         if not groups:
             return None
         return {"groups": groups, "at_ms": now_ms(), "source": "cache"}
+
+    def _rec_device(self) -> Optional[dict]:
+        """给记录器用的**设备信息快照**（开录那一刻冻一次）：目前只有 `fw`。
+
+        为什么要它：4 灯的三态判据里有一半是"这 4 位固件到底会不会填"
+        （`control/leds.py` 的 `LED_MIN_FW=311`）。记录里只有 `led1..4` 的 0/1 时，
+        回放**分不出"真灭"与"预留恒 0"** —— 而把"没实现"画成"灭"正是那个模块
+        要消灭的静默错。`caps()` 读的是缓存（不碰设备），`fw_int` 已经认不出给 None。
+        """
+        try:
+            caps = self.mouse.caps() or {}
+        except Exception:                                    # noqa: BLE001
+            return None
+        fw = caps.get("fw_int")
+        return None if fw is None else {"fw": fw}
 
     def health(self) -> dict:
         m = self.mouse.health()

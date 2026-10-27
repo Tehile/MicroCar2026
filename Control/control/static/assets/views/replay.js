@@ -157,10 +157,21 @@
           '</section>' +
 
           '<div class="rp-side">' +
-            '<section class="card">' +
+            '<section class="card rp-state-card">' +
               '<div class="card-head"><h2>状态</h2>' +
-                '<div class="card-head-r"><span class="hint mono" id="rp-t">t 0.0 s</span></div></div>' +
-              '<div class="card-body"><dl class="kv compact" id="rp-state"></dl></div>' +
+                '<div class="card-head-r">' +
+                  '<span class="pill mono sm idle" id="rp-run">—</span>' +
+                  '<span class="hint mono" id="rp-t">t 0.0 s</span>' +
+                '</div></div>' +
+              /* 4 灯 + 全通道（改版四十六）。原来是**手写的 11 行**，比实时页少了
+                 四路红外/陀螺角/左右里程/冲刺四项/前墙两档/帧时基等 19 项 ——
+                 数据一直在记录里（整行 32 列），是被后端白名单挡住的。
+                 现在：DOM 建一次、值逐帧刷，与 live.js 同一套做法。 */
+              '<div class="card-body rp-state-body">' +
+                '<div class="led-strip" id="rp-leds"></div>' +
+                '<div class="hint mono rp-led-note" id="rp-led-note"></div>' +
+                '<div id="rp-ch"></div>' +
+              '</div>' +
             '</section>' +
           '</div>' +
         '</div>' +
@@ -238,6 +249,17 @@
       if (this._esc) document.removeEventListener('keydown', this._esc);
       this._esc = e => { if (e.key === 'Escape') setSheet(false); };
       document.addEventListener('keydown', this._esc);
+
+      /* 通道卡（改版四十六）：**与实时页同一张码表**（`CH.groups`），这里只建 DOM，
+         值在 `paint()` 里按当前样本刷（与 `live.js` 的 `[data-k]` 同一套做法）。
+         为什么不能再各写一份字段清单：两份必然分家 —— 上一版就是这么少的 19 项。 */
+      root.querySelector('#rp-ch').innerHTML = CH.groups.map(g =>
+        '<div class="rp-grp"><div class="rp-grp-h">' + U.esc(g.name) + '</div>' +
+        '<dl class="kv compact pair2">' + g.keys.map(k =>
+          '<div title="' + U.esc(k[0] + ' · ' + k[1]) + '"><dt>' + U.esc(k[1]) +
+          ' <code>' + U.esc(k[0]) + '</code></dt>' +
+          '<dd data-k="' + U.esc(k[0]) + '">—</dd></div>').join('') +
+        '</dl></div>').join('');
 
       /* 发车/收车标记 + 采样缺口 ⇒ 单独一个方法，见下面的 `paintMarks()` */
       this.paintMarks();
@@ -411,29 +433,54 @@
         ? '无位置读数'
         : 'x ' + U.fmt(sm.posX, 2) + ' · y ' + U.fmt(sm.posY, 2) + ' · ' + (CH.dirs[sm.dir] || '?');
 
-      root.querySelector('#rp-state').innerHTML = [
-        ['t', '时刻', U.fmt(sm.t, 2) + ' s'],
-        ['frame', '帧号', String(sm.frame)],
-        ['posX/posY', '位置', U.fmt(sm.posX, 2) + ', ' + U.fmt(sm.posY, 2)],
-        ['dir', '朝向', (CH.dirs[sm.dir] || '?') + ' (' + sm.dir + ')'],
-        ['mazeTask', '迷宫任务', (CH.tasks[sm.mazeTask] || sm.mazeTask) + ' (' + sm.mazeTask + ')'],
-        ['motionTask', '动作', (CH.motionText ? CH.motionText(sm.motionTask)
-          : (CH.motions[sm.motionTask] || sm.motionTask)) + ' (' + sm.motionTask + ')'],
-        ['run', '运行', (function () {
-          const k = phaseAt(rec, sm.t);
-          return k === 'run' ? '在动' : k === 'stop' ? '停着' : '判不了';
-        })()],
-        ['speedL/speedR', '轮速', U.fmt(sm.speedL, 1) + ' / ' + U.fmt(sm.speedR, 1) + ' cm/s'],
-        ['wallL/F/R', '墙', sm.wallLeft + ' / ' + sm.wallFront + ' / ' + sm.wallRight],
-        ['battMv', '电池', U.fmt(sm.battMv, 0) + ' mV'],
-        ['flags', '标志位', CH.text('flags', sm.flags)],
-      ].map(r => '<div><dt>' + r[1] + ' <code>' + r[0] + '</code></dt><dd>' + U.esc(r[2]) + '</dd></div>').join('');
+      /* ---- 状态卡（改版四十六）：**全部读后端给的值，前端不自算派生量** --------
+         · 通道值 → `sm.v`（全通道数组，与 `rec.fields` 同序），经 `C.fieldValue` 按名取；
+         · 派生量 `frontNear`/`irSwitch` → 后端按上游 `codec.py` 的恒等式补进 `v`；
+         · 4 灯三态 → 后端 `control/leds.py` 判（含 fw<311 的"预留位"那一支）。
+         文案与单位走 `CH.text`（与实时页**同一个函数**），所以同一个键在两边
+         不可能一个显示 "12.3 cm/s"、另一个显示 "12"。 */
+      const runEl = root.querySelector('#rp-run');
+      if (runEl) {
+        const k = phaseAt(rec, sm.t);
+        runEl.textContent = k === 'run' ? '在动' : k === 'stop' ? '停着' : '判不了';
+        runEl.className = 'pill mono sm ' + (k === 'run' ? 'ok' : (k === 'stop' ? 'idle' : 'warn'));
+      }
+      /* 4 灯：三态（true 亮 / false 灭 / null 判不了）。**绝不把 null 画成"灭"**：
+         老固件那 4 位是预留的恒 0，画成灭会让人去查线路 —— 那是 `leds.py`
+         整个模块存在的理由。 */
+      const leds = Array.isArray(sm.leds) ? sm.leds : [null, null, null, null];
+      const ledBox = root.querySelector('#rp-leds');
+      if (ledBox) {
+        ledBox.innerHTML = ['LED1', 'LED2', 'LED3', 'LED4'].map((nm, idx) => {
+          const v = leds[idx];
+          const cls = v === true ? 'on' : (v === false ? 'off' : 'unknown');
+          const txt = v === true ? '亮' : (v === false ? '灭' : '未知');
+          return '<div class="led-s ' + cls + '">' +
+            '<span class="l-name">' + nm + '</span>' +
+            '<span class="l-state">' + txt + '</span></div>';
+        }).join('');
+      }
+      const ledNote = root.querySelector('#rp-led-note');
+      if (ledNote) {
+        const unknown = leds.some(v => v == null);
+        ledNote.textContent = unknown
+          ? (rec.ledsNote || '4 灯判不了（这条记录没存固件版本）') : '';
+        ledNote.style.display = unknown ? '' : 'none';
+      }
+      root.querySelectorAll('#rp-ch [data-k]').forEach(d => {
+        d.textContent = CH.text(d.dataset.k, C.fieldValue(rec, sm, d.dataset.k));
+      });
 
       const ses = S.videoSessions.find(v => v.id === rec.video) || null;
       root.querySelector('#rp-info').innerHTML = [
         ['start', '开始', rec.start],
         ['dur', '时长', dur(rec.dur)],
         ['frames', '遥测帧', String(rec.frames)],
+        // 帧率（改版四十六）：与实时页那个"最近 2 s 实测"**不是同一个统计量** ——
+        // 这里是**本段平均**（`t_ms` 设备时基、逐帧唯一）。文案里写清楚，
+        // 否则复盘时会拿它当"当时的瞬时帧率"，而两者的差别正是采样缺口。
+        ['fps', '帧率', rec.fpsAvg == null ? '判不了（时长或帧数缺失）'
+          : U.fmt(rec.fpsAvg, 2) + ' Hz（本段平均）'],
         ['launch', '发车记录', rec.launch ? '自动开录（发车触发）' : '手动开录'],
         // 运行区间（改版四十四）：与上面那行**分开**——那行说"记录是怎么开始录的"，
         // 这行说"车什么时候真的在动"。混成一句就会把"发车自动开录"读成"车一直在跑"。

@@ -260,7 +260,7 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 </tr>
 <tr>
 <td><code>control/ctx.py</code></td>
-<td>450</td>
+<td>469</td>
 <td><strong>装配中心</strong>：把 config / clock / bus / store / arena / 两个适配器 / 记录器装成一个 <code>Ctx</code>；后台 task 与 <code>sampler_loop</code> 也在这</td>
 <td><code>Ctx</code>, <code>SessionError</code></td>
 </tr>
@@ -325,7 +325,7 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 </tr>
 <tr>
 <td><code>control/maze_rec.py</code></td>
-<td>2390</td>
+<td>2474</td>
 <td>实验 8 记录器。<strong>订阅 <code>Event.TELEMETRY</code></strong>（每帧一次），不订阅"有人看波形才发"的那条</td>
 </tr>
 <tr>
@@ -397,7 +397,7 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 </tr>
 <tr>
 <td><code>lib.js</code></td>
-<td>2699</td>
+<td>2733</td>
 <td>原型内核 + <strong>接缝层</strong>：<code>act()</code>/<code>setPull()</code>/<code>pullBatch()</code>/<code>connectMouse()</code>/<code>videoStart()</code>/<code>renameRecord()</code>… 真机模式下这里<strong>真的发请求</strong>（<code>get()</code> 只读、<code>post()</code> 写）；发车状态的判定也在这一层（<code>pinRunning()</code> / <code>applyRunning()</code>，判据是<strong>动作码</strong>）；断开时的归零是 <code>resetTelemetry()</code></td>
 </tr>
 <tr>
@@ -475,8 +475,8 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tr>
 <td><code>#/replay</code></td>
 <td><code>replay.js</code></td>
-<td>479</td>
-<td>迷宫记录回放：<strong>从帧重放建</strong>图，不读 <code>wall_rows</code></td>
+<td>526</td>
+<td>迷宫记录回放：<strong>从帧重放建</strong>图，不读 <code>wall_rows</code>；状态卡与实时页<strong>同一张通道码表</strong>（30 项 + 4 灯三态，值全从后端 <code>v</code> 取）</td>
 </tr>
 </tbody>
 </table>

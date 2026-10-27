@@ -183,6 +183,7 @@ li{margin:.28em 0}
 <li><a href="#1143">11.43 改版四十三·收车观察窗 / 判停改看动作码 / 断开归零（状态：已落地）</a></li>
 <li><a href="#1144">11.44 改版四十四·回放的发车/收车改成"动作码说了算"（状态：已落地）</a></li>
 <li><a href="#1145">11.45 改版四十五·记录列表改成"滚动续载 + 搜索自动载全"（状态：已落地）</a></li>
+<li><a href="#1146">11.46 改版四十六·回放的"状态"与实时参数同源（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -10611,6 +10612,116 @@ link_lost</strong>，而设备好好的。真机现在没炸，只因默认 <cod
 <li><strong>V21 全库 ≤ 50 条时 SKIP</strong>：一屏就装得下，续载无从验起（不是失败）。</li>
 <li><strong>"共 N 条"会随测试跑动</strong>：每跑一次 drill/发车就多一份记录，所以本文里的
    309 / 344 / 345 都是"当时那一刻"的数，不是常量。</li>
+</ol>
+<hr />
+<h3 id="1146">11.46 改版四十六·回放的"状态"与实时参数同源（状态：<strong>已落地</strong>）</h3>
+<h4 id="_170">一、现象</h4>
+<p>回放页右栏「状态」比「实时状态」页的通道卡<strong>少一大截</strong>：只有 11 行（时刻、帧号、
+位置、朝向、迷宫任务、动作、运行、轮速、三面墙、电池、标志位），而实时页是 6 组 30 项。
+现场看到的第一反应是"回放本来就没采这么多数据"——尤其是<strong>四路红外</strong>：复盘时最想看的
+<code>irF1/irF2/irL/irR</code> 一项都没有。同样的缺失还有陀螺角、左右里程、冲刺档位/标志/去回/
+试探/前向计数、前墙近端档、红外采样开关、帧时基 <code>ms8</code>。</p>
+<h4 id="_171">二、根因（取证）</h4>
+<ol>
+<li><strong>数据一直在</strong>。抽一份记录看 <code>channels</code>：<strong>32 列</strong>，四路红外、<code>gyroAngle</code>、<code>trackL/R</code>、
+   <code>spurt*</code>、<code>goaheadnum</code>、<code>ms8</code>、<code>led1..4</code> 全在里面，<code>frames</code> 每行也是 32 个值。</li>
+<li><strong>是本层的一道白名单挡住的</strong>。<code>maze_rec.replay_view()</code> 里有一个 <code>keys</code> 元组
+   （14 个字段），逐帧只把这 14 个搬进 <code>samples</code>；界面再从 <code>samples</code> 里取。
+   于是"记录有 32 列 / 界面看得见 11 项"——<strong>中间那层把数据丢了，而且不报错</strong>。</li>
+<li><strong>两项是派生量，本来就不占帧列</strong>。<code>frontNear</code> 与 <code>irSwitch</code> 不在 <code>channels</code> 里：
+   上游 <code>host/protocol/codec.py:469-475</code> 是<strong>现算</strong>的
+   （<code>frontNear = wallFront and not frontFar</code>、<code>irSwitch = flags &amp; FLAG_IR_SWITCH</code>）。
+   所以"记录里没有"不等于"回放只能没有"——补的姿势是按同一条恒等式派生。</li>
+<li><strong>4 灯是另一码事</strong>。<code>led1..4</code> 是真通道，但三态判据里有一半是"固件到底会不会填这 4 位"
+   （<code>control/leds.py</code> 的 <code>LED_MIN_FW=311</code>）。记录里只有 0/1 时，回放<strong>分不出
+   "真灭"与"预留位恒 0"</strong>——照抄 0 就是把"没实现"画成"灭"，而那正是那个模块要消灭的静默错。</li>
+</ol>
+<h4 id="_172">三、改法</h4>
+<p><strong>后端（<code>control/maze_rec.py</code>）</strong></p>
+<ul>
+<li><code>replay_view()</code> 不再有字段白名单：输出 <code>fields</code>（= 记录 <code>channels</code> 原序 + <code>DERIVED_FIELDS</code>）
+  与每个样本一条 <code>v</code> 数组，<strong>同序同长</strong>。为什么用数组而不是再铺一遍 32 个具名字段：
+  具名字段等于同一份读数存两遍（迟早不一致），而且 32 个键名 × 1200 样本，光键名就比数据大。</li>
+<li>派生量按上游恒等式补：<code>frontNear</code> / <code>irSwitch</code>；<strong>任一侧缺值 ⇒ <code>None</code></strong>，
+  绝不按 0 算（0 的意思是"确认没有"）。</li>
+<li>4 灯三态<strong>不在回放里重写</strong>：<code>led_states(frame, channels, fw)</code> 直接复用
+  <code>control/leds.py</code>（一元素一真相）。</li>
+<li>记录落盘时冻一份设备信息：<code>device: {fw: 314}</code>（<code>_device_snapshot()</code>，
+  与 <code>params</code> 快照同一条纪律：<strong>附件不许拖垮主线</strong>，任何异常吞成 <code>None</code>）。
+  <code>ctx</code> 注入的取数是 <code>caps().fw_int</code>，<strong>纯读缓存、零设备访问</strong>——开录这一步多一次
+  串口往返，就是在发车时序上多加一段。</li>
+<li>顺带补 <code>fps_avg</code>（= <code>(n-1)/时长</code>，<strong>本段平均</strong>）。实时页最显眼的那个数就是帧率，
+  而复盘时"这一段到底多少 Hz、有没有被发车占链路拉低"是第一个要问的。
+  它是<strong>段平均</strong>，与实时页"最近 2 s 实测"不是同一个统计量，文案里必须写明。</li>
+</ul>
+<p><strong>前端（<code>views/replay.js</code> / <code>lib.js</code>）</strong></p>
+<ul>
+<li>状态卡改成与实时页<strong>同一张码表</strong> <code>CH.groups</code>：DOM 建一次、值逐帧刷（与 <code>live.js</code>
+  同一套 <code>[data-k]</code> 做法），文案与单位走<strong>同一个</strong> <code>CH.text()</code> —— 同一个键在两边
+  不可能一个显示 <code>12.3 cm/s</code>、另一个显示 <code>12</code>。</li>
+<li>取值一律经 <code>C.fieldValue(rec, sm, key)</code>（按 <code>fields</code> 建好的索引下标），
+  <strong>前端一个派生量都不自算</strong>。</li>
+<li>4 灯用 <code>sm.leds</code>（后端三态）：<code>null</code> 画"未知"，绝不落到"灭"。</li>
+<li><strong>顺带修掉一个旧文案错</strong>（两张页面共用同一张码表，一改两处都对）：<code>lib.js</code> 的
+  <code>CODE</code> 里 <code>frontNear</code> / <code>frontFar</code> / <code>frontBoth</code> <strong>共用</strong>一张"档位名"表
+  <code>['无墙','近端','远端']</code> 并拿值当索引 ⇒ <code>frontFar=1</code> 印成"近端"，界面上写着
+  「前墙·远端 <strong>近端</strong> (1)」这种自相矛盾的话。上游语义是三个<strong>不同的 0/1 位</strong>
+  （<code>STATE_C_FRONT_FAR=0x08</code> 1=远墙档、<code>STATE_C_FRONT_BOTH=0x10</code> 1=双路互证成立），
+  那张 <code>FRONT_NAMES</code> 是给派生量 <code>fmode</code>(0/1/2) 用的，不是给它们用的。
+  现在各自表达自己：<code>命中/未命中</code>、<code>成立/不成立</code>；<code>irSwitch</code> 同理改成 <code>开/关</code>
+  （原来显示裸 <code>1</code>，会被读成某个计数）。</li>
+<li>卡片吃满右栏高度、<strong>正文自己滚</strong>，卡头与 <code>t / 运行</code> 常驻（拖动时间轴时它们是读数锚点）。
+  右栏 296 → <strong>340 px</strong>（≤1420 断点）：地图是正方形、<strong>只受高度限制</strong>（实测 canvas 270 /
+  布局 405，左栏还剩约 700 px 富余），所以加宽不会把地图挤小 —— 加完量过 canvas 仍是 270。</li>
+<li>30 项在 340 px 的双列里仍会<strong>超出卡片高度</strong>（内容约 600 px、可视约 360 px），
+  这是"一屏放下地图 + 时间轴"的代价，<strong>故意让它内部滚</strong>，而不是把地图再压小去换。</li>
+</ul>
+<h4 id="_173">四、判据</h4>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>守什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I68</strong>（drill 0c3b，纯内存）</td>
+<td>① <code>fields</code> <strong>恰好</strong> = 记录 channels + <code>(frontNear, irSwitch)</code>，顺序也一致；② 样本 <code>v</code> 与原始 row <strong>逐列相同</strong>；③ 派生量恒等式两方向 + 缺一侧 ⇒ <code>None</code>；④ 4 灯：<code>fw≥311</code> ⇒ <code>True/False</code>、无 fw ⇒ 全 <code>None</code> 且带说明</td>
+</tr>
+<tr>
+<td><strong>V23</strong>（browser_check 11l）</td>
+<td>① 回放 <code>#rp-ch</code> 与实时 <code>#lv-ch</code> 的键集合<strong>与顺序</strong>完全相同；② ≥28 项（防"两边都空也算相等"）；③ 当前样本里<strong>有值</strong>的键，界面上不许是 <code>—</code>（逐个比数）；④ 4 灯 4 格三态；⑤ <strong>负向</strong>：摘掉 <code>fieldPos</code> ⇒ 30/30 项变 <code>—</code>，还原后回到 30</td>
+</tr>
+</tbody>
+</table>
+<h4 id="2026-10-27">五、实测（2026-10-27）</h4>
+<ul>
+<li><code>drill --sim</code>：<strong>67 PASS / 0 FAIL / 1 SKIP</strong>（SKIP 是需要现场硬件那条）。
+  I68 明细：字段 34 项（32 通道 + 2 派生）、样本逐列相同、4 灯 <code>[True,False,True,False]</code>、
+  缺 <code>frontFar</code> ⇒ <code>frontNear=None</code>、老记录无 fw ⇒ 4 灯全 <code>None</code> 且带原因。</li>
+<li><code>browser_check --sim</code>：V23 实测 <strong>回放 30 项 / 实时 30 项</strong>、键集合与顺序一致、
+  当前样本 30 个有值键界面显示 30 个、4 灯 <code>['灭','灭','灭','灭']</code>（该记录 fw=314、
+  <code>led1..4</code> 全 0，是真的灭）、运行 <code>'在动'</code>；负向 30/30 项变 <code>—</code>。</li>
+<li>新记录落盘后 <code>device={'fw':314}</code>（drill 造的 4 份都验过）。</li>
+<li>回放响应体积（59 样本）：<strong>26 KB</strong>（原 14 字段时约 12 KB）；1200 样本上限下约 500 KB，
+  仍然是一个请求一次取完。</li>
+</ul>
+<h4 id="_174">六、如实交代</h4>
+<ol>
+<li><strong>老记录仍然看不到 4 灯的真实状态</strong>：它们没存 <code>fw</code> ⇒ 回放写"未知"并说明原因
+   （<code>leds_note</code>）。这不是修不好，是<strong>当时没记</strong>——补不回来，也不该猜。</li>
+<li><strong>实时页的「链路」四项回放没有</strong>：<code>bps</code> / <code>streaming</code> / <code>seq</code> / <code>lst</code> 记的是
+   <strong>当时的连接状态</strong>，不是车的参数，记录里也没存。硬要显示就得在记录里加字段，
+   属于另一件事（未做）。帧率能算，所以补了（段平均）。</li>
+<li><strong><code>fps_avg</code> 与实时帧率不是同一个量</strong>：一个是段平均（含发车占链路的缺口），
+   一个是最近 2 s 实测。文案里写死"本段平均"，不许互相顶替。</li>
+<li><strong>老记录的 <code>frontNear</code> 可能仍是 <code>None</code></strong>：它需要 <code>wallFront</code> 与 <code>frontFar</code> 同时存在；
+   v9 之前的记录缺 <code>frontFar</code> 时，回放如实显示 <code>—</code>，不按 <code>wallFront</code> 猜。</li>
+<li><strong><code>I42</code> 观察到一次偶发失败</strong>：本轮两次 <code>drill --sim</code>，第一次 <code>I42</code> 报
+   "参数派生量 SPEEDL=None"，第二次同一命令通过（<code>SPEEDL=0.532…</code> 与 <code>TRACKL/100</code> 一致）。
+   那一段读的是 <code>/mouse/params/grouped</code>（链路忙时读参数会失败一次），
+   <strong>与本轮改动无关</strong>，但"判据偶发红"本身值得单独一轮修（读失败应当 SKIP 而不是 FAIL）。</li>
 </ol>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>

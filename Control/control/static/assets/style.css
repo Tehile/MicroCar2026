@@ -1028,6 +1028,22 @@ body[data-route="replay"] .page-head{padding-bottom:10px;margin-bottom:12px}
 .rp-tl-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
 .rp-tl-bar .mono{font-size:11.5px;font-variant-numeric:tabular-nums}
 .rp-side{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto}
+/* ── 回放状态卡（改版四十六）────────────────────────────────────────────────
+   与实时页同一张通道码表（6 组 30 项）+ 4 灯三态。右栏固定 336 px，双列每格
+   只有 ~145 px：**放不下「中文标签 + 原始字段名」**（实测「双档命中 frontBoth」
+   会折行，折出来是"双档命/中"这种），所以这里只留中文标签，字段名进行的 `title`。
+   卡片吃满右栏高度、正文自己滚：卡头与 `t / 运行` 必须常驻 —— 拖动时间轴时
+   它们是读数锚点，跟着滚走就等于每次都要重新找。 */
+.rp-state-card{flex:1;min-height:0;display:flex;flex-direction:column}
+.rp-state-body{flex:1;min-height:0;overflow:auto;padding-top:8px}
+.rp-led-note{display:block;margin:4px 0 2px;font-size:9.5px;color:var(--muted)}
+.rp-grp{margin-top:9px}
+.rp-grp-h{
+  font-size:9.5px;letter-spacing:.09em;color:var(--muted-2);font-weight:600;
+  padding:0 0 3px;border-bottom:1px solid var(--line-2);margin-bottom:2px;
+}
+.rp-grp dt code{display:none}
+.rp-grp .kv > div{padding:2.5px 0}
 
 /* 二级抽屉：41 项参数 + 记录元信息。用 fixed 覆盖，不改主布局高度 */
 .rp-sheet{
@@ -1115,7 +1131,11 @@ body[data-route="replay"] .page-head{padding-bottom:10px;margin-bottom:12px}
 
 @media (max-width:1420px){
   .race-grid{grid-template-columns:272px minmax(0,1fr) 306px}
-  .rp-layout{grid-template-columns:minmax(0,1fr) 296px}
+  /* 右栏 296 → 340（改版四十六）：状态卡现在装 30 个通道，296 px 下双列每格
+     只有 ~128 px，"前墙·近端 无墙 (0)" 这类会折行。**代价是零** —— 地图是正方形、
+     只由高度决定边长（实测 canvas 270 / layout 405，左栏还剩 ~700 px 富余），
+     所以右栏加宽不会把地图挤小。加完必须量一次 canvas 边长核对。 */
+  .rp-layout{grid-template-columns:minmax(0,1fr) 340px}
   /* 窄屏：通道卡双列里塞不下"中文标签 + 原始字段名"，标签会被折断成
      "迷宫任"/"务"这种 ⇒ 整段通道区隐去 code，只留中文标签与读数 */
   #lv-ch .kv > div code{display:none}
