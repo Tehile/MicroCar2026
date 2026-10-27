@@ -9,6 +9,7 @@ import numpy as np
 
 from .config import DetectionConfig
 from .corners import refine_quad_by_edges
+from .redecode import QuadDecoder, quad_plausible
 
 _CORNER_REFINE = {
     "none": cv2.aruco.CORNER_REFINE_NONE,
@@ -81,6 +82,12 @@ class MarkerDetector:
             if cfg.clahe
             else None
         )
+        # 白名单重解码：模板只算一次（角标记 + 目标标记，通常 5 个 ID）
+        self._decoder = (
+            QuadDecoder(self.dictionary, sorted(set(int(i) for i in cfg.corner_ids) | {int(cfg.target_id)}))
+            if getattr(cfg, "redecode", False)
+            else None
+        )
 
     # ------------------------------------------------------------------ #
     def _gray(self, frame: np.ndarray) -> np.ndarray:
@@ -104,6 +111,7 @@ class MarkerDetector:
         raw = self._raw_gray(frame)
         gray = self._gray(frame)
         best: dict[int, MarkerObservation] = {}
+        rejected: list[tuple[np.ndarray, float]] = []  # (四边形[原图坐标], 尺度)
 
         for scale in self.cfg.scales:
             scale = float(scale)
@@ -115,7 +123,14 @@ class MarkerDetector:
                 interp = cv2.INTER_LINEAR if scale > 1.0 else cv2.INTER_AREA
                 work = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=interp)
 
-            corners, ids, _ = self.detector.detectMarkers(work)
+            corners, ids, rej = self.detector.detectMarkers(work)
+            # 被 OpenCV 在位判决阶段丢弃的四边形：运动模糊下的真标记常常落在这里
+            if self.cfg.redecode:
+                for q in (rej or []):
+                    quad = q.reshape(4, 2).astype(np.float32)
+                    if abs(scale - 1.0) > 1e-9:
+                        quad = quad / scale
+                    rejected.append((quad, scale))
             if ids is None or len(ids) == 0:
                 continue
 
@@ -135,11 +150,54 @@ class MarkerDetector:
                     if new_key > prev_key:
                         best[mid] = obs
 
+        if self.cfg.redecode:
+            self._redecode(gray, best, rejected)
+
         if self.cfg.edge_refine and best:
             self._edge_refine(raw, best)
         elif self.cfg.subpixel_polish and best:
             self._polish(gray, best)
         return best
+
+    # ------------------------------------------------------------------ #
+    def _redecode(self, gray: np.ndarray, best: dict[int, MarkerObservation],
+                  rejected: list[tuple[np.ndarray, float]]) -> None:
+        """对"被丢弃的四边形"与"ID 不在白名单的检出"做白名单重解码。
+
+        只在 `corner_ids + [target_id]` 这几个模板里选（实测量级：把 1000 选 1
+        变成 5 选 1，模糊帧里差 3~4 位的图案也能可靠归类）。
+        误接受由上层几何检查（方正度 rms / 重投影）兜底。
+        """
+        dec = self._decoder
+        if dec is None:
+            return
+        c = self.cfg
+        allowed = set(int(i) for i in c.corner_ids) | {int(c.target_id)}
+
+        def accept(quad: np.ndarray) -> None:
+            if not quad_plausible(quad, min_side=c.redecode_min_side):
+                return
+            r = dec.decode(gray, quad)
+            if (r.dist <= c.redecode_max_dist and r.margin >= c.redecode_min_margin
+                    and r.contrast >= c.redecode_min_contrast and r.marker_id in allowed
+                    and r.marker_id not in best):
+                best[int(r.marker_id)] = MarkerObservation(
+                    marker_id=int(r.marker_id),
+                    corners=np.asarray(quad, np.float32).reshape(4, 2),
+                    scale=1.0,
+                )
+
+        for quad, _scale in rejected:
+            accept(quad)
+
+        # 被解成错误 ID（例如 id2 → 998）的四边形：同一四边形重解码后再接受一次
+        for mid, ob in list(best.items()):
+            if mid in allowed:
+                continue
+            before = set(best)
+            accept(np.asarray(ob.corners, np.float32).reshape(4, 2))
+            if set(best) != before:
+                best.pop(mid, None)  # 已按正确 ID 收下，去掉错 ID
 
     # ------------------------------------------------------------------ #
     def _edge_refine(self, gray: np.ndarray, obs: dict[int, MarkerObservation]) -> None:

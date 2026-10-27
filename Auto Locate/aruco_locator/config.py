@@ -43,6 +43,23 @@ class DetectionConfig:
     corner_refinement_max_iter: int = 30
     corner_refinement_min_accuracy: float = 0.01
 
+    # 候选四边形二次解码（见 redecode.py）：运动模糊会让 OpenCV 在位判决阶段
+    # 丢弃真标记（进 rejectedImgPoints）或解成错误 ID。这里对这类四边形用
+    # **白名单模板**重解码，把"1000 选 1"降为"5 选 1"。
+    redecode: bool = True
+    redecode_max_dist: int = 2  # 16 位里允许错几位
+    redecode_min_margin: int = 3  # 与次优 ID 的最小距离差（防"两个 ID 都像"）
+    redecode_min_contrast: float = 25.0  # 数据区与边框的灰度差下限（防对墙面对齐）
+    redecode_min_side: float = 10.0  # 候选四边形最短边（px），过小直接丢
+
+    # 目标缺失时的"场地平面重投影"兜底：用四角解出的 H 把图 warp 成正俯视，
+    # 车顶标记在该视图里近似正对、尺寸固定，轮廓/位判决都更容易。
+    # 实测量级：四角齐全帧里目标检出 6% → 12%（严格超集，没有一帧变差）；
+    # 代价约 +0.47s/帧（S=4500）。
+    rectified_target: bool = True
+    rectified_side: int = 4500  # 重投影光栅边长（px），越大越清晰也越慢
+    rectified_margin: float = 0.06  # 场地外扩比例（把四角标记包进来）
+
     # 检测完成后再对全部角点做一次全局亚像素精化
     subpixel_polish: bool = True  # edge_refine=False 时生效（cv2 的 cornerSubPix）
     subpixel_win: int = 5

@@ -22,6 +22,22 @@ detection:
   perspective_remove_pixel_per_cell: 8
   perspective_remove_ignored_margin_per_cell: 0.25
 
+  # 候选四边形二次解码：运动模糊会让 OpenCV 在位判决阶段丢弃真标记
+  # （落进 rejectedImgPoints）或解成错误 ID。对这类四边形用"白名单模板"重解码。
+  # 2026-10-27 最终 4K 视频实测：四角齐全率 52% → 64%，代价 +58ms/帧。
+  # 置 false 即完全回到旧行为。
+  redecode: true
+  redecode_max_dist: 2          # 16 位里允许错几位
+  redecode_min_margin: 3        # 与次优 ID 的最小距离差
+  redecode_min_contrast: 25     # 数据区与边框的灰度差下限
+  redecode_min_side: 10         # 候选四边形最短边（px）
+
+  # 目标缺失时的"场地平面重投影"兜底：用四角 H 把图 warp 成正俯视再找目标。
+  # 实测（121 帧 4K 手持）：目标检出 8% → 12%，有效定位 4% → 7%，代价 ~+0.3s/帧。
+  rectified_target: true
+  rectified_side: 4500          # 重投影光栅边长（px）；4500 ≈ 1.9 px/mm
+  rectified_margin: 0.06        # 场地外扩，把四角标记包进来
+
   corner_refinement: subpix
   corner_refinement_win: 5
   corner_refinement_max_iter: 30

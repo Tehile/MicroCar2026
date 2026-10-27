@@ -45,6 +45,7 @@ FLAG_TARGET_NOT_SQUARE = "target_not_square"
 FLAG_SMOOTHED = "smoothed"
 FLAG_HEIGHT_CORRECTED = "height_corrected"
 FLAG_PARALLAX_UNCALIBRATED = "parallax_uncalibrated"
+FLAG_TARGET_RECTIFIED = "target_rectified"
 
 
 @dataclass
@@ -245,6 +246,12 @@ class ArucoLocator:
             config = LocatorConfig()
         self.cfg: LocatorConfig = config
         self.detector = MarkerDetector(self.cfg.detection)
+        # 重投影兜底用的检测器：光栅尺寸已由重投影决定，不需要多尺度
+        self._rect_detector: MarkerDetector | None = None
+        if getattr(self.cfg.detection, "rectified_target", False):
+            from dataclasses import replace as _replace
+
+            self._rect_detector = MarkerDetector(_replace(self.cfg.detection, scales=[1.0]))
         self.smoother = _Smoother(
             self.cfg.output.smooth, self.cfg.output.ema_alpha, self.cfg.output.window
         )
@@ -285,9 +292,6 @@ class ArucoLocator:
 
         if len(present) < len(corner_ids):
             res.reason = "corner_markers_missing"
-            return res
-        if det.target_id not in obs:
-            res.reason = "target_marker_missing"
             return res
 
         # 1) 内顶点
@@ -333,6 +337,19 @@ class ArucoLocator:
             res.reason = "degenerate_homography"
             return res
         self.last_debug.update({"H": H, "H_inv": H_inv, "frame_obj": frame_obj})
+
+        # 3.5) 目标缺失 → 场地平面重投影兜底。
+        # 车顶标记在原图里被透视压扁且常被运动模糊抹平；warp 成正俯视后
+        # 它近似正对、尺寸固定，轮廓与位判决都更容易（实测目标检出 6% → 12%）。
+        if det.target_id not in obs and self._rect_detector is not None:
+            found = self._target_from_rectified(frame, H)
+            if found is not None:
+                obs[found.marker_id] = found
+                res.flags.append(FLAG_TARGET_RECTIFIED)
+                res.diagnostics["detected_ids"] = sorted(int(k) for k in obs)
+        if det.target_id not in obs:
+            res.reason = "target_marker_missing"
+            return res
 
         # 4) 几何质量：角标记四边形必须是正方形
         scales = corner_marker_scales(H, obs, frame_obj.ring_ids)
@@ -408,6 +425,83 @@ class ArucoLocator:
         res.theta_deg = math.degrees(math.atan2(sdy, sdx))
         res.valid = True
         return res
+
+    # ------------------------------------------------------------------ #
+    def field_frame_from_obs(self, obs: dict, image_shape: tuple) -> tuple[np.ndarray | None, dict]:
+        """**仅用四角标记**解场地系单应（不要求 0 号目标在画面里）。
+
+        与 :meth:`locate` 的关系：`locate` 在目标缺失时提前返回、不解 H；
+        而会话级迷宫融合只需要"四角 → 场地系"的 H（目标在不在场内不影响迷宫结构）。
+        本方法复用同一条内顶点/建系/精化链路，纯增量，不改动 `locate` 行为，
+        不写 `last_debug`、不触碰平滑状态。
+
+        返回 (H_img2field | None, info)。`info["ambiguous_axis"]` 为 True 时
+        调用方应弃用该帧（轴向存疑 → 迷宫可能被转 90°，会污染多帧融合）。
+        """
+        det = self.cfg.detection
+        geo = self.cfg.geometry
+        corner_ids = [int(i) for i in det.corner_ids]
+        if any(i not in obs for i in corner_ids):
+            return None, {"reason": "corner_markers_missing"}
+        inner, inner_info = select_inner_vertices(obs, geo, corner_ids)
+        if inner is None:
+            return None, {"reason": inner_info.get("reason", "inner_vertex_failed"),
+                          "inner_vertices": inner_info}
+        frame_obj, frame_info = build_frame(inner, obs, image_shape, geo)
+        if frame_obj is None:
+            return None, {"reason": frame_info.get("reason", "frame_failed"),
+                          "frame": frame_info}
+        H = frame_obj.H_img2field
+        H_ref, refine_info = refine_homography(frame_obj, obs, image_shape, self.cfg.refine)
+        if refine_info.get("enabled") and refine_info.get("success"):
+            H = H_ref
+        return H, {
+            "origin_id": frame_obj.origin_id,
+            "frame": frame_info,
+            "refine": refine_info,
+            "ambiguous_axis": bool(frame_info.get("axis_margin", 1.0) < geo.min_axis_margin),
+        }
+
+    # ------------------------------------------------------------------ #
+    def _target_from_rectified(self, frame: np.ndarray, H: np.ndarray):
+        """在"场地平面正俯视"图里找目标标记，找到则把角点映射回原图坐标。
+
+        为什么有用：车顶标记是水平面内的正方形，在倾斜视角下被各向异性压缩，
+        轮廓与 4×4 位判决都更难；重投影把它恢复成正对视角。
+        代价：一次大图 warp + 一次检测（~0.5s @ 4500px），只在目标缺失时执行。
+        """
+        d = self.cfg.detection
+        side = int(d.rectified_side)
+        margin = float(d.rectified_margin)
+        span = 1.0 + 2.0 * margin
+        s = side / span
+        A = np.array([[s, 0.0, margin * s],
+                      [0.0, -s, (1.0 + margin) * s],
+                      [0.0, 0.0, 1.0]], np.float64)  # 场地[0,1]² → 光栅像素
+        M = A @ np.asarray(H, np.float64)
+        try:
+            rect = cv2.warpPerspective(frame, M, (side, side), flags=cv2.INTER_CUBIC)
+        except cv2.error:
+            return None
+        obs_r = self._rect_detector.detect(rect)
+        ob = obs_r.get(int(d.target_id))
+        if ob is None:
+            return None
+        # 尺寸闸门：场地里的标记边长 ≈ (marker_side/field)*side/span。
+        # 不知道物理尺寸时用宽区间（1% ~ 12% 光栅边长），滤掉墙面纹理级候选。
+        side_px = float(np.linalg.norm(ob.corners[1] - ob.corners[0]))
+        if not (0.01 * side <= side_px <= 0.12 * side):
+            return None
+        try:
+            Minv = np.linalg.inv(M)
+        except np.linalg.LinAlgError:
+            return None
+        pts = cv2.perspectiveTransform(
+            ob.corners.reshape(-1, 1, 2).astype(np.float32), Minv).reshape(-1, 2)
+        if not np.all(np.isfinite(pts)):
+            return None
+        return MarkerObservation(marker_id=int(d.target_id),
+                                 corners=pts.astype(np.float32), scale=1.0)
 
     # ------------------------------------------------------------------ #
     def annotate(self, frame: np.ndarray, loc: Localization, obs: dict[int, MarkerObservation] | None = None):

@@ -7,6 +7,50 @@ v1.x 的稳定性承诺见 [docs/API.md §11](docs/API.md)。
 
 ---
 
+## [未发布]（v1.2.0 开发中）
+
+**新增会话级接口（视频文件 → 轨迹 + 迷宫），供外部程序离线调用。**
+
+- 新增 `aruco_locator/session.py`：`run_session()` 一次调用产出
+  `session.json`（视频元数据/时基体检/逐帧统计/会话标志 + 迷宫融合结果）、
+  `trajectory.csv`（`t_video_s`/`t_rel_s` 时间轴）、`trajectory.png`、`maze_structure.png`。
+  现以 `from aruco_locator.session import run_session` 导入，顶层导出随 v1.2.0。
+- 时基体检 `preflight`：CFR/VFR 判定（`std(Δt)/mean(Δt) > 0.005` → `timebase_unreliable`）；
+  时间一律"帧号÷标称 fps"并标注来源。
+- **S4 迷宫多帧融合**：以"四角齐全"帧（不要求 0 号目标检出）逐帧测墙段 `cover/conf`，
+  按段投票融合，输出 `n_frames_used` / `per_segment` / `consistency` 与
+  `maze_inconsistent` 标志。配套新增 `ArucoLocator.field_frame_from_obs()`（纯四角求 H，
+  纯增量，不改 `locate` 行为）。
+- **运动模糊修复：白名单四边形重解码**（新增 `aruco_locator/redecode.py`）。
+  运动模糊会让 OpenCV 在位判决阶段把真标记丢进 `rejectedImgPoints`，或解成错误 ID
+  （实测 id2 → 998），表现为 `corner_markers_missing`。现在检测器保留这些四边形，
+  warp 到 6×6 模块网格后**只在白名单 {角标记 + 目标} 里比 Hamming**（4 旋转），
+  接受条件 `dist ≤2 / margin ≥3 / contrast ≥25 / 最短边 ≥10px`；错 ID 的检出重解码后替换。
+  实测（121 帧抽样，4K 手持）：**四角齐全率 52% → 64%**，代价 +58ms/帧；
+  合成自检回归通过（位置 0.497mm / 角度 0.158°）。
+  新增参数 `detection.redecode`（默认 true）与 4 个阈值，置 false 可完全回到旧行为。
+- **目标标记兜底：场地平面重投影**（`detection.rectified_target`，默认开启）。
+  目标缺失时用四角 `H` 把图 warp 成场地正俯视（`rectified_side=4500` ≈1.9 px/mm），
+  在该视图里再检测；命中则把角点映射回原图并打 `target_rectified` 标志。
+  实测（121 帧 4K 手持）：**目标检出 8%→12%、有效定位 4%→7%**，代价 +312ms/帧；
+  四角齐全 64% 不变（无回归）。精度校验：重投影找回的帧与相邻检测帧位置差 <1mm。
+  新增参数 `rectified_target` / `rectified_side` / `rectified_margin`。
+- **帧间跟踪补洞**（新增 `aruco_locator/track.py`）：目标检测失败但四角齐全时，
+  用相位相关（模糊不改变频谱相位）推进位置，检测成功即重置锚点。
+  会话参数 `track` / `track_max_gap` / `track_min_response`；
+  `trajectory.csv` 增列 `track_resp`，`session.json` 增 `frames.n_tracked`，
+  帧标志加 `tracked`。实测（120407，stride=1）：静止段有效帧 **77.5%**（59/120 由跟踪补出，
+  偏差 <0.5mm）；跑动段 34%（锚点稀疏，两端有锚点的段内偏差 1.3mm）。
+- 新增 `tools/check_api_surface.py`：断言 v1.x 公开契约、会话级接口、
+  `field_frame_from_obs()` 与 `maze_extract` 被依赖符号同时存在。
+  起因：`api.py` 曾被回退到旧版本，`field_frame_from_obs` 消失导致会话迷宫融合
+  `AttributeError`，而导入与单帧定位全部正常——这类静默回退必须能被一条命令发现。
+- `sync_led`（S3 LED 发车对轴）未实现，显式开启抛 `NotImplementedError`；
+  视差逐帧化（S5）待相机内参（存疑 U3）。
+- 实拍验证见 [docs/验证报告-2026-10-27最终视频.md](docs/验证报告-2026-10-27最终视频.md)：
+  几何精度达标（静止重复性 0.4mm/0.9°、零穿墙、跨视频迷宫 121 段零分歧），
+  但本素材成像条件下有效帧率仅 2.6%~7.4%，瓶颈在采集端而非算法。
+
 ## [1.1.0] — 2026-10-04
 
 **默认内顶点策略改为「对角线法」（`xdiag_plane`），去掉加权代价里那个悬崖型超参。**

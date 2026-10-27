@@ -197,6 +197,7 @@ while True:
 | `inner_vertex_degenerate` | 对角线配对退化（四点近共线），已自动回退 `nearest`（**仅 `xdiag*`**） | 相机接近贴地掠过；抬高机位即可。看 `diagnostics.inner_vertices.diag_pair_sin` |
 | `inner_vertex_uncertain` | 最优/次优内顶点组合代价太接近（**仅 `auto`/`search`/`full`**） | 看 `diagnostics.inner_vertices.cost_gap_rel`；频繁出现说明标记太小/太斜 |
 | `target_not_square` | 目标标记映射后不够方正 | 可能被遮挡或变形，结果可用但需留意 |
+| `target_rectified` | 目标在**场地平面重投影视图**里找回（原图未检出） | 正常，通常出现在标记被透视压扁的帧；位置精度与正常检出同级（实测差 <1mm） |
 | `smoothed` | 该帧结果被时序滤波修改过 | 正常；需要原始值读 `*_raw` |
 | `height_corrected` | 已施加差高视差修正 | 正常 |
 | `parallax_uncalibrated` | 开了视差修正但参数不全 | **结果未修正**，按 `diagnostics.parallax.reason` 补齐相机高度/天底点 |

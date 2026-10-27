@@ -82,6 +82,55 @@ _META: dict[str, dict] = {
         "range": "0.0 ~ 0.45",
         "tune_when": "同上，0.13 → 0.25 是常用提升",
     },
+    "detection.redecode": {
+        "desc": "候选四边形二次解码：对 OpenCV 丢弃的四边形（rejectedImgPoints）以及"
+                "被解成错误 ID 的检出，用白名单模板重新解码。运动模糊下能把"
+                "\"四边形找到了但 4×4 位判错\"的标记找回来。",
+        "tune_when": "需要完全回到旧行为时置 false",
+    },
+    "detection.redecode_max_dist": {
+        "unit": "bit",
+        "desc": "重解码接受的最大 Hamming 距离（16 位数据位）。放宽会提高召回、增加误接受；"
+                "误接受由 geometry.max_square_rms 的方正度检查兜底。",
+        "range": "0 ~ 5",
+        "tune_when": "重解码后仍有漏检 → 2→3；出现错位帧 → 收紧到 1",
+    },
+    "detection.redecode_min_margin": {
+        "unit": "bit",
+        "desc": "最优 ID 与次优 ID 的距离差下限。防止\"两个 ID 都像\"时乱认。",
+        "range": "1 ~ 8",
+        "tune_when": "同一标记在相邻帧跳到不同 ID 时调大",
+    },
+    "detection.redecode_min_contrast": {
+        "unit": "灰度级",
+        "desc": "重解码时数据区与边框的灰度差下限。过低说明这个四边形不是标记"
+                "（墙面、阴影），直接拒绝。",
+        "range": "5 ~ 80",
+        "tune_when": "暗光/低对比场景下调小，误检多时调大",
+    },
+    "detection.redecode_min_side": {
+        "unit": "px",
+        "desc": "参与重解码的四边形最短边。小于它的多是杂物/墙角碎片。",
+        "range": "6 ~ 30",
+        "tune_when": "远端标记特别小时调小（注意误检）",
+    },
+    "detection.rectified_target": {
+        "desc": "目标标记缺失时，用四角解出的 H 把图 warp 成场地平面正俯视，在该视图里再找一次目标。"
+                "车顶标记在正俯视下近似正对、尺寸固定，轮廓与位判决更容易。"
+                "实测目标检出 8%→12%、有效定位 4%→7%，代价约 +0.3~0.5s/帧。",
+        "tune_when": "追求速度且能接受较低有效帧率时置 false",
+    },
+    "detection.rectified_side": {
+        "unit": "px",
+        "desc": "重投影光栅边长。越大越清晰也越慢；4500 时场地内约 1.9 px/mm（48mm 标记 ≈ 134px）。",
+        "range": "2000 ~ 8000",
+        "tune_when": "标记更小 → 加大；速度优先 → 减小（先用特写确认可读）",
+    },
+    "detection.rectified_margin": {
+        "desc": "重投影时场地外扩比例，用来把四角标记完整包进光栅。",
+        "range": "0.02 ~ 0.15",
+        "tune_when": "四角标记被裁掉时调大",
+    },
     "detection.corner_refinement": {"desc": "cv2 自带的角点精化方式：none | contour | subpix | apriltag。"},
     "detection.corner_refinement_win": {"unit": "px", "desc": "cv2 角点精化窗口半宽。"},
     "detection.corner_refinement_max_iter": {"desc": "cv2 角点精化迭代上限。"},
