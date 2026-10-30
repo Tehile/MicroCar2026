@@ -156,6 +156,60 @@ class ParallaxConfig:
 
 
 @dataclass
+class GridConfig:
+    """格点匹配通道（第二通道）：在场地正射图上直接匹配 0 号标记的 36 格图案。
+
+    与 ArUco 通道的关系：ArUco 走"找轮廓 → 位判决"，运动模糊下第一段就死了；
+    本通道不需要轮廓，只要图案的灰度结构还在。它需要四个角标记解出的单应 H。
+
+    默认 ``enable=False``：不改变既有定位行为。开启后 ``ArucoLocator.locate``
+    在 0 号标记缺失时会自动走本通道兜底（代价约 +2.8 s/帧）。
+    也可以直接调用 ``ArucoLocator.locate_grid(frame)`` 单独取这一路的解。
+    """
+
+    enable: bool = False
+
+    # —— 输入侧 ——
+    # v=(gray−127.5)/127.5 是固定映射，**不要改成按帧拉伸**：
+    # 平移对判据无害，而按帧拉伸会让 gap 的绝对值不可跨帧比较。
+    chroma_weight: bool = True  # X = v·(1−S)；False 时只做 (−1,1) 归一化（消融基线）
+    sat_floor: float = 60.0  # 饱和度分母下限，防暗区噪声被放大成"高饱和"
+
+    # —— 采样几何 ——
+    card_mm: float = 46.0  # 等效卡片边长；46/48/50 只影响置信度不影响位置（已实测）
+    field_size_mm: float = 1440.0  # 场地边长（8 格 × 180mm）
+    field_margin: float = 0.06  # 正射图外扩比例（把四角标记包进来）
+    d_px: int = 20  # 全分辨率格距（整数像素）
+    coarse_d_px: int = 10  # 粗搜格距（半分辨率，仍是整数像素）
+    inset: float = 0.20  # 格均值内缩比例：只取每格中心 (1−2m)d 见方（抗模糊主手段）
+
+    # —— 核 ——
+    marker_id: int = 0
+    # 外圈黑 / 内层黑 的权重比。κ=1 即按类归一化的原核。
+    # 真实运动帧实测 κ 不可辨（0.5→3.0 只差 0.7%，方向略偏 κ<1）；
+    # 合成高斯模糊给 κ≈1.5 是失真的（丢掉了"外圈贴卡外背景"与亚采样混叠）。
+    kappa: float = 1.5
+
+    # —— 搜索 ——
+    coarse_beta_step: float = 3.0  # 粗搜 β 步长（度）
+    coarse_phase: int = 2  # 粗搜亚相位数
+    refine_phase: int = 4  # 细化亚相位数
+    refine_beta_step: float = 1.0  # 细化 β 步长（度）
+    beta_half: float = 10.0  # 细化时围绕种子 β 的搜索半宽（度）
+    n_seed: int = 6  # 进入细化的种子数
+    span: int = 1  # 细化允许的位置偏移（格）
+    nms_mm: float = 90.0  # 粗搜峰的非极大抑制半径（mm）
+
+    # —— 判据（100 帧标定：0 错收 / 83% 召回）——
+    sharp_min: float = 0.20  # 双电平性下限 gap/max(白极差,黑极差)
+    gap_min: float = 0.06  # 绝对对比度下限（X 域，对应灰度域的 20 级）
+
+    # —— 角度换算 ——
+    # θ = −β + 90·rot + theta_bias_deg。−1.02° 是实测零点偏置（网格-图案对齐残差）。
+    theta_bias_deg: float = -1.02
+
+
+@dataclass
 class CameraConfig:
     """相机标定与几何修正。"""
 
@@ -172,6 +226,7 @@ class LocatorConfig:
     refine: RefineConfig = field(default_factory=RefineConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
+    grid: GridConfig = field(default_factory=GridConfig)
 
 
 # --------------------------------------------------------------------------- #

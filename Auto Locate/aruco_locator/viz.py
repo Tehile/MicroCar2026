@@ -29,7 +29,6 @@ def draw_overlay(frame: np.ndarray, loc, obs: dict, cfg, debug: dict | None = No
     out = frame.copy()
     H = (debug or {}).get("H")
     H_inv = (debug or {}).get("H_inv")
-    frame_obj = (debug or {}).get("frame_obj")
 
     # 1) 检出的标记
     for mid, ob in obs.items():
@@ -43,7 +42,9 @@ def draw_overlay(frame: np.ndarray, loc, obs: dict, cfg, debug: dict | None = No
         cv2.putText(out, label, (int(c[0]) + 6, int(c[1]) - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
 
     # 2) 场地边框、原点、坐标轴
-    if H is not None and H_inv is not None and frame_obj is not None:
+    #    只看 H / H_inv：格点匹配通道（locate_grid）不建 frame_obj，但同样有 H，
+    #    场地框与坐标轴一样要画出来，否则第二通道的审阅视频没有参照。
+    if H is not None and H_inv is not None:
         square = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=np.float64)
         sq_img = apply_homography(H_inv, square).astype(np.int32)
         cv2.polylines(out, [sq_img.reshape(-1, 1, 2)], True, C_LINE, 1, cv2.LINE_AA)
@@ -100,14 +101,20 @@ def _hud_lines(loc) -> list[tuple[str, tuple]]:
             (f"frame {loc.frame_index}  INVALID", C_BAD),
             (f"reason: {loc.reason}", C_BAD),
         ]
+    rms = "n/a" if loc.rms_field is None else f"{loc.rms_field:.4f}"
+    trms = "n/a" if loc.target_rms is None else f"{loc.target_rms:.4f}"
     lines = [
         (f"frame {loc.frame_index}  valid", C_OK),
         (f"x = {loc.x:.4f}   y = {loc.y:.4f}", C_TEXT),
         (f"theta = {loc.theta_deg:+.2f} deg", C_TEXT),
         (f"dir = ({loc.dir_x:+.3f}, {loc.dir_y:+.3f})", C_TEXT),
-        (f"rms = {loc.rms_field:.4f}  tgt_rms = {loc.target_rms:.4f}", C_DIM),
+        (f"rms = {rms}  tgt_rms = {trms}", C_DIM),
         (f"origin id = {loc.origin_id}   corners = {loc.corner_ids}", C_DIM),
     ]
+    g = (loc.diagnostics or {}).get("grid")
+    if g:
+        lines.append((f"grid gap={g['gap']:+.3f} sharp={g['sharp']:.3f} "
+                      f"n_bad={g['n_bad']} beta={g['beta']:.0f}", C_DIM))
     if loc.flags:
         lines.append((f"flags: {','.join(loc.flags)}", C_AXIS))
     return lines

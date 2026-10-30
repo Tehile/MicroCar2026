@@ -51,6 +51,38 @@ v1.x 的稳定性承诺见 [docs/API.md §11](docs/API.md)。
   几何精度达标（静止重复性 0.4mm/0.9°、零穿墙、跨视频迷宫 121 段零分歧），
   但本素材成像条件下有效帧率仅 2.6%~7.4%，瓶颈在采集端而非算法。
 
+### 新增：格点匹配通道（第二通道，`aruco_locator/gridmatch.py`）
+
+**为什么**：ArUco 解 0 号标记是"找轮廓 → 位判决"两段式，本素材的失败几乎都发生在
+第一段——运动模糊把卡片内格压成斜坡，四边形凑不出来（4K 视频 ID0 检出率 3%~8%）。
+本通道不需要轮廓：用四角解出的 `H` 把画面 warp 成场地正射图，直接在**整幅图**上
+搜"36 格图案最吻合的位置与朝向"，只要灰度结构还在就能定位。
+
+- 新增 `aruco_locator/gridmatch.py`：`GridMatcher` / `GridGeometry` /
+  `chroma_weight` / `to_weighted` / `kernel_for` / `grid_means` / `correlate` /
+  `gap_surface` / `cell_diag` / `rotate_pad` / `marker_bits`。
+  命名空间与外部的 `gm.D_PX` 全局彻底解耦（几何参数进 `GridGeometry`，可并发）。
+- 新增 `ArucoLocator.locate_grid(frame, H=None)`：**不需要 0 号标记被 ArUco 检出**。
+  `H` 给 `None` 时内部只用四角解一次（复用 `field_frame_from_obs`）。
+  返回同一个 `Localization`，所以 CSV 列、`session`、`viz` 全部照旧可用。
+- `locate()` 新增分支：`grid.enable=true` 且 `target_marker_missing` 时自动走本通道，
+  成功则清空 `reason` 并写 `diagnostics.channel="grid"`（失败写 `"grid_rejected"`）。
+  **默认关闭**（+2.8 s/帧），配置 `grid.enable` 或档位 `profile="grid_fallback"` 打开。
+- 新增配置段 `grid`（22 个参数）与 `GridConfig`；`parameter_catalog()` 全部可枚举。
+- 新增 `tools/render_grid_video.py`：用正式接口在真实视频上跑本通道并合成审阅视频
+  （主画面卡片框 + 36 格特写 + HUD），支持四角缺失时单应插值（记 `hgap`）。
+- 判据：`gap = min(白格) − max(黑格)`、`sharp = gap / max(白格极差, 黑格极差)`；
+  操作点 `sharp ≥ 0.20 且 gap ≥ 0.06`（100 帧标定：0 错收 / 83% 召回）。
+  **κ 只进相关面（选解），不进判据**，避免自造打分函数。
+- 验收（本次合并）：与实验版 `experiments/preproc.py` 逐帧对拍**位置/角度/诊断量
+  全部 0.0000 差异**（同一帧、同一 H，5 个抽样帧覆盖静/动/两种 rot）。
+  真实视频整段（120407，592 帧，`--scales 1,2`）：单应实测 521 帧（88.0%）、
+  **接受 462 帧（78.0%）**、有效连续段最长 75 帧（2.5 s）；
+  与实验版位置差中位 0.00 mm / P90 1.14 mm / 98.5% ≤2 mm（仅看新版接受的帧）。
+  详见 [docs/评估-预处理加权与核权重标定-2026-10-30.md](docs/评估-预处理加权与核权重标定-2026-10-30.md) §10、§11。
+- 已知量纲：`grid.gap` 是 **X 域**（±1 量级），与旧灰度域 `gap`（单位=灰度级）
+  不可直接比较，换算约 ×333（`gap_min 0.06 ≈ 20` 灰度级）。
+
 ## [1.1.0] — 2026-10-04
 
 **默认内顶点策略改为「对角线法」（`xdiag_plane`），去掉加权代价里那个悬崖型超参。**

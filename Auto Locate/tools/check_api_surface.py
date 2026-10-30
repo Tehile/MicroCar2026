@@ -26,6 +26,19 @@ sys.path.insert(0, ROOT)
 
 FAILS: list[str] = []
 
+#: v1.0 冻结的 36 个名字。规则是"**已有名字不得消失**"，不禁止追加（v1.2 起有新增）。
+BASELINE_ALL = [
+    "ArucoLocator", "Localization", "create_locator", "locate", "locate_image",
+    "locate_folder", "locate_video", "iter_locations",
+    "LocatorConfig", "DetectionConfig", "GeometryConfig", "RefineConfig", "OutputConfig",
+    "CameraConfig", "ParallaxConfig", "load_config", "config_to_dict",
+    "parameter_catalog", "catalog_markdown", "get_param", "set_param", "apply_params",
+    "apply_profile", "flatten_config", "list_profiles", "describe_profiles", "PROFILES",
+    "MarkerDetector", "MarkerObservation", "refine_quad_by_edges", "apply_parallax",
+    "correction_factor", "camera_height_from_factor", "factor_from_scales",
+    "nadir_from_intrinsics", "pose_from_plane_homography",
+]
+
 
 def check(cond: bool, msg: str) -> None:
     if cond:
@@ -40,7 +53,12 @@ def main() -> int:
 
     print("[1] v1.x 冻结契约")
     check(al.__version__.startswith("1."), f"__version__ = {al.__version__}")
-    check(len(al.__all__) == 36, f"__all__ 数量 = {len(al.__all__)}（基线 36）")
+    gone = [n for n in BASELINE_ALL if n not in al.__all__]
+    check(not gone, f"__all__ 基线 36 名全在（当前 {len(al.__all__)} 名）缺失={gone}")
+    check(len(BASELINE_ALL) == 36, f"基线清单自身 = {len(BASELINE_ALL)} 名")
+    if len(al.__all__) > 36:
+        print(f"       note: v1.2 起追加 {len(al.__all__) - 36} 名 "
+              f"{[n for n in al.__all__ if n not in BASELINE_ALL]}")
     for name in ("create_locator", "locate", "ArucoLocator", "Localization", "iter_locations"):
         check(hasattr(al, name), f"aruco_locator.{name}")
     fields = set(inspect.signature(al.Localization).parameters) if hasattr(
@@ -84,6 +102,30 @@ def main() -> int:
             check(hasattr(me.Maze, "sanity"), "Maze.sanity")
     except ImportError as exc:  # pragma: no cover
         check(False, f"导入 maze_extract 失败：{exc}")
+
+    print("[5] 格点匹配通道（v1.2 第二通道）")
+    for name in ("GridConfig", "GridMatcher", "marker_bits"):
+        check(hasattr(al, name), f"aruco_locator.{name}")
+    check(hasattr(al.ArucoLocator, "locate_grid"), "ArucoLocator.locate_grid")
+    check(hasattr(al.ArucoLocator, "grid_matcher"), "ArucoLocator.grid_matcher")
+    check(hasattr(al.LocatorConfig(), "grid"), "LocatorConfig.grid")
+    try:
+        from aruco_locator import gridmatch as gm_mod
+
+        for name in ("GridMatcher", "GridGeometry", "chroma_weight", "kernel_for",
+                     "grid_means", "correlate", "gap_surface", "cell_diag", "rotate_pad"):
+            check(hasattr(gm_mod, name), f"gridmatch.{name}")
+        sig = inspect.signature(al.ArucoLocator.locate_grid)
+        check(list(sig.parameters)[:3] == ["self", "frame_bgr", "H"],
+              f"locate_grid 形参 = {list(sig.parameters)}")
+        # 核必须零和（零和是"纯色场不产生得分"的前提）
+        bits = al.marker_bits(0)
+        k = gm_mod.kernel_for(bits, 1.0)
+        check(abs(float(k.sum())) < 1e-5, f"kernel_for 零和 ΣK={k.sum():+.2e}")
+        check(bits.shape == (6, 6) and int(bits.sum()) == 8,
+              f"ID0 模板 6×6 / 白格 {int(bits.sum())}")
+    except Exception as exc:  # pragma: no cover
+        check(False, f"导入 aruco_locator.gridmatch 失败：{exc}")
 
     print()
     if FAILS:

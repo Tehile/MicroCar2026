@@ -51,6 +51,7 @@ Auto Locate/
 │   ├── detector.py           # 标记检测 + 边缘亚像素精化入口
 │   ├── corners.py            # ★ 边缘直线拟合亚像素精化（精度核心）
 │   ├── geometry.py           # 内顶点选择 / 场地坐标系 / 位姿拟合 / 联合精化
+│   ├── gridmatch.py          # ★ 格点匹配通道（第二通道，不需轮廓，运动模糊下兜底）
 │   ├── parallax.py           # ★ 差高视差修正（角标记与 0 号标记不同高度）
 │   ├── sources.py            # 图片/目录/视频/摄像头统一取帧（含 Unicode 路径）
 │   ├── viz.py                # 叠加可视化（含俯视小窗）
@@ -186,8 +187,60 @@ python -m aruco_locator.cli --source shots/ --json r.jsonl --csv r.csv --quiet
 | `--max-frames` / `--start` | 帧范围 |
 | `--recursive` | 目录输入时递归查找 |
 | `--print-every` / `--quiet` | 进度打印策略 |
+| `--grid` | 打开格点匹配第二通道（0 号标记被漏检时兜底，+2.8 s/帧） |
+| `--grid-only` | 只走格点匹配通道（不需要 0 号标记被检出，但需四角齐全） |
 
 运行结束会打印统计：`帧数 / 有效 / 无效`、无效原因分布、`rms_field` 均值/中位/最大、耗时与帧率。
+
+---
+
+### 4.3 格点匹配通道（第二通道）
+
+ArUco 解 0 号标记走"找轮廓 → 位判决"。本素材（4K 手持、运动模糊）的失败几乎都发生在
+**第一段**：模糊把卡片内格压成斜坡，四边形根本凑不出来，表现为 `target_marker_missing`。
+第二通道换一条路——用四角标记解出的 `H` 把画面 warp 成场地正射图，**直接在整幅图上**
+搜"36 格图案最吻合的位置与朝向"，不需要轮廓、不需要位判决。
+
+```python
+from aruco_locator import create_locator
+
+loc = create_locator("config.yaml", profile="grid_fallback")  # 或 cfg.grid.enable = True
+r = loc.locate_grid(frame)          # 只走格点通道，H 内部用四角自解
+print(r.x, r.y, r.theta_deg, r.valid, r.diagnostics["grid"])
+
+# 也可以复用已有的 H（例如 session 里已经解过）：
+r = loc.locate_grid(frame, H)
+
+# 或者只开兜底：locate() 在 0 号标记漏检时自动切到本通道
+loc2 = create_locator("config.yaml", profile="grid_fallback")
+r2 = loc2.locate(frame)
+print(r2.diagnostics.get("channel"))   # "grid" / "grid_rejected" / None
+```
+
+| 项 | 说明 |
+| --- | --- |
+| 输入 | **必须是彩色帧**：色度用来压制不可信像素（`X = v·(1−S)`） |
+| 前提 | 四个角标记齐全（要它们的 `H`）；缺角就是无效帧，不做兜底 |
+| 代价 | 约 2.8 s/帧（4207 px 正射 + 两级搜索），所以 `grid.enable` 默认 `false` |
+| 精度 | 与 ArUco 成功帧的位置差 中位 1.3 mm / 最大 3.1 mm（两套独立算法互证） |
+| 判据 | `sharp ≥ 0.20` 且 `gap ≥ 0.06`（100 帧标定：0 错收 / 83% 召回） |
+| 高度 | **不做差高视差修正**：解的是"场地平面（角标记高度）"上的位置，`diagnostics.grid.parallax = "not_applied"` |
+
+整段视频复现 + 合成审阅视频：
+
+```bash
+python tools/render_grid_video.py --video samples/VID_20261027_120407.mp4 \
+       --scales 1,2 --workers 4 --scale 0.5
+# → out/grid/grid_<name>.json（逐帧解）/ grid_summary_<name>.json（汇总）/
+#    grid_h_<name>.npz（单应缓存）/ grid_review_<name>.mp4（审阅视频）
+
+# 只想改画法时加 --rerender：复用 json 的解 + npz 的单应，不重跑求解（67 s vs 40 min）
+python tools/render_grid_video.py --video samples/VID_20261027_120407.mp4 \
+       --scales 1,2 --scale 0.5 --rerender
+```
+
+实测（592 帧，`--scales 1,2`，4 进程）：单应实测 521 帧（88.0%），
+**接受 462 帧（78.0%）**，有效连续段最长 75 帧（2.5 s），墙钟 2413 s。
 
 ---
 
@@ -376,8 +429,8 @@ detection:
   clahe: false                 # 光照不均（顶灯偏一侧）时打开
 
 geometry:
-  vertex_mode: auto            # auto | nearest | search | full
-  vertex_margin_weight: 0.1    # 内顶点代价里"距离余量"项权重；必须 >= 0.05（见下）
+  vertex_mode: xdiag_plane     # xdiag_plane(默认) | xdiag_unit | xdiag | nearest | auto | search | full
+  vertex_margin_weight: 0.1    # 仅 auto/search/full 用；必须 >= 0.05（见下）
   max_square_rms: 0.02         # 方正度门限（场地单位）
   min_origin_margin: 0.05      # 低于则标 ambiguous_origin
   min_axis_margin: 0.05        # 低于则标 ambiguous_axis
@@ -402,6 +455,17 @@ camera:
     camera_height_mm: null     # ★ 必填：镜头光心离地高度
     nadir_xy: [0.5, 0.5]       # 相机正下方场地位置（归一化）
     from_intrinsics: true      # nadir_xy=null 且有内参时自动求天底点
+
+grid:                          # 格点匹配第二通道（见 §4.3），默认关
+  enable: false                # 开启后 0 号标记漏检时自动兜底（+2.8s/帧）
+  card_mm: 46.0                # 等效卡片边长；46/48/50 只影响置信度不影响位置
+  d_px: 20                     # 全分辨率格距（整数像素）
+  coarse_d_px: 10              # 粗搜格距（半分辨率）
+  inset: 0.20                  # ★ 每格只取中心 (1−2m)d：抗模糊主手段
+  kappa: 1.5                   # 核圈层权重（外圈黑/内层黑）；实测不可辨
+  chroma_weight: true          # X = v·(1−S)：压制高色度像素
+  sharp_min: 0.20              # ★ 接受门限：双电平性（100 帧标定 0 错收）
+  gap_min: 0.06                # ★ 接受门限：绝对对比度（X 域）
 ```
 
 **内顶点选择**：四角标记的内侧角点（朝向场内的那个角）需要从 4 个角里挑出来。共 7 种取值，

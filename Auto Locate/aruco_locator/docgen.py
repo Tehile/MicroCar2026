@@ -24,8 +24,9 @@ GROUP_TITLE = {
     "refine": "refine —— 联合最小二乘精化",
     "output": "output —— 时序滤波",
     "camera": "camera —— 标定与差高视差修正",
+    "grid": "grid —— 格点匹配第二通道",
 }
-GROUP_ORDER = ["detection", "geometry", "refine", "output", "camera"]
+GROUP_ORDER = ["detection", "geometry", "refine", "output", "camera", "grid"]
 
 
 def _fmt_default(v) -> str:

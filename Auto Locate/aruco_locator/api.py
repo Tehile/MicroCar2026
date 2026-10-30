@@ -46,6 +46,7 @@ FLAG_SMOOTHED = "smoothed"
 FLAG_HEIGHT_CORRECTED = "height_corrected"
 FLAG_PARALLAX_UNCALIBRATED = "parallax_uncalibrated"
 FLAG_TARGET_RECTIFIED = "target_rectified"
+FLAG_GRID_MATCHED = "grid_matched"
 
 
 @dataclass
@@ -157,10 +158,11 @@ class Localization:
     def summary(self) -> str:
         if not self.valid:
             return f"#{self.frame_index:>5}  invalid  reason={self.reason}  flags={','.join(self.flags)}"
+        rms = "n/a" if self.rms_field is None else f"{self.rms_field:.4f}"
         return (
             f"#{self.frame_index:>5}  x={self.x:.4f} y={self.y:.4f} "
             f"theta={self.theta_deg:+7.2f}°  dir=({self.dir_x:+.3f},{self.dir_y:+.3f})  "
-            f"rms={self.rms_field:.4f}  origin={self.origin_id}  corners={self.corner_ids}"
+            f"rms={rms}  origin={self.origin_id}  corners={self.corner_ids}"
         )
 
 
@@ -262,6 +264,18 @@ class ArucoLocator:
             self._K, self._dist = load_intrinsics(self.cfg.camera.intrinsic_file)
         # 供 annotate() 复用的中间结果（不进 JSON）
         self.last_debug: dict = {}
+        # 格点匹配通道（第二通道）惰性构造：不开启就不付任何代价
+        self._grid = None
+
+    # ------------------------------------------------------------------ #
+    @property
+    def grid_matcher(self):
+        """格点匹配器（首次访问时按 ``config.grid`` 构造）。"""
+        if self._grid is None:
+            from .gridmatch import GridMatcher
+
+            self._grid = GridMatcher(self.cfg.grid)
+        return self._grid
 
     # ------------------------------------------------------------------ #
     def reset(self):
@@ -348,6 +362,14 @@ class ArucoLocator:
                 res.flags.append(FLAG_TARGET_RECTIFIED)
                 res.diagnostics["detected_ids"] = sorted(int(k) for k in obs)
         if det.target_id not in obs:
+            # 第二通道：目标在 ArUco 阶段就丢了（运动模糊把 36 格压成斜坡，轮廓
+            # 凑不出来）。此时四角单应 H 已在手，直接用格点匹配在正射图上找图案。
+            if cfg.grid.enable:
+                gres = self._solve_grid(frame, H, frame_index, timestamp, res)
+                if gres.valid:
+                    res.diagnostics["channel"] = "grid"
+                    return res
+                res.diagnostics["channel"] = "grid_rejected"
             res.reason = "target_marker_missing"
             return res
 
@@ -502,6 +524,87 @@ class ArucoLocator:
             return None
         return MarkerObservation(marker_id=int(d.target_id),
                                  corners=pts.astype(np.float32), scale=1.0)
+
+    # ------------------------------------------------------------------ #
+    def _solve_grid(self, frame: np.ndarray, H: np.ndarray, frame_index: int,
+                    timestamp: float, res: Localization) -> Localization:
+        """用格点匹配通道填 ``res``（就地修改并返回）。
+
+        只写 x/y/theta/dir/flags/diagnostics 与 valid，**不写 reason** ——
+        调用方最清楚"拒绝之后该报什么原因"。也不走时序滤波：本通道逐帧独立，
+        没有跟踪语义，混进同一个平滑器会污染 ArUco 路径的状态。
+        """
+        sol = self.grid_matcher.search(frame, H)
+        res.x_raw, res.y_raw, res.theta_deg_raw = sol["x"], sol["y"], sol["theta"]
+        res.x, res.y = sol["x"], sol["y"]
+        th = math.radians(sol["theta"])
+        res.dir_x, res.dir_y = math.cos(th), math.sin(th)
+        res.theta_deg = float(sol["theta"])
+        res.valid = self.grid_matcher.accept(sol)
+        if res.valid:
+            # 只在判据通过时打标：`valid=False` + `grid_matched` 同时出现会自相矛盾
+            res.flags.append(FLAG_GRID_MATCHED)
+        res.diagnostics["grid"] = {
+            "gap": round(float(sol["gap"]), 6),
+            "sharp": round(float(sol["sharp"]), 6),
+            "margin": round(float(sol["margin"]), 6),
+            "ncc": round(float(sol["ncc"]), 6),
+            "n_bad": int(sol["n_bad"]),
+            "beta": round(float(sol["beta"]), 3),
+            "rot": int(sol["rot"]),
+            "seed_spread_mm": round(float(sol["seed_spread_mm"]), 3),
+            "runner_margin": round(float(sol["runner_margin"]), 4),
+            "kappa": float(sol["kappa"]),
+            "inset": float(sol["inset"]),
+            "t_total": float(sol["t_total"]),
+            # 本通道解的是"场地平面（角标记所在高度）"上的位置，与 ArUco 通道
+            # 同一假设；0 号标记低一截时请自行用 parallax.py 修正，这里不隐式改。
+            "parallax": "not_applied",
+        }
+        return res
+
+    def locate_grid(self, frame_bgr: np.ndarray, H: np.ndarray | None = None,
+                    frame_index: int = 0, timestamp: float = 0.0) -> Localization:
+        """**只走格点匹配通道**：不需要 0 号标记被 ArUco 检出。
+
+        Parameters
+        ----------
+        frame_bgr
+            原始彩色帧（BGR）。这一路必须用彩色：色度用来压制不可信像素。
+        H
+            ``img → field`` 单应。给 None 时内部只用四个角标记解一次
+            （等价于 :meth:`field_frame_from_obs`），因此"目标完全看不见"也能定位。
+        """
+        res = Localization(valid=False, frame_index=frame_index, timestamp=timestamp)
+        frame = self.undistort(frame_bgr)
+        det = self.cfg.detection
+        obs: dict = {}
+        if H is None:
+            obs = self.detector.detect(frame)
+            corner_ids = [int(i) for i in det.corner_ids]
+            res.corner_ids = sorted(i for i in corner_ids if i in obs)
+            res.missing_corner_ids = [i for i in corner_ids if i not in obs]
+            res.diagnostics["detected_ids"] = sorted(int(k) for k in obs)
+            H, info = self.field_frame_from_obs(obs, frame.shape)
+            res.diagnostics["field_frame"] = info
+            if H is None:
+                res.reason = info.get("reason", "frame_failed")
+                return res
+            res.origin_id = info.get("origin_id")
+            if info.get("ambiguous_axis"):
+                res.flags.append(FLAG_AMBIGUOUS_AXIS)
+        H = np.asarray(H, np.float64)
+        # 让 annotate() 能画出场地框与坐标轴（第二通道没有 frame_obj，H 就够）
+        try:
+            self.last_debug = {"index": frame_index, "obs": obs, "H": H,
+                               "H_inv": np.linalg.inv(H), "frame_obj": None}
+        except np.linalg.LinAlgError:
+            res.reason = "degenerate_homography"
+            return res
+        res = self._solve_grid(frame, H, frame_index, timestamp, res)
+        if not res.valid:
+            res.reason = "grid_low_confidence"
+        return res
 
     # ------------------------------------------------------------------ #
     def annotate(self, frame: np.ndarray, loc: Localization, obs: dict[int, MarkerObservation] | None = None):

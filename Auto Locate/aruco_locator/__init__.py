@@ -30,6 +30,7 @@ from .config import (
     CameraConfig,
     DetectionConfig,
     GeometryConfig,
+    GridConfig,
     LocatorConfig,
     OutputConfig,
     ParallaxConfig,
@@ -39,6 +40,7 @@ from .config import (
 )
 from .corners import refine_quad_by_edges
 from .detector import MarkerDetector, MarkerObservation
+from .gridmatch import GridMatcher, marker_bits
 from .parallax import (
     apply_parallax,
     camera_height_from_factor,
@@ -60,9 +62,10 @@ from .parameters import (
     set_param,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 #: v1.0 对外承诺的稳定接口（其余名字视为内部实现，可能随版本变动）
+#: 规则：**已有名字不得消失**；新增名字追加在末尾（v1.2 起）。
 __all__ = [
     # —— 装配与调用 ——
     "ArucoLocator",
@@ -104,4 +107,8 @@ __all__ = [
     "factor_from_scales",
     "nadir_from_intrinsics",
     "pose_from_plane_homography",
+    # —— v1.2 格点匹配通道（第二通道）——
+    "GridConfig",
+    "GridMatcher",
+    "marker_bits",
 ]

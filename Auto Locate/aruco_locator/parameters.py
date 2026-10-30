@@ -272,6 +272,58 @@ _META: dict[str, dict] = {
     "camera.parallax.from_intrinsics": {
         "desc": "nadir_xy 为 None 且有内参时，是否允许用单应分解自动求天底点。",
     },
+    # ---------------- grid（格点匹配第二通道） ----------------
+    "grid.enable": {
+        "desc": "★ 是否在 0 号标记被 ArUco 漏掉时启用格点匹配兜底。需要四角标记齐全"
+                "（要它们的单应）。实测代价约 +2.8 s/帧，因此默认关。",
+        "tune_when": "运动模糊导致目标频繁丢失时打开",
+    },
+    "grid.chroma_weight": {
+        "desc": "输入是否乘 (1−饱和度)：把红胶带、木纹、彩灯这类高色度像素压向 0。"
+                "关掉只做 (−1,1) 归一化，用于消融对照。",
+    },
+    "grid.sat_floor": {
+        "desc": "饱和度分母下限。暗区噪声除以小分母会算出假高饱和，用这个下限压住。",
+    },
+    "grid.card_mm": {
+        "unit": "mm",
+        "desc": "等效卡片边长（黑方块）。46/48/50 实测只影响置信度不影响位置，"
+                "因为它只决定格距→px/mm 的换算比例。",
+    },
+    "grid.field_size_mm": {"unit": "mm", "desc": "场地边长（8 格 × 180 mm = 1440）。"},
+    "grid.field_margin": {"desc": "正射图外扩比例，用于把四角标记包进画面。"},
+    "grid.d_px": {"unit": "px", "desc": "全分辨率格距，必须是整数像素。"},
+    "grid.coarse_d_px": {"unit": "px", "desc": "粗搜格距（半分辨率，仍取整数像素）。"},
+    "grid.inset": {
+        "desc": "★ 格均值内缩比例：每格只取中心 (1−2m)d 见方。**唯一被验证显著有效的"
+                "抗模糊手段**（592 帧最长连续可用段 104 → 313 帧）。",
+        "range": "0 ~ 0.35",
+        "tune_when": "运动模糊严重 → 保持或略增；卡片很小（格距 < 8px）→ 调小",
+    },
+    "grid.marker_id": {"desc": "要被搜索的目标标记 ID（模板由它生成）。"},
+    "grid.kappa": {
+        "desc": "核圈层权重比：白 +1/n_w、内层黑 −1/(n_in+20κ)、外圈黑 −κ/(n_in+20κ)。"
+                "κ=1 即按类归一化的原核。真实运动帧实测 κ 不可辨（0.5~3.0 只差 0.7%）。",
+        "range": "0.5 ~ 3.0",
+    },
+    "grid.coarse_beta_step": {"unit": "°", "desc": "粗搜整体旋转步长。须 ≤2°，"
+                                                    "否则最外角（距中心 4.24 格）误差被放大。"},
+    "grid.coarse_phase": {"desc": "粗搜亚格相位数（<d 的平移交给细化阶段覆盖）。"},
+    "grid.refine_phase": {"desc": "细化阶段的亚格相位数。"},
+    "grid.refine_beta_step": {"unit": "°", "desc": "细化 β 步长。"},
+    "grid.beta_half": {"unit": "°", "desc": "细化时围绕粗解 β 的搜索半宽。"},
+    "grid.n_seed": {"desc": "进入细化的粗解种子数（取余量最高的几个）。"},
+    "grid.span": {"unit": "cell", "desc": "细化允许的位置偏移（格）。"},
+    "grid.nms_mm": {"unit": "mm", "desc": "粗搜峰的非极大抑制半径。"},
+    "grid.sharp_min": {
+        "desc": "★ 接受门限：双电平性 gap / max(白格极差, 黑格极差)。灰度平滑区"
+                "分子分母同时趋零，只有它能区分真卡片。100 帧标定 0.20 → 0 错收 / 83% 召回。",
+    },
+    "grid.gap_min": {
+        "desc": "★ 接受门限：绝对对比度下限（X 域，0.06 ≈ 灰度域 20 级）。"
+                "拦截 margin 合格但 gap≈0 的退化解。",
+    },
+    "grid.theta_bias_deg": {"unit": "°", "desc": "θ = −β + 90·rot + 本偏置。实测零点残差。"},
 }
 
 # --------------------------------------------------------------------------- #
@@ -333,6 +385,11 @@ PROFILES: dict[str, dict] = {
         "output.ema_alpha": 0.4,
     },
     "no_parallax": {"camera.parallax.enable": False},
+    "grid_fallback": {
+        # 第二通道：0 号标记被 ArUco 漏掉时，用四角单应做场地正射，直接在图上
+        # 匹配 36 格图案。只在目标缺失时付代价（约 +2.8 s/帧）。
+        "grid.enable": True,
+    },
 }
 
 #: 档位说明（用于文档生成与 :func:`describe_profiles`）
@@ -347,6 +404,8 @@ PROFILE_DESC: dict[str, str] = {
     "oblique_small": "标记小而斜、边缘发虚时的位采样/逼近参数组合。",
     "video": "视频输入：打开 EMA 时序滤波。",
     "no_parallax": "关闭差高视差修正（目标与角标记共面时用）。",
+    "grid_fallback": "开启格点匹配第二通道：0 号标记漏检时改在场地正射图上匹配 36 格图案"
+                     "（需要四角齐全，代价约 +2.8 s/帧，仅目标缺失时付）。",
 }
 
 

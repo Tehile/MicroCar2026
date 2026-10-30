@@ -43,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--camera-width", type=int, default=None)
     p.add_argument("--camera-height", type=int, default=None)
     p.add_argument("--print-every", type=int, default=30, help="每多少帧打印一次进度，0 表示不打印")
+    p.add_argument("--grid", action="store_true",
+                   help="开启格点匹配第二通道（0 号标记被 ArUco 漏检时兜底，+2.8s/帧）")
+    p.add_argument("--grid-only", action="store_true",
+                   help="只走格点匹配通道（不需要 0 号标记被 ArUco 检出，但需四角齐全）")
     p.add_argument("--quiet", action="store_true", help="只输出最终统计")
     return p
 
@@ -63,6 +67,8 @@ def _open_writer(path: str, size: tuple[int, int], fps: float):
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     cfg = load_config(args.config)
+    if args.grid or args.grid_only:
+        cfg.grid.enable = True
     locator = ArucoLocator(cfg)
 
     kind, _ = parse_source(args.source)
@@ -94,7 +100,11 @@ def main(argv: list[str] | None = None) -> int:
             camera_width=args.camera_width,
             camera_height=args.camera_height,
         ):
-            loc: Localization = locator.locate(item.frame, item.index, item.timestamp)
+            loc: Localization = (
+                locator.locate_grid(item.frame, None, item.index, item.timestamp)
+                if args.grid_only
+                else locator.locate(item.frame, item.index, item.timestamp)
+            )
             total += 1
             if loc.valid:
                 valid += 1

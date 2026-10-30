@@ -34,6 +34,9 @@ Auto Locate/aruco_locator/session.py
 # ---- Auto Locate/samples: 测试视频夹具(本地保留, 不入库) ----
 Auto Locate/samples/*.mp4
 
+# ---- Auto Locate/out: 端到端运行产物(逐帧 json / 审阅视频 / 抽帧图, 可复现, 大文件不入库) ----
+Auto Locate/out/
+
 # ---- C# 构建产物 (Debug Project) ----
 Debug Project/bin/
 Debug Project/obj/

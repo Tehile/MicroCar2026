@@ -118,6 +118,8 @@ while True:
 | `undistort(frame) -> ndarray` | 按配置做畸变校正（未启用则原样返回） |
 | `cfg` | 当前 `LocatorConfig`，可直接读 |
 | `last_debug` | 上一帧的中间量（`obs` / `H` / `frame_obj`），仅供调试 |
+| `locate_grid(frame_bgr, H=None, frame_index=0, timestamp=0.0) -> Localization` | **格点匹配通道**：不需要 0 号标记被 ArUco 检出，只要四角齐全。`H` 给 `None` 时内部只用四角解一次（见 §4.5） |
+| `grid_matcher` | 格点匹配器（按 `config.grid` 惰性构造），可直接用它的 `search()` / `accept()` |
 
 ### 4.3 参数接口
 
@@ -143,6 +145,53 @@ while True:
 | `refine_quad_by_edges(gray, quad, ...)` | 边缘直线拟合亚像素精化（独立可用） |
 | `correction_factor` / `apply_parallax` / `nadir_from_intrinsics` / `pose_from_plane_homography` / `camera_height_from_factor` / `factor_from_scales` | 差高视差修正的数学构件 |
 | `MarkerDetector` / `MarkerObservation` | 标记检测层 |
+| `GridConfig` / `GridMatcher` / `marker_bits` | 格点匹配通道（v1.2）：配置、匹配器与 ID 模板生成 |
+
+---
+
+### 4.5 格点匹配通道（v1.2 新增，第二通道）
+
+**做什么**：把 0 号标记的识别做成**一次匹配滤波**。用四个角标记解出的 `H` 把画面
+warp 成场地正射图，然后在**整幅正射图上**搜“36 格图案最吻合的位置与朝向”。
+它不需要轮廓、不需要位判决 —— 所以运动模糊把卡片内格压成斜坡时（ArUco 的第一段
+就死在这里），只要灰度结构还在就能定位。
+
+```python
+loc = create_locator("config.yaml")
+
+r = loc.locate_grid(frame)            # H 内部用四角自解；不需要 0 号被检出
+print(r.x, r.y, r.theta_deg, r.valid, r.diagnostics["grid"])
+
+r = loc.locate_grid(frame, H)         # 复用已有 H（session 里已经解过时）
+```
+
+**前提与代价**
+
+| 项 | 值 |
+| --- | --- |
+| 输入 | **彩色帧**（BGR）。色度用来压制不可信像素，灰度图会丢掉这一维 |
+| 前提 | 四个角标记齐全（要它们的 `H`）。缺角即无效，不做兜底 |
+| 代价 | 约 2.8 s/帧（4207 px 正射 + 两级搜索）；`grid.enable` 因此默认 `false` |
+| 精度 | 与 ArUco 成功帧的位置差：中位 1.3 mm / 最大 3.1 mm（两套独立算法互证） |
+| 高度 | **不做差高视差修正**。解的是“场地平面（角标记高度）”上的位置，`diagnostics.grid.parallax = "not_applied"`；目标低一截时请按 §9 自行修正 |
+| 线程 | `GridMatcher` 无共享可变状态（几何参数在 `GridGeometry` 里），可多进程并行 |
+
+**判据**（`diagnostics.grid`）
+
+| 量 | 定义 | 用法 |
+| --- | --- | --- |
+| `gap` | `min(白格) − max(黑格)` | `gap > 0` ⟺ 36 格全部判对。**X 域量纲**（±1 量级），旧灰度域的 20 级 ≈ 0.06 |
+| `sharp` | `gap / max(白格极差, 黑格极差)` | **主判据**：双电平性。平滑灰度区（地面、白墙）分子分母同时趋零，只有它能区分真假 |
+| `margin` | `gap / abs(mean(白) − mean(黑))` | **只作选解准则**（全局最大），不作接受门限 |
+| `ncc` / `n_bad` | 与核的归一化相关 / 错格数 | 仅诊断 |
+
+操作点：`grid.sharp_min = 0.20`、`grid.gap_min = 0.06`（100 帧标定：0 错收 / 83% 召回）。
+`accept(sol)` 即按这两个门限判定；`κ` 只进相关面（选解），**不进判据** ——
+否则就是自造打分函数。
+
+**与 `locate()` 的关系**：`locate()` 在 `target_marker_missing` 且 `grid.enable`
+时自动调用本通道；成功则清空 `reason`、打 `grid_matched` 标志、写
+`diagnostics.channel = "grid"`；失败写 `"grid_rejected"` 并保留原 `reason`。
 
 ---
 
@@ -201,6 +250,7 @@ while True:
 | `smoothed` | 该帧结果被时序滤波修改过 | 正常；需要原始值读 `*_raw` |
 | `height_corrected` | 已施加差高视差修正 | 正常 |
 | `parallax_uncalibrated` | 开了视差修正但参数不全 | **结果未修正**，按 `diagnostics.parallax.reason` 补齐相机高度/天底点 |
+| `grid_matched` | 该帧的解来自**格点匹配通道**（不是 ArUco 位判决） | 正常；看 `diagnostics.grid.gap/sharp` 判断可信度。**只在判据通过时打**（`valid=False` 的帧即便走了本通道也不带此标志，用 `diagnostics.channel == "grid_rejected"` 区分） |
 
 `valid=True` 也可能带 flag —— flag 是**质量提示**，不是失败。下游可据此降级使用
 （例如 `ambiguous_axis` 时同时接受 `(x,y)` 与 `(y,x)`）。
@@ -216,6 +266,8 @@ while True:
 | `inner_vertex_failed` | 内顶点选择失败 | 多为角点质量差 |
 | `degenerate_homography` | 单应退化（四点近共线等） | 检查角标记是否被误检 |
 | `square_check_failed` | 角标记映射后不是正方形（`rms_field` 超门限） | 有误检，或角标记不在同一平面 |
+| `grid_low_confidence` | 只走 `locate_grid()` 且 `sharp`/`gap` 未过门限 | 看 `diagnostics.grid`：`sharp` 低=双电平性差（糊/不是卡片），`gap` 低=对比度不足 |
+| `no_homography` | （工具层）四角缺失且插值范围外，取不到 `H` | 换机位/补角标记 |
 
 ---
 
@@ -333,7 +385,11 @@ apply_params(loc, {"camera.parallax.camera_height_mm": 2000.0})
 
 ## 11. 版本与兼容性
 
-- 当前版本 **1.1.0**（`aruco_locator.__version__`）。变更记录见 [CHANGELOG.md](../CHANGELOG.md)。
+- 当前版本 **1.2.0**（`aruco_locator.__version__`）。变更记录见 [CHANGELOG.md](../CHANGELOG.md)。
+- `__all__` 规则（v1.2 起）：**已有 36 个名字不得消失**，新名字追加在末尾。
+  当前 39 名（新增 `GridConfig` / `GridMatcher` / `marker_bits`）。
+  `tools/check_api_surface.py` 同时断言“基线名全在”与“基线清单 = 36 名”，
+  既能抓住静默回退，也不会阻止新增。
 - **v1.x 承诺**：§1 的坐标与角度约定、§4.1/4.2/4.3 中列出的接口名与语义、
   §5 的字段名、§5.3/5.4 的标志与原因字符串**不会破坏性变更**。
 - 新增接口、新增字段、新增 flag 属于**向后兼容**变更，会在次版本号（1.1.0）中给出。
