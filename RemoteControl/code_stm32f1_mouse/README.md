@@ -126,4 +126,4 @@ code_stm32f1_mouse/
 
 - [docs/architecture.md](docs/architecture.md) —— 分层架构、模块职责、数据流
 - [docs/algorithm.md](docs/algorithm.md) —— 迷宫编码、洪水填充、路径规划、冲刺与运动控制算法详解
-- [docs/refactor_changelog.md](docs/refactor_changelog.md) —— 代码标准化改造记录(历史对比、红线遵守、成果指标)
+- [docs/rename_map.md](docs/rename_map.md) —— 代码标准化改造记录（重命名对照）

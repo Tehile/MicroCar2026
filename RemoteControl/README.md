@@ -15,7 +15,7 @@
 
 ## 1. 这是什么
 
-一条**命令严格停等**的 460800 串口/蓝牙 SPP 链路 + 一个 Python 上位机，让电脑端可以：
+一条**命令严格停等**的 115200 串口/蓝牙 SPP 链路 + 一个 Python 上位机，让电脑端可以：
 （遥测拉取统一为 `TelemetryPuller`：`n=1` 停等、`n≥2` 批式；**容量顶 13.3 Hz**）
 
 | 能力 | 说明 |
@@ -40,22 +40,34 @@
 
 ```
 RemoteControl/
-├── code_competition/        ★ 现行固件基线（Keil MDK，STM32F103RB，MAZETYPE 16）
-│   ├── USER/TEST.uvprojx    单工程双 Target：Target 1 比赛档 / Target_Remote 远程档
+├── code_competition - V6++/  ★ 现行工作副本（V6 算法 + 回程补搜 + 远程档，五 Target）
+│   ├── USER/TEST.uvprojx    V6_0mm / V6_2mm / V6_4mm / V6_6mm / Target_Remote
 │   ├── REMOTE/              链路层（仅远程档编译）：link.c 协议引擎 + link_port.c 平台适配
-│   └── STRATAGY/ UTILITY/ HARDWARE/   比赛代码本体（本项目只加可见性，不改行为）
-├── code_stm32f1_mouse/     旧课程基线（MAZETYPE 7），仅参考，非主线
+│   └── STRATAGY/ UTILITY/ HARDWARE/   比赛代码本体
+├── code_competition - V6+/   V6 算法 + 远程档移植（V6++ 的前一步，保留作对照）
+├── code_competition/        旧双档基线：Target 1 比赛档 / Target_Remote 远程档
+│                            （红线 hex `68ad6be2…8141` 出自此处）
+├── code_stm32f1_mouse/      课程基线（MAZETYPE 7），仅参考，非主线
+├── code_stm32f1_mouse - 副本/  上游原始固件（含它自己的 .git），参照物，勿改勿删
 ├── host/                    PC 上位机（Python）
 │   ├── run_host.py          启动 GUI
 │   ├── *.py                 30 个脚本：契约/自检/模拟器套件/真机验收/安全（见工具与校验）
 │   ├── host/                包：protocol / transport / model / api / ui / sim
 │   └── README.md            ★ 上位机使用指南（装了怎么跑）
-├── docs/                    ★ 本项目文档（见下，10 篇）
+├── paramtwin/               参数孪生（从固件源码抽参数表 → 可回放/扫描的模型）
+├── docs/                    ★ 本项目文档（见下，14 篇）
 ├── tools/                   参数工具链 paramgen.py + paramkit/
 ├── release/                 归档 zip + SHA256 台账
+├── _backup/                 改动前源码快照（本地对照物，不入库）
 ├── build_all_modes.py           旧工程两档批量编译
-└── build_competition_modes.py   新工程双 Target 编译 + 比赛档 hex 红线校验
+├── build_competition_modes.py   旧工程双 Target 编译 + 比赛档 hex 红线校验
+├── build_v6plus_modes.py        V6+ 五 Target 批量编译 + 红线
+└── build_v6pp_modes.py          V6++ 五 Target 批量编译 + 红线（**日常用这个**）
 ```
+
+> 四套固件工程**并存是有意的**：`V6++` 是当前工作副本，`V6+` 是它的前一步（远程档刚移植完），
+> `code_competition` 是红线 hex 的出处与双档基线，`code_stm32f1_mouse` 是课程原版。
+> 改哪一个、考不考红线，看那一份的 README 与 `build_*_modes.py` 的 `REDLINE` 常量。
 
 ---
 
@@ -71,6 +83,9 @@ RemoteControl/
 | **可编程接口清单**（`mc.*` 方法 + 命令/帧/参数表） | [`docs/api_reference.md`](docs/api_reference.md) |
 | **怎么验**（脚本清单 / 构建 / 压测 / 真机四条铁律） | [`docs/工具与校验.md`](docs/工具与校验.md) |
 | **算法思路详解**（固件新增 + 上位机全收，供审阅） | [`docs/算法详解.md`](docs/算法详解.md) |
+| 转向查表算法（`objectGoTo` 的曲线来源） | [`docs/转向查表算法.md`](docs/转向查表算法.md) |
+| **V6+ 远程档**：考察与方案 / 落地记录 | [`docs/V6+工程远程档移植方案.md`](docs/V6+工程远程档移植方案.md)、[`docs/V6+工程远程档落地记录-20261105.md`](docs/V6+工程远程档落地记录-20261105.md) |
+| **V6+ 远程档**：两个真机根因 | [`docs/V6+远程档参数接线修复-20261105.md`](docs/V6+远程档参数接线修复-20261105.md)、[`docs/V6+远程档红外冻结根因-20261105.md`](docs/V6+远程档红外冻结根因-20261105.md) |
 | 参数名称-功能-调整速查（仿课件表） | [`docs/参数名称-功能-调整表.md`](docs/参数名称-功能-调整表.md) |
 | **迷宫数据回传**（变量总表 / 增量通道 / 已知断点） | [`docs/迷宫数据回传与重建.md`](docs/迷宫数据回传与重建.md) |
 | **链路稳定性压测**（固定 FPS / MTBF / 环境对比） | [`docs/链路MTBF压测方法.md`](docs/链路MTBF压测方法.md) |
