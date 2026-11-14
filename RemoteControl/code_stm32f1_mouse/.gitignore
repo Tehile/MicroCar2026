@@ -27,3 +27,11 @@ JLinkSettings.ini
 __Previews/
 *.cPreview
 desktop.ini
+
+# ---- 发布物与档位配置例外（2026-11-14 发布整理新增）----
+# 交付固件（固件_V*/ 里的 hex/axf + SHA256 台账）是发布物，必须入库；
+# TEST.uvoptx 记录五档 Target 的当前档位与输出目录，缺了它别人打开工程只有默认档。
+!固件_*/*.hex
+!固件_*/*.axf
+!固件_*/SHA256SUMS.txt
+!USER/TEST.uvoptx

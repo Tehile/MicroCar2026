@@ -37,8 +37,38 @@ Auto Locate/samples/*.mp4
 # ---- Auto Locate/out: 端到端运行产物(逐帧 json / 审阅视频 / 抽帧图, 可复现, 大文件不入库) ----
 Auto Locate/out/
 
-# ---- C# 构建产物 (Debug Project) ----
-Debug Project/bin/
-Debug Project/obj/
+# ---- 通用 IDE / 编辑器 ----
 *.user
 *.suo
+
+# ---- Keil 固件工程构建产物（四套工程通用）----
+# 产物都是"跑一次 Rebuild 就有"的中间件；本体是 *.c/*.h/*.uvprojx/*.uvoptx/*.sct。
+**/USER/Build/
+**/USER/Remote/
+*.o
+*.d
+*.crf
+*.axf
+*.lnp
+*.lst
+*.dep
+*.map
+*.htm
+*_build_log.htm
+*.uvgui.*
+*.uvguix.*
+*.sct.bak
+# 例外：交付固件目录里的 hex/axf 是发布物，必须入库
+!**/固件_*/*.hex
+!**/固件_*/*.axf
+!**/固件_*/SHA256SUMS.txt
+
+# ---- RemoteControl：改动前源码快照（本地对照物，不入库）----
+RemoteControl/_backup/
+RemoteControl/host/sessions/
+
+# ---- PhoneCamera：PC 端采集落盘（体积随跑随涨，不入库）----
+PhoneCamera/pc/data/
+
+# ---- Control：跑车记录与复盘产物是数据本体，不入库 ----
+Control/records/
