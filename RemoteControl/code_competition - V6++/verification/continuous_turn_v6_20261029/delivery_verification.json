@@ -1,0 +1,91 @@
+{
+  "status": "PASS",
+  "v5_files_unchanged": 847,
+  "v3_files_unchanged": 552,
+  "original_files_unchanged": 264,
+  "default": "V6_4mm",
+  "byte_exact_inverse_patch": true,
+  "encoding_crlf_preserved": true,
+  "ram_bytes": 20480,
+  "stack_bytes": 768,
+  "new_global_ram": 0,
+  "changed_production_files": [
+    "UTILITY/utility.c"
+  ],
+  "new_internal_header": "UTILITY/search_turn_v6.h",
+  "protected_functions_byte_identical": [
+    "taskturn",
+    "before90turn",
+    "mouseGoahead",
+    "mazeSearch",
+    "goalDepartureAfterTurnback",
+    "before180turn",
+    "after180turn",
+    "v5CaptureStop",
+    "v5FrontRecheck",
+    "v5PrintStop",
+    "spurtSearchUturn",
+    "gridSearchParameters",
+    "spurt_grid90",
+    "__mouseCoorUpdate"
+  ],
+  "software_checks": 2808,
+  "goal_checks": 1264,
+  "continuous_checks": 334,
+  "guard_checks": 317,
+  "sprint_checks": 893,
+  "geometry": [
+    {
+      "side": "left",
+      "original_ticks": 189,
+      "slow_ticks": 210,
+      "endpoint_difference_mm": 0.005154597823615567,
+      "reference_end_degrees": 0
+    },
+    {
+      "side": "right",
+      "original_ticks": 193,
+      "slow_ticks": 215,
+      "endpoint_difference_mm": 0.3552486001513249,
+      "reference_end_degrees": 2
+    }
+  ],
+  "images": [
+    {
+      "target": "V6_0mm",
+      "last_flash_byte": "0x801521b",
+      "sha256": "54f2c30f6d3d040ee33332a83b8da2fd8f4e4b690295000b5ab4d168c281f7b2",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712,
+      "slow_turn_stack": 8
+    },
+    {
+      "target": "V6_2mm",
+      "last_flash_byte": "0x801521b",
+      "sha256": "a7baf349ce0d2d113e95ec4a596b5a31e1ce609a004e9bda90fc2c752cc9e946",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712,
+      "slow_turn_stack": 8
+    },
+    {
+      "target": "V6_4mm",
+      "last_flash_byte": "0x801521b",
+      "sha256": "2bf55ed72ebb2cb9d374f8cc637c7976814cc4854876f01f85fc20daefa18893",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712,
+      "slow_turn_stack": 8
+    },
+    {
+      "target": "V6_6mm",
+      "last_flash_byte": "0x801521b",
+      "sha256": "1b6b76b4011b9983f3ae64399404d019f77fd121c902b8ede2d4441604524936",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712,
+      "slow_turn_stack": 8
+    }
+  ]
+}

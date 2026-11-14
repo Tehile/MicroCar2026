@@ -1,0 +1,135 @@
+{
+  "status": "PASS",
+  "source_project_files_unchanged": 264,
+  "v2_source_and_project_unchanged": true,
+  "production_c_changes": [
+    "UTILITY\\utility.c"
+  ],
+  "byte_exact_reversal_to_source": true,
+  "encoding_and_crlf_preserved": true,
+  "ordinary_90_turns_and_ir_calibration_unchanged": true,
+  "default_target": "V3_0mm",
+  "targets": [
+    "V3_0mm",
+    "V3_2mm",
+    "V3_4mm",
+    "V3_6mm"
+  ],
+  "debug_and_flash_settings_preserved": true,
+  "first_reserved_flash_address": "0x8016000",
+  "images": [
+    {
+      "target": "V3_0mm",
+      "flash_bytes": 81720,
+      "last_byte": "0x8013f37",
+      "sha256": "dc8ee57c381251f52ae8e288e0361c31bd32448c9330602283112611d0091b76"
+    },
+    {
+      "target": "V3_2mm",
+      "flash_bytes": 81720,
+      "last_byte": "0x8013f37",
+      "sha256": "c88ef3d8994abfb34e5a3727d019d5bcbd6b1b6582b8138975d0f7a124340604"
+    },
+    {
+      "target": "V3_4mm",
+      "flash_bytes": 81720,
+      "last_byte": "0x8013f37",
+      "sha256": "12a82793cda44baa9e7a5cf48c004e880c16c86f38773726ec96c8da70da0be4"
+    },
+    {
+      "target": "V3_6mm",
+      "flash_bytes": 81720,
+      "last_byte": "0x8013f37",
+      "sha256": "1172d8c456d48ba899706c0adcc6b413d32642ca8522abf0300b3c501aa1f8f8"
+    }
+  ],
+  "builds": [
+    {
+      "target": "V3_0mm",
+      "extra_mm": 0,
+      "returncode": 1,
+      "errors": 0,
+      "warnings": 37,
+      "size": "Program Size: Code=58548 RO-data=21484 RW-data=4960 ZI-data=15520",
+      "command": [
+        "D:\\Keil5MDK\\UV4\\UV4.exe",
+        "-r",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\USER\\TEST.uvprojx",
+        "-t",
+        "V3_0mm",
+        "-j0",
+        "-o",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\verification\\goal_departure_v3_20261024\\keil_V3_0mm.log"
+      ],
+      "hex": "USER\\Build\\V3_0mm\\TEST_V3_0mm.hex",
+      "axf": "USER\\Build\\V3_0mm\\TEST_V3_0mm.axf",
+      "sha256": "dc8ee57c381251f52ae8e288e0361c31bd32448c9330602283112611d0091b76"
+    },
+    {
+      "target": "V3_2mm",
+      "extra_mm": 2,
+      "returncode": 1,
+      "errors": 0,
+      "warnings": 37,
+      "size": "Program Size: Code=58548 RO-data=21484 RW-data=4960 ZI-data=15520",
+      "command": [
+        "D:\\Keil5MDK\\UV4\\UV4.exe",
+        "-r",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\USER\\TEST.uvprojx",
+        "-t",
+        "V3_2mm",
+        "-j0",
+        "-o",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\verification\\goal_departure_v3_20261024\\keil_V3_2mm.log"
+      ],
+      "hex": "USER\\Build\\V3_2mm\\TEST_V3_2mm.hex",
+      "axf": "USER\\Build\\V3_2mm\\TEST_V3_2mm.axf",
+      "sha256": "c88ef3d8994abfb34e5a3727d019d5bcbd6b1b6582b8138975d0f7a124340604"
+    },
+    {
+      "target": "V3_4mm",
+      "extra_mm": 4,
+      "returncode": 1,
+      "errors": 0,
+      "warnings": 37,
+      "size": "Program Size: Code=58548 RO-data=21484 RW-data=4960 ZI-data=15520",
+      "command": [
+        "D:\\Keil5MDK\\UV4\\UV4.exe",
+        "-r",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\USER\\TEST.uvprojx",
+        "-t",
+        "V3_4mm",
+        "-j0",
+        "-o",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\verification\\goal_departure_v3_20261024\\keil_V3_4mm.log"
+      ],
+      "hex": "USER\\Build\\V3_4mm\\TEST_V3_4mm.hex",
+      "axf": "USER\\Build\\V3_4mm\\TEST_V3_4mm.axf",
+      "sha256": "12a82793cda44baa9e7a5cf48c004e880c16c86f38773726ec96c8da70da0be4"
+    },
+    {
+      "target": "V3_6mm",
+      "extra_mm": 6,
+      "returncode": 1,
+      "errors": 0,
+      "warnings": 37,
+      "size": "Program Size: Code=58548 RO-data=21484 RW-data=4960 ZI-data=15520",
+      "command": [
+        "D:\\Keil5MDK\\UV4\\UV4.exe",
+        "-r",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\USER\\TEST.uvprojx",
+        "-t",
+        "V3_6mm",
+        "-j0",
+        "-o",
+        "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_终点掉头起步衔接修复_V3_20261024\\verification\\goal_departure_v3_20261024\\keil_V3_6mm.log"
+      ],
+      "hex": "USER\\Build\\V3_6mm\\TEST_V3_6mm.hex",
+      "axf": "USER\\Build\\V3_6mm\\TEST_V3_6mm.axf",
+      "sha256": "1172d8c456d48ba899706c0adcc6b413d32642ca8522abf0300b3c501aa1f8f8"
+    }
+  ],
+  "goal_flow_checks": 1264,
+  "grid_sprint_checks": 893,
+  "no_flashing_or_physical_testing": true
+}

@@ -1,0 +1,318 @@
+--- before/USER/test.c
++++ current/USER/test.c
+@@ -1178,7 +1178,42 @@
+ 	//		break;
+ 		
+ 	//	case SPURT_45:
+-			case SPURT:
++
++#ifndef MOUSE_REMOTE
++        case SPURT_45:
++        case SPURT_90:
++#endif
++        case SPURT:
++#ifndef MOUSE_REMOTE
++            /* Every competition sprint entry now uses a cardinal grid path. */
++            sleepmode=1;
++            fastway_90(GoalX,GoalY);
++            printf("Grid90 sprint: start=(%d,%d), goal=(%d,%d), nodes=%d\n",
++                   GmcMouse.cX,GmcMouse.cY,GoalX,GoalY,FastwayCount_90);
++            if(FastwayCount_90==0)
++            {
++                task=NULL;setvl=0;setvr=0;
++                printf("Grid90 sprint: no valid route\n");
++                GucMouseTask=END;
++                break;
++            }
++            flashaddr=0;
++            STMFLASH_Unlock();STMFLASH_ErasePage(FLASH_ADDR_GOPATH_90);
++            STMFLASH_Unlock();STMFLASH_WriteHalfWord(FLASH_ADDR_GOPATH_90,FastwayCount_90);
++            flashaddr+=2;
++            for(tmptt=0;tmptt<FastwayCount_90;tmptt++)
++            {
++                STMFLASH_Unlock();
++                STMFLASH_WriteHalfWord(FLASH_ADDR_GOPATH_90+flashaddr,FastwayAction_90[tmptt].action);
++                flashaddr+=2;
++            }
++            spurt_flag=1;
++            sleepmode=0;
++            if(spurt_grid90()) printf("Grid90 sprint: finished\n");
++            else printf("Grid90 sprint: stopped\n");
++            GucMouseTask=END;
++            break;
++#else
+ 		
+ 		printf("GoalX=%d, GoalY=%d, GucMouseDir=%d, FastwayCount=%d\n", GoalX, GoalY, GucMouseDir, FastwayCount);  //打印终点坐标和最短路径距离
+ 	     printf(" GucMapStep[GucXStart][GucYStart]=%d, stepMax=%d, diff=%d\n", GucMapStep[GucXStart][GucYStart], stepMax, GucMapStep[GucXStart][GucYStart]-GucMapStepS[GucXStart][GucYStart]);
+@@ -1212,6 +1247,7 @@
+ 			ledon(5);ledon(6);ledon(7);ledon(8);
+ 		printf(" GucMouseTask=%d\n",GucMouseTask);
+ 			break;
++#endif
+ 			
+ 
+ 	/*		if(goal_keep_flag!=0)
+@@ -1307,8 +1343,10 @@
+ 			break;
+ 			
+  */
++#ifdef MOUSE_REMOTE
+ 		case SPURT_90:
+ 			break;
++#endif
+ 
+ 
+ #ifdef MOUSE_REMOTE
+--- before/UTILITY/utility.c
++++ current/UTILITY/utility.c
+@@ -1724,6 +1724,156 @@
+     }
+ }
+ 
++
++#ifndef MOUSE_REMOTE
++/* No diagonal actions in competition sprint. Keep the original sprint speed
++ * profile on straights and the proven search curves/delays at every corner. */
++static void gridSearchParameters(void)
++{
++    parameter_search();
++    speed_turn=30;
++    turn_kp=4;turn_kd=4;
++}
++
++/* Reuse the straight speed limits and acceleration settings with integer
++ * position arithmetic. The old double-heavy straight runner plus this new
++ * call chain would exhaust the 512-byte interrupt-shared stack. */
++static u8 gridFastStraight90(u16 distance,u8 phase)
++{
++    u16 acc=(u16)(SpurtAccRatio45*100.0f);
++    u16 dec=(u16)(SpurtDecRatio45*100.0f);
++    int initial=speed,target,braking;
++    long at;
++    if(initial<10) initial=10;
++    if(acc==0) acc=1;
++    if(dec==0) dec=1;
++    e=0;eh=0;turno=0;
++    settrack(0);
++    while(track<distance)
++    {
++        if(!spurtSearchRunning()) return 0;
++        at=track;
++        target=initial+(at*acc)/100;
++        braking=LBottomSpeed+((distance-at)*dec)/100;
++        if(target>braking) target=braking;
++        if(target>LTopSpeed) target=LTopSpeed;
++        if(target<10) target=10;
++        speed_ss=(u16)target;
++        if((at+phase)%180>20 && (at+phase)%180<100) task=SPURT90BLIND;
++        else task=(lefthaswall || righthaswall)?SPURT90IR:SPURT90BLIND;
++        if(disf<20) isemergency=1;
++    }
++    return spurtSearchRunning();
++}
++
++static u8 gridStraight90(u16 cells)
++{
++    u16 distance=180*cells;
++    u8 phase=(LastSearchAction!=Stright)?20:0;
++    /* Search adds 20 to the first straight node after a curve. Account for
++     * that offset once; the previous turn's 180+/-offset is already drained. */
++    distance-=phase;
++    parameter_spurt();
++    speedmode=LOW;
++    SPURT90IR_kp1=0.17;SPURT90IR_kp2=0.1;SPURT90IR_kd=0;
++    SPURT90GYRO_kp=0.3;SPURT90GYRO_kd=0;
++    if(!gridFastStraight90(distance-80,phase)) return 0;
++
++    /* Finish the last 80 mm in the search coordinate system. This retains
++     * wall-edge correction (trackcoor=127) before a 90-degree search turn. */
++    gridSearchParameters();
++    LastSearchAction=Stright;
++    settrack(100);
++    if(lefthaswall || righthaswall) mazesearchhaswall();
++    else mazesearchnowall();
++    if(!spurtSearchRunning()) return 0;
++    LastSearchAction=Stright;
++    goaheadbugflag=0;
++    settrack(0);
++    return 1;
++}
++
++u8 spurt_grid90(void)
++{
++    static const signed char dx[4]={0,1,0,-1};
++    static const signed char dy[4]={1,0,-1,0};
++    u16 i,next;
++    u8 dir=GucMouseDir,code,ok=0;
++    int nx,ny;
++
++    /* The old 45-degree correction array is temporary state, not a route.
++     * Validate the complete axis route before enabling any motor command. */
++    for(i=0;i<200;i++) {actionsequence[i]=0;action_correct_sequence[i]=0;}
++    spurt_exec_index=200;
++    if(FastwayCount_90==0 || dir>3 || sleepmode || isemergency) goto finish;
++    if(FastwayAction_90[0].cx!=GmcMouse.cX ||
++       FastwayAction_90[0].cy!=GmcMouse.cY) goto finish;
++    for(i=0;i+1<FastwayCount_90;i++)
++    {
++        code=FastwayAction_90[i].action;
++        if(code>3) goto finish;
++        dir=(dir+code)%4;
++        nx=FastwayAction_90[i].cx;ny=FastwayAction_90[i].cy;
++        if(nx<0 || ny<0 || nx>=MAZETYPE || ny>=MAZETYPE ||
++           !(GucMapBlock[nx][ny]&(1<<dir))) goto finish;
++        nx+=dx[dir];ny+=dy[dir];
++        if(nx<0 || ny<0 || nx>=MAZETYPE || ny>=MAZETYPE ||
++           FastwayAction_90[i+1].cx!=nx || FastwayAction_90[i+1].cy!=ny) goto finish;
++    }
++    if(FastwayAction_90[FastwayCount_90-1].cx!=GoalX ||
++       FastwayAction_90[FastwayCount_90-1].cy!=GoalY ||
++       FastwayAction_90[FastwayCount_90-1].action!=0) goto finish;
++
++    spurt_search_active=1;
++    spurt_action_num=0;
++    ObjectGoTo_Flag=0;GoOrBackFlag=0;
++    spurt_45_end_flag=0;
++    sidewall_threshold=160;
++    goaheadbugflag=0;
++    LastSearchAction=Stright;
++    gridSearchParameters();
++    i=0;
++    while(i+1<FastwayCount_90)
++    {
++        code=FastwayAction_90[i].action;
++        if(code==0)
++        {
++            next=i+1;
++            while(next+1<FastwayCount_90 && FastwayAction_90[next].action==0) next++;
++            if(!gridStraight90(next-i)) goto finish;
++            spurt_action_num+=(next-i);
++            i=next;
++        }
++        else
++        {
++            gridSearchParameters();
++            if(code==1) mouseTurnright();
++            else if(code==3) mouseTurnleft();
++            else mouseTurnback();
++            if(!spurtSearchRunning()) goto finish;
++            /* Ordinary 90-degree turns include the outgoing cell. The
++             * search U-turn already completes its own coordinate update. */
++            if(code!=2 && !spurtSearchWaitTrack(180,SMARTSTRAIGHT)) goto finish;
++            settrack(0);
++            i++;spurt_action_num++;
++        }
++        GmcMouse.cX=FastwayAction_90[i].cx;
++        GmcMouse.cY=FastwayAction_90[i].cy;
++        /* Direction is changed only by the actual search turn functions. */
++    }
++    decdistance=30;
++    taskstop();
++    ok=1;
++finish:
++    spurt_search_active=0;
++    spurt_search_failed=(ok?0:1);
++    task=NULL;setvl=0;setvr=0;
++    sleepmode=1;
++    settrack(0);
++    return ok;
++}
++#endif
++
+ void mouseturn(u8 pattern)
+ {
+ 	if(spurtIsSearchUturn(pattern))
+--- before/UTILITY/utility.h
++++ current/UTILITY/utility.h
+@@ -139,6 +139,9 @@
+ void action(u8 mode);
+ void taskstraight90(u16 dis);
+ void spurt(u8 mode);
++#ifndef MOUSE_REMOTE
++u8 spurt_grid90(void);
++#endif
+ int getfinaldir(void);
+ 
+ int getfinaldir_90(void);
+--- before/STRATAGY/stratagy.c
++++ current/STRATAGY/stratagy.c
+@@ -1251,8 +1251,68 @@
+ 
+ 
+  
++
++#ifndef MOUSE_REMOTE
++/* Competition sprint: one axis-aligned edge per entry, followed by a goal
++ * sentinel. Prefer straight, then the original UP/RIGHT/DOWN/LEFT order.
++ * Validate bounds before reading neighbours and reserve the goal slot. */
++static void gridPath90(uchar GX,uchar GY)
++{
++    static const signed char dx[4]={0,1,0,-1};
++    static const signed char dy[4]={1,0,-1,0};
++    int x=GmcMouse.cX,y=GmcMouse.cY,nx,ny;
++    u16 i,j;
++    u8 heading=GucMouseDir,dir,candidate,chosen;
++    FastwayCount_90=0;
++    for(i=0;i<MAZETYPE;i++)
++        for(j=0;j<MAZETYPE;j++) Mapfastway_90[i][j]=0xff;
++    if(x<0 || y<0 || x>=MAZETYPE || y>=MAZETYPE ||
++       GX>=MAZETYPE || GY>=MAZETYPE || heading>3) return;
++    for(i=0;i<MAZETYPE;i++)
++        if((GucMapBlock[i][0]&(1<<DOWN)) ||
++           (GucMapBlock[i][MAZETYPE-1]&(1<<UP)) ||
++           (GucMapBlock[0][i]&(1<<LEFT)) ||
++           (GucMapBlock[MAZETYPE-1][i]&(1<<RIGHT))) return;
++    mapStepEdit(GX,GY);
++    while(x!=GX || y!=GY)
++    {
++        if(FastwayCount_90>=254 || GucMapStep[x][y]==0xff) goto invalid;
++        chosen=0xff;
++        for(candidate=0;candidate<5;candidate++)
++        {
++            dir=(candidate==0)?heading:(candidate-1);
++            nx=x+dx[dir];ny=y+dy[dir];
++            if(nx<0 || ny<0 || nx>=MAZETYPE || ny>=MAZETYPE) continue;
++            if((GucMapBlock[x][y]&(1<<dir)) &&
++               GucMapStep[nx][ny]<GucMapStep[x][y])
++            {
++                chosen=dir;break;
++            }
++        }
++        if(chosen==0xff) goto invalid;
++        i=FastwayCount_90++;
++        FastwayAction_90[i].cx=(char)x;
++        FastwayAction_90[i].cy=(char)y;
++        FastwayAction_90[i].action=(4+chosen-heading)%4;
++        Mapfastway_90[x][y]=chosen;
++        heading=chosen;x+=dx[chosen];y+=dy[chosen];
++    }
++    i=FastwayCount_90++;
++    FastwayAction_90[i].cx=(char)x;
++    FastwayAction_90[i].cy=(char)y;
++    FastwayAction_90[i].action=0;
++    return;
++invalid:
++    FastwayCount_90=0;
++}
++#endif
++
+ void fastway_90(uchar GX,uchar GY)
+ {
++#ifndef MOUSE_REMOTE
++    gridPath90(GX,GY);
++#else
++
+ 	char i,j,cX,cY;
+ 	uchar ucStep;
+ 	uchar cDirTemp;
+@@ -1445,7 +1505,9 @@
+ 	FastwayAction_90[FastwayCount_90].cx=cX;
+ 	FastwayAction_90[FastwayCount_90].cy=cY;
+ 	FastwayCount_90++;
+-	}
++	
++#endif
++}
+ 	
+ 	 
+ void backPath(FASTWAYACTION *FastwayAction_1, uchar FastwayCount_2)

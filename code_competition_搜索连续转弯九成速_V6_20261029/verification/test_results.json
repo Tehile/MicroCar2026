@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "cases": [
+    {
+      "case": "actual C generator vs original, random grid routes / 3 modes",
+      "passed": 6000
+    },
+    {
+      "case": "empty, one node and truncated U with stale trailing memory",
+      "passed": 6
+    },
+    {
+      "case": "left/right, 4 headings, terminal/straight/adjacent/other-turn / 3 modes; actual search turn functions",
+      "passed": 48
+    },
+    {
+      "case": "remote abort at every motion polling point; cleanup and parameter restore",
+      "passed": 138
+    },
+    {
+      "case": "blocked turn or inconsistent source coordinates stops before turn",
+      "passed": 3
+    },
+    {
+      "case": "delayed/missing wall edge, front obstruction, nonzero search wall-offset compensation",
+      "passed": 8
+    }
+  ],
+  "note": "Host simulation executes extracted production C. Motor/IR/tick input is simulated; this is not a physical maze test."
+}

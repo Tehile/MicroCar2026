@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "original_files_checked": 175,
+  "original_files_changed": [],
+  "source_files_modified_this_fix": [
+    "UTILITY/utility.c"
+  ],
+  "compiler": "ARM Compiler 5.06 update 7 (build 960), installed Keil MDK",
+  "target": "Target 1",
+  "build_method": "Full AC5 command-line rebuild using Target 1 XML options and existing scatter layout; UV4 GUI invocation did not complete",
+  "errors": 0,
+  "warnings": 37,
+  "code": 58428,
+  "ro_data": 21484,
+  "rw_data": 4960,
+  "zi_data": 15520,
+  "ram_total": 20480,
+  "spurt_grid90_stack_depth_excluding_callers_and_interrupts": 128,
+  "hex_records_validated": 5104,
+  "hex_highest_address_exclusive": "0x8013ec0",
+  "hex_sha256": "d1c829ea492c94c9ee219fbe080f6439230d39160e0c98bcb466c8dfefa14833",
+  "firmware": "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_V字路按搜索_20261022\\USER\\TEST_首段定位与90度衔接修复_20261022.hex",
+  "software_checks_passed": 893,
+  "limitations": "IR and encoder inputs and motor/stop primitives simulated; actual startup pose and corner clearance require hardware acceptance. No flashing or physical run."
+}

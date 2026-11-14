@@ -1,0 +1,150 @@
+--- V5/UTILITY/utility.c
++++ V6/UTILITY/utility.c
+@@ -6,6 +6,9 @@
+ #include "utility.h"
+ #ifndef MOUSE_REMOTE
+ #include "search_guard_v5.h"
++#include "search_turn_v6.h"
++/* V5 reserved this byte; do not reuse its legacy LastSearchAction values. */
++#define V6_TURN_CHAIN v5_diag.reserved
+ #endif
+ #include "stratagy.h"
+ #include "led.h"
+@@ -937,6 +940,9 @@
+ 
+ void mazesearchhaswall()		 
+ {
++#ifndef MOUSE_REMOTE
++    V6_TURN_CHAIN=0;
++#endif
+ 	turno=0;
+ 	#ifndef MOUSE_REMOTE
+     if(disf<V5_FRONT_TRIP && !v5FrontRecheck(1))
+@@ -966,6 +972,9 @@
+ 
+ void mazesearchnowall()			 
+ {
++#ifndef MOUSE_REMOTE
++    V6_TURN_CHAIN=0;
++#endif
+ 	turno=0;
+ 	#ifndef MOUSE_REMOTE
+     if(disf<V5_FRONT_TRIP && !v5FrontRecheck(2))
+@@ -1217,8 +1226,44 @@
+ 	afterturn_flag=0;
+ }									 
+ 
++#ifndef MOUSE_REMOTE
++/* Latch before mouseTurnleft/right replaces LastSearchAction with this turn. */
++static u8 v6UseSlowSearchTurn(void)
++{
++    return (GucMouseTask==MAZESEARCH && spurt_search_active!=1 &&
++            V6_TURN_CHAIN==1 &&
++            (LastSearchAction==TurnLeft || LastSearchAction==TurnRight));
++}
++
++/* Same TURN controller, geometry and final phases as the original search turn.
++ * Only the precomputed wheel/angle profile and its execution time differ. */
++static void v6SlowSearchTurn90(u8 direction)
++{
++    u16 end_tick;
++    eh=0;e=0;esum=0;tick=0;
++    if(direction==TurnLeft)
++    {
++        setangle(-90);
++        turn_gyro=v6_left_gyro;turn_vl=v6_left_inner;turn_vr=v6_left_outer;
++        end_tick=V6_LEFT_TURN_TICKS;
++    }
++    else
++    {
++        setangle(90);
++        turn_gyro=v6_right_gyro;turn_vl=v6_right_outer;turn_vr=v6_right_inner;
++        end_tick=V6_RIGHT_TURN_TICKS;
++    }
++    task=TURN;
++    while(tick<end_tick);
++    settrack(0);
++}
++#endif
++
+ void mouseTurnright()
+ {	 
++#ifndef MOUSE_REMOTE
++    u8 slow_turn=v6UseSlowSearchTurn();
++#endif
+ 	goaheadbugflag=0;
+ 	before90turn(TurnRight);
+ 	if(spurt_search_active==1 && (!spurtSearchRunning() || disr<50))
+@@ -1242,17 +1287,27 @@
+ 		sleepmode=1;
+ 		while(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(7);ledon(8);delay_ms(500);}
+ 	}
+-	taskturn(RT90SEARCH);
++#ifndef MOUSE_REMOTE
++    if(slow_turn)v6SlowSearchTurn90(TurnRight);
++    else
++#endif
++    {taskturn(RT90SEARCH);}
+ 	if(spurt_search_active==1 && !spurtSearchRunning()) return;
+ 	task=SMARTSTRAIGHT;
+ 	GucMouseDir=(GucMouseDir + 1) % 4; 
+ 	settrack(180-turnrighto); 
++#ifndef MOUSE_REMOTE
++    V6_TURN_CHAIN=(GucMouseTask==MAZESEARCH && spurt_search_active!=1)?1:0;
++#endif
+ 
+  
+ }
+ 
+ void mouseTurnleft()
+ {	 
++#ifndef MOUSE_REMOTE
++    u8 slow_turn=v6UseSlowSearchTurn();
++#endif
+ 	goaheadbugflag=0;
+ 	before90turn(TurnLeft);
+ 	if(spurt_search_active==1 && (!spurtSearchRunning() || disl<50))
+@@ -1276,11 +1331,18 @@
+ 		sleepmode=1;
+ 		while(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(5);ledon(6);delay_ms(500);}
+ 	}		   	
+-	taskturn(LT90SEARCH);
++#ifndef MOUSE_REMOTE
++    if(slow_turn)v6SlowSearchTurn90(TurnLeft);
++    else
++#endif
++    {taskturn(LT90SEARCH);}
+ 	if(spurt_search_active==1 && !spurtSearchRunning()) return;
+ 	task=SMARTSTRAIGHT;
+ 	GucMouseDir=(GucMouseDir + 3) % 4;
+ 	settrack(180+turnlefto);
++#ifndef MOUSE_REMOTE
++    V6_TURN_CHAIN=(GucMouseTask==MAZESEARCH && spurt_search_active!=1)?1:0;
++#endif
+ 
+ 
+ }
+@@ -1303,7 +1365,10 @@
+ #endif
+ 
+ void mouseTurnback()
+-{				
++{
++#ifndef MOUSE_REMOTE
++    V6_TURN_CHAIN=0;
++#endif				
+ 	goaheadbugflag=0;
+ #ifndef MOUSE_REMOTE
+     v5_diag.deadend_limit_active=(spurt_search_active!=1 &&
+@@ -1336,7 +1401,10 @@
+ }
+ 
+ void specialmouseTurnback()
+-{				
++{
++#ifndef MOUSE_REMOTE
++    V6_TURN_CHAIN=0;
++#endif				
+ 	goaheadbugflag=0;
+ 	before180turn();
+ 	taskturnaround();

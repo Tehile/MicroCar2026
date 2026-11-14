@@ -1,0 +1,30 @@
+{
+  "source_files_checked": 175,
+  "source_files_changed": [],
+  "modified_code_files": [
+    "USER\\TEST.uvprojx",
+    "UTILITY\\utility.c"
+  ],
+  "firmware": {
+    "Target 1": {
+      "path": "USER/TEST.hex",
+      "sha256": "bfc687e23b4fc19d961e8b5b71c987f30a2a99e4a7641d6942d0ae82ed81dc87",
+      "errors": 0,
+      "warnings": 38,
+      "code": 57676,
+      "ro_data": 21468,
+      "rw_data": 4960,
+      "zi_data": 15520
+    },
+    "Target_Remote": {
+      "path": "USER/Remote/TEST.hex",
+      "sha256": "dd9dbfdf7ba795daa39efbb5ebb3c02efea38e4bcefa7dcf3c2ce201316497d6",
+      "errors": 0,
+      "warnings": 49,
+      "code": 72100,
+      "ro_data": 21388,
+      "rw_data": 5208,
+      "zi_data": 8352
+    }
+  }
+}

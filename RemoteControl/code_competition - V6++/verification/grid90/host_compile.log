@@ -1,0 +1,5 @@
+grid90_host.c
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_V字路按搜索_20261022\verification\grid90\grid90_host.c(531): warning C4305: “=”: 从“double”到“float”截断
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_V字路按搜索_20261022\verification\grid90\grid90_host.c(531): warning C4305: “=”: 从“double”到“float”截断
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_V字路按搜索_20261022\verification\grid90\grid90_host.c(532): warning C4305: “=”: 从“double”到“float”截断
+  正在创建库 D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_V字路按搜索_20261022\verification\grid90\grid90_host.lib 和对象 D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_V字路按搜索_20261022\verification\grid90\grid90_host.exp

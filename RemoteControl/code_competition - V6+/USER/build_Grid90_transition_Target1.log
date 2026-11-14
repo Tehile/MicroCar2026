@@ -1,0 +1,146 @@
+﻿Target 1 full rebuild using installed Keil AC5; options read from USER/TEST.uvprojx.
+
+Product: MDK Plus 5.43
+Component: ARM Compiler 5.06 update 7 (build 960)
+Tool: armcc [4d365d]
+For support see http://www.arm.com/support
+Software supplied by: ARM Limited
+
+
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 33: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+          ^
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 34: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+          ^
+"..\..\USER\test.c", line 439: Warning:  #111-D: statement is unreachable
+  			ledon(0);
+  			^
+"..\..\USER\test.c", line 444: Warning:  #111-D: statement is unreachable
+  			break;
+  			^
+"..\..\USER\test.c", line 616: Warning:  #111-D: statement is unreachable
+  			break;
+  			^
+"..\..\USER\test.c", line 1364: Warning:  #111-D: statement is unreachable
+  			break;
+  			^
+"..\..\USER\test.c", line 219: Warning:  #177-D: variable "spurtTestNum1"  was declared but never referenced
+  	u16 spurtTestNum1=0, spurtTestNum2=0, spurtTestNum3=0;
+  	    ^
+"..\..\USER\test.c", line 219: Warning:  #177-D: variable "spurtTestNum2"  was declared but never referenced
+  	u16 spurtTestNum1=0, spurtTestNum2=0, spurtTestNum3=0;
+  	                     ^
+"..\..\USER\test.c", line 219: Warning:  #177-D: variable "spurtTestNum3"  was declared but never referenced
+  	u16 spurtTestNum1=0, spurtTestNum2=0, spurtTestNum3=0;
+  	                                      ^
+"..\..\USER\test.c", line 227: Warning:  #177-D: variable "SpurtTest_Test"  was declared but never referenced
+  	u16 SpurtTest_Test=0;
+  	    ^
+"..\..\USER\test.c", line 231: Warning:  #177-D: variable "shortwayN"  was declared but never referenced
+  	uchar shortwayN=0;
+  	      ^
+"..\..\USER\test.c", line 237: Warning:  #177-D: variable "dstep"  was declared but never referenced
+  	uchar dstep=2;
+  	      ^
+"..\..\USER\test.c", line 238: Warning:  #177-D: variable "dstepS"  was declared but never referenced
+  	uchar dstepS=2;
+  	      ^
+"..\..\USER\test.c", line 240: Warning:  #177-D: variable "tempBlock"  was declared but never referenced
+  	uchar tempBlock;
+  	      ^
+"..\..\USER\test.c", line 254: Warning:  #177-D: variable "ft"  was declared but never referenced
+  	u32 ft=0;
+  	    ^
+"..\..\USER\test.c", line 256: Warning:  #177-D: variable "flashtemp"  was declared but never referenced
+  	long flashtemp;
+  	     ^
+"..\..\USER\test.c", line 258: Warning:  #177-D: variable "spurtmode"  was declared but never referenced
+  	u8 spurtmode;
+  	   ^
+"..\..\USER\test.c", line 459: Warning:  #177-D: label "go_to_case_5"  was declared but never referenced
+  go_to_case_5:
+  ^
+"..\..\USER\test.c", line 1032: Warning:  #177-D: label "SearchJump"  was declared but never referenced
+  SearchJump:					mapStepEditS(GucXStart,GucYStart);
+  ^
+..\..\USER\test.c: 19 warnings, 0 errors
+
+
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 33: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+          ^
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 34: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+          ^
+..\..\REMOTE\link_port.c: 2 warnings, 0 errors
+
+"..\..\REMOTE\link.c", line 3377: Warning:  #9-D: nested comment is not allowed
+  	 * `MOTION/*.c` 的阻塞等待里, 这条救援路径依然能走到(这正是它的意义)。
+  	          ^
+..\..\REMOTE\link.c: 1 warning, 0 errors
+
+
+
+
+
+
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 33: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+          ^
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 34: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+          ^
+..\..\HARDWARE\TIMER\timer.c: 2 warnings, 0 errors
+
+
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 33: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+          ^
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 34: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+          ^
+..\..\HARDWARE\LED\led.c: 2 warnings, 0 errors
+
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 33: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+          ^
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 34: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+          ^
+..\..\HARDWARE\STMFLASH\stmflash.c: 2 warnings, 0 errors
+
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 33: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+          ^
+"..\..\HARDWARE\STMFLASH\stmflash.h", line 34: Warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+          ^
+"..\..\UTILITY\utility.c", line 1997: Warning:  #177-D: variable "sum"  was declared but never referenced
+  	int sum=0,current=0;
+  	    ^
+"..\..\UTILITY\utility.c", line 2000: Warning:  #177-D: variable "k"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+  	      ^
+"..\..\UTILITY\utility.c", line 2000: Warning:  #177-D: variable "dirtemp"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+  	          ^
+"..\..\UTILITY\utility.c", line 2000: Warning:  #177-D: variable "leftdir"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+  	                    ^
+"..\..\UTILITY\utility.c", line 2000: Warning:  #177-D: variable "rightdir"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+  	                              ^
+"..\..\UTILITY\utility.c", line 2251: Warning:  #128-D: loop is not reachable
+  		while(actionsequence[i]!=0)
+  		^
+"..\..\UTILITY\utility.c", line 2294: Warning:  #177-D: variable "sum"  was declared but never referenced
+  	int sum=0,current=0;
+  	    ^
+..\..\UTILITY\utility.c: 9 warnings, 0 errors
+
+
+Program Size: Code=58428 RO-data=21484 RW-data=4960 ZI-data=15520  
+
+
+Build complete: Target 1, AC5 5.06u7. No flashing performed.

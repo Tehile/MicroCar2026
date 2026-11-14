@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>paramtwin stage1 · parameter sheet report</title>
+<style>
+:root{
+  --color-text-primary:#1c1c1e; --color-text-secondary:#5c5c66; --color-text-tertiary:#8a8a94;
+  --color-background-primary:#ffffff; --color-background-secondary:#f7f7f9; --color-background-tertiary:#ececf0;
+  --color-border-tertiary:rgba(0,0,0,.09); --color-border-secondary:rgba(0,0,0,.18);
+  --color-text-info:#2f6fd0; --color-text-success:#2e7d5b; --color-text-warning:#b5761a; --color-text-danger:#c0392b;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --color-text-primary:#e8e8ea; --color-text-secondary:#a0a0aa; --color-text-tertiary:#75757f;
+    --color-background-primary:#191a1d; --color-background-secondary:#222328; --color-background-tertiary:#2b2c32;
+    --color-border-tertiary:rgba(255,255,255,.10); --color-border-secondary:rgba(255,255,255,.20);
+    --color-text-info:#79aef0; --color-text-success:#63c39a; --color-text-warning:#e0a95c; --color-text-danger:#e8796b;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--color-background-primary);color:var(--color-text-primary);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:13px;line-height:1.6}
+header{padding:18px 24px 10px;border-bottom:1px solid var(--color-border-tertiary)}
+h1{margin:0;font-size:15px;font-weight:500;letter-spacing:.2px}
+.meta{margin-top:2px;font-size:11px;color:var(--color-text-tertiary);font-family:ui-monospace,monospace}
+.controls{display:flex;gap:22px;align-items:center;flex-wrap:wrap;padding:10px 24px;
+  border-bottom:1px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.ctl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-secondary)}
+.ctl input[type=range]{width:180px;accent-color:var(--color-text-info)}
+.ctl select{background:var(--color-background-primary);color:var(--color-text-primary);
+  border:1px solid var(--color-border-secondary);border-radius:6px;padding:3px 6px;font-size:12px}
+.val{font-family:ui-monospace,monospace;font-size:12px;color:var(--color-text-primary);min-width:66px}
+nav{display:flex;gap:2px;padding:0 24px;border-bottom:1px solid var(--color-border-tertiary);overflow-x:auto}
+.tab{padding:9px 14px;font-size:12px;color:var(--color-text-secondary);cursor:pointer;
+  border-bottom:2px solid transparent;white-space:nowrap;background:none;border-top:none;border-left:none;border-right:none}
+.tab:hover{color:var(--color-text-primary)}
+.tab.on{color:var(--color-text-info);border-bottom-color:var(--color-text-info)}
+main{padding:20px 24px 48px;max-width:1240px}
+.view{display:none}
+.view.on{display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--color-background-secondary);border:1px solid var(--color-border-tertiary);
+  border-radius:var(--radius);padding:14px 16px}
+.card h3{margin:0 0 10px;font-size:12px;font-weight:500;color:var(--color-text-secondary);letter-spacing:.3px;text-transform:uppercase}
+canvas{width:100%;height:230px;display:block}
+canvas.tall{height:260px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:12px}
+.kpi{background:var(--color-background-secondary);border:1px solid var(--color-border-tertiary);
+  border-radius:var(--radius);padding:11px 13px}
+.kpi.assumed{opacity:.62;border-style:dashed}
+.kpi-label{font-size:11px;color:var(--color-text-secondary)}
+.kpi-value{font-size:23px;font-weight:500;font-family:ui-monospace,monospace;letter-spacing:-.5px;margin:2px 0 1px}
+.kpi-unit{font-size:11px;font-weight:400;color:var(--color-text-tertiary);margin-left:3px}
+.kpi-note{font-size:11px;color:var(--color-text-tertiary);line-height:1.35}
+.warn{display:flex;gap:8px;align-items:baseline;padding:5px 0;font-size:12px;
+  border-bottom:1px dashed var(--color-border-tertiary)}
+.warn.ok{color:var(--color-text-success)}
+.warn-code{font-family:ui-monospace,monospace;font-size:11px;color:var(--color-text-danger);
+  background:var(--color-background-tertiary);padding:1px 5px;border-radius:4px;white-space:nowrap}
+.warn-code.ok{color:var(--color-text-success)}
+.warn-detail{color:var(--color-text-secondary)}
+.fact{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:12px;
+  border-bottom:1px dashed var(--color-border-tertiary)}
+.fact-k{color:var(--color-text-secondary)}
+.fact-v{font-family:ui-monospace,monospace;color:var(--color-text-primary)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;font-weight:500;color:var(--color-text-secondary);padding:5px 8px;
+  border-bottom:1px solid var(--color-border-secondary);position:sticky;top:0;background:var(--color-background-secondary)}
+td{padding:4px 8px;border-bottom:1px solid var(--color-border-tertiary);white-space:nowrap}
+tbody tr:hover td{background:var(--color-background-tertiary)}
+tr.sel td{background:var(--color-background-tertiary);font-weight:500}
+tr.bad td,tr.flag td{color:var(--color-text-danger)}
+.mono{font-family:ui-monospace,monospace}
+.scroll{max-height:420px;overflow:auto;border:1px solid var(--color-border-tertiary);border-radius:var(--radius)}
+.lg{display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:11px;color:var(--color-text-secondary)}
+.lg i{width:14px;height:2px;display:inline-block;border-radius:1px}
+.legend{margin-top:6px}
+.note{font-size:11px;color:var(--color-text-tertiary);margin-top:8px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <h1>paramtwin stage1 · parameter sheet report</h1>
+  <div class="meta" id="meta-line"></div>
+</header>
+
+<div class="controls">
+  <div class="ctl"><label for="vs">v_set</label>
+    <input id="vs" type="range" min="60" max="400" step="10"><span class="val" id="vs-out">240 cm/s</span></div>
+  <div class="ctl"><label for="grade">grade</label>
+    <select id="grade"><option>LOW</option><option>LOW_90</option><option>BACK</option></select></div>
+  <div class="ctl"><label for="dis">cell</label>
+    <input id="dis" type="range" min="90" max="360" step="2"><span class="val" id="dis-out">180 mm</span></div>
+</div>
+
+<nav>
+  <button class="tab on" data-view="overview">1 · overview</button>
+  <button class="tab" data-view="sweep">2 · speed sweep</button>
+  <button class="tab" data-view="profile">3 · straight profile</button>
+  <button class="tab" data-view="turn">4 · turn replay</button>
+  <button class="tab" data-view="health">5 · table health</button>
+  <button class="tab" data-view="params">6 · parameter map</button>
+</nav>
+
+<main>
+  <section class="view on" id="view-overview">
+    <div class="kpis" id="kpi-grid"></div>
+    <div class="grid2" style="margin-top:18px">
+      <div class="card"><h3>structural warnings</h3><div id="warn-list"></div></div>
+      <div class="card"><h3>sheet facts</h3><div id="struct-facts"></div></div>
+    </div>
+    <p class="note">理想模型：无滑移、无噪声、标定正确、电池无限。M0 表播放为纯数据；M1 设定剖面精确复刻
+      <span class="mono">utility.c:1383-1388</span>；M2 含待标定常数 τ_m。</p>
+  </section>
+
+  <section class="view" id="view-sweep">
+    <div class="card"><h3>cell time vs target speed</h3>
+      <canvas id="c-sweep" class="tall"></canvas>
+      <div class="legend" id="sweep-legend"></div></div>
+    <div class="card" style="margin-top:16px"><h3>sweep table (dis = 180 mm)</h3>
+      <div class="scroll"><table><thead><tr><th>v_set</th><th>T (ms)</th><th>v_avg</th><th>v_jump</th><th>clamped</th></tr></thead>
+      <tbody id="sweep-rows"></tbody></table></div></div>
+  </section>
+
+  <section class="view" id="view-profile">
+    <div class="controls" style="border:none;background:none;padding:0 0 12px">
+      <div class="ctl"><label for="tau">τ_m</label>
+        <input id="tau" type="range" min="4" max="40" step="1"><span class="val" id="tau-out">10 ms</span></div>
+      <div class="ctl" style="color:var(--color-text-tertiary)">assumed — only M2 uses it</div>
+    </div>
+    <div class="grid2">
+      <div class="card"><canvas id="c-vs" class="tall"></canvas></div>
+      <div class="card"><canvas id="c-vt" class="tall"></canvas></div>
+    </div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><canvas id="c-pwm" class="tall"></canvas></div>
+      <div class="card"><h3>profile facts</h3><div id="profile-facts"></div></div>
+    </div>
+    <p class="note">参考速度在 s* 处不连续：先按 1.5·ratio 爬升，再被 TopSpeed 钳位，两段都终止于 +BottomSpeed。
+      M0/M1 不含任何假设；M2 的一阶滞后 τ_m 与电流余量 headroom 是<b>待标定常数</b>，只用来解释趋势。</p>
+  </section>
+
+  <section class="view" id="view-turn">
+    <div class="controls" style="border:none;background:none;padding:0 0 12px">
+      <div class="ctl"><label for="act-sel">action</label><select id="act-sel"></select></div>
+      <div class="ctl" style="color:var(--color-text-tertiary)" id="turn-kind"></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><canvas id="c-theta" class="tall"></canvas></div>
+      <div class="card"><canvas id="c-omega" class="tall"></canvas></div>
+    </div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><canvas id="c-xy" class="tall"></canvas></div>
+      <div class="card"><h3>turn facts</h3><div id="turn-facts"></div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-health">
+    <div class="card"><canvas id="c-health" class="tall"></canvas></div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><h3>play window</h3>
+        <div class="scroll" style="max-height:360px"><table id="health-table"></table></div></div>
+      <div class="card"><h3>duplicate tables</h3><div id="dup-list"></div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-params">
+    <div class="card"><h3>parameter scopes (runtime value beats init)</h3>
+      <div class="scroll" style="max-height:560px"><table id="param-table"></table></div></div>
+  </section>
+</main>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>__MODEL_JS__</script>
+<script>__PLOT_JS__</script>
+<script>__APP_JS__</script>
+</body>
+</html>

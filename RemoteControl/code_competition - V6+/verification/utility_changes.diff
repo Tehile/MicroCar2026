@@ -1,0 +1,373 @@
+--- original/UTILITY/utility.c
++++ copy/UTILITY/utility.c
+@@ -8,6 +8,7 @@
+ #include "led.h"
+ #include "stmflash.h"
+ #include "user.h"
++#include <string.h>
+ #ifdef MOUSE_REMOTE
+ #include "link_port.h" /* P2: 协作式中止查询 LP_AbortRequested() */
+ #endif
+@@ -36,7 +37,20 @@
+ extern uchar	Mapfastway[MAZETYPE][MAZETYPE]      ;
+ 
+ uchar actionsequence[200]={0}; 
+-uchar action_correct_sequence[200]={0}; 
++uchar action_correct_sequence[200]={0};
++
++/* The 45-degree runner does not use the legacy 90-degree correction array.
++ * Borrow its last four bytes for execution state: original RAM is 20/20 KB.
++ * Bytes 0..74 hold the local parameter checkpoint only during the bypass.
++ * actiongenerate_90() initializes the array again for its own runner.
++ * Its correction values are 80..83, so only active==1 denotes our bypass. */
++#define spurt_plan_start_dir action_correct_sequence[196]
++#define spurt_exec_index     action_correct_sequence[197]
++#define spurt_search_active  action_correct_sequence[198]
++#define spurt_search_failed  action_correct_sequence[199]
++static u8 spurtSearchRunning(void);
++extern const u8 trackcoor;
++ 
+ 
+ extern char GoalX;
+ extern char GoalY;
+@@ -838,9 +852,10 @@
+  
+  
+ 		e=0;eh=0;
+-		task=BEFORE90TURN;		 
++		task=BEFORE90TURN;
+ 		while(1)
+ 		{
++			if(spurt_search_active==1 && !spurtSearchRunning()) return;
+  
+ 		//TURN180	
+ 			if(LastSearchAction==TURN180)					 
+@@ -1025,6 +1040,11 @@
+ {	 
+ 	goaheadbugflag=0;
+ 	before90turn(TurnRight);
++	if(spurt_search_active==1 && (!spurtSearchRunning() || disr<50))
++	{
++		spurt_search_failed=1;
++		return;
++	}
+ 	LastSearchAction=TurnRight;
+ 	if(lefthaswall==1)
+ 	{
+@@ -1042,6 +1062,7 @@
+ 		while(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(7);ledon(8);delay_ms(500);}
+ 	}
+ 	taskturn(RT90SEARCH);
++	if(spurt_search_active==1 && !spurtSearchRunning()) return;
+ 	task=SMARTSTRAIGHT;
+ 	GucMouseDir=(GucMouseDir + 1) % 4; 
+ 	settrack(180-turnrighto); 
+@@ -1053,6 +1074,11 @@
+ {	 
+ 	goaheadbugflag=0;
+ 	before90turn(TurnLeft);
++	if(spurt_search_active==1 && (!spurtSearchRunning() || disl<50))
++	{
++		spurt_search_failed=1;
++		return;
++	}
+ 	LastSearchAction=TurnLeft;
+ 	if(righthaswall==1)
+ 	{
+@@ -1070,6 +1096,7 @@
+ 		while(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(5);ledon(6);delay_ms(500);}
+ 	}		   	
+ 	taskturn(LT90SEARCH);
++	if(spurt_search_active==1 && !spurtSearchRunning()) return;
+ 	task=SMARTSTRAIGHT;
+ 	GucMouseDir=(GucMouseDir + 3) % 4;
+ 	settrack(180+turnlefto);
+@@ -1514,8 +1541,197 @@
+ 	}
+ }
+ 
+-void mouseturn(u8 pattern)		 
+-{
++
++/* Search-like bypass, entered/exited on the same wall-edge plane as L/R180.
++ * Do not call mazeSearch()/__mouseCoorUpdate(): they also alter the wall map
++ * and choose exits. Replay the already planned three cells instead. */
++static u8 spurtSearchRunning(void)
++{
++#ifdef MOUSE_REMOTE
++    if(LP_AbortRequested()) return 0;
++#endif
++    return (isemergency==0 && sleepmode==0 && spurt_search_failed==0);
++}
++
++static u8 spurtSearchWaitTrack(long distance,u8 motion)
++{
++    task=motion;
++    while(track<distance)
++    {
++        if(!spurtSearchRunning()) return 0;
++    }
++    return spurtSearchRunning();
++}
++
++static u8 spurtIsSearchUturn(u8 pattern)
++{
++    return (pattern==L180L || pattern==R180L || pattern==L180M ||
++            pattern==R180M || pattern==L180H || pattern==R180H);
++}
++
++static void spurtSearchPose(u16 source,u8 direction)
++{
++    GmcMouse.cX=FastwayAction[source].cx;
++    GmcMouse.cY=FastwayAction[source].cy;
++    GucMouseDir=direction;
++}
++
++/* Reconstruct the source interval using the generator's existing consumption
++ * counts. This preserves exact source indices without a second RAM table. */
++static u16 spurtSourceForAction(u16 index)
++{
++    u16 n,source=1;
++    u8 code;
++    if(index>=200) return 256;
++    for(n=0;n<index;n++)
++    {
++        code=actionsequence[n];
++        if(code>=41 && code<=56) code-=40;
++        else if(code>=21 && code<=36) code-=20;
++        switch(code)
++        {
++        case STRAIGHT90L:case STRAIGHT45L:case LV45L:case RV45L:
++            source++;break;
++        case LT90L:case RT90L:case LV90L:case RV90L:
++        case LT45L:case RT45L:case LV135L:case RV135L:
++            source+=2;break;
++        case LT135L:case RT135L:case L180L:case R180L:
++            source+=3;break;
++        default:return 256;
++        }
++    }
++    return source;
++}
++
++/* Store the checkpoint in the unused correction buffer, not on the 512-byte
++ * interrupt-shared stack. memcpy also avoids any unaligned double access. */
++static void spurtSearchParameters(u8 save)
++{
++#define SPURT_SEARCH_COPY(field,offset) \
++    if(save) memcpy(action_correct_sequence+offset,&field,sizeof(field)); \
++    else memcpy(&field,action_correct_sequence+offset,sizeof(field))
++    SPURT_SEARCH_COPY(kpl,0);
++    SPURT_SEARCH_COPY(kil,8);
++    SPURT_SEARCH_COPY(kdl,16);
++    SPURT_SEARCH_COPY(kpr,24);
++    SPURT_SEARCH_COPY(kir,32);
++    SPURT_SEARCH_COPY(kdr,40);
++    SPURT_SEARCH_COPY(turn_kp,48);
++    SPURT_SEARCH_COPY(turn_kd,56);
++    SPURT_SEARCH_COPY(speed_ss,64);
++    SPURT_SEARCH_COPY(speed_turn,66);
++    SPURT_SEARCH_COPY(speed_fastss,68);
++    SPURT_SEARCH_COPY(turn_delay,70);
++    SPURT_SEARCH_COPY(keep_dis,71);
++    SPURT_SEARCH_COPY(sidewall_threshold,72);
++    SPURT_SEARCH_COPY(LastSearchAction,73);
++    SPURT_SEARCH_COPY(goaheadbugflag,74);
++#undef SPURT_SEARCH_COPY
++}
++
++static void spurtSearchUturn(u8 pattern)
++{
++    static const signed char dx[4]={0,1,0,-1};
++    static const signed char dy[4]={1,0,-1,0};
++    u16 source,n;
++    u8 right,entrydir,middir,exitdir,ok=0;
++    int heading=0;
++    long begintrack,exitdistance;
++
++    spurtSearchParameters(1);
++    /* Reject missing/truncated metadata before starting a physical motion. */
++    if(spurt_exec_index>=200) goto restore;
++    source=spurtSourceForAction(spurt_exec_index);
++    if(source<1 || source+2>=FastwayCount) goto restore;
++    right=(pattern==R180L || pattern==R180M || pattern==R180H);
++    if(FastwayAction[source].action!=(right?1:7) ||
++       FastwayAction[source+1].action!=(right?2:6) ||
++       FastwayAction[source+2].action!=(right?1:7)) goto restore;
++    for(n=0;n<source;n++) heading+=FastwayAction[n].action;
++    if(heading%2!=0) goto restore;
++    entrydir=(spurt_plan_start_dir+heading/2)%4;
++    middir=(entrydir+(right?1:3))%4;
++    exitdir=(entrydir+2)%4;
++    if(FastwayAction[source+1].cx!=FastwayAction[source].cx+dx[middir] ||
++       FastwayAction[source+1].cy!=FastwayAction[source].cy+dy[middir] ||
++       FastwayAction[source+2].cx!=FastwayAction[source+1].cx+dx[exitdir] ||
++       FastwayAction[source+2].cy!=FastwayAction[source+1].cy+dy[exitdir]) goto restore;
++    if(!spurtSearchRunning()) goto restore;
++
++    spurt_search_active=1;
++    parameter_search();
++    /* parameter_search leaves these at their initial search values in the
++     * original firmware; restore those values locally after sprint setup. */
++    speed_turn=30;
++    turn_kp=4;
++    turn_kd=4;
++    sidewall_threshold=160;
++    LastSearchAction=Stright;
++    goaheadbugflag=0;
++    e=0;eh=0;esum=0;
++
++    /* A falling side wall is trackcoor (127), NOT the search decision node
++     * (180). Keep the same 53 mm approach and first-turn delay as search.
++     * The two equal quarter turns cancel longitudinal displacement; replay
++     * this approach after turn #2 to return to the original exit plane. */
++    exitdistance=180-(long)trackcoor+(long)turn_delay-(right?3:2);
++    if(exitdistance<0) goto restore;
++    begintrack=absolutetrack;
++    task=SMARTSTRAIGHTFAST;
++    while(!(right?(righthaswallh==1 && righthaswall==0):
++                   (lefthaswallh==1 && lefthaswall==0)))
++    {
++        if(!spurtSearchRunning() || disf<10 ||
++           absolutetrack-begintrack>360) goto restore;
++    }
++    if(!spurtSearchRunning()) goto restore;
++    settrack(trackcoor);
++    if(!spurtSearchWaitTrack(180,STRAIGHTEYECLOSECOORADJ)) goto restore;
++    settrack(0);
++    spurtSearchPose(source,entrydir);
++
++    if(right) mouseTurnright(); else mouseTurnleft();
++    if(!spurtSearchRunning()) goto restore;
++    /* The search turn leaves track=180 +/- wall-offset compensation. */
++    if(!spurtSearchWaitTrack(180,SMARTSTRAIGHT)) goto restore;
++    settrack(0);
++    spurtSearchPose(source+1,middir);
++
++    if(right) mouseTurnright(); else mouseTurnleft();
++    if(!spurtSearchRunning()) goto restore;
++    if(!spurtSearchWaitTrack(180,SMARTSTRAIGHT)) goto restore;
++    settrack(0);
++    spurtSearchPose(source+2,exitdir);
++    if(!spurtSearchWaitTrack(exitdistance,SMARTSTRAIGHTFAST)) goto restore;
++    settrack(0);
++    ok=1;
++
++restore:
++    /* Do not restore old coordinates/heading after a partially completed
++     * manoeuvre: the last completed search node describes the actual pose. */
++    spurtSearchParameters(0);
++    spurt_search_active=0;
++    e=0;eh=0;esum=0;
++    if(ok) task=SMARTSTRAIGHTSPURTL;
++    else
++    {
++        spurt_search_failed=1;
++        task=NULL;setvl=0;setvr=0;
++#ifdef MOUSE_REMOTE
++        LP_AbortRequest();
++#endif
++        sleepmode=1;
++    }
++}
++
++void mouseturn(u8 pattern)
++{
++	if(spurtIsSearchUturn(pattern))
++	{
++		spurtSearchUturn(pattern);
++		ledoff(0);
++		return;
++	}
+ 	beforemouseturn(pattern);
+ 	taskturn(pattern);
+ 	ledoff(0);
+@@ -1563,14 +1779,19 @@
+ 	}
+  
+ 
++	if(FastwayCount<2) return;
++	spurt_plan_start_dir=GucMouseDir;
++	spurt_exec_index=200;
++	spurt_search_active=0;
++	spurt_search_failed=0;
+ 	if(mode==LOW)
+-	{  	
+-		for(i=0;i<FastwayCount-1;i++) 
++	{
++		for(i=0;i+1<FastwayCount && j<199;i++) 
+ 		{	
+ 			if(i<current)continue;
+ 	
+-			if(FastwayAction[i+1].action==1  && FastwayAction[i+2].action==2 && FastwayAction[i+3].action==1 && getsum(i)%2==0){actionsequence[j++]=R180L;current+=3;}
+-			else if(FastwayAction[i+1].action==7 && FastwayAction[i+2].action==6 && FastwayAction[i+3].action==7 && getsum(i)%2==0){actionsequence[j++]=L180L;current+=3;}
++			if(i+3<FastwayCount && FastwayAction[i+1].action==1  && FastwayAction[i+2].action==2 && FastwayAction[i+3].action==1 && getsum(i)%2==0){actionsequence[j++]=R180L;current+=3;}
++			else if(i+3<FastwayCount && FastwayAction[i+1].action==7 && FastwayAction[i+2].action==6 && FastwayAction[i+3].action==7 && getsum(i)%2==0){actionsequence[j++]=L180L;current+=3;}
+ 			else if(FastwayAction[i+1].action==2 && FastwayAction[i+2].action==1 && getsum(i)%2==1){actionsequence[j++]=RV135L;current+=2;} 
+ 			else if(FastwayAction[i+1].action==6 && FastwayAction[i+2].action==7 && getsum(i)%2==1){actionsequence[j++]=LV135L;current+=2;}
+ 			else if(FastwayAction[i+1].action==1 && FastwayAction[i+2].action==2 && getsum(i)%2==0){actionsequence[j++]=RT135L;current+=3;} 
+@@ -1624,12 +1845,12 @@
+ 	}
+ 	else if(mode==MEDIUM)
+ 	{	 
+-		for(i=0;i<FastwayCount-1;i++) 
++		for(i=0;i+1<FastwayCount && j<199;i++) 
+ 		{	
+ 			if(i<current)continue;
+ 	
+-			if(FastwayAction[i+1].action==1  && FastwayAction[i+2].action==2 && FastwayAction[i+3].action==1 && getsum(i)%2==0){actionsequence[j++]=R180M;current+=3;}
+-			else if(FastwayAction[i+1].action==7 && FastwayAction[i+2].action==6 && FastwayAction[i+3].action==7 && getsum(i)%2==0){actionsequence[j++]=L180M;current+=3;}
++			if(i+3<FastwayCount && FastwayAction[i+1].action==1  && FastwayAction[i+2].action==2 && FastwayAction[i+3].action==1 && getsum(i)%2==0){actionsequence[j++]=R180M;current+=3;}
++			else if(i+3<FastwayCount && FastwayAction[i+1].action==7 && FastwayAction[i+2].action==6 && FastwayAction[i+3].action==7 && getsum(i)%2==0){actionsequence[j++]=L180M;current+=3;}
+ 			else if(FastwayAction[i+1].action==2 && FastwayAction[i+2].action==1 && getsum(i)%2==1){actionsequence[j++]=RV135M;current+=2;} 
+ 			else if(FastwayAction[i+1].action==6 && FastwayAction[i+2].action==7 && getsum(i)%2==1){actionsequence[j++]=LV135M;current+=2;}
+ 			else if(FastwayAction[i+1].action==1 && FastwayAction[i+2].action==2 && getsum(i)%2==0){actionsequence[j++]=RT135M;current+=3;} 
+@@ -1648,12 +1869,12 @@
+ 	}
+ 	else if(mode==HIGH)
+ 	{
+-		for(i=0;i<FastwayCount-1;i++)
++		for(i=0;i+1<FastwayCount && j<199;i++)
+ 		{	
+ 			if(i<current)continue;
+ 	
+-			if(FastwayAction[i+1].action==1  && FastwayAction[i+2].action==2 && FastwayAction[i+3].action==1 && getsum(i)%2==0){actionsequence[j++]=R180H;current+=3;}
+-			else if(FastwayAction[i+1].action==7 && FastwayAction[i+2].action==6 && FastwayAction[i+3].action==7 && getsum(i)%2==0){actionsequence[j++]=L180H;current+=3;}
++			if(i+3<FastwayCount && FastwayAction[i+1].action==1  && FastwayAction[i+2].action==2 && FastwayAction[i+3].action==1 && getsum(i)%2==0){actionsequence[j++]=R180H;current+=3;}
++			else if(i+3<FastwayCount && FastwayAction[i+1].action==7 && FastwayAction[i+2].action==6 && FastwayAction[i+3].action==7 && getsum(i)%2==0){actionsequence[j++]=L180H;current+=3;}
+ 			else if(FastwayAction[i+1].action==2 && FastwayAction[i+2].action==1 && getsum(i)%2==1){actionsequence[j++]=RV135H;current+=2;} 
+ 			else if(FastwayAction[i+1].action==6 && FastwayAction[i+2].action==7 && getsum(i)%2==1){actionsequence[j++]=LV135H;current+=2;}
+ 			else if(FastwayAction[i+1].action==1 && FastwayAction[i+2].action==2 && getsum(i)%2==0){actionsequence[j++]=RT135H;current+=3;} 
+@@ -1716,7 +1937,10 @@
+ 			else
+ 			{
+ 				spurt_45_end_flag=0; 			
++				spurt_exec_index=i;
+ 				mouseturn(actionsequence[i]);
++				spurt_exec_index=200;
++				if(spurt_search_failed) return;
+ 		 		i++;
+ 				spurt_action_num++;
+ 			}
+@@ -1779,7 +2003,10 @@
+ 			}
+ 			else
+ 			{
++				spurt_exec_index=i;
+ 				mouseturn(actionsequence[i]);
++				spurt_exec_index=200;
++				if(spurt_search_failed) return;
+ 		 		i++;
+ 			}
+ 		}
+@@ -1819,7 +2046,10 @@
+ 			}
+ 			else
+ 			{
++				spurt_exec_index=i;
+ 				mouseturn(actionsequence[i]);
++				spurt_exec_index=200;
++				if(spurt_search_failed) return;
+ 		 		i++;
+ 			}
+ 		}

@@ -1,0 +1,6 @@
+host.c
+host.c(58): warning C4005: “NULL”: 宏重定义
+D:\vs\VC\Tools\MSVC\14.41.34120\include\vcruntime.h(230): note: 参见“NULL”的前一个定义
+host.c(136): warning C4244: “=”: 从“double”转换到“long”，可能丢失数据
+host.c(137): warning C4244: “=”: 从“double”转换到“long”，可能丢失数据
+  正在创建库 host.lib 和对象 host.exp

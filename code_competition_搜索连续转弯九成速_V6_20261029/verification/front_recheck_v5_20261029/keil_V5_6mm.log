@@ -1,0 +1,104 @@
+*** Using Compiler 'V5.06 update 7 (build 960)', folder: 'D:\Keil5MDK\ARM\ARM_Compiler_5.06u7\Bin'
+Rebuild target 'V5_6mm'
+assembling STM32F10x.s...
+compiling link.c...
+..\REMOTE\link.c(3377): warning:  #9-D: nested comment is not allowed
+  	 * `MOTION/*.c` 的阻塞等待里, 这条救援路径依然能走到(这正是它的意义)。
+..\REMOTE\link.c: 1 warning, 0 errors
+compiling adc.c...
+compiling link_port.c...
+..\HARDWARE\STMFLASH\stmflash.h(33): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+..\HARDWARE\STMFLASH\stmflash.h(34): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+..\REMOTE\link_port.c: 2 warnings, 0 errors
+compiling stm32f10x_gpio.c...
+compiling test.c...
+..\HARDWARE\STMFLASH\stmflash.h(33): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+..\HARDWARE\STMFLASH\stmflash.h(34): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+test.c(439): warning:  #111-D: statement is unreachable
+  			ledon(0);
+test.c(444): warning:  #111-D: statement is unreachable
+  			break;
+test.c(616): warning:  #111-D: statement is unreachable
+  			break;
+test.c(1364): warning:  #111-D: statement is unreachable
+  			break;
+test.c(219): warning:  #177-D: variable "spurtTestNum1"  was declared but never referenced
+  	u16 spurtTestNum1=0, spurtTestNum2=0, spurtTestNum3=0;
+test.c(219): warning:  #177-D: variable "spurtTestNum2"  was declared but never referenced
+  	u16 spurtTestNum1=0, spurtTestNum2=0, spurtTestNum3=0;
+test.c(219): warning:  #177-D: variable "spurtTestNum3"  was declared but never referenced
+  	u16 spurtTestNum1=0, spurtTestNum2=0, spurtTestNum3=0;
+test.c(227): warning:  #177-D: variable "SpurtTest_Test"  was declared but never referenced
+  	u16 SpurtTest_Test=0;
+test.c(231): warning:  #177-D: variable "shortwayN"  was declared but never referenced
+  	uchar shortwayN=0;
+test.c(237): warning:  #177-D: variable "dstep"  was declared but never referenced
+  	uchar dstep=2;
+test.c(238): warning:  #177-D: variable "dstepS"  was declared but never referenced
+  	uchar dstepS=2;
+test.c(240): warning:  #177-D: variable "tempBlock"  was declared but never referenced
+  	uchar tempBlock;
+test.c(254): warning:  #177-D: variable "ft"  was declared but never referenced
+  	u32 ft=0;
+test.c(256): warning:  #177-D: variable "flashtemp"  was declared but never referenced
+  	long flashtemp;
+test.c(258): warning:  #177-D: variable "spurtmode"  was declared but never referenced
+  	u8 spurtmode;
+test.c(459): warning:  #177-D: label "go_to_case_5"  was declared but never referenced
+  go_to_case_5:
+test.c(1032): warning:  #177-D: label "SearchJump"  was declared but never referenced
+  SearchJump:					mapStepEditS(GucXStart,GucYStart);
+test.c: 19 warnings, 0 errors
+compiling usart.c...
+compiling stm32f10x_rcc.c...
+compiling delay.c...
+compiling sys.c...
+compiling timer.c...
+..\HARDWARE\STMFLASH\stmflash.h(33): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+..\HARDWARE\STMFLASH\stmflash.h(34): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+..\HARDWARE\TIMER\timer.c: 2 warnings, 0 errors
+compiling user.c...
+compiling led.c...
+..\HARDWARE\STMFLASH\stmflash.h(33): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+..\HARDWARE\STMFLASH\stmflash.h(34): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+..\HARDWARE\LED\led.c: 2 warnings, 0 errors
+compiling stmflash.c...
+..\HARDWARE\STMFLASH\stmflash.h(33): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+..\HARDWARE\STMFLASH\stmflash.h(34): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+..\HARDWARE\STMFLASH\stmflash.c: 2 warnings, 0 errors
+compiling stratagy.c...
+compiling utility.c...
+..\HARDWARE\STMFLASH\stmflash.h(33): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY1"  (declared at line 7850 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY1               0X45670123
+..\HARDWARE\STMFLASH\stmflash.h(34): warning:  #47-D: incompatible redefinition of macro "FLASH_KEY2"  (declared at line 7851 of "D:\Keil5MDK\ARM\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h")
+  #define FLASH_KEY2               0XCDEF89AB
+..\UTILITY\utility.c(2178): warning:  #177-D: variable "sum"  was declared but never referenced
+  	int sum=0,current=0;
+..\UTILITY\utility.c(2181): warning:  #177-D: variable "k"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+..\UTILITY\utility.c(2181): warning:  #177-D: variable "dirtemp"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+..\UTILITY\utility.c(2181): warning:  #177-D: variable "leftdir"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+..\UTILITY\utility.c(2181): warning:  #177-D: variable "rightdir"  was declared but never referenced
+  	uchar k=0,dirtemp=0,leftdir=0,rightdir=0;
+..\UTILITY\utility.c(2432): warning:  #128-D: loop is not reachable
+  		while(actionsequence[i]!=0)
+..\UTILITY\utility.c(2475): warning:  #177-D: variable "sum"  was declared but never referenced
+  	int sum=0,current=0;
+..\UTILITY\utility.c: 9 warnings, 0 errors
+linking...
+Program Size: Code=60188 RO-data=21712 RW-data=4960 ZI-data=15520  
+FromELF: creating hex file...
+".\Build\V5_6mm\TEST_V5_6mm.axf" - 0 Error(s), 37 Warning(s).
+Build Time Elapsed:  00:00:01

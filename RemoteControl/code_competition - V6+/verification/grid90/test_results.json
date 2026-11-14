@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "cases": [
+    {
+      "case": "straight, terminal turn, left/right single wall U, alternating corners, adjacent U, start-at-goal; four headings",
+      "passed": 32
+    },
+    {
+      "case": "random connected 16x16 mazes: actual C flood/planner against independent BFS, then actual C executor",
+      "passed": 800
+    },
+    {
+      "case": "long straight reaches original 140 speed limit and stops at goal",
+      "passed": 1
+    },
+    {
+      "case": "unreachable goal, open boundary, malformed source coordinates/action/count rejected before motion",
+      "passed": 9
+    },
+    {
+      "case": "254 edges plus sentinel fit; 255-edge route rejected without count wraparound",
+      "passed": 2
+    }
+  ],
+  "method": "Extracted production competition C planner and executor; production 90-degree search functions. ISR, search straight tail and motor primitives are simulated. No hardware or upper-computer test."
+}

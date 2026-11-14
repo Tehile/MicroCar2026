@@ -1,0 +1,54 @@
+--- 20261022/UTILITY/utility.c
++++ V3/UTILITY/utility.c
+@@ -21,6 +21,14 @@
+ 
+ u8 turn_delay = 5;
+ u8 LastSearchAction=Stright;
++/* V3: trim only the departure after a goal turnaround, in millimetres. */
++#ifndef GOAL_DEPARTURE_EXTRA_MM
++#define GOAL_DEPARTURE_EXTRA_MM 0
++#endif
++#if GOAL_DEPARTURE_EXTRA_MM != 0 && GOAL_DEPARTURE_EXTRA_MM != 2 && GOAL_DEPARTURE_EXTRA_MM != 4 && GOAL_DEPARTURE_EXTRA_MM != 6
++#error GOAL_DEPARTURE_EXTRA_MM_must_be_0_2_4_or_6
++#endif
++
+ int turnrighto,turnlefto;
+ int turno=0;
+ u8 spurt_45_end_flag=0;
+@@ -1134,6 +1142,23 @@
+ 
+ }
+ 
++#ifndef MOUSE_REMOTE
++/* Depart at search-turn speed before committing the next grid coordinate.
++ * Keep the inherited 180-turn geometry (front wall: 90 - 35 = 55 mm).
++ * taskacc includes its 40 mm ramp in this total; do not count it twice.
++ * No extra wall-alignment turns and no ordinary 90-turn compensation. */
++static void goalDepartureAfterTurnback(void)
++{
++    long distance=(long)disbf180-35;
++    if(distance<(long)accdistance) distance=accdistance;
++    distance+=GOAL_DEPARTURE_EXTRA_MM;
++    taskacc();
++    task=SMARTSTRAIGHT;
++    while(track<distance);
++    afterturn_flag=0;
++}
++#endif
++
+ void mouseTurnback()
+ {				
+ 	goaheadbugflag=0;
+@@ -1149,6 +1174,12 @@
+ 		{
+ 	after180turn();
+ 		}
++#ifndef MOUSE_REMOTE
++    else if(spurt_search_active!=1)
++    {
++        goalDepartureAfterTurnback();
++    }
++#endif
+ 	GucMouseDir = (GucMouseDir + 2) % 4;
+ 	__mouseCoorUpdate();
+ 	settrack(0);

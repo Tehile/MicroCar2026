@@ -1,0 +1,215 @@
+{
+  "status": "PASS",
+  "checks": 1264,
+  "representative_traces": [
+    {
+      "case": "immediate_left",
+      "extra_mm": 0,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 55,
+      "first_curve_after_pivot_mm": 62,
+      "coordinate_commit_after_pivot_mm": 55,
+      "end_xy_dir": [
+        8,
+        6,
+        1
+      ]
+    },
+    {
+      "case": "immediate_left",
+      "extra_mm": 2,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 57,
+      "first_curve_after_pivot_mm": 64,
+      "coordinate_commit_after_pivot_mm": 57,
+      "end_xy_dir": [
+        8,
+        6,
+        1
+      ]
+    },
+    {
+      "case": "immediate_left",
+      "extra_mm": 4,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 59,
+      "first_curve_after_pivot_mm": 66,
+      "coordinate_commit_after_pivot_mm": 59,
+      "end_xy_dir": [
+        8,
+        6,
+        1
+      ]
+    },
+    {
+      "case": "immediate_left",
+      "extra_mm": 6,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 61,
+      "first_curve_after_pivot_mm": 68,
+      "coordinate_commit_after_pivot_mm": 61,
+      "end_xy_dir": [
+        8,
+        6,
+        1
+      ]
+    },
+    {
+      "case": "immediate_right",
+      "extra_mm": 0,
+      "baseline_first_curve_after_pivot_mm": 6,
+      "departure_mm": 55,
+      "first_curve_after_pivot_mm": 61,
+      "coordinate_commit_after_pivot_mm": 55,
+      "end_xy_dir": [
+        6,
+        6,
+        3
+      ]
+    },
+    {
+      "case": "immediate_right",
+      "extra_mm": 2,
+      "baseline_first_curve_after_pivot_mm": 6,
+      "departure_mm": 57,
+      "first_curve_after_pivot_mm": 63,
+      "coordinate_commit_after_pivot_mm": 57,
+      "end_xy_dir": [
+        6,
+        6,
+        3
+      ]
+    },
+    {
+      "case": "immediate_right",
+      "extra_mm": 4,
+      "baseline_first_curve_after_pivot_mm": 6,
+      "departure_mm": 59,
+      "first_curve_after_pivot_mm": 65,
+      "coordinate_commit_after_pivot_mm": 59,
+      "end_xy_dir": [
+        6,
+        6,
+        3
+      ]
+    },
+    {
+      "case": "immediate_right",
+      "extra_mm": 6,
+      "baseline_first_curve_after_pivot_mm": 6,
+      "departure_mm": 61,
+      "first_curve_after_pivot_mm": 67,
+      "coordinate_commit_after_pivot_mm": 61,
+      "end_xy_dir": [
+        6,
+        6,
+        3
+      ]
+    },
+    {
+      "case": "straight_then_left",
+      "extra_mm": 0,
+      "baseline_first_curve_after_pivot_mm": 189,
+      "departure_mm": 55,
+      "first_curve_after_pivot_mm": 244,
+      "coordinate_commit_after_pivot_mm": 55,
+      "end_xy_dir": [
+        8,
+        5,
+        1
+      ]
+    },
+    {
+      "case": "straight_then_left",
+      "extra_mm": 2,
+      "baseline_first_curve_after_pivot_mm": 189,
+      "departure_mm": 57,
+      "first_curve_after_pivot_mm": 246,
+      "coordinate_commit_after_pivot_mm": 57,
+      "end_xy_dir": [
+        8,
+        5,
+        1
+      ]
+    },
+    {
+      "case": "straight_then_left",
+      "extra_mm": 4,
+      "baseline_first_curve_after_pivot_mm": 189,
+      "departure_mm": 59,
+      "first_curve_after_pivot_mm": 248,
+      "coordinate_commit_after_pivot_mm": 59,
+      "end_xy_dir": [
+        8,
+        5,
+        1
+      ]
+    },
+    {
+      "case": "straight_then_left",
+      "extra_mm": 6,
+      "baseline_first_curve_after_pivot_mm": 189,
+      "departure_mm": 61,
+      "first_curve_after_pivot_mm": 250,
+      "coordinate_commit_after_pivot_mm": 61,
+      "end_xy_dir": [
+        8,
+        5,
+        1
+      ]
+    },
+    {
+      "case": "immediate_LL",
+      "extra_mm": 0,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 55,
+      "first_curve_after_pivot_mm": 62,
+      "coordinate_commit_after_pivot_mm": 55,
+      "end_xy_dir": [
+        8,
+        7,
+        0
+      ]
+    },
+    {
+      "case": "immediate_LL",
+      "extra_mm": 2,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 57,
+      "first_curve_after_pivot_mm": 64,
+      "coordinate_commit_after_pivot_mm": 57,
+      "end_xy_dir": [
+        8,
+        7,
+        0
+      ]
+    },
+    {
+      "case": "immediate_LL",
+      "extra_mm": 4,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 59,
+      "first_curve_after_pivot_mm": 66,
+      "coordinate_commit_after_pivot_mm": 59,
+      "end_xy_dir": [
+        8,
+        7,
+        0
+      ]
+    },
+    {
+      "case": "immediate_LL",
+      "extra_mm": 6,
+      "baseline_first_curve_after_pivot_mm": 7,
+      "departure_mm": 61,
+      "first_curve_after_pivot_mm": 68,
+      "coordinate_commit_after_pivot_mm": 61,
+      "end_xy_dir": [
+        8,
+        7,
+        0
+      ]
+    }
+  ],
+  "method": "Extracted actual production before180turn, taskturnaround with its trajectory arrays and ISR, taskacc, goal departure, coordinate update, normal taskturn/before90turn, mouseGoahead, mapStepEdit and objectGoTo. Wait loops alone call a host ISR shim. Encoder and front/side IR are synthetic; yaw tracks its reference and settles ideally; curve translation is omitted and wall-map sensing/Flash writes are recorded stubs. This verifies control flow and encoder targets, not physical turning clearance or hardware dynamics."
+}

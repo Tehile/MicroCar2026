@@ -1,0 +1,11 @@
+previous_runner_host.c
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(142): warning C4005: “NULL”: 宏重定义
+D:\vs\VC\Tools\MSVC\14.41.34120\include\vcruntime.h(230): note: 参见“NULL”的前一个定义
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(346): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(347): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(370): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(371): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(700): warning C4305: “=”: 从“double”到“float”截断
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(700): warning C4305: “=”: 从“double”到“float”截断
+D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.c(701): warning C4305: “=”: 从“double”到“float”截断
+  正在创建库 D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.lib 和对象 D:\ZHY\电脑鼠\竞赛例程最终版11.18比赛最好版\竞赛例程最终版11.18比赛最好版\code_competition_搜索连续转弯九成速_V6_20261029\verification\grid90_transition\previous_runner_host.exp

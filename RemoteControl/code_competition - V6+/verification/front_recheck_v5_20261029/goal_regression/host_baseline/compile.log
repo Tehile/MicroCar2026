@@ -1,0 +1,49 @@
+host.c
+host.c(207): warning C4005: “NULL”: 宏重定义
+D:\vs\VC\Tools\MSVC\14.41.34120\include\vcruntime.h(230): note: 参见“NULL”的前一个定义
+host.c(315): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(318): warning C4244: “-=”: 从“double”转换到“int”，可能丢失数据
+host.c(319): warning C4244: “+=”: 从“double”转换到“int”，可能丢失数据
+host.c(330): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(333): warning C4244: “-=”: 从“double”转换到“int”，可能丢失数据
+host.c(334): warning C4244: “+=”: 从“double”转换到“int”，可能丢失数据
+host.c(348): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(349): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(364): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(365): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(373): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(374): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(393): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(394): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(415): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(416): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(421): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(422): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(458): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(459): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(497): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(498): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(532): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(533): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(551): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(552): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(558): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(559): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(583): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(584): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(588): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(589): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(599): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(600): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(604): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(605): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(618): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(619): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(642): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(643): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+host.c(677): warning C4244: “=”: 从“long”转换到“volatile s16”，可能丢失数据
+host.c(1021): warning C4244: “=”: 从“volatile long”转换到“u16”，可能丢失数据
+host.c(1023): warning C4244: “=”: 从“volatile long”转换到“u16”，可能丢失数据
+host.c(1592): warning C4244: “=”: 从“u16”转换到“u8”，可能丢失数据
+host.c(1593): warning C4244: “=”: 从“u16”转换到“u8”，可能丢失数据
+  正在创建库 host.lib 和对象 host.exp

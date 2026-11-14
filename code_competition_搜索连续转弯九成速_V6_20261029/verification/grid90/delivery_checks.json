@@ -1,0 +1,48 @@
+{
+  "status": "PASS",
+  "source_files_checked": 175,
+  "original_source_files_changed": [],
+  "modified_files_this_change": [
+    "USER/test.c",
+    "UTILITY/utility.c",
+    "UTILITY/utility.h",
+    "STRATAGY/stratagy.c"
+  ],
+  "errors": 0,
+  "warnings": 37,
+  "ram_rw": 4960,
+  "ram_zi": 15520,
+  "ram_total": 20480,
+  "stack_allocation": 512,
+  "new_sprint_max_call_depth_excluding_main_and_interrupts": 128,
+  "hex_sha256": "47e7084ee34c64a98c8f3b3dfb02352958e927df5997015731333291112d2289",
+  "hex_highest_address_exclusive": "0x8013d18",
+  "current_firmware": "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_V字路按搜索_20261022\\USER\\TEST_纯90度冲刺_20261022.hex",
+  "remote_firmware_updated": false,
+  "software_tests": {
+    "status": "PASS",
+    "cases": [
+      {
+        "case": "straight, terminal turn, left/right single wall U, alternating corners, adjacent U, start-at-goal; four headings",
+        "passed": 32
+      },
+      {
+        "case": "random connected 16x16 mazes: actual C flood/planner against independent BFS, then actual C executor",
+        "passed": 800
+      },
+      {
+        "case": "long straight reaches original 140 speed limit and stops at goal",
+        "passed": 1
+      },
+      {
+        "case": "unreachable goal, open boundary, malformed source coordinates/action/count rejected before motion",
+        "passed": 9
+      },
+      {
+        "case": "254 edges plus sentinel fit; 255-edge route rejected without count wraparound",
+        "passed": 2
+      }
+    ],
+    "method": "Extracted production competition C planner and executor; production 90-degree search functions. ISR, search straight tail and motor primitives are simulated. No hardware or upper-computer test."
+  }
+}

@@ -1,0 +1,67 @@
+[
+  {
+    "file": "UTILITY/utility.c",
+    "old": "#include \"search_guard_v5.h\"",
+    "new": "#include \"search_guard_v5.h\"\n#include \"search_turn_v6.h\""
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mouseTurnright()\n{\t ",
+    "new": "#ifndef MOUSE_REMOTE\n/* Latch before mouseTurnleft/right replaces LastSearchAction with this turn. */\nstatic u8 v6UseSlowSearchTurn(void)\n{\n    return (GucMouseTask==MAZESEARCH && spurt_search_active!=1 &&\n            (LastSearchAction==TurnLeft || LastSearchAction==TurnRight));\n}\n\n/* Same TURN controller, geometry and final phases as the original search turn.\n * Only the precomputed wheel/angle profile and its execution time differ. */\nstatic void v6SlowSearchTurn90(u8 direction)\n{\n    u16 end_tick;\n    eh=0;e=0;esum=0;tick=0;\n    if(direction==TurnLeft)\n    {\n        setangle(-90);\n        turn_gyro=v6_left_gyro;turn_vl=v6_left_inner;turn_vr=v6_left_outer;\n        end_tick=V6_LEFT_TURN_TICKS;\n    }\n    else\n    {\n        setangle(90);\n        turn_gyro=v6_right_gyro;turn_vl=v6_right_outer;turn_vr=v6_right_inner;\n        end_tick=V6_RIGHT_TURN_TICKS;\n    }\n    task=TURN;\n    while(tick<end_tick);\n    settrack(0);\n}\n#endif\n\nvoid mouseTurnright()\n{\t \n#ifndef MOUSE_REMOTE\n    u8 slow_turn=v6UseSlowSearchTurn();\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mouseTurnleft()\n{\t ",
+    "new": "void mouseTurnleft()\n{\t \n#ifndef MOUSE_REMOTE\n    u8 slow_turn=v6UseSlowSearchTurn();\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "\ttaskturn(RT90SEARCH);",
+    "new": "#ifndef MOUSE_REMOTE\n    if(slow_turn)v6SlowSearchTurn90(TurnRight);\n    else\n#endif\n    {taskturn(RT90SEARCH);}"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "\ttaskturn(LT90SEARCH);",
+    "new": "#ifndef MOUSE_REMOTE\n    if(slow_turn)v6SlowSearchTurn90(TurnLeft);\n    else\n#endif\n    {taskturn(LT90SEARCH);}"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "#include \"search_turn_v6.h\"",
+    "new": "#include \"search_turn_v6.h\"\n/* V5 reserved this byte; do not reuse its legacy LastSearchAction values. */\n#define V6_TURN_CHAIN v5_diag.reserved"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "return (GucMouseTask==MAZESEARCH && spurt_search_active!=1 &&\n            (LastSearchAction==TurnLeft || LastSearchAction==TurnRight));",
+    "new": "return (GucMouseTask==MAZESEARCH && spurt_search_active!=1 &&\n            V6_TURN_CHAIN==1 &&\n            (LastSearchAction==TurnLeft || LastSearchAction==TurnRight));"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mazesearchhaswall()\t\t \n{",
+    "new": "void mazesearchhaswall()\t\t \n{\n#ifndef MOUSE_REMOTE\n    V6_TURN_CHAIN=0;\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mazesearchnowall()\t\t\t \n{",
+    "new": "void mazesearchnowall()\t\t\t \n{\n#ifndef MOUSE_REMOTE\n    V6_TURN_CHAIN=0;\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mouseTurnback()\n{",
+    "new": "void mouseTurnback()\n{\n#ifndef MOUSE_REMOTE\n    V6_TURN_CHAIN=0;\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void specialmouseTurnback()\n{",
+    "new": "void specialmouseTurnback()\n{\n#ifndef MOUSE_REMOTE\n    V6_TURN_CHAIN=0;\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mouseTurnright()\n{\t \n#ifndef MOUSE_REMOTE\n    u8 slow_turn=v6UseSlowSearchTurn();\n#endif\n\tgoaheadbugflag=0;\n\tbefore90turn(TurnRight);\n\tif(spurt_search_active==1 && (!spurtSearchRunning() || disr<50))\n\t{\n\t\tspurt_search_failed=1;\n\t\treturn;\n\t}\n\tLastSearchAction=TurnRight;\n\tif(lefthaswall==1)\n\t{\n\t\tturnrighto=dis2wall-((disl+dislh+dislhh)/3);\n\t\tturno=(disr+disrh+disrhh)/3-dis2wall;\n\t}\n\telse {turnrighto=0;turno=0;}\n\tif(disr<50) \n\t{\n\t\tflashwrite=0;\n\t \tsetvl=0;setvr=0;\n\t\ttask=NULL;\n\t\tdelay_ms(50);\n\t\tsleepmode=1;\n\t\twhile(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(7);ledon(8);delay_ms(500);}\n\t}\n#ifndef MOUSE_REMOTE\n    if(slow_turn)v6SlowSearchTurn90(TurnRight);\n    else\n#endif\n    {taskturn(RT90SEARCH);}\n\tif(spurt_search_active==1 && !spurtSearchRunning()) return;\n\ttask=SMARTSTRAIGHT;\n\tGucMouseDir=(GucMouseDir + 1) % 4; \n\tsettrack(180-turnrighto); ",
+    "new": "void mouseTurnright()\n{\t \n#ifndef MOUSE_REMOTE\n    u8 slow_turn=v6UseSlowSearchTurn();\n#endif\n\tgoaheadbugflag=0;\n\tbefore90turn(TurnRight);\n\tif(spurt_search_active==1 && (!spurtSearchRunning() || disr<50))\n\t{\n\t\tspurt_search_failed=1;\n\t\treturn;\n\t}\n\tLastSearchAction=TurnRight;\n\tif(lefthaswall==1)\n\t{\n\t\tturnrighto=dis2wall-((disl+dislh+dislhh)/3);\n\t\tturno=(disr+disrh+disrhh)/3-dis2wall;\n\t}\n\telse {turnrighto=0;turno=0;}\n\tif(disr<50) \n\t{\n\t\tflashwrite=0;\n\t \tsetvl=0;setvr=0;\n\t\ttask=NULL;\n\t\tdelay_ms(50);\n\t\tsleepmode=1;\n\t\twhile(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(7);ledon(8);delay_ms(500);}\n\t}\n#ifndef MOUSE_REMOTE\n    if(slow_turn)v6SlowSearchTurn90(TurnRight);\n    else\n#endif\n    {taskturn(RT90SEARCH);}\n\tif(spurt_search_active==1 && !spurtSearchRunning()) return;\n\ttask=SMARTSTRAIGHT;\n\tGucMouseDir=(GucMouseDir + 1) % 4; \n\tsettrack(180-turnrighto); \n#ifndef MOUSE_REMOTE\n    V6_TURN_CHAIN=(GucMouseTask==MAZESEARCH && spurt_search_active!=1)?1:0;\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mouseTurnleft()\n{\t \n#ifndef MOUSE_REMOTE\n    u8 slow_turn=v6UseSlowSearchTurn();\n#endif\n\tgoaheadbugflag=0;\n\tbefore90turn(TurnLeft);\n\tif(spurt_search_active==1 && (!spurtSearchRunning() || disl<50))\n\t{\n\t\tspurt_search_failed=1;\n\t\treturn;\n\t}\n\tLastSearchAction=TurnLeft;\n\tif(righthaswall==1)\n\t{\n\t\tturnlefto=(disr+disrh+disrhh)/3-dis2wall;\n\t\tturno=(disr+disrh+disrhh)/3-dis2wall;\n\t}\n\telse {turnlefto=0;turno=0;}\n\tif(disl<50) \n\t{\n\t \tflashwrite=0;\n\t\tsetvl=0;setvr=0;\n\t\ttask=NULL;\n\tdelay_ms(50);\n\t\tsleepmode=1;\n\t\twhile(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(5);ledon(6);delay_ms(500);}\n\t}\t\t   \t\n#ifndef MOUSE_REMOTE\n    if(slow_turn)v6SlowSearchTurn90(TurnLeft);\n    else\n#endif\n    {taskturn(LT90SEARCH);}\n\tif(spurt_search_active==1 && !spurtSearchRunning()) return;\n\ttask=SMARTSTRAIGHT;\n\tGucMouseDir=(GucMouseDir + 3) % 4;\n\tsettrack(180+turnlefto);",
+    "new": "void mouseTurnleft()\n{\t \n#ifndef MOUSE_REMOTE\n    u8 slow_turn=v6UseSlowSearchTurn();\n#endif\n\tgoaheadbugflag=0;\n\tbefore90turn(TurnLeft);\n\tif(spurt_search_active==1 && (!spurtSearchRunning() || disl<50))\n\t{\n\t\tspurt_search_failed=1;\n\t\treturn;\n\t}\n\tLastSearchAction=TurnLeft;\n\tif(righthaswall==1)\n\t{\n\t\tturnlefto=(disr+disrh+disrhh)/3-dis2wall;\n\t\tturno=(disr+disrh+disrhh)/3-dis2wall;\n\t}\n\telse {turnlefto=0;turno=0;}\n\tif(disl<50) \n\t{\n\t \tflashwrite=0;\n\t\tsetvl=0;setvr=0;\n\t\ttask=NULL;\n\tdelay_ms(50);\n\t\tsleepmode=1;\n\t\twhile(1){sleepmode=1;ledoff(0);delay_ms(500);ledon(5);ledon(6);delay_ms(500);}\n\t}\t\t   \t\n#ifndef MOUSE_REMOTE\n    if(slow_turn)v6SlowSearchTurn90(TurnLeft);\n    else\n#endif\n    {taskturn(LT90SEARCH);}\n\tif(spurt_search_active==1 && !spurtSearchRunning()) return;\n\ttask=SMARTSTRAIGHT;\n\tGucMouseDir=(GucMouseDir + 3) % 4;\n\tsettrack(180+turnlefto);\n#ifndef MOUSE_REMOTE\n    V6_TURN_CHAIN=(GucMouseTask==MAZESEARCH && spurt_search_active!=1)?1:0;\n#endif"
+  }
+]

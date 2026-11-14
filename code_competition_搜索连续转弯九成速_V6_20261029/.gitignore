@@ -1,0 +1,42 @@
+*.saved_uv4
+RTE/
+*.sct
+*.bak
+# ---- Keil/uVision 构建与调试产物(可复现, 不入库) ----
+# 入库的只有: 源码(*.c/*.h/*.s) + *.uvprojx(工程) + 少量说明脚本。
+# 其余均为每次构建/调试产生的中间产物(清理清单同 keilkilll.bat)。
+*.o
+*.d
+*.crf
+*.lst
+*.lnp
+*.dep
+*.axf
+*.hex
+*.map
+*.htm
+Object/
+Listings/
+~$*
+*.uvgui*
+*.uvguix*
+*.uvopt
+*.uvoptx
+JLinkLog.txt
+JLink*.txt
+JLinkSettings.ini
+__Previews/
+*.cPreview
+desktop.ini
+
+# Target_Remote 构建输出目录(见 USER/TEST.uvprojx 的 OutputDirectory => USER/Remote/)
+# ⚠️ 必须锚定 USER/ 前缀: 裸 'Remote/' 在 Windows 大小写不敏感下会连带忽略源码目录 REMOTE/
+USER/Remote/
+
+# ---- 发布物与档位配置例外（2026-11-14 发布整理新增）----
+# 交付固件（固件_V*/ 里的 hex/axf + SHA256 台账）是发布物，必须入库；
+# TEST.uvoptx 记录五档 Target 的当前档位与输出目录，缺了它别人打开工程只有默认档。
+!固件_*/*.hex
+!固件_*/*.axf
+!固件_*/SHA256SUMS.txt
+!USER/TEST.uvoptx

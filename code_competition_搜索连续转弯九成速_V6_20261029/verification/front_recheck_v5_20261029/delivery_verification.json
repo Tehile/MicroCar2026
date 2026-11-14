@@ -1,0 +1,58 @@
+{
+  "status": "PASS",
+  "v3_files_unchanged": 552,
+  "original_files_unchanged": 264,
+  "default": "V5_4mm",
+  "byte_exact_inverse_patch": true,
+  "encoding_crlf_preserved": true,
+  "ram_bytes": 20480,
+  "stack_bytes": 768,
+  "snapshots_bytes": 256,
+  "legacy_records": 1136,
+  "changed_production_files": [
+    "HARDWARE/ADC/adc.c",
+    "HARDWARE/STMFLASH/stmflash.c",
+    "HARDWARE/TIMER/timer.c",
+    "USER/STM32F10x.s",
+    "UTILITY/utility.c"
+  ],
+  "new_internal_header": "UTILITY/search_guard_v5.h",
+  "software_checks": 2474,
+  "goal_checks": 1264,
+  "guard_checks": 317,
+  "sprint_checks": 893,
+  "images": [
+    {
+      "target": "V5_0mm",
+      "last_flash_byte": "0x8014683",
+      "sha256": "c5536741adc27426233a9e3a1cafba24f15043e940600d36ba1c1df5535e1aa3",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712
+    },
+    {
+      "target": "V5_2mm",
+      "last_flash_byte": "0x8014683",
+      "sha256": "9516c00a9dd8bb6ee6a58b782959e54fa68c2df48d4e185647f1b5d2b860efec",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712
+    },
+    {
+      "target": "V5_4mm",
+      "last_flash_byte": "0x8014683",
+      "sha256": "baac1705cef7052b60abea4d7403b2dad24fc4afdb76f48af793aa97d6af001b",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712
+    },
+    {
+      "target": "V5_6mm",
+      "last_flash_byte": "0x8014683",
+      "sha256": "d50409dc520c72de090ef1fb9b64389a9858b24debf21d4b392d698e45e84f95",
+      "ram_bytes": 20480,
+      "search_stack_estimate": 552,
+      "startup_stack_estimate": 712
+    }
+  ]
+}

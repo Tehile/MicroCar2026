@@ -1,0 +1,61 @@
+{
+  "status": "PASS",
+  "checks": 317,
+  "traces": [
+    {
+      "case": 1,
+      "result": 2,
+      "ticks": 500,
+      "trigger_mean": 3
+    },
+    {
+      "case": 2,
+      "result": 2,
+      "ticks": 500,
+      "trigger_mean": 3
+    },
+    {
+      "case": 3,
+      "result": 2,
+      "ticks": 500,
+      "trigger_mean": 3
+    },
+    {
+      "case": 4,
+      "result": 2,
+      "ticks": 500,
+      "trigger_mean": 3
+    },
+    {
+      "case": 5,
+      "result": 2,
+      "ticks": 500,
+      "trigger_mean": 3
+    },
+    {
+      "case": 6,
+      "result": 2,
+      "ticks": 500,
+      "trigger_mean": 3
+    },
+    {
+      "case": 7,
+      "result": 3,
+      "ticks": 5,
+      "trigger_mean": 3
+    },
+    {
+      "case": 8,
+      "result": 3,
+      "ticks": 5,
+      "trigger_mean": 3
+    },
+    {
+      "case": 9,
+      "result": 3,
+      "ticks": 5,
+      "trigger_mean": 3
+    }
+  ],
+  "method": "Actual extracted production capture/recheck/print functions and hold/BEFORE180TURN IRQ cases. Only host IRQ delivery, UART duration, sensor readings and wheel feedback are synthetic. Includes transient/permanent trip, repeated triggers, stale samples, moving wheels, invalid lookup values, mismatched mean, emergency, sleep, task cancellation, UART rebound, coordinate/encoder continuity and local correction range. Not a physical dynamics or optical accuracy test."
+}

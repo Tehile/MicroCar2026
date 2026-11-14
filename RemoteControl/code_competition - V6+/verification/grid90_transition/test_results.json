@@ -1,0 +1,122 @@
+{
+  "status": "PASS",
+  "cases": [
+    {
+      "case": "first straight followed by left/right; 1/2/5 cells; side wall on/off; finite front wall",
+      "passed": 12,
+      "traces": [
+        {
+          "cells": 1,
+          "turn": 1,
+          "side_wall": 0,
+          "curve_start_mm": 70
+        },
+        {
+          "cells": 1,
+          "turn": 1,
+          "side_wall": 1,
+          "curve_start_mm": 70
+        },
+        {
+          "cells": 1,
+          "turn": 3,
+          "side_wall": 0,
+          "curve_start_mm": 70
+        },
+        {
+          "cells": 1,
+          "turn": 3,
+          "side_wall": 1,
+          "curve_start_mm": 70
+        },
+        {
+          "cells": 2,
+          "turn": 1,
+          "side_wall": 0,
+          "curve_start_mm": 250
+        },
+        {
+          "cells": 2,
+          "turn": 1,
+          "side_wall": 1,
+          "curve_start_mm": 250
+        },
+        {
+          "cells": 2,
+          "turn": 3,
+          "side_wall": 0,
+          "curve_start_mm": 250
+        },
+        {
+          "cells": 2,
+          "turn": 3,
+          "side_wall": 1,
+          "curve_start_mm": 250
+        },
+        {
+          "cells": 5,
+          "turn": 1,
+          "side_wall": 0,
+          "curve_start_mm": 790
+        },
+        {
+          "cells": 5,
+          "turn": 1,
+          "side_wall": 1,
+          "curve_start_mm": 790
+        },
+        {
+          "cells": 5,
+          "turn": 3,
+          "side_wall": 0,
+          "curve_start_mm": 790
+        },
+        {
+          "cells": 5,
+          "turn": 3,
+          "side_wall": 1,
+          "curve_start_mm": 790
+        }
+      ]
+    },
+    {
+      "case": "actual C straight distance versus supplied reference mouseGoahead; inherited 120 / straight / left / right / turnaround states",
+      "passed": 20
+    },
+    {
+      "case": "production ISR wall-edge rebase to 127, followed by 53 mm positioning; wall/no-wall branches",
+      "passed": 6
+    },
+    {
+      "case": "left/right wall U bypass, consecutive U, alternating corners, goal at corner, start at goal; four headings",
+      "passed": 32
+    },
+    {
+      "case": "random connected 16x16 mazes; production planner versus independent BFS and production executor",
+      "passed": 800
+    },
+    {
+      "case": "long straight retains 140 speed limit and finishes with full search positioning cell",
+      "passed": 1
+    },
+    {
+      "case": "front-wall abort, emergency/sleep during approach, curve abort, blocked turn side, invalid paths rejected",
+      "passed": 14
+    },
+    {
+      "case": "254-edge route accepted; 255-edge route refused without count wrap",
+      "passed": 2
+    },
+    {
+      "case": "same finite-front-wall regression fixture: saved previous runner stops before right curve; fixed runner calls right curve at 70 mm",
+      "passed": 1,
+      "previous_straight_travel_mm": 92,
+      "fixed_curve_start_mm": 70
+    },
+    {
+      "case": "all four search curve arrays match reference (195 points each); competition uses full left/right search lengths",
+      "passed": 5
+    }
+  ],
+  "method": "Extracted production C planner, executor, straight positioning and 90-degree approach; production ISR wall-edge correction; supplied reference C straight functions for distance comparison. Synthetic encoder/IR inputs and motor curve/stop primitives. No flashing or physical run."
+}

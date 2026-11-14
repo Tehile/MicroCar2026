@@ -1,0 +1,86 @@
+[
+  {
+    "target": "V6_0mm",
+    "extra_mm": 0,
+    "returncode": 1,
+    "errors": 0,
+    "warnings": 37,
+    "size": "Program Size: Code=60580 RO-data=24288 RW-data=4960 ZI-data=15520",
+    "command": [
+      "D:\\Keil5MDK\\UV4\\UV4.exe",
+      "-r",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\USER\\TEST.uvprojx",
+      "-t",
+      "V6_0mm",
+      "-j0",
+      "-o",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\verification\\continuous_turn_v6_20261029\\keil_V6_0mm.log"
+    ],
+    "hex": "USER\\Build\\V6_0mm\\TEST_V6_0mm.hex",
+    "axf": "USER\\Build\\V6_0mm\\TEST_V6_0mm.axf",
+    "sha256": "54f2c30f6d3d040ee33332a83b8da2fd8f4e4b690295000b5ab4d168c281f7b2"
+  },
+  {
+    "target": "V6_2mm",
+    "extra_mm": 2,
+    "returncode": 1,
+    "errors": 0,
+    "warnings": 37,
+    "size": "Program Size: Code=60580 RO-data=24288 RW-data=4960 ZI-data=15520",
+    "command": [
+      "D:\\Keil5MDK\\UV4\\UV4.exe",
+      "-r",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\USER\\TEST.uvprojx",
+      "-t",
+      "V6_2mm",
+      "-j0",
+      "-o",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\verification\\continuous_turn_v6_20261029\\keil_V6_2mm.log"
+    ],
+    "hex": "USER\\Build\\V6_2mm\\TEST_V6_2mm.hex",
+    "axf": "USER\\Build\\V6_2mm\\TEST_V6_2mm.axf",
+    "sha256": "a7baf349ce0d2d113e95ec4a596b5a31e1ce609a004e9bda90fc2c752cc9e946"
+  },
+  {
+    "target": "V6_4mm",
+    "extra_mm": 4,
+    "returncode": 1,
+    "errors": 0,
+    "warnings": 37,
+    "size": "Program Size: Code=60580 RO-data=24288 RW-data=4960 ZI-data=15520",
+    "command": [
+      "D:\\Keil5MDK\\UV4\\UV4.exe",
+      "-r",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\USER\\TEST.uvprojx",
+      "-t",
+      "V6_4mm",
+      "-j0",
+      "-o",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\verification\\continuous_turn_v6_20261029\\keil_V6_4mm.log"
+    ],
+    "hex": "USER\\Build\\V6_4mm\\TEST_V6_4mm.hex",
+    "axf": "USER\\Build\\V6_4mm\\TEST_V6_4mm.axf",
+    "sha256": "2bf55ed72ebb2cb9d374f8cc637c7976814cc4854876f01f85fc20daefa18893"
+  },
+  {
+    "target": "V6_6mm",
+    "extra_mm": 6,
+    "returncode": 1,
+    "errors": 0,
+    "warnings": 37,
+    "size": "Program Size: Code=60580 RO-data=24288 RW-data=4960 ZI-data=15520",
+    "command": [
+      "D:\\Keil5MDK\\UV4\\UV4.exe",
+      "-r",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\USER\\TEST.uvprojx",
+      "-t",
+      "V6_6mm",
+      "-j0",
+      "-o",
+      "D:\\ZHY\\电脑鼠\\竞赛例程最终版11.18比赛最好版\\竞赛例程最终版11.18比赛最好版\\code_competition_搜索连续转弯九成速_V6_20261029\\verification\\continuous_turn_v6_20261029\\keil_V6_6mm.log"
+    ],
+    "hex": "USER\\Build\\V6_6mm\\TEST_V6_6mm.hex",
+    "axf": "USER\\Build\\V6_6mm\\TEST_V6_6mm.axf",
+    "sha256": "1b6b76b4011b9983f3ae64399404d019f77fd121c902b8ede2d4441604524936"
+  }
+]

@@ -1,0 +1,82 @@
+[
+  {
+    "file": "UTILITY/utility.c",
+    "old": "#include \"utility.h\"",
+    "new": "#include \"utility.h\"\n#ifndef MOUSE_REMOTE\n#include \"search_guard_v5.h\"\n#endif"
+  },
+  {
+    "file": "HARDWARE/TIMER/timer.c",
+    "old": "#include \"utility.h\"",
+    "new": "#include \"utility.h\"\n#ifndef MOUSE_REMOTE\n#include \"search_guard_v5.h\"\n#endif"
+  },
+  {
+    "file": "HARDWARE/ADC/adc.c",
+    "old": "#include \"adc.h\"",
+    "new": "#include \"adc.h\"\n#ifndef MOUSE_REMOTE\n#include \"search_guard_v5.h\"\n#endif"
+  },
+  {
+    "file": "HARDWARE/STMFLASH/stmflash.c",
+    "old": "#include \"utility.h\"",
+    "new": "#include \"utility.h\"\n#ifndef MOUSE_REMOTE\n#include \"search_guard_v5.h\"\n#endif"
+  },
+  {
+    "file": "HARDWARE/STMFLASH/stmflash.c",
+    "old": "const u16 save_num=1200;",
+    "new": "const u16 save_num=1168; /* V5: reserve 256 bytes for stop snapshots. */\nvolatile V5_STOP_DIAGNOSTICS v5_diag={0};"
+  },
+  {
+    "file": "HARDWARE/ADC/adc.c",
+    "old": "\tTempR=abovezero(Get_Adc(ADC_RF)-TempR);",
+    "new": "\tTempR=abovezero(Get_Adc(ADC_RF)-TempR);\n#ifndef MOUSE_REMOTE\n    v5_diag.front_adc1=TempL;\n    v5_diag.front_adc2=TempR;\n#endif"
+  },
+  {
+    "file": "HARDWARE/TIMER/timer.c",
+    "old": "\t\telse forwardhaswall=0;",
+    "new": "\t\telse forwardhaswall=0;\n#ifndef MOUSE_REMOTE\n        if(irswitch==1) v5_diag.sample_seq++;\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mazesearchhaswall()",
+    "new": "#ifndef MOUSE_REMOTE\nextern int rawf1,rawf2,rawl,rawr;\n\n/* Caller masks interrupts so the trigger, raw values and motion agree. */\nstatic void v5CaptureStop(volatile V5_STOP_SNAPSHOT *s)\n{\n    s->sample_seq=v5_diag.sample_seq;\n    s->track=track;s->absolute_track=absolutetrack;\n    s->front1=disf1;s->front2=disf2;s->front_mean=disf;\n    s->left=disl;s->right=disr;\n    s->filtered_adc_f1=rawf1;s->filtered_adc_f2=rawf2;\n    s->filtered_adc_l=rawl;s->filtered_adc_r=rawr;\n    s->target_l=setvl;s->target_r=setvr;\n    s->speed_l=speedl;s->speed_r=speedr;s->yaw=gangle;\n    s->task=task;s->last_action=LastSearchAction;\n    s->x=GmcMouse.cX;s->y=GmcMouse.cY;s->direction=GucMouseDir;\n    s->left_wall=lefthaswall;s->right_wall=righthaswall;s->front_wall=forwardhaswall;\n    s->front_adc1=v5_diag.front_adc1;s->front_adc2=v5_diag.front_adc2;\n}\n\nstatic void v5PrintSnapshot(const char *label,volatile V5_STOP_SNAPSHOT *s)\n{\n    printf(\"V5_%s seq=%lu task=%u last=%u xy=%u,%u dir=%u walls=%u,%u,%u\\r\\n\",\n           label,s->sample_seq,s->task,s->last_action,s->x,s->y,s->direction,\n           s->left_wall,s->right_wall,s->front_wall);\n    printf(\"V5_%s_IR adc=%u,%u filtered=%d,%d side_adc=%d,%d dist=%ld,%ld mean=%ld side=%ld,%ld\\r\\n\",\n           label,s->front_adc1,s->front_adc2,s->filtered_adc_f1,s->filtered_adc_f2,\n           s->filtered_adc_l,s->filtered_adc_r,s->front1,s->front2,s->front_mean,s->left,s->right);\n    printf(\"V5_%s_MOTION track=%ld absolute=%ld target=%ld,%ld speed=%d,%d yaw=%d\\r\\n\",\n           label,s->track,s->absolute_track,s->target_l,s->target_r,s->speed_l,s->speed_r,s->yaw);\n}\n\nstatic void v5PrintStop(void)\n{\n    printf(\"V5_STOP event=%u source=%u result=%u recovered=%u persistent=%u\\r\\n\",\n           v5_diag.events,v5_diag.source,v5_diag.result,v5_diag.recovered,v5_diag.persistent);\n    v5PrintSnapshot(\"TRIGGER\",&v5_diag.last);\n    v5PrintSnapshot(\"RECHECK\",&v5_diag.recheck);\n}\n\nstatic u8 v5FrontClear(void)\n{\n    /* Also reject an invalid/saturated lookup coordinate; 249 means no wall. */\n    return (disf1>=V5_FRONT_CLEAR && disf1<=249 &&\n            disf2>=V5_FRONT_CLEAR && disf2<=249 &&\n            disf==(disf1+disf2)/2);\n}\n\nstatic u8 v5FrontRecheck(u8 source)\n{\n    u32 mask,seen;\n    u16 stable=0,stopped=0;\n    u8 previous_task,previous_flash,printed=0;\n\n    mask=__get_PRIMASK();__disable_irq();\n    if(disf>=V5_FRONT_TRIP)\n    {\n        if(!mask)__enable_irq();\n        return 1;\n    }\n    previous_task=task;previous_flash=flashwrite;\n    v5CaptureStop(&v5_diag.last);\n    if(v5_diag.magic!=V5_DIAG_MAGIC)\n    {\n        v5_diag.magic=V5_DIAG_MAGIC;v5_diag.events=0;\n        v5_diag.recovered=0;v5_diag.persistent=0;\n    }\n    if(v5_diag.events==0)v5_diag.first=v5_diag.last;\n    if(v5_diag.events<65535)v5_diag.events++;\n    v5_diag.source=source;v5_diag.result=V5_DIAG_PENDING;\n    v5_diag.active=1;v5_diag.hold_ticks=0;\n    task=V5_FRONT_RECHECK_TASK;setvl=0;setvr=0;flashwrite=0;\n    seen=v5_diag.sample_seq;\n    if(!mask)__enable_irq();\n\n    /* Never rebase the encoder or advance the logical coordinate here.\n     * A resumed cell includes all real braking travel in its original track. */\n    while(v5_diag.hold_ticks<V5_RECHECK_MAX_TICKS)\n    {\n        if(sleepmode || isemergency || task!=V5_FRONT_RECHECK_TASK)break;\n        if(seen==v5_diag.sample_seq)continue;\n        mask=__get_PRIMASK();__disable_irq();\n        seen=v5_diag.sample_seq;\n        if(speedl>-2 && speedl<2 && speedr>-2 && speedr<2)\n        {\n            if(stopped<V5_RECHECK_STABLE_SAMPLES)stopped++;\n            if(v5FrontClear())stable++;else stable=0;\n        }\n        else {stopped=0;stable=0;}\n        if(stopped>=V5_RECHECK_STABLE_SAMPLES && !printed)\n        {\n            v5CaptureStop(&v5_diag.recheck);\n            if(!mask)__enable_irq();\n            /* UART output happens at rest, before a fresh confirmation window. */\n            v5PrintStop();printed=1;stable=0;\n            seen=v5_diag.sample_seq;\n            continue;\n        }\n        if(printed && stable>=V5_RECHECK_STABLE_SAMPLES &&\n           v5_diag.hold_ticks>=V5_RECHECK_MIN_TICKS &&\n           !sleepmode && !isemergency && task==V5_FRONT_RECHECK_TASK)\n        {\n            v5CaptureStop(&v5_diag.recheck);\n            v5_diag.result=V5_DIAG_RECOVERED;\n            if(v5_diag.recovered<65535)v5_diag.recovered++;\n            v5_diag.active=0;e=0;eh=0;\n            flashwrite=previous_flash;task=previous_task;\n            if(!mask)__enable_irq();\n            return 1;\n        }\n        if(!mask)__enable_irq();\n    }\n    mask=__get_PRIMASK();__disable_irq();\n    v5CaptureStop(&v5_diag.recheck);\n    v5_diag.result=(sleepmode || isemergency || task!=V5_FRONT_RECHECK_TASK)?\n                   V5_DIAG_ABORTED:V5_DIAG_PERSISTENT;\n    if(v5_diag.persistent<65535)v5_diag.persistent++;\n    v5_diag.active=0;task=NULL;setvl=0;setvr=0;flashwrite=0;\n    if(!mask)__enable_irq();\n    v5PrintStop();\n    return 0;\n}\n#endif\n\nvoid mazesearchhaswall()"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mazesearchhaswall()\t\t \n{\n\tturno=0;\n\tif(disf<10)",
+    "new": "void mazesearchhaswall()\t\t \n{\n\tturno=0;\n\t#ifndef MOUSE_REMOTE\n    if(disf<V5_FRONT_TRIP && !v5FrontRecheck(1))\n#else\n    if(disf<10)\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "void mazesearchnowall()\t\t\t \n{\n\tturno=0;\n\tif(disf<10)",
+    "new": "void mazesearchnowall()\t\t\t \n{\n\tturno=0;\n\t#ifndef MOUSE_REMOTE\n    if(disf<V5_FRONT_TRIP && !v5FrontRecheck(2))\n#else\n    if(disf<10)\n#endif"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "\tgoaheadbugflag=0;\n\tbefore180turn();\n\tLastSearchAction=Stright;",
+    "new": "\tgoaheadbugflag=0;\n#ifndef MOUSE_REMOTE\n    v5_diag.deadend_limit_active=(spurt_search_active!=1 &&\n        (GmcMouse.cX!=GoalX || GmcMouse.cY!=GoalY));\n#endif\n\tbefore180turn();\n#ifndef MOUSE_REMOTE\n    v5_diag.deadend_limit_active=0;\n#endif\n\tLastSearchAction=Stright;"
+  },
+  {
+    "file": "UTILITY/utility.c",
+    "old": "\t\ttaskgostraight(10);\n\t\ttask=BEFORE180TURN;",
+    "new": "\n#ifndef MOUSE_REMOTE\n        if(v5_diag.deadend_limit_active)\n        {\n            while(track<10)task=SMARTSTRAIGHT;\n        }\n        else\n#endif\n        {taskgostraight(10);}\n\t\ttask=BEFORE180TURN;"
+  },
+  {
+    "file": "HARDWARE/TIMER/timer.c",
+    "old": "\tcase BEFORE180TURN:",
+    "new": "#ifndef MOUSE_REMOTE\n    case V5_FRONT_RECHECK_TASK:\n        if(v5_diag.hold_ticks<65535)v5_diag.hold_ticks++;\n        setvl=0;setvr=0;\n        break;\n#endif\n\tcase BEFORE180TURN:"
+  },
+  {
+    "file": "HARDWARE/TIMER/timer.c",
+    "old": "\t\t\tif(turnaround_tick>100)tick=100; \n\t\t}\n\t\tbreak;",
+    "new": "\t\t\tif(turnaround_tick>100)tick=100; \n\t\t}\n#ifndef MOUSE_REMOTE\n        if(v5_diag.deadend_limit_active && disf>60 &&\n           (lefthaswall || righthaswall))\n        {\n            long correction=(setvl-setvr)/2;\n            long bound=speed_turn/V5_DEADEND_CORRECTION_DIVISOR;\n            if(correction>bound)correction=bound;\n            if(correction<-bound)correction=-bound;\n            setvl=speed_turn+correction;setvr=speed_turn-correction;\n        }\n#endif\n\t\tbreak;"
+  },
+  {
+    "file": "HARDWARE/STMFLASH/stmflash.c",
+    "old": "const u16 save_num=1168; /* V5: reserve 256 bytes for stop snapshots. */",
+    "new": "const u16 save_num=1136; /* V5: reserve 256-byte snapshots and 256 extra stack bytes. */"
+  },
+  {
+    "file": "USER/STM32F10x.s",
+    "old": "Stack_Size      EQU     0x00000200",
+    "new": "Stack_Size      EQU     0x00000300"
+  }
+]

@@ -1,0 +1,290 @@
+{
+  "status": "PASS",
+  "checks": 334,
+  "goal_regression_checks": 1264,
+  "representative_traces": [
+    {
+      "case": "LRL",
+      "actions": [
+        1,
+        2,
+        1
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          189,
+          70
+        ],
+        [
+          1,
+          215,
+          63
+        ],
+        [
+          1,
+          210,
+          63
+        ]
+      ]
+    },
+    {
+      "case": "RLR",
+      "actions": [
+        2,
+        1,
+        2
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          193,
+          70
+        ],
+        [
+          1,
+          210,
+          63
+        ],
+        [
+          1,
+          215,
+          63
+        ]
+      ]
+    },
+    {
+      "case": "LLL",
+      "actions": [
+        1,
+        1,
+        1
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          189,
+          70
+        ],
+        [
+          1,
+          210,
+          63
+        ],
+        [
+          1,
+          210,
+          63
+        ]
+      ]
+    },
+    {
+      "case": "RRR",
+      "actions": [
+        2,
+        2,
+        2
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          193,
+          70
+        ],
+        [
+          1,
+          215,
+          63
+        ],
+        [
+          1,
+          215,
+          63
+        ]
+      ]
+    },
+    {
+      "case": "L_straight_RL",
+      "actions": [
+        1,
+        0,
+        2,
+        1
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          189,
+          70
+        ],
+        [
+          0,
+          193,
+          70
+        ],
+        [
+          1,
+          210,
+          63
+        ]
+      ]
+    },
+    {
+      "case": "R_straight_LR",
+      "actions": [
+        2,
+        0,
+        1,
+        2
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          193,
+          70
+        ],
+        [
+          0,
+          189,
+          70
+        ],
+        [
+          1,
+          215,
+          63
+        ]
+      ]
+    },
+    {
+      "case": "single_L",
+      "actions": [
+        1
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          189,
+          70
+        ]
+      ]
+    },
+    {
+      "case": "single_R",
+      "actions": [
+        2
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          193,
+          70
+        ]
+      ]
+    },
+    {
+      "case": "long_alternating",
+      "actions": [
+        1,
+        2,
+        1,
+        2,
+        1,
+        2,
+        1
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          189,
+          70
+        ],
+        [
+          1,
+          215,
+          63
+        ],
+        [
+          1,
+          210,
+          63
+        ],
+        [
+          1,
+          215,
+          63
+        ],
+        [
+          1,
+          210,
+          63
+        ],
+        [
+          1,
+          215,
+          63
+        ],
+        [
+          1,
+          210,
+          63
+        ]
+      ]
+    },
+    {
+      "case": "restarts",
+      "actions": [
+        1,
+        2,
+        0,
+        1,
+        2,
+        0,
+        2
+      ],
+      "profiles_slow_ticks_speed": [
+        [
+          0,
+          189,
+          70
+        ],
+        [
+          1,
+          215,
+          63
+        ],
+        [
+          0,
+          189,
+          70
+        ],
+        [
+          1,
+          215,
+          63
+        ],
+        [
+          0,
+          193,
+          70
+        ]
+      ]
+    }
+  ],
+  "geometry": [
+    {
+      "side": "left",
+      "original_ticks": 189,
+      "slow_ticks": 210,
+      "endpoint_difference_mm": 0.005154597823615567,
+      "reference_end_degrees": 0
+    },
+    {
+      "side": "right",
+      "original_ticks": 193,
+      "slow_ticks": 215,
+      "endpoint_difference_mm": 0.3552486001513249,
+      "reference_end_degrees": 2
+    }
+  ],
+  "method": "Extracted actual V6 selector, slow runner, left/right entry functions and original timer TURN case; actual V5 baseline for comparison. Full goal departure/ordinary-turn/straight/mazeSearch/objectGoTo flow; hardware sensors, encoder and yaw are synthetic. Curve translation is omitted in C state comparison, then independently estimated from wheel speed and angle reference tables. Covers second-and-later turns, straight resets, four headings/goal targets, sprint and non-search exclusions. Physical grip and clearance need track testing."
+}

@@ -1,0 +1,49 @@
+{
+  "source": "V5 USER/user.c active 195-point tables",
+  "ratio": "9/10",
+  "sampling": "linear interpolation; nearest integer, symmetric rounding; original ISR one-index wheel lead retained",
+  "curves": [
+    {
+      "side": "left",
+      "original_ticks": 189,
+      "slow_ticks": 210,
+      "nominal_speed_percent": 90,
+      "original_centre_speed": 70,
+      "slow_centre_speed": 63,
+      "outer_peak": 98,
+      "inner_min": 28,
+      "start_reference": 90,
+      "end_reference": 0,
+      "original_reference_endpoint_mm": [
+        -83.99423402664007,
+        84.34862095057582
+      ],
+      "slow_reference_endpoint_mm": [
+        -83.99936828602355,
+        84.34816350188342
+      ],
+      "endpoint_error_mm": 0.005154597823598889
+    },
+    {
+      "side": "right",
+      "original_ticks": 193,
+      "slow_ticks": 215,
+      "nominal_speed_percent": 90,
+      "original_centre_speed": 70,
+      "slow_centre_speed": 63,
+      "outer_peak": 98,
+      "inner_min": 28,
+      "start_reference": -90,
+      "end_reference": 2,
+      "original_reference_endpoint_mm": [
+        86.7935943787724,
+        84.29975793387187
+      ],
+      "slow_reference_endpoint_mm": [
+        87.14840882396467,
+        84.2822001039273
+      ],
+      "endpoint_error_mm": 0.3552486001513093
+    }
+  ]
+}
