@@ -31,13 +31,16 @@
 ## 1. 环境
 
 ```
-Python 3.12 / opencv-contrib-python 4.11.0 / numpy / pyyaml / scipy
+Python >= 3.10 / opencv-contrib-python >= 4.8 / numpy / pyyaml / scipy（可选）
 ```
 
-环境已固定在 `general_env`（`C:\Users\liuru\.conda\envs\general_env`）。
-**不要**换环境、也**不要**在该环境外 `pip install`。
+```bash
+pip install -r ../requirements.txt            # 仓库根目录的依赖清单
+pip install -r ../requirements-optional.txt   # 可选：scipy 精化
+```
 
-依赖用到的新版 API：`cv2.aruco.ArucoDetector`（4.7+），不是旧的 `cv2.aruco.detectMarkers`。
+依赖使用 `cv2.aruco.ArucoDetector`（OpenCV ≥ 4.7），不使用旧的 `cv2.aruco.detectMarkers`。
+必须安装 `opencv-contrib-python`；`opencv-python` 不含 `cv2.aruco` 模块。scipy 缺失时精化功能自动关闭。
 
 ---
 

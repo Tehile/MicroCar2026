@@ -5,11 +5,11 @@
 ## 依赖与运行
 
 ```bash
-# 依赖（general_env 只缺 aiohttp；qrcode 已有）
-C:\Users\liuru\.conda\envs\general_env\python.exe -m pip install aiohttp
+# 依赖（仓库根目录 requirements.txt；二维码支持见 requirements-optional.txt）
+python -m pip install -r ..\requirements.txt
 
 # 启动（默认端口 8765，数据落到 ./pc/data）
-C:\Users\liuru\.conda\envs\general_env\python.exe pc\server.py
+python pc\server.py
 #   可选：--port 8765  --max-mbps 40  --profile pc\profile.json  --token xxxx
 ```
 
@@ -816,15 +816,15 @@ App 会把失败原因直接写到状态栏与日志里，不再"没反应"：
 ## 自测
 
 ```bash
-C:\Users\liuru\.conda\envs\general_env\python.exe pc\test_server.py
+python pc\test_server.py
 # 期望：pc/test_server：217/217 通过
 
 # 跨程序通信：**起独立进程的服务**，再用三套互不相关的栈（hostlink 纯标准库 / cv2 / ffmpeg）去读它
-C:\Users\liuru\.conda\envs\general_env\python.exe pc\test_interop.py
+python pc\test_interop.py
 # 期望：跨程序通信验证：45/45 通过   （需要 aiohttp + cv2 + ffmpeg；P11f 另需 JDK；A9m4 需 node）
 
 # 跨端契约：PC 生成 → App 那个 zxing 解码 → **App 的真 Kotlin 解析器**（需 JDK + 先跑过一次 assembleDebug）
-C:\Users\liuru\.conda\envs\general_env\python.exe pc\verify_pair_contract.py
+python pc\verify_pair_contract.py
 # 期望：结论：跨端契约通过（含 App 内建自检 23/23、旧 URL 写法、误扫必须被拒）
 ```
 

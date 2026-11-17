@@ -18,14 +18,12 @@
 
 ## 1. 三条命令
 
-环境固定用 `general_env`（`Auto Locate` 明令不得在别的环境装包）：
+先按仓库根目录的 `requirements.txt` 安装依赖（见 [`../docs/安装与运行.md`](../docs/安装与运行.md)）：
 
 ```bash
-PY="C:/Users/liuru/.conda/envs/general_env/python.exe"
-
-$PY tools/preflight.py            # ① 环境自检：依赖 / 上游可 import / 串口 / 端口
-$PY app.py                        # ② 起服务 → 打开 http://127.0.0.1:8770
-$PY tools/drill.py --sim          # ③ 无硬件端到端演练：逐条判据验收（I1~I68，实际存在的编号见 docs/工具与校验.md §3.1）
+python tools/preflight.py         # ① 环境自检：依赖 / 上游可 import / 串口 / 端口
+python app.py                     # ② 起服务 → 打开 http://127.0.0.1:8770
+python tools/drill.py --sim       # ③ 无硬件端到端演练：逐条判据验收（I1~I68，实际存在的编号见 docs/工具与校验.md §3.1）
 ```
 
 `preflight.py --quick` 会跳过网络与 git 检查（快一点）。
@@ -565,7 +563,8 @@ $PY tools/browser_check.py --sim      # 连上模拟器：界面必须说"已连
    上游本身就是你在开发的东西，工作区常有几十条未提交改动，要求"全空"只会制造假警报。
 2. **文本是唯一真相来源。** 文档改 `.md`，HTML 由 `python tools/build_doc_html.py` 生成；
    **禁止手改 `.html`** —— 必然与 md 分叉。
-3. **环境固定 `general_env`。** 不要为了图快在别的环境装包。
+3. **依赖统一由仓库根目录 `requirements.txt` 提供。** 不在模块内单独安装或升级依赖，
+   以免与 `Auto Locate` 所需的 `opencv-contrib-python` 冲突。
 4. **不做上游已明确否决的事**。相机那一路的三条旧约束（不把 MJPEG 用于测量、不追求实时全帧率定位、
    不做手机端定位算法）随改版二十四**整块失效** —— 现在没有实时帧流可测，位置来自离线视频。
    仍然有效的是：**不重写 Auto Locate 的解析与时间轴**（它保证一致，本层只校验与显示）。

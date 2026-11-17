@@ -1,188 +1,271 @@
-# 2026 电脑鼠（Micromouse）竞速系统
+# MicroCar2026 · 电脑鼠竞速系统
 
-一套完整的电脑鼠参赛工程：**手机/相机视觉定位 → 整合上位机 → 蓝牙链路 → STM32 固件**。
-四个子系统各自可独立运行，串起来就是"拍一段场地视频 → 解出轨迹 → 看车怎么跑 → 调参 → 发车"的闭环。
+面向 8×8 迷宫电脑鼠（Micromouse）竞速赛的完整工程实现：**视觉定位 → 整合上位机 → 串口/蓝牙链路 → STM32 固件**。
+四个子系统可各自独立运行，串联后构成「录制/采集 → 定位解算 → 参数标定 → 发车 → 复盘」的闭环。
 
-| 层 | 模块 | 版本 | 语言 |
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Windows-0078D4)
+![Firmware](https://img.shields.io/badge/Firmware-STM32F103RB-03234B)
+![Protocol](https://img.shields.io/badge/Protocol-PROTO%2010-4B5563)
+
+---
+
+## 1. 概述
+
+电脑鼠需在迷宫中完成探索、建图与最短路径冲刺，成绩取决于三件事：车体运动精度、参数整定质量、以及跑完后能否可靠复盘。
+本工程将后两件事移到 PC 侧：固件只保留 1 ms 中断内的确定性控制与链路协议引擎，PC 侧负责观测、参数、记录与可视化。
+
+系统由四个主子系统组成，另有可选的手机采集端；依赖方向单一，任一层可替换：
+
+| 子系统 | 职责 | 技术栈 | 版本 |
 |---|---|---|---|
-| 视觉定位 | [`Auto Locate/`](Auto%20Locate/) | `1.2.0` | Python 3.12 + OpenCV |
-| 整合上位机 | [`Control/`](Control/) | 改版四十七 | Python + 原生 JS（本机 Web） |
-| 链路与工具链 | [`RemoteControl/host`](RemoteControl/host/) | host `2.14.0` | Python |
-| 固件 | [`RemoteControl/code_competition*`](RemoteControl/) | PROTO 10 / FW 314 | C（Keil MDK / STM32F103RB） |
-| 采集端 | [`PhoneCamera/`](PhoneCamera/) | `m0probe-1.15.0` | Kotlin（Camera2）+ aiohttp |
+| [`Auto Locate/`](Auto%20Locate/) | 由单张图像或一段视频解算场地中央 0 号标记的位姿 | Python + OpenCV（ArUco contrib） | `1.2.0` |
+| [`Control/`](Control/) | 整合上位机：设备会话、参数、发车、记录、回放 | Python（aiohttp）+ 原生 JS，本机 Web | 改版四十七 |
+| [`RemoteControl/host`](RemoteControl/host/) | 严格停等的命令/遥测通道、参数镜像、设备模拟器 | Python（pyserial） | `2.14.0` |
+| [`RemoteControl/code_competition*`](RemoteControl/) | 运动控制、传感、链路协议、比赛策略 | C（Keil MDK，STM32F103RB） | PROTO 10 / FW 314 |
+| [`PhoneCamera/`](PhoneCamera/) | 手机端锁定参数取帧与分片回传（可选组件，已退出主链路） | Kotlin（Camera2）+ Python（aiohttp） | `1.15.0` |
 
----
+## 2. 主要特性
 
-## 1. 这是什么
-
-电脑鼠要在 16×16 的迷宫里边探路边找最短路径，最后冲刺。
-比赛中真正决定成绩的是三件事：**车走得准不准、参数调得对不对、跑完能不能复盘**。
-这个工程把这三件事都搬到了电脑上。
-
-| 能力 | 怎么实现 |
+| 特性 | 实现方式 |
 |---|---|
-| **不看车的眼睛** | 场地四角贴 ArUco 标记，拍一张 / 一段视频就能解出中央 0 号标记的位置与朝向（±mm 级，无需相机内参） |
-| **一个界面看全部** | 本机 Web（`127.0.0.1:8770`）九页：总览 / 实时波形 / 参数 / 比赛 / 维护 / 视频复盘 / 轨迹 / 记录 / 迷宫回放 |
-| **不改固件也能调参** | 41 项参数在线读写（Q16.16 精度），写后自动回读校验，`SAVE` 落 Flash 掉电保留 |
-| **跑完能复盘** | 每帧捎带建图增量，实时同步车内的迷宫；跑完的记录可从帧**重放建图**，而不是只信一张最终快照 |
-| **无硬件也能验** | 设备模拟器协议逐字节一致，自带物理与迷宫探索；`drill.py --sim` 跑 68 条判据 |
+| 无需相机内参的场地定位 | 四角 ArUco 标记（`DICT_4X4_1000`）构建场地坐标系，无标定单应解算；可选棋盘格标定作交叉校验 |
+| 亚毫米级定位误差 | 角点亚像素精化 + 多帧融合；合成真值 20 场景位置误差均值 0.43 mm |
+| 在线调参 | 41 项参数经串口读写（Q16.16），写后自动回读校验，`SAVE` 落 Flash 掉电保留 |
+| 帧级建图同步 | 遥测帧捎带 `mapd` 增量（每帧 3 条 × 2 B，带绝对坐标），可逐帧重放迷宫而非只看终态快照 |
+| 无硬件可验证 | 设备模拟器与固件协议逐字节一致，`drill.py --sim` 覆盖 68 条端到端判据 |
+| 可复算的精度基线 | 四个比赛档 hex 的 SHA-256 作为红线，重编后自动比对 |
 
----
+## 3. 系统架构
 
-## 2. 系统全景
-
-```
-        ┌──────────────┐   视频/图像     ┌──────────────────┐
-        │ PhoneCamera  │ ─────────────► │   Auto Locate    │
-        │ 手机采集/回传 │   (HTTP 分片)   │  ArUco 场地定位  │
-        └──────────────┘                └────────┬─────────┘
-                                                 │ 逐帧位姿 + 时间轴
-                                                 │ (子进程，会话级 API)
-                                        ┌────────▼─────────┐
-                                        │     Control      │  本机 Web 8770
-                                        │   整合上位机     │  九页 + 回放 + 记录
-                                        └────────┬─────────┘
-                                                 │ 同进程 import
-                                        ┌────────▼─────────┐
-                                        │ RemoteControl/   │  host.api.MouseClient
-                                        │      host        │  遥测/参数/发车/收车
-                                        └────────┬─────────┘
-                                                 │ 串口·蓝牙 SPP 460800
-                                        ┌────────▼─────────┐
-                                        │   STM32F103RB    │  Target_Remote (PROTO 10)
-                                        │      固件 V6++    │  Target V6_0/2/4/6mm（比赛）
-                                        └──────────────────┘
+```mermaid
+flowchart LR
+    PC["PhoneCamera<br/>手机采集 / 分片回传"] -->|"HTTP 分片交付"| AL["Auto Locate<br/>ArUco 场地定位"]
+    AL -->|"session.json<br/>trajectory.csv"| CT["Control<br/>本机 Web :8770"]
+    CT -->|"同进程 import<br/>host.api.MouseClient"| HOST["RemoteControl/host<br/>协议 / 参数 / 模拟器"]
+    HOST -->|"串口 / 蓝牙 SPP<br/>115200 8-N-1"| FW["STM32F103RB<br/>固件 V6++"]
+    SIM["host.sim.mouse_sim<br/>tcp://127.0.0.1:5555"] -.->|"替代真机"| HOST
 ```
 
-**两条边界值得记住**：上位机与 `host` 是**同进程**（直接 `import`），与 `Auto Locate` 是**子进程**（`python -m aruco_locator.session`，超时/取消各自独立）。
+两条集成边界：
 
----
+- **`Control` ↔ `host`：同进程 import。** 同一 asyncio 事件循环，`MouseClient` 自建回调线程；串口往返与磁盘扫描一律 `run_in_executor`，端点函数零阻塞。
+- **`Control` ↔ `Auto Locate`：子进程。** 通过 `Control/tools/video_session.py` 以会话方式调用，超时与取消互不影响。该薄壳负责转交 `--config`，直接调用 `aruco_locator.session` 会退回内置默认配置。
 
-## 3. 目录
+细节见 [`docs/系统架构.md`](docs/系统架构.md)。
+
+## 4. 仓库结构
 
 ```
-2026 Computer Mouse/
-├── README.md                  本文件
-├── docs/                      跨模块文档：架构 / 快速开始 / 版本与发布 / 硬件与场地
-├── Auto Locate/               ArUco 场地定位引擎（v1.2.0）
-│   ├── aruco_locator/         主包：检测 → 亚像素角点 → 单应解算 → 位姿
-│   ├── docs/                  接口、参数手册、验证报告、评估记录（历史件在 docs/archive）
-│   └── release/               版本归档（1.1.0）
-├── Control/                   整合上位机（本机 Web）
-│   ├── app.py                 唯一启动入口
-│   ├── control/               后端：adapters / api / static(前端) / store
-│   ├── tools/                 preflight / drill / browser_check / 接口对照校验
-│   └── docs/                  设计方案、模块总览、接口对照表（md → html 成对生成）
-├── RemoteControl/             链路 + 工具链 + 四套固件工程
-│   ├── host/                  PC 上位机库（`host.api.MouseClient`）+ 30 个验收脚本
-│   ├── code_competition - V6++/  ★ 现行工作副本：五 Target，回程补搜 + 远程档
-│   ├── code_competition - V6+/   V6 算法 + 远程档移植（V6++ 的前一步）
-│   ├── code_competition/         旧双档基线（比赛档 / 远程档，红线 hex 出自此处）
-│   ├── code_stm32f1_mouse/       课程基线（MAZETYPE 7），仅参考
-│   └── docs/                  协议规格、算法详解、工具与校验、决策记录
-├── PhoneCamera/               手机采集端 + PC 接收服务
-│   ├── android/m0probe/       Camera2 采集 App（扫码配对 / 连续流 / 分片回传）
-│   ├── pc/server.py           aiohttp 接收服务（8765）+ hostlink 客户端库
-│   └── docs/                  M0 机型能力验证与各轮复算结论
+.
+├── README.md                       本文件
+├── requirements.txt                运行时依赖
+├── requirements-optional.txt       可选依赖（GUI / 精化 / 二维码）
+├── docs/                           跨模块文档：架构、安装运行、版本发布、硬件场地
+├── Auto Locate/                    ArUco 场地定位库（可独立 import 或命令行调用）
+│   ├── aruco_locator/              检测 → 亚像素角点 → 单应解算 → 位姿 → 迷宫融合
+│   ├── docs/                       接口、参数手册、验证报告；历史评估见 docs/archive/
+│   └── samples/                    4K 评估素材（大文件，未入库）
+├── Control/                        整合上位机（本机 Web，app.py 为唯一入口）
+│   ├── control/                    后端 adapters / api / store 与前端静态资源
+│   ├── tools/                      preflight、drill、browser_check、接口一致性校验
+│   └── docs/                       设计方案、模块总览、接口对照表
+├── RemoteControl/                  链路层、上位机库与固件工程
+│   ├── host/                       PC 上位机库与 30 个验收脚本
+│   ├── code_competition - V6++/    当前工作副本：五 Target，含回程补搜与远程档
+│   ├── code_competition - V6+/     前一步：V6 算法 + 远程档移植
+│   ├── code_competition/           旧双档基线，红线 hex 出处
+│   ├── code_stm32f1_mouse/         课程原版固件（MAZETYPE 7），仅作参考
+│   └── docs/                       通信协议规格、算法详解、工具与校验
+├── PhoneCamera/                    手机采集端（Android）与 PC 接收服务
 ├── code_competition_搜索连续转弯九成速_V6_20261029/
-│                              V6 交付快照（10-29，只有比赛档，无 Target_Remote）
-├── 课件/                      电脑鼠参数调整表（参数表 41 项的出处）
-└── .gitignore                 构建产物 / 运行现场 / 教学资料一律不入库
+│                                   10-29 交付快照（仅比赛档）
+└── 课件/                           电脑鼠参数调整表（参数表 41 项来源）
 ```
 
-**五套固件工程并存是有意的**，别急着合并：`V6++` 是当前工作副本（含远程档 + 回程补搜），
-`V6+` 是它的前一步（远程档刚移植完），`code_competition` 是双档基线与红线 hex 的出处，
-`code_stm32f1_mouse` 是课程原版，根目录 `code_competition_搜索…V6_20261029` 是 10-29 的交付快照。
-判"要改哪一份"看 `RemoteControl/README.md` 的目录表。
+五套固件工程并存是刻意保留的：分别对应当前工作副本、迁移前一步、旧基线、课程原版与交付快照。
+各工程的定位、Target 与红线基线见 [`docs/版本与发布.md`](docs/版本与发布.md#2-固件五档与红线)。
 
----
+## 5. 环境要求
 
-## 4. 快速开始（无硬件，5 分钟）
+| 项 | 要求 |
+|---|---|
+| 操作系统 | Windows 10/11（脚本、路径与串口命名按 Windows 编写；纯 Python 部分未在 Linux/macOS 验证） |
+| Python | ≥ 3.10；本工程开发与验证使用 3.12.13 |
+| Python 依赖 | 见 `requirements.txt`。**必须使用 `opencv-contrib-python`**，`opencv-python` 不含 `cv2.aruco` |
+| 固件编译 | Keil MDK 5（UV4，ARMCC V5.06，C90），目标 STM32F103RB |
+| 采集端构建 | JDK 17、Gradle 8.9、Android SDK 34（`compileSdk 34` / `minSdk 24`） |
+| 硬件（可选） | 电脑鼠整车、USB 转 TTL（CH340）或蓝牙 SPP 模块、J-Link |
 
-全部 Python 代码固定跑在 **`general_env`**（Python 3.12）。这是硬约束：
-`Auto Locate` 明确禁止在其他环境 `pip install`，`Control` 也只在 `general_env` 里验过。
+除固件编译与采集端构建外，其余功能不需要任何硬件。
+
+## 6. 安装
 
 ```bash
-conda activate general_env
-# 或直接用解释器：C:/Users/liuru/.conda/envs/general_env/python.exe
+git clone git@github.com:Tehile/MicroCar2026.git
+cd MicroCar2026
 
-cd Control
-python tools/preflight.py     # ① 自检：依赖 / 上游可 import / 串口 / 端口
-python app.py                 # ② 起服务 → 打开 http://127.0.0.1:8770
-python tools/drill.py --sim   # ③ 无鼠无场地，端到端跑完 I1~I68 判据
+python -m venv .venv
+.venv\Scripts\activate            # Windows；Linux/macOS 用 source .venv/bin/activate
+python -m pip install -U pip
+pip install -r requirements.txt
 ```
 
-定位模块单独跑：
+使用 conda 亦可，环境名与路径无约束：
+
+```bash
+conda create -n micromouse python=3.12 -y
+conda activate micromouse
+pip install -r requirements.txt
+```
+
+按需安装可选依赖（桌面 GUI、定位精化、二维码）：
+
+```bash
+pip install -r requirements-optional.txt
+```
+
+安装后自检：
+
+```bash
+cd Control
+python tools/preflight.py          # 依赖 / 上游可导入 / 串口 / 端口，退出码 0 为通过
+```
+
+## 7. 快速开始
+
+### 7.1 无硬件：启动上位机与设备模拟器
+
+```bash
+# 终端 A：设备模拟器（协议与固件逐字节一致）
+cd RemoteControl/host
+python -m host.sim.mouse_sim            # 监听 127.0.0.1:5555
+
+# 终端 B：整合上位机
+cd Control
+python app.py                           # http://127.0.0.1:8770
+```
+
+在界面顶栏「电脑鼠」中选择 `tcp://127.0.0.1:5555` 连接，即可查看遥测波形、参数表与迷宫回放。
+
+一条命令完成端到端判据验收（自动起模拟器）：
+
+```bash
+cd Control
+python tools/drill.py --sim             # I1~I68
+```
+
+### 7.2 离线定位：视频 → 轨迹
 
 ```bash
 cd "Auto Locate"
-python -m aruco_locator.cli --source samples/VID_20261027_120407.mp4 --out out/
-python selftest_synthetic.py            # 合成真值自检，不依赖任何素材
+python -m aruco_locator.cli --source /path/to/run.mp4 \
+                            --out out/run1 -c config.yaml
 ```
 
-更多（有硬件、发车、蓝牙配对、手机采集）见 [`docs/快速开始.md`](docs/快速开始.md)。
+产物为 `out/run1/results.csv`（逐帧位姿）与 `results.jsonl`（逐帧明细）。会话级调用
+（`session.json` + `trajectory.csv`，供上位机与外部程序使用）见
+[`docs/会话级接口规范-视频文件处理.md`](Auto%20Locate/docs/会话级接口规范-视频文件处理.md)。
 
----
+`Auto Locate/samples/` 为本地评估素材，未纳入版本控制。无素材时可先用合成真值验证安装与解算链路：
 
-## 5. 版本矩阵
+```bash
+python selftest_synthetic.py
+```
 
-| 项 | 当前值 | 说明 |
+### 7.3 连接实机
+
+1. 接 USB 转 TTL（CH340）或配对蓝牙 SPP，串口参数 **115200 8-N-1**。
+2. 连接后首页应收到 `PONG`，远程档 `PROTO=10`、`FW=314`；无响应通常是烧写了比赛档（比赛档不响应串口命令）。
+3. 界面 `#/live` 查看波形与四灯状态，`#/params` 在线调参，`#/race` 发车与收车。
+4. 收车以动作码归零为准，`ACK OK` 仅表示命令被接收。
+
+仅需命令行时：
+
+```bash
+cd RemoteControl/host
+python selftest.py                      # 协议断言，无需硬件
+python basic_cmd_smoke.py COM7          # 真机基础指令
+python link_pull_evt.py COM7 --mark-n 2 # 长跑取流（事件触发，在途恒 ≤ 1）
+```
+
+### 7.4 编译固件
+
+```bash
+cd RemoteControl
+python build_v6pp_modes.py              # 五档全量重编，并比对 REDLINE 哈希
+```
+
+Keil 中打开 `RemoteControl/code_competition - V6++/USER/TEST.uvprojx`，
+比赛档选 `V6_4mm`（默认），上位机接管选 `Target_Remote`。切换 Target 后须 Rebuild。
+
+完整步骤、参数说明与故障处理见 [`docs/安装与运行.md`](docs/安装与运行.md)。
+
+## 8. 验证
+
+| 模块 | 命令 | 覆盖范围 |
 |---|---|---|
-| `Auto Locate` | `1.2.0` | 新增格点匹配第二通道，运动模糊下兜底 |
-| `RemoteControl/host` API | `2.14.0` | 与固件 proto 分开编号 |
-| 固件远程档 | PROTO **10** / FW **314** | `Target_Remote`，41 项参数全接 |
-| 固件比赛档 | V6++ 五档 | `V6_0mm/2mm/4mm/6mm` + `Target_Remote`，默认 `V6_4mm` |
-| `PhoneCamera` App | `m0probe-1.15.0` | 语义版本在代码常量里，不在 `build.gradle` |
-| `PhoneCamera` PC | `server 1.15.0` | `pc/server.py` 顶部 `SERVER_VERSION` |
-| `Control` | 改版四十七 | `control.__version__` 仍是 `0.1.0` 占位，不要拿它判版本 |
+| `Control` | `python tools/preflight.py` | 环境、依赖、上游可导入、串口与端口 |
+| `Control` | `python tools/drill.py --sim` | 端到端判据（最近一次：67 通过 / 0 失败 / 1 跳过） |
+| `Control` | `python tools/check_iface_table.py` | 文档、路由与上游符号三方一致 |
+| `Auto Locate` | `python selftest_synthetic.py` | 合成真值场景（最近一次：20 场景，位置误差均值 0.43 mm） |
+| `Auto Locate` | `python tools/check_api_surface.py` | 公开接口冻结面 |
+| `host` | `python selftest.py` | 协议断言，45/45 |
+| `PhoneCamera` | `python pc/test_server.py` | 接收服务协议（219 项全通过） |
 
-判"当前是哪个版本"的权威位置：**代码常量**（`aruco_locator.__version__`、`host.__version__`、
-`LockedCaptureProbe.APP_VERSION`、`SERVER_VERSION`），不是文件名、不是 Gradle 字段。
+`RemoteControl/host/selftest.py --e2e` 存在已知缺陷，见 §9。
 
----
+## 9. 已知问题
 
-## 6. 文档地图
+| 问题 | 影响 | 状态 |
+|---|---|---|
+| `host/selftest.py --e2e` 在连续拉取后于 `GET ALL` 超时 | 仅影响该自检项，纯协议自检正常 | 既有缺陷（已用 `pre-release-20261114` 快照复现）。规避：先停流再 `GET ALL`，或改用 `link_pull_evt.py` |
+| `Control.__version__` 恒为 `0.1.0` | 不能据此判断版本 | 占位值；以 `Control/README.md` 改版序为准 |
+| Android `versionName` 为 `1.0` | 与 App 内部版本不一致 | 以代码常量 `LockedCaptureProbe.APP_VERSION` 为准 |
+| `PhoneCamera` 实时帧流已从主链路下线 | 位置数据仅来自「视频 → Auto Locate」 | 采集端保留用于机型复验与原始帧取证 |
 
-| 想了解 | 看这里 |
+## 10. 安全与操作约束
+
+以下约束来自实测，属硬性要求：
+
+| 约束 | 说明 |
 |---|---|
-| 四层怎么分工、数据怎么流 | [`docs/系统架构.md`](docs/系统架构.md) |
-| 装什么、怎么跑起来、怎么排障 | [`docs/快速开始.md`](docs/快速开始.md) |
-| 版本怎么定、固件红线怎么比、怎么归档 | [`docs/版本与发布.md`](docs/版本与发布.md) |
-| 车上有什么、场地怎么贴、串口怎么接 | [`docs/硬件与场地.md`](docs/硬件与场地.md) |
-| 定位算法原理与精度实测 | [`Auto Locate/README.md`](Auto%20Locate/README.md) |
-| 上位机九页与模块组成 | [`Control/README.md`](Control/README.md)、[`Control/docs/模块组成总览.md`](Control/docs/模块组成总览.md) |
-| 通信协议、远程档、算法细节 | [`RemoteControl/docs/通信协议规格.md`](RemoteControl/docs/通信协议规格.md) |
-| 手机采集端协议与判据 | [`PhoneCamera/pc/README.md`](PhoneCamera/pc/README.md)、[`PhoneCamera/docs/对外接口与单一交付道.md`](PhoneCamera/docs/对外接口与单一交付道.md) |
+| 发车前独立校验电池 | 上位机自行读取电压，低于 7000 mV 拒绝发车，不依赖车端判断 |
+| 收车需确认动作码归零 | `ACK OK` 不代表已停止 |
+| 链路完全断开时软件无法收车 | `STOP → ESTOP → RESET` 均超时，只能人工停车并断电 |
+| 遥测帧率存在硬上限 | 上行帧率 ≈ N / RTT（RTT ≈ 300 ms）；`N=4` 约 13 Hz、`N=5` 约 17 Hz 为安全上限，`N=6` 会在十余秒内灌满透传模块，需物理断电 |
+| 禁止连续发流 | 不得使用 `RATE FIX <hz>`，一律用批量 `RATE PULL <n> <t>` |
+| 上电须静止 | 陀螺零偏标定为阻塞流程，车体运动时上电将导致标定失败 |
+| 调试时轮子悬空 | 「维护 → 擦除」不可逆 |
 
----
+## 11. 文档
 
-## 7. 安全红线（写在代码里的硬约束）
-
-1. **发车前独立校验电池**：上位机自己读电压，`< 7000 mV` 直接拒绝发车——不信车上的判断。
-2. **`ACK OK` 不等于停住**：收车必须再拉一帧验证 `mazeTask/motionTask` 归零。
-3. **链路断死时软件收车网完全无效**（STOP→ESTOP→RESET 全超时），只能人工停车 + 断电。
-   安全须知不能写"脚本兜住"。
-4. **遥测帧率顶在 13~17 Hz**：`RTT ≈ 300 ms` 在 PC 侧 CH340 上。`N=4` → 13.1 Hz，`N=5` → 17.0 Hz 是安全顶，
-   **`N=6` 十几秒把透传模块灌死，须物理断电**。禁止 `RATE FIX <hz>` 连续发流。
-5. **实验前轮子必须悬空**；`维护 → 擦除` 不可逆。
-
----
-
-## 8. 环境
-
-| 用途 | 环境 |
+| 文档 | 内容 |
 |---|---|
-| 全部 Python 代码 | conda `general_env`（Python 3.12.13，cv2 4.11.0 / numpy / scipy / pyyaml / aiohttp / pyserial 齐备） |
-| 固件编译 | Keil MDK（UV4，ARMCC V5.06，C90）+ STM32F103RB |
-| Android 采集端 | AGP 8.5.2 / Kotlin 1.9.24 / JDK 17，`compileSdk 34`、`minSdk 24` |
+| [`docs/系统架构.md`](docs/系统架构.md) | 分层职责、两条集成边界、五条数据流、三套时钟 |
+| [`docs/安装与运行.md`](docs/安装与运行.md) | 安装、四种使用路径、固件编译、故障排查 |
+| [`docs/版本与发布.md`](docs/版本与发布.md) | 版本矩阵、五档 Target、红线基线、校验与归档流程 |
+| [`docs/硬件与场地.md`](docs/硬件与场地.md) | 场地几何、标记布局与差高视差、车体、接线、相机 |
+| [`Auto Locate/README.md`](Auto%20Locate/README.md) | 定位算法原理、精度实测、参数 |
+| [`Auto Locate/docs/API.md`](Auto%20Locate/docs/API.md) | 定位库接口契约 |
+| [`Control/README.md`](Control/README.md) | 上位机模块组成与九页界面 |
+| [`Control/docs/接口对照表.md`](Control/docs/接口对照表.md) | HTTP/WS 端点与上游符号对照 |
+| [`RemoteControl/docs/通信协议规格.md`](RemoteControl/docs/通信协议规格.md) | 帧布局、命令表、参数表 |
+| [`PhoneCamera/README.md`](PhoneCamera/README.md) | 采集端与接收服务、分片交付协议 |
 
-依赖清单：`Control/requirements.txt`、`RemoteControl/host/requirements.txt`。
-两份都只是**记录**，不要拿去新建环境——`general_env` 里已经齐了。
+## 12. 版本
 
----
+| 项 | 当前值 | 权威位置 |
+|---|---|---|
+| `Auto Locate` | `1.2.0` | `aruco_locator/__init__.py::__version__` |
+| `host`（API） | `2.14.0` | `host/__init__.py::__version__` |
+| 固件远程档 | PROTO 10 / FW 314 | 连接后 `PONG` 返回 |
+| 固件比赛档 | V6++，`V6_0mm/2mm/4mm/6mm` | `USER/TEST.uvoptx` 的 `IsCurrentTarget` |
+| `PhoneCamera` | `1.15.0`（App / PC 相同） | `LockedCaptureProbe.APP_VERSION`、`SERVER_VERSION` |
 
-## 9. 许可与致谢
+## 13. 许可与第三方组件
 
-本仓库为参赛/课程工程，未附开源许可证。第三方内容：ArUco 字典 `DICT_4X4_1000`（OpenCV contrib）、
-ZXing core 3.5.3（扫码，随 App 以 jar 形式入库）、CH340 串口驱动。
-课程实验指导与课件不在本仓库内。
+本仓库为参赛与课程工程，未附加开源许可证，保留所有权利。
+
+第三方组件：ArUco 字典 `DICT_4X4_1000`（OpenCV contrib）、ZXing core 3.5.3（扫码，以 jar 形式随 App 入库）、
+CH340 串口驱动（随硬件提供）。课程讲义与比赛资料不在本仓库内。

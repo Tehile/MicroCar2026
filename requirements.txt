@@ -1,0 +1,14 @@
+# 运行时依赖（Python >= 3.10）
+#
+#   python -m venv .venv
+#   .venv\Scripts\activate            # Windows
+#   pip install -r requirements.txt
+#
+# 注意：定位模块使用 cv2.aruco（OpenCV contrib 模块）。
+# 必须安装 opencv-contrib-python，opencv-python 不含该模块。
+
+numpy>=1.26
+opencv-contrib-python>=4.8
+PyYAML>=6.0
+pyserial>=3.5
+aiohttp>=3.9
