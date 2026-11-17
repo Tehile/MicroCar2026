@@ -706,8 +706,11 @@ window.C = (function () {
      迷宫图（后端 `wall` 结构 ≠ 前端 `Maze`）。这些页面在 live 模式下会显示
      原型数据 —— **看它们之前先看左轨那句"原型 · 纯前端"**。 */
   const LIVE = { on: false, err: '', ws: null, caps: null, timer: null, vtimer: null,
-    // 拉取相关的运行态：`pullBusy` 防重入、`pullOffAt` 记"人工停的时刻"（看门狗据此让 8 s）
-    pullBusy: false, pullOffAt: 0, guard: null };
+    /* 拉取相关的运行态只剩 `pullBusy`（防重入）。
+       改版四十七删掉了 `pullOffAt`（人工停的 8 s 豁免）与 `guard`（看门狗）：
+       拉取默认常开、手动停**永久粘住**（`pullIntent='off'`，跨重连保持），
+       缺帧由后端按帧自愈 —— 前端不再有第二个定时器去抢命令窗口。 */
+    pullBusy: false };
 
   function liveCleanup() {
     if (LIVE.timer) { clearInterval(LIVE.timer); LIVE.timer = null; }
@@ -793,8 +796,12 @@ window.C = (function () {
     if (mo.device && mo.device.fw != null) m.fw = String(mo.device.fw);
     m.detail = mo.detail || '';
     m.streamMode = mo.stream_mode || m.streamMode || '';
-    // 拉取的**真值**来自后端（改版三十一：连上不再自动拉，按页面开）
+    // 拉取的**实况**来自后端（改版四十七：默认常开，`pull_mode` 才是人的意图）
     if (typeof mo.stream_on === 'boolean') S.pulling = mo.stream_on;
+    /* 用户意图（改版四十七）：`"auto"`=持续拉 / `"off"`=手动停（粘住）。
+       前端**绝不在 off 时自动开流**；auto 时由后端按帧自愈，前端不再抢着开。 */
+    if (mo.pull_mode === 'off' || mo.pull_mode === 'auto') m.pullIntent = mo.pull_mode;
+    else if (!m.pullIntent) m.pullIntent = 'auto';
     /* 链路健康（改版四十一）：**与 `connected` 分开两个概念**。
        `connected` 只说明串口开着；`link.link_dead` 有值 = 后端已经 PING 验过
        并**主动断开**了。两者曾经是同一个布尔，于是"串口开着但设备不应答"
@@ -804,6 +811,11 @@ window.C = (function () {
     m.wantStream = lk ? !!lk.want_stream : null;
     m.frameAgeMs = (lk && lk.frame_age_ms != null) ? lk.frame_age_ms : null;
     m.stalled = lk ? !!lk.stalled : null;
+    /* 改版四十七：单一"显示状态"，前端只按它上色，不再拿 `connected` 一刀切。
+       ok / paused / no_pull / waiting / suspect / dead。 */
+    m.linkState = (lk && lk.state) ? String(lk.state) : null;
+    m.probeFailRounds = (lk && lk.probe_fail_rounds != null)
+      ? Number(lk.probe_fail_rounds) : 0;
     S.estop = !!mo.estop_locked;
     if (d.clock) {
       S.health.clock.calibrated = !!d.clock.calibrated;
@@ -835,11 +847,10 @@ window.C = (function () {
       /* 下降沿：链路没了 ⇒ 读数归零（含迷你曲线、4 灯、比赛页那张迷宫图）。 */
       resetTelemetry(m.linkDead ? '链路判死' : '串口已断开');
     } else if (!wasConn && nowConn) {
-      /* 上升沿：链路刚回来 ⇒ **按当前页补一次拉取**。
+      /* 上升沿：链路刚回来 ⇒ **按当前页确认一次拉取**。
          ⚠️ 这是 `startLive()` 那条老 bug 的补丁面：那里拿到 `/health` 却把应答丢了，
          `syncPull()` 读到的还是初始的 `connected=false` 就 `return false`；
-         而 `race` 故意不在 `GUARD_PULL` 里 ⇒ **从记录页/刷新进比赛页，流永远不开**（探针实测）。
-         现在只要"连接"这件事发生过一次上升，就重新问一遍这一页要不要帧。 */
+         改版四十七之后 `syncPull()` 只做"确保开"，**不会因切页关流**。 */
       if (LIVE.on) syncPull(S.route, { quiet: true });
     }
     /* ⚠️ **必须通知外壳重画**（只重画顶栏/设备片/准备清单，不重挂页面）。
@@ -856,21 +867,23 @@ window.C = (function () {
        · `link_lost` —— 上游**自己怀疑**断链（`_frame_gap` 判的）。它**会误报**：
          发车命令占链路 0.9~5.4 s、`resume()` 不刷新 `_t0` ⇒ `n≥2` 时第一拍就报。
          所以这里只写日志，等后端 PING 复核的结果。
-       · `link_dead` —— 后端已经 PING ×2 都不通、**并主动断开了串口**。
-         这才是真事，必须弹出来（不然人只会看到界面忽然"未连接"而不知道为什么）。 */
+       · `link_dead` —— 后端已连续 `LINK_PROBE_ROUNDS`(3) 轮 PING 无应答。
+         ⚠️ 改版四十七：判死**不再断开串口**、也不停流 ⇒ 这里只提示 + 让外壳重画，
+         `S.pulling` 一位都不动（auto 模式后端还在按帧自愈，界面先说"停了"
+         会和设备打架）。真断/假断一律看 `link.state`，**出帧就自动撤销**。 */
   function applyMouseError(m) {
     const kind = m.kind || '';
     const msg = m.msg || '';
     const hint = m.hint || '';
-    log('mouse', kind === 'link_dead' ? 'bad' : 'warn',
+    log('mouse', kind === 'link_dead' ? 'bad' : 'info',
         '链路 · ' + (kind || '未知') + ' · ' + msg + (hint ? ' ／ ' + hint : ''));
+    if (kind === 'link_recovered') { emit('health'); return; }
     if (kind !== 'link_dead') return;
-    /* 判死只做三件事（用户裁决：**不加常驻 banner**，顶栏本来会跟着变）：
-       ① 拉取标记归零；② 让外壳重画（`emit('health')`，**不是** `emit('state')`，
-       那个会整页重挂、清掉正在输入的框）；③ 一条 7 s 的 bad toast。 */
-    S.pulling = false;
+    /* 改版四十七：判死**不再自动断串口** ⇒ 这里也**不**把 `S.pulling` 归零
+       （后端 auto 模式还在按帧自愈；界面先说"停了"会和设备打架）。
+       只提示 + 让外壳重画；真断/假断看 `link.state`，出帧会自动撤销。 */
     emit('health');
-    toast('bad', '电脑鼠链路已断', hint || msg, 7000);
+    toast('warn', '电脑鼠链路无应答', hint || msg, 7000);
   }
 
   /* WS 遥测 → S。**4 灯直接取后端的 `leds`，不再前端重算**（铁律 54：
@@ -1044,8 +1057,8 @@ window.C = (function () {
       /* ⚠️ 改版四十三修掉一条真 bug：这里原来 `get('/api/v1/health').then(function () {`
          —— **应答被丢掉了**。于是下面 `syncPull()` 读到的还是初始的
          `S.health.mouse.connected === false`，它第一行就 `return false`（"没连设备别开流"），
-         而后端明明连着；`race` 又故意不在 `GUARD_PULL` 里 ⇒ **从记录页/刷新进比赛页，
-         流永远不会自动开**（探针实测：进场 `pull=false`，面板 Hz 一直是 —）。
+         而后端明明连着 ⇒ **从记录页/刷新进比赛页，流永远不会自动开**
+         （探针实测：进场 `pull=false`，面板 Hz 一直是 —）。
          现在把这份应答喂给 `applyHealth`：连接态、帧龄、链路判死一次到位。 */
       return get('/api/v1/health').then(function (h) {
         applyHealth(h);
@@ -1057,12 +1070,10 @@ window.C = (function () {
         wsOpen();
         log('control', 'info', '已连后端 · 切到真数据（遥测走 WS）');
         emit('state');
-        // 先按"当前这页需不需要"决定拉不拉，再取数：参数表读表依赖拉取在跑。
+        // 先按"当前这页要不要"确认拉取，再取数：参数表读表依赖拉取在跑。
         syncPull(S.route).then(function () {
           loadParams(); loadRecords(); loadVideoSessions(); loadRecStatus();
         });
-        // 看门狗常驻：哪一页要帧就保证它在拉（自己掉的会重开，人工停的让 8 s）
-        startPullGuard();
         if (!LIVE.timer) {
           LIVE.timer = setInterval(function () {
             get('/api/v1/health').then(applyHealth).catch(function () {
@@ -1547,50 +1558,18 @@ window.C = (function () {
     if (raceTimer) { clearInterval(raceTimer); raceTimer = null; }
   }
 
-  /* ── 拉取看门狗（改版四十一：**静默 + 指数退避 + 不管比赛页**）──────────────
-     旧行为每 2 s 无条件重开、每次成功都 toast「拉取已开始」，而 `n≥2` 开流失败时
-     上游要重试 `CMD_TRIES=3 × 2.0 s` ⇒ 一次开流最坏堵命令通道 6.5 s。
-     于是"失败 → 2 s 后重开 → 弹框 → 又失败"就占满了整条链路 ——
-     现场看到的是"复位后不停弹框、发不出任何命令"。
+  /* ── 拉取看门狗：**改版四十七整段删除** ────────────────────────────────────
+     曾经的形态：2 s 巡检 + 指数退避（2→4→8→16→30 s）+ `NEED_PULL`/`GUARD_PULL`
+     两张页面表。它补的是"自己掉的流"，而它自己就是三条现场故障的成因：
+       · 与后端自愈抢同一个 1 ms 命令窗口 ⇒ 发车后 `RATE PULL` 被吃、开不起来；
+       · `n≥2` 开流失败要重试 `CMD_TRIES=3 × 2.0 s` ⇒ 一次开流最坏堵命令通道 6.5 s，
+         于是"失败 → 2 s 后重开 → 弹框 → 又失败"占满链路（复位后发不出命令）；
+       · 只有在表里的页面才补 ⇒ 比赛页靠人记得按，而"人忘了按"和"链路上没帧"
+         在界面上长得一模一样。
 
-     现在：
-       · 只在 `GUARD_PULL` 的页面补（比赛页不补，那页半手动）；
-       · 退避 2→4→8→16→30 s，**开流成功即归零**；
-       · **全程静默**（只写日志）；连续失败 2 次时**只提示一次**，不反复弹；
-       · 链路已判死就一次都不补（后端已关串口，补开只会多一条失败日志）。 */
-  const GUARD_GAP_MIN = 2000, GUARD_GAP_MAX = 30000;
-
-  function guardBackoff(ok) {
-    if (ok) { LIVE.guardGap = GUARD_GAP_MIN; LIVE.guardFail = 0; return; }
-    LIVE.guardFail = (LIVE.guardFail || 0) + 1;
-    LIVE.guardGap = Math.min((LIVE.guardGap || GUARD_GAP_MIN) * 2, GUARD_GAP_MAX);
-    if (LIVE.guardFail === 2) {
-      toast('warn', '自动开拉取没成功',
-        '已放慢重试（' + Math.round(LIVE.guardGap / 1000) + ' s 一次）并改为静默。'
-        + '要用帧请手动按【开始拉取】；先到【维护】页看链路。');
-    }
-  }
-
-  function startPullGuard() {
-    if (LIVE.guard) return;
-    LIVE.guardGap = LIVE.guardGap || GUARD_GAP_MIN;
-    LIVE.guardAt = 0;
-    LIVE.guardFail = LIVE.guardFail || 0;
-    LIVE.guard = setInterval(function () {
-      if (!LIVE.on || !S.health.mouse.connected) return;
-      if (!GUARD_PULL[S.route]) return;
-      if (S.pulling || LIVE.pullBusy) return;
-      if (LIVE.pullOffAt && (Date.now() - LIVE.pullOffAt) < 8000) return;
-      /* 链路判死 ⇒ 一次都别补：后端已经主动关掉串口了，这时补开只会得到
-         "未连接"，而人该做的是断电 3~5 s 重连。 */
-      if (S.health.mouse.linkDead) return;
-      if (Date.now() - (LIVE.guardAt || 0) < LIVE.guardGap) return;
-      LIVE.guardAt = Date.now();
-      log('mouse', 'info', '这页要实时帧，但拉取是停的 ⇒ 自动重开（静默）');
-      const p = setPull(true, S.pullN, { quiet: true });
-      if (p && p.then) p.then(function (ok) { guardBackoff(!!ok); });
-    }, 2000);
-  }
+     现在只剩一条路：拉取默认常开 → 缺帧由**后端**按"最近有没有收到新帧"自愈
+     （`_revive_reason`，无上限退避）→ 前端 `syncPull()` 只做"确保开"，
+     **永不因切页关流、永不在手动停之后自己开**。 */
 
   /* ── 迷宫记录器：状态轮询 + 停车原因（改版四十）─────────────────────────
      三件事在这里收口，别的视图不许自己推：
@@ -2107,19 +2086,20 @@ window.C = (function () {
   let pullSeq = 0;
 
   function setPull(on, n, opts) {
-    // `auto=true` = 页面切走顺带停。后端在"车在跑"时会**扣留**（返回 kept=true），
-    // 那时必须继续显示"拉取中"，否则界面说结束、设备还在发帧。
+    /* `auto=true` = "不是人点的停"（历史上是页面切走顺带停）。
+       改版四十七之后**没有任何调用点传它**（切页不再关流）；后端仍兜一层
+       "自动停一律忽略"，这里保留 `kept` 分支只为那类老调用方/脚本不被误伤。 */
     const auto = !!(opts && opts.auto);
-    /* `quiet=true`（看门狗补开）：**一个 toast 都不弹**。看门狗是在人没操作时
-       自己动的，"自动动作引起弹框"是最招人烦的一类 —— 而且失败时会连弹，
-       看起来就像"陷入了循环"。 */
+    /* `quiet=true`（`syncPull` 静默补开）：**一个 toast 都不弹**。自动动作是
+       人没操作时自己动的，"自动动作引起弹框"最招人烦 —— 而且失败时会连弹，
+       看起来就像"陷入了循环"（改版四十一的现场就是这个）。 */
     const quiet = !!(opts && (opts.quiet || opts.guard));
     /* 请求令牌（改版四十一）：晚到的响应**不许**改状态。
        踩过：人在 2 s 内点了【结束】又点了【开始】，先发的那个响应后到 ⇒
        界面停在"已结束"，而设备其实在发帧（或反过来）。令牌让"最后一次"说了算。 */
     const my = ++pullSeq;
     const stale = function () { return my !== pullSeq; };
-    // 防重入：看门狗每 2 s 看一眼，若上一次开流还没回来就再发一条，
+    // 防重入：`syncPull()` 进页/重连时可能连发两条，若上一次开流还没回来就再发，
     // 会在链路上堆命令（停等是串行的，堆两条就多两次往返）。
     LIVE.pullBusy = true;
     const done = function (v) { if (!stale()) LIVE.pullBusy = false; return v; };
@@ -2141,9 +2121,10 @@ window.C = (function () {
           return true;
         }
         S.pulling = false;
-        if (!auto) LIVE.pullOffAt = Date.now();   // 人工停 ⇒ 看门狗让 8 s
+        if (!auto) { S.health.mouse.pullIntent = 'off'; }   // 人工停 ⇒ 粘住（后端 `_pull_mode='off'`）
         log('mouse', 'info', '→ 拉取器已关 · 在途已丢弃');
-        if (!auto && !quiet) toast('', '拉取已结束', '档位保留 n=' + S.pullN + '（8 s 内不会被自动重开）');
+        if (!auto && !quiet) toast('', '拉取已结束', '档位保留 n=' + S.pullN
+          + '（本会话不再自动打开；重启后回"默认常开"）');
         emit('health');
         return done(true);
       }).catch(function (e) {
@@ -2182,6 +2163,7 @@ window.C = (function () {
       return post('/api/v1/mouse/stream', { on: true }).then(function (d) {
         if (stale()) return done(false);
         S.pulling = true;
+        S.health.mouse.pullIntent = 'auto';     // 用户开/自动确保开 ⇒ 回 AUTO
         log('mouse', 'info', '→ 拉取器已开 · n=' + r.n
           + (d && d.hz != null ? ' · 实测 ' + util.fmt(d.hz, 1) + ' Hz' : ''));
         if (!quiet) toast('ok', '拉取已开始', '档 n=' + r.n
@@ -2198,48 +2180,39 @@ window.C = (function () {
     });
   }
 
-  /* ── 按页开门：**只有要看的页面才拉**（改版三十一）────────────────────────
-     拉取是唯一持续占链路的动作（停等 1 条/往返、批式 10 Hz）。而人大部分时间在
-     看参数/记录/视频 —— 那些页面一帧都不需要，却一直在吃带宽。
+  /* ── 拉取**不再按页开门**（改版四十七删掉 `NEED_PULL` / `GUARD_PULL` 两张表）──
+     改版三十一是"只有要看的页面才拉"：切页时发 `{on:false, auto:true}` 关流。
+     现在拉取**默认常开**（`config.yaml: auto_stream: true`）：页面没有开/关权，
+     唯一能停的是人按【结束】（`pullIntent='off'`，粘住本会话）。
 
-     `NEED_PULL` 里这几页是"没有新帧就根本没法用"的：
-       · overview 总览：显示帧率与跑位
-       · live     实时状态：整个页面就是遥测
-       · race     比赛：发车前检查、迷宫状态机都读帧
-       · maint    维护自检：要靠 `mazeTask` 判断"车在跑 ⇒ 禁操作"
-     其余（params / data / video / track / replay）纯读盘或纯写参数，**不拉**。
+     为什么改：那套"按页开门"把三件本来独立的事拧成了一件 ——
+       ⓐ "设备在不在出帧"（事实，归后端 `link.frame_age_ms`）；
+       ⓑ "人想不想拉"（意图，归 `pull_mode`）；
+       ⓒ "当前在哪一页"（路由）。
+     发车走的是 `ensure_pull() → suspend → RUN → resume()`，`resume()` 后上游
+     `is_on=True` 但首条 `RATE PULL` 常被 1 ms 命令窗吃掉 ⇒ **事实是没在拉**。
+     旧逻辑三处叠加（`off` 依赖 `is_on` / `REVIVE_MAX=2` 放弃 / 判死门槛 4 s <
+     命令让路窗 5.5 s）就变成"发完车只能手动开"，详见设计方案 §11.47。
 
-     ⚠️ 切走时发的是 `{on:false, auto:true}`：后端在"车在跑"时会**扣留**，
-        避免"人切到记录页看看，结果把这一跑的遥测砍了"。
+     ⚠️ 参数页仍要**先确认拉取再读表**：停流时上游 `GET ALL` 的应答凑不齐
+        （3 s 超时、只回 38/41 项）⇒ 参数表会空。所以 `syncPull()` 在取数之前调。 */
 
-     ⚠️ **参数页也要拉**（改版三十一实测）：停流时上游 `GET ALL` 的应答凑不齐
-        （3 s 超时、只回 38/41 项）⇒ 参数表会空。所以「参数设定」在这张表里。 */
-  const NEED_PULL = { overview: 1, live: 1, params: 1, race: 1, maint: 1 };
-
-  /* 看门狗**只补这几页**（改版四十一）。与 `NEED_PULL` 差一个 `race`，这是有意的：
-       · `NEED_PULL`（进页开一次）—— 比赛页也要，否则进页是空白图；
-       · `GUARD_PULL`（停了自己补开）—— 比赛页**不补**。用户裁决：那页是"半手动"，
-         停车/复位后必须停着，等发车时由后端 `ensure_pull()` 兜。
-         以前它在两张表里都有 ⇒ 复位后 `resume()` 静默保持停 → 看门狗 2 s 后重开
-         → 开流失败（`n≥2` 要重试 3×2 s，命令通道被占）→ 再失败 →
-         **一边弹"开始拉流"一边发不出任何新命令**，就是现场那个循环。 */
-  const GUARD_PULL = { overview: 1, live: 1, params: 1, maint: 1 };
-
-  /* 返回 Promise：进页时要**先开拉取再取数**（参数页尤其如此，否则读表 409）。
-     `opts.guard` = 这是看门狗在补（用 `GUARD_PULL` 且静默、不弹框）。 */
+  /* 返回 Promise：进页时要**先确认拉取再取数**（参数页尤其如此，否则读表 409）。
+     改版四十七：默认常开 ⇒ 本函数只做"确保开"，**永不因切页关流**。
+     三条不许越过的线：① 没连后端/没连设备 ⇒ 不动作（打了必然 409/失败日志）；
+     ② `pullIntent==='off'`（人停过）⇒ **一步都不动**，人的决定高于自动；
+     ③ 只在"确实没在拉"时才发请求（`S.pulling` 已是 true 就什么都不发）。
+     `opts.guard` 只剩兼容位（看门狗已删），新调用一律用 `opts.quiet`。 */
   function syncPull(route, opts) {
     if (!LIVE.on) return Promise.resolve(false);
     // 没连设备就没什么可开的 —— 打过去必然 409，只会在日志里刷"拉取没开起来"
     if (!S.health.mouse.connected) return Promise.resolve(false);
-    const id = route || S.route;
-    const tbl = (opts && opts.guard) ? GUARD_PULL : NEED_PULL;
-    const need = !!tbl[id];
-    if (need && !S.pulling) {
+    if (S.health.mouse.pullIntent === 'off') return Promise.resolve(false);
+    if (!S.pulling) {
       return setPull(true, S.pullN,
         { quiet: !!(opts && (opts.guard || opts.quiet)) });
     }
-    if (!need && S.pulling) return setPull(false, null, { auto: true });
-    return Promise.resolve(S.pulling);
+    return Promise.resolve(true);
   }
 
   /* ── 拉取小面板（改版四十一）：比赛页的"半手动"控制台 ──────────────────────
@@ -2286,8 +2259,14 @@ window.C = (function () {
         /* 状态行只说三件事：帧龄 / 模式 / 为什么没在拉。
            **不重复"已连接"** —— 那在顶栏有，一行里说两遍就没人读了。 */
         const bits = [];
-        if (!S.health.mouse.connected) bits.push(ld ? '链路已断' : '未连接');
-        else if (!pulling) bits.push('未拉取');
+        const li = S.health.mouse.pullIntent;
+        const ls = S.health.mouse.linkState;
+        /* 改版四十七：**"没有帧"不等于"断开"**。按统一状态上词，别拿 connected 一刀切。 */
+        if (!S.health.mouse.connected) bits.push('未连接');
+        else if (li === 'off') bits.push('已停（手动）');
+        else if (ls === 'dead') bits.push('链路无应答（串口仍开）');
+        else if (ls === 'suspect') bits.push('链路疑似 · 复核中');
+        else if (!pulling) bits.push('自动补流中');
         else if (t.ageMs == null) bits.push('等第一帧');
         else {
           bits.push(t.ageMs >= 1000 ? util.fmt(t.ageMs / 1000, 1) + ' s 前'
@@ -2300,8 +2279,8 @@ window.C = (function () {
         }
         metaEl.textContent = bits.join(' · ');
         metaEl.title = metaEl.textContent;     // 窄栏会被省略号截，全文留在这里
-        metaEl.classList.toggle(
-          'bad', !!(ld || (pulling && t.ageMs != null && t.ageMs > 2500)));
+        /* 红只给**确认无应答**；手动停/等帧/补流都只是信息，不涂红。 */
+        metaEl.classList.toggle('bad', ls === 'dead');
         nin.disabled = pulling;                              // 切档必须先停流
         if (document.activeElement !== nin) nin.value = S.pullN;
         onB.disabled = pulling || !S.health.mouse.connected;
@@ -2670,10 +2649,10 @@ window.C = (function () {
       if (location.hash !== h) history.pushState({ id }, '', h);
     }
     emit('route', id);
-    // 先定"这页要不要拉取"，再按页取数：参数页读表**依赖拉取在跑**（见 NEED_PULL），
+    // 先确认拉取，再按页取数：参数页读表**依赖拉取在跑**（停流时 GET ALL 凑不齐 41 项），
     // 反过来做会先吃一个 409、再补一次请求。
     syncPull(id).then(function () { needPage(id); });
-    // 比赛页要"实时图 + 持续帧"：进页面就起重构轮询与拉取看门狗，离开就停
+    // 比赛页要"实时图 + 持续帧"：进页面就起重构轮询（拉取已默认常开，不归页面管）
     if (id === 'race') startRaceTick(); else stopRaceTick();
   }
 

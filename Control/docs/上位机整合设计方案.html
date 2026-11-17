@@ -184,6 +184,7 @@ li{margin:.28em 0}
 <li><a href="#1144">11.44 改版四十四·回放的发车/收车改成"动作码说了算"（状态：已落地）</a></li>
 <li><a href="#1145">11.45 改版四十五·记录列表改成"滚动续载 + 搜索自动载全"（状态：已落地）</a></li>
 <li><a href="#1146">11.46 改版四十六·回放的"状态"与实时参数同源（状态：已落地）</a></li>
+<li><a href="#1147">11.47 改版四十七·拉取默认常开 + 手动最高 + 宽松判死（状态：已落地）</a></li>
 <li><a href="#118">11.8 只有现场才能判的（如实标注，不假装通过）</a></li>
 </ul>
 </li>
@@ -10722,6 +10723,396 @@ link_lost</strong>，而设备好好的。真机现在没炸，只因默认 <cod
    "参数派生量 SPEEDL=None"，第二次同一命令通过（<code>SPEEDL=0.532…</code> 与 <code>TRACKL/100</code> 一致）。
    那一段读的是 <code>/mouse/params/grouped</code>（链路忙时读参数会失败一次），
    <strong>与本轮改动无关</strong>，但"判据偶发红"本身值得单独一轮修（读失败应当 SKIP 而不是 FAIL）。</li>
+</ol>
+<hr />
+<h3 id="1147">11.47 改版四十七·拉取默认常开 + 手动最高 + 宽松判死（状态：<strong>已落地</strong>）</h3>
+<h4 id="_175">一、现象</h4>
+<p>现场是四句话，回头看作同一个病：</p>
+<ol>
+<li><strong>"发车命令一下达，拉取就断了"</strong> —— 发完车必须手动按【开始拉取】才有数据。</li>
+<li><strong>"复位后不停弹『开始拉流』，同时什么命令都发不出去"</strong> —— 弹框与命令失败同时发生。</li>
+<li><strong>"界面显示断开了，但内部收发一直是正常的"</strong> —— 前端说没连、帧一直在进。</li>
+<li><strong>"切到记录页看一眼，回来这一跑的遥测就断了"</strong> —— 看别的页面把数据砍了。</li>
+</ol>
+<p>四句的共同点：<strong>"要不要拉"这件事当时有三个主人</strong>（页面路由、前端看门狗、后端自愈），
+而没有一个是"事实"。</p>
+<h4 id="_176">二、根因：三层叠加，每一层单独看都合理</h4>
+<p><strong>第一层 · <code>off</code> 依赖上游 <code>is_on</code>，而 <code>is_on</code> 会骗人</strong></p>
+<p>发车链路是 <code>ensure_pull() → suspend(RATE OFF) → MAZE RUN → resume(RATE PULL ×3)</code>。
+<code>resume()</code> 里第一条 <code>RATE PULL</code> 常被固件 1 ms 命令窗吃掉，但函数照样正常返回 ⇒
+<code>is_on=True</code>。旧 <code>_pull_state()</code> 里写的是</p>
+<pre><code class="language-python">off = (on is False) and self._want_on     # 改版四十七之前
+</code></pre>
+<p>⇒ <code>off=False</code> ⇒ <code>_revive_reason()</code> 第一行 <code>if not st["off"]: return None</code>
+⇒ <strong>自愈永不触发</strong>。这不是"补流补失败了"，是"根本没打算补"。
+判活依据选错了对象：<code>is_on</code> 是<strong>意图</strong>，不是<strong>事实</strong>。</p>
+<p><strong>第二层 · 补两次就静默放弃</strong></p>
+<p><code>REVIVE_MAX = 2</code>：补两次没成，自愈自己停手。于是"自动补回来"这条路在第二次失败后
+就永久失效 —— 剩下的唯一出路就是人手动按。第二层把第一层的残留出口也关上了。</p>
+<p><strong>第三层 · 判死门槛比命令让路窗还短</strong></p>
+<p><code>STALL_PROBE_S = 4.0 s</code>，而一次命令占链路最长约 <strong>5.5 s</strong>（3 s 命令 + 2.5 s 等新帧）。
+于是复核 PING 与 <code>RATE PULL</code> 抢<strong>同一个 1 ms 命令窗</strong>：两轮都被吃掉就 <code>_declare_dead()</code>
+→ 当时它会 <code>mc.disconnect()</code> ⇒ 串口真的被关掉。
+但"帧一直在来"说明链路是好的 —— 这就是第 3 句现象：<strong>判死判的是"命令发不出去"，
+而显示写成了"设备没了"</strong>。</p>
+<p><strong>第四层（背景）· 按页开门</strong></p>
+<p><code>config.yaml</code> 的 <code>auto_stream: false</code> + 前端 <code>NEED_PULL</code> 页面表 + 2 s 前端看门狗：
+拉取被绑在"当前在哪一页"上。第 4 句现象的直接来源；也是第 2 句里"弹框与命令失败"
+的放大器（看门狗每 2 s 重开一次，而 <code>n≥2</code> 开流失败要重试 <code>CMD_TRIES=3 × 2.0 s</code>，
+一次开流最坏堵命令通道 6.5 s ⇒ 失败→重开→弹框→再失败）。</p>
+<h4 id="_177">三、四条不变量（新口径，改代码前先认这四条）</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>不变量</th>
+<th>一句话理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>单一权威 <code>_pull_mode</code></strong>（<code>"auto"</code> / <code>"off"</code>），后端持有</td>
+<td>"要不要拉"只能有一个答案，页面/看门狗/自愈都不许各持一份</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>默认常开</strong>：连上即持续拉，含发车前后；复位/停车后自动回来</td>
+<td>拉取是遥测的<strong>唯一</strong>来源，"没数据"永远比"多占一点链路"更贵</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>手动最高（粘住）</strong>：人按过【结束】⇒ <code>"off"</code>，<strong>任何自动路径都不许改回来</strong>，跨重连保持，进程重启回 <code>"auto"</code></td>
+<td>人按【结束】是排障手段（上游 <code>off()</code> 会丢弃在途请求，是排空蓝牙缓冲的唯一办法）</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>以帧为真相</strong>：判活只看"最近有没有收到新帧"（<code>_frame_grow_at</code>），不看 <code>is_on</code></td>
+<td><code>is_on</code> 是意图，第 2 节第一层就是这么错的</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_178">四、行为矩阵（"这一刻该不该拉"）</h4>
+<table>
+<thead>
+<tr>
+<th>事件</th>
+<th>拉取</th>
+<th>自动层能否改回</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>连上设备</td>
+<td>开</td>
+<td>—</td>
+<td><code>connect()</code> 末尾按 <code>_pull_mode</code> 对齐</td>
+</tr>
+<tr>
+<td>发车前（<code>ensure_pull</code>）</td>
+<td>保持/确保开</td>
+<td>—</td>
+<td>只在 <code>auto</code> 下动作</td>
+</tr>
+<tr>
+<td>命令占用链路（<code>suspend</code>）</td>
+<td>短暂停</td>
+<td>能（命令结束 <code>resume</code> 回来）</td>
+<td><code>_cmd_exit</code> 登记自愈</td>
+</tr>
+<tr>
+<td>发车中 / 跑车中</td>
+<td>保持</td>
+<td>—</td>
+<td>不再有页面能停它</td>
+</tr>
+<tr>
+<td>复位 / 停车 / 收车</td>
+<td><strong>保持</strong>（不断流）</td>
+<td>—</td>
+<td>旧逻辑在这里停，是现场第一句的来源</td>
+</tr>
+<tr>
+<td>人按【结束】</td>
+<td>停</td>
+<td><strong>不能</strong></td>
+<td><code>_pull_mode="off"</code>，粘住</td>
+</tr>
+<tr>
+<td>人按【开始】/ 切到要帧的页</td>
+<td>开</td>
+<td>—</td>
+<td><code>syncPull()</code> 只在 <code>auto</code> 下"确保开"</td>
+</tr>
+<tr>
+<td>真死链（连续 3 轮 PING 无应答）</td>
+<td><strong>不停</strong>（串口也不断）</td>
+<td>只标 <code>dead</code></td>
+<td><code>_declare_dead()</code> 不动流、不断串口</td>
+</tr>
+<tr>
+<td>又收到帧</td>
+<td>立刻撤销 <code>dead</code></td>
+<td>—</td>
+<td><code>_track_frames()</code> 清 <code>_link_dead</code> 并广播 <code>link_recovered</code></td>
+</tr>
+<tr>
+<td>进程重启</td>
+<td>回 <code>"auto"</code>（常开）</td>
+<td>—</td>
+<td>不落盘（用户拍板）</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_179">五、断线判定：五处改动，一条思路"放宽 + 可撤销"</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>项</th>
+<th>改前</th>
+<th>改后</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>门槛</td>
+<td><code>STALL_PROBE_S = 4.0 s</code></td>
+<td><code>LINK_SUSPECT_S = 8.0 s</code></td>
+<td>必须<strong>长于</strong>最长命令让路窗（≈5.5 s），否则 PING 必然与命令抢同一个 1 ms 窗</td>
+</tr>
+<tr>
+<td>2</td>
+<td>轮数</td>
+<td>一次不通就判</td>
+<td>连续 <code>LINK_PROBE_ROUNDS = 3</code> 轮无应答才判</td>
+<td>单次被命令吃掉是常态</td>
+</tr>
+<tr>
+<td>3</td>
+<td>处置</td>
+<td><code>disconnect()</code> + 停流 + <code>feed_link_down()</code> + 结束记录</td>
+<td><strong>只标 <code>_link_dead</code> + 发事件 + 留日志</strong>（<code>"disconnected": False</code>）</td>
+<td>"PING 不通"与"设备没了"是两件事；断串口是<strong>不可撤销</strong>的动作</td>
+</tr>
+<tr>
+<td>4</td>
+<td>撤销</td>
+<td>只有重连能清</td>
+<td><strong>收到帧即撤销</strong>（<code>_track_frames</code> 清标记 + <code>link_recovered</code>）</td>
+<td>帧是事实，比 PING 更权威</td>
+</tr>
+<tr>
+<td>5</td>
+<td>自愈</td>
+<td>补 2 次停手</td>
+<td><strong>无上限</strong>，只拉长间隔（<code>REVIVE_GAP_S=2.5</code> ×2 → <code>REVIVE_GAP_MAX=15.0</code>）</td>
+<td>放弃等于又交给手动；间隔封顶保证不会把链路占死</td>
+</tr>
+</tbody>
+</table>
+<p>自愈的判定只有一句：<strong><code>_pull_mode == "auto"</code> 且最近 <code>REVIVE_IF_NO_FRAME_S = 2.0 s</code>
+内没收到新帧</strong> ⇒ 重发 <code>RATE PULL</code>。<code>is_on</code> 一位都不看。</p>
+<h4 id="_180">六、显示状态：六态，前端只按它上色</h4>
+<p><code>link_health()["state"]</code> 六个值（派生顺序即优先级）：</p>
+<table>
+<thead>
+<tr>
+<th>state</th>
+<th>含义</th>
+<th>面板文案</th>
+<th>颜色</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dead</code></td>
+<td>连续 3 轮无应答（<strong>串口仍开</strong>）</td>
+<td>链路无应答（串口仍开）</td>
+<td>红</td>
+</tr>
+<tr>
+<td><code>suspect</code></td>
+<td>已有 1~2 轮无应答，复核中</td>
+<td>链路疑似 · 复核中</td>
+<td>黄（顶栏）</td>
+</tr>
+<tr>
+<td><code>paused</code></td>
+<td>命令让路中（<code>held</code>）</td>
+<td>—</td>
+<td>不涂色</td>
+</tr>
+<tr>
+<td><code>no_pull</code></td>
+<td>人手动停（<code>pull_mode="off"</code>）</td>
+<td>已停（手动）</td>
+<td>不涂色</td>
+</tr>
+<tr>
+<td><code>waiting</code></td>
+<td>想拉但 <code>frame_age &gt; STALL_FRAME_S</code>，尚未疑</td>
+<td>x s 前 · 帧停了</td>
+<td>不涂色</td>
+</tr>
+<tr>
+<td><code>ok</code></td>
+<td>正常收帧</td>
+<td>x ms 前</td>
+<td>不涂色</td>
+</tr>
+</tbody>
+</table>
+<p><strong>红只给 <code>dead</code></strong>。手动停、等第一帧、自动补流都是信息不是故障 ——
+"把排障手段画成故障"会让人去拔线，而那时串口本来还是好的。</p>
+<h4 id="_181">七、为此删掉的东西（不留第二个真相）</h4>
+<table>
+<thead>
+<tr>
+<th>删</th>
+<th>原来干什么</th>
+<th>现在谁负责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>config.yaml: auto_stream: false</code></td>
+<td>默认不拉</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td>前端 <code>NEED_PULL</code> / <code>GUARD_PULL</code> 两张页面表</td>
+<td>决定"哪页才拉/哪页才补"</td>
+<td>无（拉取不看页面）</td>
+</tr>
+<tr>
+<td><code>startPullGuard()</code> + <code>guardBackoff()</code> + <code>LIVE.guard</code></td>
+<td>2 s 巡检 + 指数退避补开</td>
+<td>后端 <code>_revive_reason()</code>（按帧、无上限）</td>
+</tr>
+<tr>
+<td><code>LIVE.pullOffAt</code>（人工停 8 s 豁免）</td>
+<td>8 s 内不许自动重开</td>
+<td>永久粘住（<code>pull_mode="off"</code>）</td>
+</tr>
+<tr>
+<td><code>race.js: stopPullOnce()</code> / <code>_wasRun</code> / <code>_wasRec</code></td>
+<td>停车/收车/记录收尾顺带停流</td>
+<td>无（不再关流）</td>
+</tr>
+<tr>
+<td><code>mouse.REVIVE_MAX = 2</code></td>
+<td>补两次放弃</td>
+<td>无上限退避</td>
+</tr>
+<tr>
+<td><code>mouse.set_stream</code> 的 auto 停流分支</td>
+<td>自动停要判断"能不能停"</td>
+<td>一律忽略，回 <code>{kept:true, reason:"always_on"}</code></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <code>pull_hold_reason()</code> <strong>保留但已无本层调用</strong>：<code>routes.py</code> 的 <code>auto=True</code> 分支仍用它
+那一套"自动动作撞上记录"的语义（回 <code>kept:true, reason:"recording"</code>）。两条路径必须同源，
+所以要留着并在 docstring 里写明"哪天那个分支删了，这个方法一起删"。</p>
+<h4 id="_182">八、判据</h4>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>守什么</th>
+<th>变化</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I43</strong></td>
+<td>拉取档与"默认常开"五段：人工停 / 关流改 n / 带档开流 / <strong>自动停一律忽略（<code>reason="always_on"</code>）</strong> / <strong>人工停粘住</strong></td>
+<td>重写（原来验"按页停"）</td>
+</tr>
+<tr>
+<td><strong>I57</strong></td>
+<td>判死<strong>只标不执行</strong>：<code>toggles == []</code>、<code>maze_recorder.down == 0</code>、<code>disconnects == 0</code>、<code>mode</code> 仍是 <code>auto</code>、幂等、<strong>出帧即撤销</strong></td>
+<td>重写</td>
+</tr>
+<tr>
+<td><strong>I58</strong></td>
+<td>复核时机：8 s 前一次都不查；1 轮无应答 ⇒ 只黄（<code>state=="suspect"</code>）；满 3 轮才 <code>dead</code></td>
+<td>改（门槛 4→8 s）</td>
+</tr>
+<tr>
+<td><strong>I60</strong></td>
+<td>命令占链路时<strong>一次都不复核</strong>（夹具补 <code>is_on=True</code>，否则提前落进 <code>off</code> 分支会<strong>假绿</strong>）</td>
+<td>夹具修</td>
+</tr>
+<tr>
+<td><strong>I62</strong></td>
+<td>自愈按帧不按 <code>is_on</code>：<code>is_on=True</code> 但 30 s 没帧 ⇒ <strong>仍要补</strong>；<code>pull_mode="off"</code> ⇒ 不补；<code>_revive_tries=99</code> ⇒ <strong>仍补</strong>（无上限）；帧回来计数归零</td>
+<td>重写</td>
+</tr>
+<tr>
+<td><strong>V11</strong></td>
+<td>拉取默认常开：切到 data/params <strong>仍要拉</strong>；人工停后切回 live <strong>不许自己开</strong>（后端 <code>pull_mode</code> 必须是 <code>off</code>）</td>
+<td>重写（原验"按页开门"）</td>
+</tr>
+<tr>
+<td><strong>V17</strong></td>
+<td>手动停=最高权限：停了之后<strong>切走再回比赛页</strong>等 3 s 仍停，且两次读到的 <code>pull_mode</code> 都是 <code>off</code></td>
+<td>改口径（原验"看门狗不补"）</td>
+</tr>
+<tr>
+<td><strong>V19</strong></td>
+<td>收车点击即反馈之后，<strong>拉取仍在</strong>（收车不停流）</td>
+<td>断言反向（原断言"停流"）</td>
+</tr>
+<tr>
+<td><strong>V24</strong></td>
+<td><strong>判死 ≠ 断开</strong>：同一份 <code>connected:true</code> 喂三份 health —— A 判死（面板"链路无应答（串口仍开）"、红、顶栏"链路无应答"、拉取指示不清零）/ B 帧回来（文案与红都退）/ C 人停（"已停（手动）"、<strong>不红</strong>）</td>
+<td>新增</td>
+</tr>
+</tbody>
+</table>
+<h4 id="2026-11-05">九、实测（2026-11-05）</h4>
+<ul>
+<li><code>drill --sim</code>：<strong>67 PASS / 0 FAIL / 1 SKIP</strong>。
+  关键证据是日志里这一行 —— 它证明"<code>is_on</code> 骗人时仍会补流"真的生效了：</li>
+</ul>
+<p><code>[warn] auto 模式下 2 s 没收到帧（is_on=True） ⇒ 重发 RATE PULL（第 1 次，间隔 2.5 s）</code></p>
+<p>改前同样的场景是<strong>一条日志都没有</strong>（<code>_revive_reason</code> 在 <code>off=False</code> 时直接返回 <code>None</code>）。
+- I43 / I44 / I49 / I57 / I58 / I60 / I62 全 PASS；I57 明细：<code>toggles=[]</code>、
+  <code>disconnects=0</code>、<code>maze_recorder.down=0</code>、出帧后 <code>_link_dead=None</code>。
+- <code>browser_check --sim</code>（1400×710，8771）：<strong>27 PASS / 0 FAIL / 2 SKIP</strong>
+  （SKIP：V21 全库 36 条 ≤50 装得下；V10 已连设备不试错端口）。三条新判据实测：
+  - <strong>V11</strong>：先确保在拉=True（<code>mode='auto'</code>）→ live 拉=True → data 拉=True →
+    params 拉=True（参数 41 项）→ 人工停 ⇒ 拉=False、<code>mode='off'</code> →
+    切回 live ⇒ 拉=False、<code>mode='off'</code>。
+  - <strong>V17</strong>：面板有、Hz='32.2'；进页=True → 手动停后=False（<code>mode='off'</code>）→
+    切走再回比赛页等 3 s=False（<code>mode='off'</code>）。
+  - <strong>V24</strong>：A 判死 ⇒ 面板「链路无应答（串口仍开）」+ 红 + 顶栏「链路无应答」；
+    B 帧回来 ⇒ 面板「31 ms 前」、红退、顶栏回 <code>COM7</code>；C 人停 ⇒ 「已停（手动）」、<strong>不红</strong>。
+- <strong>V19 断言反向</strong>（收车后 <code>拉取=True</code>）：第一次跑它红了 —— 因为旧断言是"确认后停流"，
+  而这轮把"收车停流"删了。判据跟着机制改，才有资格叫判据（铁律 76）。
+- ⚠️ <strong>V11 第一版红过一次</strong>：它当时直接读"上一个组留下的拉取状态"，而那一次读到的是<strong>停的</strong>
+  （原因未查明，后端 <code>mode</code> 也没留下当时值）⇒ 判据红的原因与本条要验的东西无关。
+  现在加了 <code>_ensure_on()</code> 前置（等条件不等时长），并把这个前提写进判据输出
+  （<code>先确保在拉=True</code>）—— 判据的<strong>前提</strong>必须自己造，不能借上一个组的状态。</p>
+<h4 id="_183">十、如实交代</h4>
+<ol>
+<li><strong>"持续占链路"是明确拍板接受的代价</strong>：空闲时也照拉，不降档、不按页停。
+   代价是多占一点串口往返；换来的是"任何一页、任何时刻切过去都有帧"。</li>
+<li><strong>判死仍可能误判</strong>：<code>PING</code> 与 <code>RATE PULL</code> 抢同一个 1 ms 命令窗这件事<strong>原理上没消除</strong>，
+   只是把门槛放到 8 s、要连续 3 轮、并且<strong>不再执行不可撤销的动作</strong>（不断串口、不停流）。
+   真误判的表现会是"顶栏闪一下黄/红又自己恢复" —— 这是<strong>有意的</strong>：宁可报一次可撤销的
+   疑点，也不要静默地什么都不说，或者干脆把串口关了。</li>
+<li><strong>粘住只在进程内</strong>：<code>_pull_mode</code> 不落盘，重启回 AUTO（用户拍板）。
+   所以"重启后它又自己开始拉了"不是回归，是设计的默认值。</li>
+<li><strong>真机时序没验</strong>：<code>--sim</code> 只证明"<code>is_on=True</code> 但没帧时仍补流"这条路径；
+   "发车命令那条真实链路（<code>suspend → resume</code>）在真机上补流会不会和 <code>MAZE RUN</code> 抢窗"
+   需要现场跑一次才敢说。这条已列进 §11.8 的现场项。</li>
+<li><strong><code>I42</code> 那类偶发红仍在</strong>（读参数偶发失败），与本次改动无关，仍未修。</li>
 </ol>
 <hr />
 <h3 id="118">11.8 只有现场才能判的（如实标注，不假装通过）</h3>

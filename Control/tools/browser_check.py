@@ -594,35 +594,90 @@ async def run(args) -> int:
                            f"渲染 {got_p.get('rows')} 行"
                            + ("" if ok9 else " ⇒ **参数页没吃上后端数据，或派生量被当成了可写项**"))
 
-                # ---------------- V10 连接按钮必须真的去连（本版新增，专治"连上又断开"）
-                head("11b. 切页开关拉取：不看的页面不该占链路")
-                # 拉取是唯一持续占链路的动作（停等 1 条/往返、批式 10 Hz）。
-                # 这里验两件事：**切到不需要帧的页面要停**、**切回要拉的页面要开**。
-                # 需要活链路才验得出来（没设备时 `syncPull` 直接跳过）。
+                # ---------------- V11 切页不许动流 + 手动停最高（改版四十七重写）
+                head("11a. 拉取默认常开：切页不动流；手动停**粘住**（切页也不回弹）")
+                # 改版三十一这里验的是"切到不需要帧的页面要停"——那套"按页开门"已经
+                # 拆了（见设计方案 §11.47）。现在验**两个方向**，缺一不能算判据：
+                #   ① auto 模式（默认）：切到只读盘的 data 页，流**仍要在**（切页不动流）；
+                #   ② 人按过【结束】（`pullIntent='off'`）：切回 live 页，流**仍不许开**
+                #      —— 手动是最高权限，任何"进页确保开"的逻辑都不许越过它。
+                # 只验 ①：会放过"手动被自动盖回去"（正是这次要修的病）。
+                # 只验 ②：会放过"切页还在关流"（旧病）。
                 if not (ui.get("live") and api_mouse.get("connected")):
-                    record("V11", "SKIP", "没连设备（或没进真数据模式）⇒ 按页开关无从验起")
+                    record("V11", "SKIP", "没连设备（或没进真数据模式）⇒ 拉取常开无从验起")
                 else:
+                    def _mhpull() -> dict:
+                        return (read_health(base).get("mouse") or {})
+
+                    async def _ensure_on(timeout: float = 8.0) -> bool:
+                        """把"在拉"这个**前提**做出来（判据本身不依赖上一个组留下的状态）。
+
+                        ⚠️ 为什么要这一步：V6 是"结束→改档→开始"，收尾是**开着**的；
+                        但任何一条前面的判据都可能合法地停过流，那时 V11 的 ① 会红，
+                        红的原因与本条要验的东西（切页是否关流）无关 —— 那是误报。
+                        ⚠️ 而不是"点一下就断言"：开流是**异步**的（POST + 上游 ACK），
+                        只等固定 1.5 s 会在慢链路下偶发红。等条件，不等时长。
+                        """
+                        if bool(_mhpull().get("stream_on")):
+                            return True
+                        await cdp.eval("window.C.setPull(true, window.C.S.pullN)")
+                        t0 = time.monotonic()
+                        while time.monotonic() - t0 < timeout:
+                            await asyncio.sleep(0.5)
+                            if bool(_mhpull().get("stream_on")):
+                                return True
+                        return False
+
+                    ensured = await _ensure_on()
                     await cdp.eval("window.C.go('live')")
                     await asyncio.sleep(1.5)
-                    on_live = bool((read_health(base).get("mouse") or {}).get("stream_on"))
-                    await cdp.eval("window.C.go('data')")          # 只读盘，不需要帧
-                    await asyncio.sleep(1.6)
-                    off_data = bool((read_health(base).get("mouse") or {}).get("stream_on"))
-                    await cdp.eval("window.C.go('params')")        # 参数表要 GET ALL，必须拉
+                    h_live = _mhpull()
+                    on_live = bool(h_live.get("stream_on"))
+                    mode_live = str(h_live.get("pull_mode") or "")
+                    # ① 切到 data（只读盘、一帧都不需要）⇒ 流不许关
+                    await cdp.eval("window.C.go('data')")
+                    await asyncio.sleep(1.8)
+                    on_data = bool(_mhpull().get("stream_on"))
+                    # 参数页顺带验"读表依赖拉取"：41 项是它真的读到上游的证据
+                    await cdp.eval("window.C.go('params')")
                     await asyncio.sleep(2.0)
-                    on_params = bool((read_health(base).get("mouse") or {}).get("stream_on"))
+                    on_params = bool(_mhpull().get("stream_on"))
                     pcount = await cdp.eval(
                         "(()=>((window.C.S.params||[]).reduce((a,g)=>a+g.items.length,0)))()")
-                    ok11 = on_live and (not off_data) and on_params and (pcount == 41)
-                    await cdp.eval("window.C.go('live')")          # 收尾回到要拉的页面
-                    await asyncio.sleep(1.2)
+                    # ② 人工停（比赛页面板上的【结束】）⇒ 粘住
+                    await cdp.eval("window.C.go('race')")
+                    await asyncio.sleep(2.0)
+                    # 面板的【结束】在"本来就没在拉"时是禁用的 ⇒ 先确保开着，
+                    # 否则点了个 disabled 按钮，"停住了"这条就是假绿（本来就没在拉）。
+                    if not bool(_mhpull().get("stream_on")):
+                        await _ensure_on()
+                    await cdp.eval("(()=>{const b=document.querySelector("
+                                   "'#rc-pull [data-r=pp-off]');if(b&&!b.disabled)b.click();})()")
+                    await asyncio.sleep(2.0)
+                    h_off = _mhpull()
+                    off_stop = bool(h_off.get("stream_on"))
+                    mode_off = str(h_off.get("pull_mode") or "")
+                    # 再切回 live（"进页确保开"的地方）⇒ 不许自己开回来
+                    await cdp.eval("window.C.go('live')")
+                    await asyncio.sleep(2.5)
+                    h_back = _mhpull()
+                    back_on = bool(h_back.get("stream_on"))
+                    mode_back = str(h_back.get("pull_mode") or "")
+                    ok11 = bool(ensured and on_live and on_data and on_params and (pcount == 41)
+                                and (not off_stop) and (mode_off == "off")
+                                and (not back_on) and (mode_back == "off"))
+                    # 收尾：把人停的那次开回来（后面的判据要帧），并回 auto
+                    await cdp.eval("window.C.setPull(true, window.C.S.pullN)")
+                    await asyncio.sleep(2.0)
                     record("V11", "PASS" if ok11 else "FAIL",
-                           f"进 live ⇒ 拉={on_live}；切 data ⇒ 拉={off_data}"
-                           f"（应为 False）；切 params ⇒ 拉={on_params}"
-                           f"（参数 {pcount} 项）"
+                           f"先确保在拉={ensured}（mode={mode_live!r}）；"
+                           f"live 拉={on_live} → data 拉={on_data}（应为 True，"
+                           f"切页不许关流）→ params 拉={on_params}（参数 {pcount} 项）；"
+                           f"人工停 ⇒ 拉={off_stop}（应 False）·后端 mode={mode_off!r}；"
+                           f"再切回 live ⇒ 拉={back_on}（应 False）·mode={mode_back!r}"
                            + ("" if ok11 else
-                              " ⇒ **切走了还在拉（白占链路），或者该拉的页面没开"
-                              "（参数表就会是 0 组）**"))
+                              " ⇒ **要么切页还在关流（连上就断、数据要手动开），"
+                              "要么手动停被自动逻辑盖回去了**"))
 
                 # ---------------- V12 比赛页的图必须**跟着设备走**（改版三十三）
                 head("11c. 比赛页：图是设备给的，而且会随帧增长")
@@ -747,13 +802,16 @@ async def run(args) -> int:
                     except Exception as e:                        # noqa: BLE001
                         record("V16", "SKIP", f"造记录时出错（判不了）：{type(e).__name__}: {e}")
 
-                # ---------------- V17 比赛页拉取是**半手动**（改版四十一）
-                head("11g. 比赛页：进页开一次，手动停之后看门狗**不许**自己重开")
-                # 为什么单列：这就是现场那个"复位后不停弹开始拉流、发不出命令"的循环。
-                # 因果链是：`resume()` 静默保持停 → 看门狗 2 s 后重开 → `n≥2` 开流要
-                # 重试 3×2 s（命令通道被占）→ 又失败 → 再重开。
-                # ⚠️ 必须**去掉"人工停 8 s 豁免"**再等：否则 8 s 内的静默是豁免给的，
-                #    验不出 race 是否还在 `GUARD_PULL` 里（那样这条判据永远假绿）。
+                # ---------------- V17 比赛页：手动停 = 最高权限（改版四十七改口径）
+                head("11g. 比赛页：手动停之后**谁都不许**把它开回来（发车前后也一样）")
+                # 这条守的仍是现场那个循环的另一半：以前"停车/复位后有人替你把流开回来"，
+                # 于是 `n≥2` 开流重试 3×2 s 占住命令通道 ⇒ 发不出任何命令。
+                # 改版四十七换掉了机制（前端看门狗删了，改成后端 `_pull_mode='off'` 粘住），
+                # 判据跟着换**观测点**：不再看"看门狗补不补"，而是看
+                #   ① 停了以后**后端 `pull_mode` 真是 'off'**（不是界面上自己写了个 off）；
+                #   ② 停住的状态要**扛过发车那条命令链路**（`ensure_pull/suspend/resume`
+                #      会碰拉取）—— 所以这里顺带把比赛页切进切出一次再等 ≥4.5 s。
+                # ⚠️ 8 s 豁免、`LIVE.pullOffAt` 都已删除（粘住是永久的）⇒ 判据里也不许留。
                 if not pick("V17"):
                     record("V17", "SKIP", "--only 未选中")
                 elif not (ui.get("live") and api_mouse.get("connected")):
@@ -768,7 +826,7 @@ async def run(args) -> int:
                         "hasOn:!!document.querySelector('#rc-pull [data-r=pp-on]'),"
                         "hasOff:!!document.querySelector('#rc-pull [data-r=pp-off]')});})()")
                         or "{}"))
-                    # 进页那一次可能已经被人（或前面的组）停掉 ⇒ 先手动开起来再验"停"
+                    # 前面的组可能已经停掉 ⇒ 先手动开起来再验"停"
                     if not j1.get("pull"):
                         await cdp.eval("(()=>{const b=document.querySelector("
                                        "'#rc-pull [data-r=pp-on]');if(b&&!b.disabled)b.click();})()")
@@ -778,19 +836,29 @@ async def run(args) -> int:
                                    "'#rc-pull [data-r=pp-off]');if(b&&!b.disabled)b.click();})()")
                     await asyncio.sleep(2.0)
                     st2 = bool(await cdp.eval("window.C.S.pulling"))
-                    # 去掉 8 s 豁免 ⇒ 看门狗立刻有资格补开（若 race 还在表里就会补）
-                    await cdp.eval("(()=>{window.C.LIVE.pullOffAt=0;})()")
-                    await asyncio.sleep(4.5)      # ≥2 个 2 s 节拍
+                    m2 = str(((read_health(base).get("mouse") or {}).get("pull_mode") or ""))
+                    # 切走再回来（"进页确保开"最可能越权的地方）后仍要停着
+                    await cdp.eval("window.C.go('live')")
+                    await asyncio.sleep(1.5)
+                    await cdp.eval("window.C.go('race')")
+                    await asyncio.sleep(3.0)
                     st3 = bool(await cdp.eval("window.C.S.pulling"))
+                    m3 = str(((read_health(base).get("mouse") or {}).get("pull_mode") or ""))
                     ok17 = bool(j1.get("hasOff") and j1.get("pull")
-                                and st2 is False and st3 is False)
+                                and st2 is False and st3 is False
+                                and m2 == "off" and m3 == "off")
+                    # 收尾：开回来（后面的组要帧），并把 `pull_mode` 回 AUTO
+                    await cdp.eval("window.C.setPull(true, window.C.S.pullN)")
+                    await asyncio.sleep(2.0)
                     record("V17", "PASS" if ok17 else "FAIL",
                            f"面板={'有' if j1.get('hasOn') and j1.get('hasOff') else '缺按钮'}"
                            f"·Hz={j1.get('hz')!r}；拉取 进页={j1.get('pull')} → "
-                           f"手动停后={st2} → 再等 4.5 s（豁免清零）={st3}"
+                           f"手动停后={st2}（后端 mode={m2!r}）→ 切走再回比赛页等 3 s="
+                           f"{st3}（mode={m3!r}）"
                            + ("" if ok17 else
                               " ⇒ **要么进页没开（比赛页整页读不到帧），"
-                              "要么停不住：看门狗又把拉取开回来了** —— 正是现场那个"
+                              "要么停不住：有谁又把拉取开回来了 / 后端根本没记住 `off`**"
+                              " —— 正是现场那个"
                               "「不停弹开始拉流、发不出命令」的循环"))
 
                 # ---------------- V18 发车状态：命令结果 vs 旧帧（改版四十二/四十三）
@@ -832,7 +900,7 @@ async def run(args) -> int:
                         record("V18", "SKIP", f"驱动判定函数出错（判不了）：{type(e).__name__}: {e}")
 
                 # ---------------- V19 收车/复位：点下去**当拍**要有反馈（改版四十三）
-                head("11i. 收车：点击 300 ms 内进 pending，确认后才停流")
+                head("11i. 收车：点击 300 ms 内进 pending，确认后收尾且**流一直开着**")
                 # 为什么单列：探针实测（2026-10-26）旧版点击后 **2 s 内按钮文案、
                 # `disabled`、hint 一个字都不变** —— 因为界面在等"命令 3 s + 等新帧
                 # 2.5 s"那条最长 5.5 s 的静默链。现场就是"点了没反应，只好再点一遍"。
@@ -840,7 +908,11 @@ async def run(args) -> int:
                 #    真机/模拟器上命令可能 30 ms 就回来，300 ms 时已经进观察窗 ——
                 #    那样这条会飘。桩住之后"cmd 阶段"是确定的，验的是**界面自己**。
                 # ⚠️ 两个方向都要：只验"出现过收车中…"会放过"永远停在那里"，
-                #    所以后半段放开动作码，验它**会自己收尾并停流**。
+                #    所以后半段放开动作码，验它**会自己收尾**。
+                # ⚠️ 改版四十七：**收车不再停流**（拉取默认常开）。所以后半段断言的
+                #    是"流**还在**" —— 旧版这里断言 `pull is False`，那是旧机制的产物。
+                #    这一位反过来也更有意义：收车要读任务机，帧先停了就永远读不到，
+                #    "收完车顺手把流关掉"正是那个坑的入口（§11.42 的教训）。
                 if not pick("V19"):
                     record("V19", "SKIP", "--only 未选中")
                 elif not (ui.get("live") and api_mouse.get("connected")):
@@ -849,7 +921,7 @@ async def run(args) -> int:
                     try:
                         await cdp.eval("window.C.go('race')")
                         await asyncio.sleep(2.0)
-                        # 先把流开起来（"确认后才停流"要能观察到 stopPullOnce）
+                        # 先把流开起来（"确认后流仍在"要能观察到对象）
                         await cdp.eval("(()=>{const b=document.querySelector("
                                        "'#rc-pull [data-r=pp-on]');if(b&&!b.disabled)b.click();})()")
                         await asyncio.sleep(2.0)
@@ -866,7 +938,7 @@ async def run(args) -> int:
                             "return JSON.stringify({txt:mb?mb.textContent:'',dis:mb?mb.disabled:null,"
                             "runDis:run?run.disabled:null,hint:h?h.textContent:'',"
                             "pend:!!(window.C.VIEWS.race._pend)});})()") or "{}"))
-                        # 放开判据：动作码报"空闲" ⇒ 观察窗应当确认收车并停流
+                        # 放开判据：动作码报"空闲" ⇒ 观察窗应当确认收车并收尾（但**不停流**）
                         await cdp.eval("(()=>{window.C.S.tel.motionTask=0;})()")
                         await asyncio.sleep(2.4)
                         j19b = json.loads(str(await cdp.eval(
@@ -878,15 +950,17 @@ async def run(args) -> int:
                                 and j19a.get("dis") is True and j19a.get("runDis") is True
                                 and j19a.get("pend") is True
                                 and ("收车中" not in str(j19b.get("txt")))
-                                and j19b.get("pend") is False and j19b.get("pull") is False)
+                                and j19b.get("pend") is False
+                                and j19b.get("pull") is True)     # 四十七：不许停流
                         record("V19", "PASS" if ok19 else "FAIL",
                                f"300 ms 时：按钮={j19a.get('txt')!r}、disabled={j19a.get('dis')}、"
                                f"发车键 disabled={j19a.get('runDis')}、hint={j19a.get('hint')!r}；"
                                f"确认后：按钮={j19b.get('txt')!r}、pending={j19b.get('pend')}、"
-                               f"拉取={j19b.get('pull')}"
+                               f"拉取={j19b.get('pull')}（应 True：收车不停流）"
                                + ("" if ok19 else
                                   " ⇒ 要么点下去没有即时反馈（现场是「点了没反应」），"
-                                  "要么确认之后不收尾／不停流（观察窗卡死或流一直开着）"))
+                                  "要么确认之后不收尾（观察窗卡死），"
+                                  "要么**收完车把流也关了**（下一帧永远读不到）"))
                     except Exception as e:                        # noqa: BLE001
                         record("V19", "SKIP", f"驱动收车界面出错（判不了）：{type(e).__name__}: {e}")
 
@@ -1361,6 +1435,108 @@ async def run(args) -> int:
                     except Exception as e:                        # noqa: BLE001
                         record("V23", "SKIP",
                                f"驱动回放状态卡出错（判不了）：{type(e).__name__}: {e}")
+
+                # ---------------- V24 断链显示与"串口是否开着"分开（改版四十七新增）
+                head('11n. 判死 ≠ 断开：三种状态三种说法，红只给"确认无应答"')
+                # 为什么单列：现场那句"界面显示断开了，但内部收发一直是正常的"——
+                # 显示层当时只有两个输入（`connected` + `link_dead`），于是
+                # 「PING 不通但串口还开着」只能被画成"未连接/断开"，而上游其实
+                # 一直在收帧。改版四十七把两种事实拆开：`connected` = 串口，
+                # `link.state` = 链路（ok/paused/no_pull/waiting/suspect/dead）。
+                #
+                # 做法：**同一个 `connected:true` 喂三份 health**，看界面说的三句话
+                # 是否各不相同、且红只出现在第三份（dead）——
+                #   A 判死（串口仍开）：面板写"链路无应答（串口仍开）"、上红、顶栏"链路无应答"；
+                #   B 帧回来（state=ok）：不写无应答、不红、顶栏回端口名；
+                #   C 人停的（pull_mode=off）：写"已停（手动）"、**不红**（这不是故障）。
+                # ⚠️ 三条腿缺一不可：只验 A 会放过"什么都涂红"（恐慌型假警报，
+                #    现场会去拔线）；只验 C 会放过"手动停被当成故障"。
+                # ⚠️ 这里**不伪造 `connected:false`**：那会走 `resetTelemetry()`
+                #    下降沿，把后面判据要用的读数清掉（V20 专门验那条路径）。
+                if not pick("V24"):
+                    record("V24", "SKIP", "--only 未选中")
+                elif not ui.get("live"):
+                    record("V24", "SKIP", "前端没进真数据模式 ⇒ 面板与顶栏无从验起")
+                else:
+                    fake = {
+                        "A": {"mouse": {"available": True, "connected": True,
+                                        "port": "COM7", "stream_on": True,
+                                        "pull_mode": "auto",
+                                        "link": {"state": "dead",
+                                                 "link_dead": {"at": 1, "rounds": 3},
+                                                 "frame_age_ms": 12000,
+                                                 "probe_fail_rounds": 3}}},
+                        "B": {"mouse": {"available": True, "connected": True,
+                                        "port": "COM7", "stream_on": True,
+                                        "pull_mode": "auto",
+                                        "link": {"state": "ok", "link_dead": None,
+                                                 "frame_age_ms": 120,
+                                                 "probe_fail_rounds": 0}}},
+                        "D": {"mouse": {"available": True, "connected": True,
+                                        "port": "COM7", "stream_on": False,
+                                        "pull_mode": "off",
+                                        "link": {"state": "paused", "link_dead": None,
+                                                 "frame_age_ms": 12000,
+                                                 "probe_fail_rounds": 0}}},
+                    }
+                    try:
+                        j24 = json.loads(str(await cdp.eval(
+                            "(()=>{const C=window.C;"
+                            "let host=document.getElementById('v24-probe');"
+                            "if(!host){host=document.createElement('div');"
+                            "host.id='v24-probe';"
+                            "host.style.cssText='position:fixed;left:-9999px;top:0';"
+                            "document.body.appendChild(host);}"
+                            "const pp=C.pullPanel(host);"
+                            "const snap=()=>{const m=host.querySelector('.pl-meta');"
+                            "const d=document.querySelector('#devices [data-dev=mouse] em');"
+                            "return {pull:!!C.S.pulling,meta:m?m.textContent:'',"
+                            "bad:m?m.classList.contains('bad'):null,"
+                            "chip:d?d.textContent:'',"
+                            "intent:C.S.health.mouse.pullIntent};};"
+                            "const out={};"
+                            f"C.applyHealth({json.dumps(fake['A'])});pp.paint();out.A=snap();"
+                            f"C.applyHealth({json.dumps(fake['B'])});pp.paint();out.B=snap();"
+                            f"C.applyHealth({json.dumps(fake['D'])});pp.paint();out.D=snap();"
+                            "return JSON.stringify(out);})()") or "{}"))
+                        a, b, d_ = (j24.get("A") or {}), (j24.get("B") or {}), (j24.get("D") or {})
+                        a_ok = ("无应答" in (a.get("meta") or "")
+                                and a.get("bad") is True
+                                and a.get("chip") == "链路无应答"
+                                and a.get("pull") is True)      # 判死不许把拉取指示清零
+                        b_ok = ("无应答" not in (b.get("meta") or "")
+                                and b.get("bad") is False
+                                and a.get("chip") != b.get("chip")
+                                and b.get("pull") is True)
+                        d_ok = ("已停" in (d_.get("meta") or "")
+                                and d_.get("bad") is False          # 手动停不涂红
+                                and d_.get("pull") is False
+                                and d_.get("intent") == "off")
+                        ok24 = bool(a_ok and b_ok and d_ok)
+                        record("V24", "PASS" if ok24 else "FAIL",
+                               f"A 判死：面板={a.get('meta')!r}·红={a.get('bad')}"
+                               f"·顶栏={a.get('chip')!r}；"
+                               f"B 帧回来：面板={b.get('meta')!r}·红={b.get('bad')}"
+                               f"·顶栏={b.get('chip')!r}；"
+                               f"C 人停：面板={d_.get('meta')!r}·红={d_.get('bad')}"
+                               f"·intent={d_.get('intent')!r}"
+                               + ("" if ok24 else
+                                  ' ⇒ **要么判死被画成了「未连接」（现场会去拔线），'
+                                  '要么把「人停的」也涂红了**'))
+                    except Exception as e:                        # noqa: BLE001
+                        record("V24", "SKIP",
+                               f"驱动面板/顶栏出错（判不了）：{type(e).__name__}: {e}")
+                    # 收尾：把真 health 喂回去（上面三份是**伪造的显示状态**，
+                    # 留着会让后面的组看到一台"判死了"的车）
+                    try:
+                        await cdp.eval("(()=>{const h=document.getElementById('v24-probe');"
+                                       "if(h)h.remove();})()")
+                        real = read_health(base)
+                        if real:
+                            await cdp.eval("(()=>{window.C.applyHealth("
+                                           + json.dumps(real) + ");})()")
+                    except Exception:                             # noqa: BLE001
+                        pass
 
 
                 # ⚠️ V10 会**把设备断开**（它要验"点不存在的端口不许说已连接"），

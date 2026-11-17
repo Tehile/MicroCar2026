@@ -77,14 +77,14 @@ li{margin:.28em 0}
 <li><a href="#1">1. 六个脚本一览</a></li>
 <li><a href="#2-preflightpy">2. preflight.py —— 启动前自检</a></li>
 <li><a href="#3-drillpy">3. drill.py —— 端到端演练 + 判据</a><ul>
-<li><a href="#31-2026-10-27">3.1 编号现状（2026-10-27 第六次核对）</a></li>
+<li><a href="#31-2026-11-05">3.1 编号现状（2026-11-05 第七次核对）</a></li>
 <li><a href="#32-sim">3.2 --sim 的边界</a></li>
 </ul>
 </li>
 <li><a href="#4-browser_checkpy">4. browser_check.py —— 无头浏览器实测</a><ul>
 <li><a href="#41-v6">4.1 核心是 V6 —— 验"接缝真的接上了"</a></li>
 <li><a href="#42-v5">4.2 负向判据 V5 —— 不许假绿</a></li>
-<li><a href="#43-v0-v23">4.3 组清单（V0 ~ V23）</a></li>
+<li><a href="#43-v0-v24">4.3 组清单（V0 ~ V24）</a></li>
 </ul>
 </li>
 <li><a href="#5-check_iface_tablepy">5. check_iface_table.py —— 防文档漂移</a></li>
@@ -128,14 +128,14 @@ export NO_PROXY=&quot;127.0.0.1,localhost&quot;      # 本机端点必须绕过�
 </tr>
 <tr>
 <td><code>tools/drill.py</code></td>
-<td>3092</td>
+<td>3886</td>
 <td><strong>跑起来对不对</strong>：端到端 + 判据验收</td>
 <td>加 <code>--sim</code> 才需要</td>
 <td><code>$PY tools/drill.py --sim</code></td>
 </tr>
 <tr>
 <td><code>tools/browser_check.py</code></td>
-<td>991</td>
+<td>1692</td>
 <td><strong>界面真的渲染出来了吗</strong>：九个页面 + 接缝</td>
 <td>需要服务在跑</td>
 <td><code>$PY tools/browser_check.py --sim</code></td>
@@ -251,8 +251,8 @@ $PY tools/preflight.py --quick    # 跳过网络与 git（离线环境）
 $PY tools/drill.py --sim          # 额外起上游鼠标模拟器（有真数据）
 $PY tools/drill.py --port 8899    # 8770 被占时换端口
 </code></pre>
-<h3 id="31-2026-10-27">3.1 编号现状（2026-10-27 第六次核对）</h3>
-<p>实际存在的编号 <strong>61 个</strong>：</p>
+<h3 id="31-2026-11-05">3.1 编号现状（2026-11-05 第七次核对）</h3>
+<p>实际存在的编号 <strong>60 个</strong>：</p>
 <pre><code>I1  I2  I3  I4  I5  I6      I9  I10     I12           I15 I16 I17 I18 I19
 I20 I21 I22 I23 I24     I27 I28 I29 I30 I31 I32 I33 I34 I35 I36 I37 I38 I39
 I40 I41 I42 I43 I44 I45 I46 I47     I49 I50 I51 I52 I53 I54 I55 I56 I57 I58 I59
@@ -269,8 +269,50 @@ I60 I61 I62 I63 I64 I65 I66 I67 I68
   且 <code>_cmd_exit</code> 把"停帧计时"挪到放手那一刻；
 - <strong>I61</strong> 放手时清 <code>upstream:link_lost</code>（自己 suspend 出来的假阳性）、
   <strong>保留</strong> <code>cmd_timeout:*</code>（真没问出结果）；
-- <strong>I62</strong> 拉取自愈：想要帧+没在跑 ⇒ 补一次；<strong>人明确停了 ⇒ 一条开流命令都不许发</strong>；
-  命令刚放手不补；补满 2 次停手；帧回来计数归零。</p>
+- <strong>I62</strong> 拉取自愈（<strong>改版四十七重写</strong>）：<code>is_on=True</code> 但 30 s 没收到帧 ⇒ <strong>仍要补</strong>
+  （这就是"发完车只能手动开"的正解，旧判据在这里恒绿因为它信了 <code>is_on</code>）；
+  <code>_pull_mode="off"</code> ⇒ 一条开流命令都不许发；<code>_revive_tries=99</code> ⇒ <strong>仍补</strong>（无上限）；
+  帧回来 <code>_revive_backoff</code> / <code>_probe_fail_rounds</code> 归零。</p>
+<blockquote>
+<p><strong>改版四十七（拉取默认常开）改了 5 条既有判据的语义</strong>，全部在 <code>0e</code> 段，
+都是"纯内存 + 假上游"，理由详见设计方案 §11.47：</p>
+<table>
+<thead>
+<tr>
+<th>判据</th>
+<th>现在的命题</th>
+<th>关键负向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I43</strong></td>
+<td>默认常开五段：人工停 / 关流改 n=3 / 带档开流 / <strong>自动停一律忽略（<code>reason="always_on"</code>）</strong> / <strong>人工停粘住</strong></td>
+<td>后端<strong>收到</strong> <code>{on:false, auto:true}</code> 时 <code>is_on</code> 不许变</td>
+</tr>
+<tr>
+<td><strong>I57</strong></td>
+<td>判死<strong>只标不执行</strong>：<code>toggles==[]</code>、<code>maze_recorder.down==0</code>、<code>disconnects==0</code>、<code>mode</code> 仍 <code>auto</code>、幂等</td>
+<td><strong>出帧即撤销</strong> <code>_link_dead</code> 并广播 <code>link_recovered</code></td>
+</tr>
+<tr>
+<td><strong>I58</strong></td>
+<td>8 s 内一次都不查；1 轮无应答 ⇒ 只黄（<code>state=="suspect"</code>）；满 3 轮才 <code>dead</code></td>
+<td>门槛必须 &gt; 最长命令让路窗（≈5.5 s），否则 PING 必与命令抢窗</td>
+</tr>
+<tr>
+<td><strong>I60</strong></td>
+<td>夹具补 <code>_mc.stream.is_on = True</code></td>
+<td>不补的话新 <code>off</code> 判定会提前落进 <code>off</code> 分支 ⇒ <strong>判据假绿</strong></td>
+</tr>
+<tr>
+<td><strong>I62</strong></td>
+<td>见上文（按帧、无上限、不看 <code>is_on</code>）</td>
+<td><code>_revive_tries=99</code> 仍要补 —— "放弃"正是旧病根</td>
+</tr>
+</tbody>
+</table>
+</blockquote>
 <p><code>I63</code>/<code>I64</code> 是改版四十三新加的，同样在 <code>0e</code> 段：
 - <strong>I63</strong> 动作码表（<code>/caps</code> 的 <code>motions</code>）必须<strong>盖住上游全部 38 项</strong>、每项都有中文短名、
   <code>motion_stopped</code> 恰为 <code>{0,5}</code>（1/12/101 明确不在）。⚠️ 上游码表取不到时
@@ -335,7 +377,7 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <p><strong>设备没连上时，界面不许说连上了。</strong> 假"已连接"会让人以为可以去发车。</p>
 </blockquote>
 <p>⚠️ <code>--sim</code> 与不带 <code>--sim</code> 两种情况<strong>断言方向相反</strong> —— 双向都点才叫判据。</p>
-<h3 id="43-v0-v23">4.3 组清单（V0 ~ V23）</h3>
+<h3 id="43-v0-v24">4.3 组清单（V0 ~ V24）</h3>
 <table>
 <thead>
 <tr>
@@ -382,7 +424,7 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 </tr>
 <tr>
 <td>V11</td>
-<td><strong>拉取按页开关</strong>：要帧的页才开门拉（<code>overview/live/params/maint</code>），其余页不拉</td>
+<td><strong>拉取默认常开</strong>（改版四十七重写）：切到 data/params <strong>仍要拉</strong>、参数表仍 41 项；人工停 ⇒ <code>stream_on=false</code> 且后端 <code>pull_mode="off"</code>；停着切回 live <strong>不许自己开</strong></td>
 <td>未连设备 ⇒ SKIP</td>
 </tr>
 <tr>
@@ -407,7 +449,7 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 </tr>
 <tr>
 <td>V17</td>
-<td>比赛页拉取<strong>半手动</strong>：进页开一次、手动停后<strong>把 8 s 豁免清零</strong>再等 4.5 s 仍是停</td>
+<td><strong>手动停 = 最高权限</strong>（改版四十七改口径）：停住后 <code>pull_mode="off"</code>、<strong>切走再回比赛页等 3 s 仍停</strong>、两次读到的 mode 都是 <code>off</code></td>
 <td>未连设备 ⇒ SKIP</td>
 </tr>
 <tr>
@@ -417,7 +459,7 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 </tr>
 <tr>
 <td>V19</td>
-<td>收车<strong>点击即反馈</strong>：点下去 300 ms 内按钮含「收车中」+ disabled、发车键 disabled、<code>_pend</code> 存在；确认后（动作码空闲）回「收车」且<strong>拉取已停</strong></td>
+<td>收车<strong>点击即反馈</strong>：点下去 300 ms 内按钮含「收车中」+ disabled、发车键 disabled、<code>_pend</code> 存在；确认后（动作码空闲）回「收车」且<strong>拉取仍在</strong>（改版四十七：收车不停流）</td>
 <td>未连设备 ⇒ SKIP（按钮本来就禁用）</td>
 </tr>
 <tr>
@@ -436,6 +478,11 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 <td>记录没取到样本 ⇒ SKIP（判不了）</td>
 </tr>
 <tr>
+<td><strong>V24</strong></td>
+<td><strong>判死 ≠ 断开</strong>（改版四十七新增）：同一份 <code>connected:true</code> 喂三份 health —— A 判死 ⇒ 面板「链路无应答（串口仍开）」+ 红 + 顶栏「链路无应答」+ 拉取指示不清零；B 帧回来 ⇒ 无应答文案与红都退、顶栏回端口名；C 人停 ⇒ 「已停（手动）」且<strong>不红</strong></td>
+<td>非真数据模式 ⇒ SKIP</td>
+</tr>
+<tr>
 <td><strong>V21</strong></td>
 <td><strong>列表分页</strong>：首屏 50 条且文案写「已载 50 / 共 N」（此时<strong>不许</strong>出现发车/视频条数）；搜一条只在第 51 条之后的记录 ⇒ <strong>自动载全并命中 1 行</strong>；滚到底 ⇒ 行数长到 N 且 id 无重复；载全后提示行清空</td>
 <td>全库 ≤ 50 条 ⇒ SKIP（一屏装得下，验不到续载）；无滚动容器 ⇒ SKIP</td>
@@ -443,9 +490,12 @@ $PY tools/browser_check.py --only V7          # 只跑某一组
 </tbody>
 </table>
 <p>⚠️ V16 只验"回落"会假绿（"从来没显示过"也通过），所以它验<strong>两段</strong>。
-⚠️ V17 必须先把 <code>LIVE.pullOffAt</code> 清零：否则 8 s 内的静默是"人工停豁免"给的，
-验不出 <code>race</code> 是否还在 <code>GUARD_PULL</code> 里 —— 那样这条永远假绿。
-⚠️ V18 两个方向缺一不可：只验前半会放过"钉不过期"（<strong>永远收不了车</strong>）；
+⚠️ V17 的观测点从"看门狗补不补"换成了"后端 <code>pull_mode</code> 是不是 <code>off</code>"，因为
+<strong>看门狗整段删了</strong>（改版四十七）：还盯着看门狗的话，"看门狗不存在"也会让它通过 ——
+那是一道<strong>假绿</strong>的闸（它不再验任何东西，却一直亮绿灯）。
+⚠️ V11 必须先确认"停之前真的在拉"：<code>【结束】</code> 在没拉时是 disabled 的，
+点一个 disabled 按钮得到的"停住了"是<strong>本来就没在拉</strong>，不是"停住了"。</p>
+<p>⚠️ V18 两个方向缺一不可：只验前半会放过"钉不过期"（<strong>永远收不了车</strong>）；
 只验后半会放过"根本没钉"（<strong>改版四十一的那个 bug</strong>）。它验的是
 <code>C.applyRunning()</code> 这个判定函数本身，不走真机发车 —— 那条时序真机未必复现。
 ⚠️ V22 的"判不了"那一半必须调 <code>C.VIEWS.replay.paintMarks()</code>，<strong>不能靠重挂页面</strong>：

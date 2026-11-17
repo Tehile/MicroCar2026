@@ -397,9 +397,11 @@ async def _mouse_stream(request: web.Request) -> web.Response:
                             "/api/v1/mouse/stream/mode（{\"mode\":\"pace\"} 为批式，"
                             "{\"mode\":\"stopwait\"} 为停等）；"
                             "帧率由链路往返决定，不能任意指定。")
-    # `auto=True` = "页面切走顺带停"。这时**正在跑车就扣留**（见 `pull_hold_reason`）；
-    # 人工点【结束拉取】不带 auto，照停 —— 那是排障手段（`off()` 会丢弃在途请求，
-    # 是排空蓝牙缓冲的唯一办法），不能替用户判断"能不能停"。
+    # 改版四十七：拉取**默认常开**，`auto=True`（"页面切走顺带停"）已被前端弃用，
+    # 后端一律**忽略**并回 `{kept:true, reason:"always_on"}`（见 `mouse.set_stream`）。
+    # 人工点【结束拉取】不带 auto，照停并把 `pull_mode` 写成 `off`（**粘住本会话**）——
+    # 那是排障手段（`off()` 会丢弃在途请求，是排空蓝牙缓冲的唯一办法），
+    # 任何自动路径都不许把它改回来。
     auto = bool(d.get("auto"))
     want = bool(d["on"]) if "on" in d else (not mc.stream.is_on)
     # ⚠️ **记录中不许自动停**：切页把拉取关掉 = 这一跑的遥测被砍，

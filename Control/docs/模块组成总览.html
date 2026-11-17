@@ -320,8 +320,8 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tbody>
 <tr>
 <td><code>control/adapters/mouse.py</code></td>
-<td>4116</td>
-<td><strong>最大的一块</strong>。包 <code>host.api.MouseClient</code>：连接、参数、动作、拉取、链路健康（PING 判死 + 命令让路闸 + 拉取自愈）、动作码表（<code>/caps.motions</code>）、决策差分、发车前的 <code>ensure_pull</code></td>
+<td>4219</td>
+<td><strong>最大的一块</strong>。包 <code>host.api.MouseClient</code>：连接、参数、动作、拉取、链路健康（PING 多轮判<strong>疑</strong>、命令让路闸、拉取自愈按<strong>帧</strong>不按 <code>is_on</code>）、动作码表（<code>/caps.motions</code>）、决策差分、发车前的 <code>ensure_pull</code></td>
 </tr>
 <tr>
 <td><code>control/maze_rec.py</code></td>
@@ -392,13 +392,13 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 </tr>
 <tr>
 <td><code>shell.js</code></td>
-<td>473</td>
-<td>外壳：左轨导航 / 顶栏两灯 / 页面容器 / 日志坞 / 设备抽屉。<strong>启动链 <code>boot()</code> 在这</strong></td>
+<td>478</td>
+<td>外壳：左轨导航 / 顶栏两灯 / 页面容器 / 日志坞 / 设备抽屉。<strong>启动链 <code>boot()</code> 在这</strong>；设备片按 <code>linkState</code> 上色（<code>dead</code>⇒链路无应答 / <code>suspect</code>⇒链路疑似 / 否则端口名）</td>
 </tr>
 <tr>
 <td><code>lib.js</code></td>
-<td>2733</td>
-<td>原型内核 + <strong>接缝层</strong>：<code>act()</code>/<code>setPull()</code>/<code>pullBatch()</code>/<code>connectMouse()</code>/<code>videoStart()</code>/<code>renameRecord()</code>… 真机模式下这里<strong>真的发请求</strong>（<code>get()</code> 只读、<code>post()</code> 写）；发车状态的判定也在这一层（<code>pinRunning()</code> / <code>applyRunning()</code>，判据是<strong>动作码</strong>）；断开时的归零是 <code>resetTelemetry()</code></td>
+<td>2725</td>
+<td>原型内核 + <strong>接缝层</strong>：<code>act()</code>/<code>setPull()</code>/<code>pullBatch()</code>/<code>connectMouse()</code>/<code>videoStart()</code>/<code>renameRecord()</code>… 真机模式下这里<strong>真的发请求</strong>（<code>get()</code> 只读、<code>post()</code> 写）；发车状态的判定也在这一层（<code>pinRunning()</code> / <code>applyRunning()</code>，判据是<strong>动作码</strong>）；断开时的归零是 <code>resetTelemetry()</code>。改版四十七删掉了 <code>NEED_PULL</code>/<code>GUARD_PULL</code>/<code>startPullGuard()</code>/<code>LIVE.pullOffAt</code>：<code>syncPull()</code> 只做"确保开"，<strong>永不因切页关流</strong></td>
 </tr>
 <tr>
 <td><code>draw.js</code></td>
@@ -445,8 +445,8 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <tr>
 <td><code>#/race</code></td>
 <td><code>race.js</code></td>
-<td>681</td>
-<td>比赛：墙图 + 发车/收车。⚠️ <strong>舞台页</strong>，需 <code>fitMain()</code> 现算高度；拉取<strong>半手动</strong>；收车/复位走<strong>观察窗</strong>（点击即 pending，看到动作码归零才停流）</td>
+<td>656</td>
+<td>比赛：墙图 + 发车/收车。⚠️ <strong>舞台页</strong>，需 <code>fitMain()</code> 现算高度；拉取小面板只给人看/停（拉取默认常开，这页不再管开关）；收车/复位走<strong>观察窗</strong>（点击即 pending，看到动作码归零才算完，但<strong>不再停流</strong>）</td>
 </tr>
 <tr>
 <td><code>#/maint</code></td>
@@ -484,35 +484,15 @@ $PY app.py                    # 起服务 → http://127.0.0.1:8770
 <p><strong>&lt;舞台页&gt;</strong>（<code>race</code> / <code>replay</code>）有专门的高度纪律：地图边长由<strong>可用高度</strong>决定，
 且必须量自身、不量视口（<code>fitMain()</code>）。详见 static/README.md。</p>
 </blockquote>
-<p><strong>拉取按页开门有两张表，不要合成一张</strong>（改版四十一）：</p>
-<table>
-<thead>
-<tr>
-<th>表</th>
-<th>含哪些页</th>
-<th>管什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>NEED_PULL</code></td>
-<td>overview / live / params / race / maint</td>
-<td><strong>进页开一次</strong></td>
-</tr>
-<tr>
-<td><code>GUARD_PULL</code></td>
-<td>overview / live / params / maint（<strong>没有 race</strong>）</td>
-<td>停了自己<strong>补开</strong>（带退避、静默）</td>
-</tr>
-</tbody>
-</table>
-<p>比赛页之所以只在第一张表里：那页是<strong>半手动</strong> —— 进页开一次，停车/收车/复位就停，
-发车时由后端 <code>ensure_pull()</code> 兜。它在两张表里都出现过，于是"复位后不停弹开始拉流、
-发不出命令"就成了那个循环。</p>
-<p><strong>停流时机也分两档</strong>（改版四十二）：【收车】必须等回执<strong>回来之后</strong>才停 ——
-后端 <code>maze_stop()</code> 内部要等一帧新帧才能读任务机，帧先停了它就永远等不到
-（<code>reliable=null</code>），界面只能瞎猜。【复位】则可以立刻停：它靠 <code>PING</code> 的 <code>rst=SW</code>
-复核，不依赖新帧。</p>
+<p><strong>拉取不再按页开门</strong>（改版四十七）：<code>NEED_PULL</code> / <code>GUARD_PULL</code> 两张表已删，
+<code>startPullGuard()</code> 也已删。现在只有一条：<strong>默认常开</strong>，谁都不许因切页关流；
+唯一能停的是人按【结束】（后端 <code>_pull_mode="off"</code>，粘住本会话）。
+缺帧由后端按"最近有没有收到新帧"自愈（<code>_revive_reason</code>，无上限退避）。
+详见设计方案 §11.47。</p>
+<p><strong>停流时机</strong>：只有人按【结束】才停（改版四十七）。【收车】/【复位】/停车/记录收尾
+<strong>都不再关流</strong> —— 旧版"收车等回执回来才停、复位可以立刻停"的两档区分随之一并消失。
+（为什么要等回执那条仍然成立：后端 <code>maze_stop()</code> 内部要等一帧新帧才能读任务机，
+帧先停了它永远等不到 <code>reliable</code>。现在干脆不停，这个坑自然不存在。）</p>
 <hr />
 <h2 id="6">6. 运行时模型</h2>
 <p><strong>一个重要的事实</strong>：PySide6 那套的事件循环 ≠ 这里的线程模型。这里有三类执行体：</p>

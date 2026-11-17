@@ -406,6 +406,20 @@ class MouseAdapter:
         #: 自愈只认这一位 —— 否则"命令占过链路"会变成"替人把刚停掉的流又开回来"，
         #: 而那正是改版四十一花力气拆掉的那种行为。
         self._want_on: bool = False
+        # ---- 拉取总闸（改版四十七）：**用户意图**，不是"设备这一刻在不在发"。
+        #: `"auto"` = 持续拉取（默认；连上即开，发车/复位/停车后必回）。
+        #: `"off"`  = 用户手动【结束】—— **粘住**，任何自动逻辑都不许把它改回 auto。
+        #: 唯一能改它的是用户动作（【开始】=auto / 【结束】=off）。本会话跨重连保持，
+        #: 进程重启回落默认 `"auto"`。
+        #: ⚠️ 之所以独立于 `_want_on`：`_want_on` 是"这一刻想不想要"，会被命令让路、
+        #:    连接初始化等内部动作改写；而这一个是**人的决定**，必须不被自动化覆盖。
+        self._pull_mode: str = "auto"
+        #: 连续"PING 无应答"的轮数（改版四十七）。宽松判死要**多轮**确认，
+        #: 一轮失败只标黄；收到帧即归零（误判自动撤销）。
+        self._probe_fail_rounds: int = 0
+        #: 自愈重发的指数退避间隔（秒）。无上限重试，但有上限的**间隔**，
+        #: 免得每次都 2.5 s 去撞同一条命令窗口。
+        self._revive_backoff: float = 0.0
         self._unified_hz_nominal: Optional[float] = None
         #: 本层想用的每批帧数（见 `apply_pull_n`）。配置给了就认配置，
         #: 但**越界一律夹回合法区间**并留日志 —— 配置写错不该让服务起不来，
@@ -771,7 +785,7 @@ class MouseAdapter:
                     # ⚠️ 兜底默认**关**（改版三十一）：拉取由页面按需触发，
                     #    连上就开流会让"没人看的页面"也在吃链路带宽。
                     #    配置里写什么以 config.yaml 为准，这里只是"缺键时怎么想"。
-                    auto_stream=bool(self.cfg.get("mouse.auto_stream", False)),
+                    auto_stream=bool(self.cfg.get("mouse.auto_stream", True)),
                     scheduler_hz=float(self.cfg.get("mouse.scheduler_hz", 50.0)),
                     telemetry_window_s=float(self.cfg.get("mouse.telemetry_window_s", 30.0)),
                     auto_reconnect=bool(self.cfg.get("mouse.auto_reconnect", True)),
@@ -1110,6 +1124,10 @@ class MouseAdapter:
         self._revive_pending = False
         self._revive_tries = 0
         self._revive_at = 0.0
+        self._revive_backoff = 0.0
+        self._probe_fail_rounds = 0
+        # 新连接从"现在"开始计时，别把上一段的"很久没帧"带进来
+        self._frame_grow_at = time.monotonic()
         self._want_stream = bool(_safe(lambda: mc.stream.is_on)) or False
         # 新连接上"意愿"跟事实对齐：`auto_stream` 开着就是想要，关着就是不想要。
         # 之后由 `set_stream()` 按人/页面的动作改写。
@@ -1154,6 +1172,23 @@ class MouseAdapter:
             except Exception as e:                            # noqa: BLE001
                 self.bus.log("warn", f"每批帧数 n={self._pull_n} 没恢复，仍按停等跑："
                                      f"{type(e).__name__}: {e}", source='mouse')
+        # ---- 改版四十七：默认常开 ⇒ 连上按 `_pull_mode` 对齐。
+        # 用户本会话里手动停过（`_pull_mode=="off"`）⇒ 即使 `auto_stream` 让上游
+        # 开了停等，也要停回去 —— "手动最高"必须跨重连成立。
+        if self._pull_mode == "off":
+            try:
+                if mc.stream.is_on:
+                    mc.stream.toggle(False)
+            except Exception as e:                            # noqa: BLE001
+                self.bus.log("warn", f"按手动停对齐失败：{type(e).__name__}: {e}",
+                             source='mouse')
+            self._want_stream = False
+            self._want_on = False
+        else:
+            # auto 模式：想要帧。上游没在拉也不要紧 —— 采样循环会在
+            # `REVIVE_IF_NO_FRAME_S` 后重发 `RATE PULL`（按帧自愈）。
+            self._want_on = True
+            self._want_stream = bool(_safe(lambda: mc.stream.is_on)) or False
         return out
 
     def disconnect(self) -> dict:
@@ -1172,6 +1207,8 @@ class MouseAdapter:
         self._revive_pending = False
         self._revive_tries = 0
         self._revive_at = 0.0
+        self._revive_backoff = 0.0
+        self._probe_fail_rounds = 0
         self._cmd_inflight = 0
         try:
             self._mc.disconnect()
@@ -1237,8 +1274,12 @@ class MouseAdapter:
 
     def pull_hold_reason(self) -> Optional[str]:
         """**自动停**拉取时要扣留的原因；`None` = 可以停。
+        ⚠️ 改版四十七起**本层不再调用它**（自动停一律忽略，见 `set_stream`）。
+        保留的理由只有一条：`routes.py` 的 `auto=True` 分支还认这个概念
+        （"自动动作撞上正在记录"时回 `kept`），两条路径的语义必须同源。
+        若哪天连那个分支也删了，这个方法要一起删 —— 留着就是第二个真相。
 
-        为什么"自动"与"人工"要分开：
+        为什么"自动"与"人工"当初要分开：
         · 人工点【结束拉取】是**排障手段**（上游 `off()` 会立刻丢弃在途请求，
           是排空蓝牙透传缓冲的唯一办法）⇒ 一律照停，不问原因。
         · 自动停只发生在"页面切走"这种**后台**动作上 ⇒ 这时如果正在记录或车还在跑，
@@ -1335,15 +1376,22 @@ class MouseAdapter:
             （省掉 on→tune 的 stop/start 两趟往返）；
           * 否则（n=1 或老上游）⇒ `toggle(True)`，就是停等方式。
 
-        `auto=True` 表示"这是页面切走顺带停的"⇒ 正在跑车就扣留（见 `pull_hold_reason`）。
-        人工停不进这个分支：排障时用户要的是"立刻停"，不是"帮我判断能不能停"。
+        `auto=True` 表示"这不是人点的停"（历史口径：页面切走顺带停）。
+        ⚠️ 改版四十七：这种请求**一律忽略**并回 `kept/reason="always_on"` ——
+        拉取默认常开，页面没有开/关权；只有人能停（`auto=False`），且停了**粘住**。
+        人工停不进任何"帮我判断能不能停"的分支：排障时用户要的是"立刻停"。
         """
         mc = self._ensure()
+        # ---- 改版四十七：默认常开 ⇒ **自动路径不许停**。
+        # 页面切走不再关流（前端已不发这条；这里再兜一层，防老前端/脚本）。
+        # 注意：这里**不改 `_pull_mode`** —— 自动动作不能覆盖人的决定（手动最高）。
         if not on and auto:
-            why = self.pull_hold_reason()
-            if why:
-                return {"ok": True, "on": True, "kept": True, "reason": why,
-                        "n": self._pull_n, "note": "车在跑，自动停被扣留"}
+            cur = bool(_safe(lambda: mc.stream.is_on)) or False
+            return {"ok": True, "on": cur, "kept": True, "reason": "always_on",
+                    "n": self._pull_n, "applied_n": None,
+                    "note": "默认常开：自动停被忽略"}
+        # ---- 用户动作：开 ⇒ auto（持续拉）；关 ⇒ off（**粘住**，自动层不许改回来）
+        self._pull_mode = "auto" if on else "off"
         # 走到这里就是要真的执行了 ⇒ 记下**意愿**（自愈只认这一位，见 `_want_on`）
         self._want_on = bool(on)
         applied: Optional[int] = None
@@ -1461,8 +1509,21 @@ class MouseAdapter:
     #: "上游拉取器没在跑"持续多久之后补开一次（秒）。太短会和 `resume()`
     #: 自己那三次 `RATE PULL` 重试抢窗口 —— 那正是我们要避免的事。
     REVIVE_GAP_S = 2.5
-    #: 一次发车最多补开几次。补多了就是命令风暴（比"慢一点出帧"更糟）。
-    REVIVE_MAX = 2
+    #: 自愈退避的**上限间隔**（秒）。改版四十七：不再有"补几次就放弃"，
+    #: 只拉长间隔 —— 静默放弃正是"发完车只能手动开"的病根。
+    REVIVE_GAP_MAX = 15.0
+    #: "最近还在收帧"的窗口（秒）。只要帧龄小于它，就认为拉取在正常工作，
+    #: 不需要重发 `RATE PULL`（改版四十七：判据从 `is_on` 改成**帧到达**）。
+    RECEIVING_S = 1.5
+    #: 判"没有帧"到该重发 `RATE PULL` 的门槛（秒）。要大于一次正常批间隔，
+    #: 又小于命令让路窗（0.9~5.4 s）—— 让路期间由 `_cmd_inflight` 单独兜住。
+    REVIVE_IF_NO_FRAME_S = 2.0
+    #: 判"疑似断链"前要求多久没有新帧（秒）。必须**大于**最长命令让路窗（≈5.5 s），
+    #: 否则每次发车都会被当成断链（改版四十七：4→8 s）。
+    LINK_SUSPECT_S = 8.0
+    #: 连续多少轮 PING 无应答才算"链路已断"（改版四十七）。一轮=2 次 PING，
+    #: 3 轮 ≈ 15~20 s，且期间只要收到一帧就归零。
+    LINK_PROBE_ROUNDS = 3
 
     # ------------------------------------------------------- 命令占链路（改版四十二）
     def _cmd_enter(self) -> None:
@@ -1510,12 +1571,13 @@ class MouseAdapter:
                 f"**不算断链** ⇒ 不复核。",
                 source="mouse")
         st = self._pull_state()
-        if st["off"] and self._want_on:
+        if st["off"] and self._pull_mode == "auto":
             # 命令回来了、拉取器却没在跑（`resume()` 三次重试用尽就是**静默保持停**）
             # ⇒ 立刻允许补开，不等 `REVIVE_GAP_S`（`resume()` 已经结束了）。
             self._revive_pending = True
             self._revive_at = 0.0
             self._revive_tries = 0
+            self._revive_backoff = 0.0
 
     def _pull_state(self) -> Dict[str, Any]:
         """上游拉取器的**活状态**（纯内存，零设备访问）。
@@ -1546,7 +1608,15 @@ class MouseAdapter:
                 break
         return {"on": on,
                 "held": bool(sus is not None and sus > 0),
-                "off": bool(on is False and (self._want_on or self._revive_pending))}
+                # `off` = **auto 模式下想要帧、拉取器却没在跑**。改版四十七起它只
+                # 表示"没在拉"，不再用来判"断了没有"—— 后者改看**帧是否到达**。
+                "off": bool(on is False and self._pull_mode == "auto"),
+                "mode": self._pull_mode,
+                # `receiving` = 最近 `RECEIVING_S` 内**真的收到过新帧**。
+                # 这是"拉取在工作"的唯一真相（`is_on` 只是上游的意图标志，
+                # 发车 `resume()` 后它常是 True 而设备其实没发 → 旧代码据此不补流）。
+                "receiving": bool(self._frame_grow_at
+                                  and (time.monotonic() - self._frame_grow_at) < self.RECEIVING_S)}
 
     def verify_link(self, tries: Optional[int] = None) -> Dict[str, Any]:
         """**PING 复核链路**。同步（调用方必须放 executor）。
@@ -1623,10 +1693,29 @@ class MouseAdapter:
             except Exception:                                 # noqa: BLE001
                 age = None
         age_ms = int(round(age * 1000.0)) if age is not None else None
+        # 单一"显示状态"（改版四十七）：前端只按它上色，不再拿 `connected` 一刀切。
+        #   ok / paused（命令让路）/ no_pull（手动停）/ waiting（无帧但未疑）/
+        #   suspect（多轮无应答，黄）/ dead（连续多轮无应答，串口仍开）。
+        st = self._pull_state()
+        if self._link_dead is not None:
+            state = "dead"
+        elif self._pull_mode != "auto":
+            state = "no_pull"
+        elif st["held"]:
+            state = "paused"
+        elif self._probe_fail_rounds > 0:
+            state = "suspect"
+        elif self._want_stream and age is not None and age > self.STALL_FRAME_S:
+            state = "waiting"
+        else:
+            state = "ok"
         return {
             "link_dead": (dict(self._link_dead) if self._link_dead else None),
             "want_stream": bool(self._want_stream),
             "frame_age_ms": age_ms,
+            "mode": self._pull_mode,
+            "state": state,
+            "probe_fail_rounds": int(self._probe_fail_rounds),
             # 三态：没在要帧 / 从没来过帧 ⇒ 都不是"停了"（判不了就不涂红）
             "stalled": bool(self._want_stream and age is not None
                             and age > self.STALL_FRAME_S),
@@ -1650,80 +1739,72 @@ class MouseAdapter:
             now = time.monotonic()
             self._probe_last = now
             ping = self.verify_link()
+            # 每轮都退避（不论通不通）：不通时别连着打，通了也别每 4 s 问一遍。
+            self._probe_backoff = min(
+                max(self._probe_backoff, self.STALL_PROBE_S) * 2.0,
+                self.PROBE_BACKOFF_MAX_S)
+            self._probe_next_at = now + self._probe_backoff
             if ping.get("ok"):
-                # 通了 ⇒ 退避：设备活着，只是拉取停了/慢了。别每 4 s 问一遍。
-                self._probe_backoff = min(
-                    max(self._probe_backoff, self.STALL_PROBE_S) * 2.0,
-                    self.PROBE_BACKOFF_MAX_S)
-                self._probe_next_at = now + self._probe_backoff
+                self._probe_fail_rounds = 0
+                if self._link_dead is not None:
+                    # 设备答话了 ⇒ 之前的"判死"是**误判**，撤销（改版四十七）。
+                    self._link_dead = None
+                    self.bus.log("info", "PING 通过 ⇒ 撤销之前的链路判死（误判）",
+                                 source="mouse")
+                    self.bus.publish("mouse.error", {
+                        "kind": "link_recovered",
+                        "msg": "链路恢复应答，已撤销判死标记",
+                        "hint": "串口一直开着，无需重连。"})
                 self.bus.log(
                     "info",
-                    f"链路复核通过（{reason}）：PING {ping.get('ms')} ms ⇒ 设备在听。"
-                    f"没帧的原因：拉取器在跑就只是慢/停等档本来就低；"
-                    f"拉取器**没在跑**则由自愈补一次（`_revive_reason`），这里不插手。",
+                    f"链路复核通过（{reason}）：PING {ping.get('ms')} ms ⇒ 设备在听。",
                     source="mouse")
                 return {"ok": True, "reason": reason, "ping": ping}
-            self._declare_dead(f"PING 无应答（{reason}）", ping)
-            return {"ok": False, "reason": reason, "ping": ping}
+            # ---- 无应答 ⇒ **多轮确认**（改版四十七：宽松判死）----
+            self._probe_fail_rounds += 1
+            if self._probe_fail_rounds < self.LINK_PROBE_ROUNDS:
+                self.bus.log(
+                    "warn",
+                    f"链路复核第 {self._probe_fail_rounds}/{self.LINK_PROBE_ROUNDS} 轮无应答"
+                    f"（{reason}）⇒ 串口仍开着，继续观察（收到帧即撤销）",
+                    source="mouse")
+                return {"ok": False, "reason": reason, "ping": ping,
+                        "rounds": self._probe_fail_rounds}
+            self._declare_dead(
+                f"连续 {self._probe_fail_rounds} 轮 PING 无应答（{reason}）", ping)
+            return {"ok": False, "reason": reason, "ping": ping,
+                    "rounds": self._probe_fail_rounds}
         finally:
             self._probe_busy = False
 
     def _declare_dead(self, why: str, ping: Optional[Dict[str, Any]] = None) -> bool:
-        """判死：**停流 + 记录收尾 + 标 `link_dead` + 自动断开串口**。
+        """标记"链路已断"——**但不再自动断开串口**（改版四十七）。
 
-        ⚠️ **为什么必须断开**：这条链路断了**不会自愈**（上游 `stream.py` 的原话是
-        "请断电 3~5 s 再重连"），而断链时 `link.is_open` 仍是 `True` ⇒ 界面会一直
-        显示"已连接"，用户点【连接】也不会重新打开串口 ⇒ 人被锁在
-        "看起来连着、其实什么都没有"的状态里。
+        旧行为：`PING×2` 不通就 `mc.disconnect()`，且清掉"想要帧"的意愿。
+        发车/复位时命令占链路 0.9~5.4 s，PING 与 `RATE PULL` 抢同一个 1 ms 窗口，
+        两次被吃就把**活着的链路判死并断开** —— 现场"显示断开、其实收发正常"就是它。
 
-        ⚠️ 走的是 `mc.disconnect()` **不是** `self.disconnect()`：后者会清
-        `_link_dead`，而这里正要把标记留下（界面要显示"已断"以及原因）。
+        新行为（宽松判定）：
+          · 只标 `_link_dead` + 发事件 + 留日志；**串口保持打开**；
+          · **不动 `_pull_mode`**（auto 继续 auto，恢复后自愈接着补）；
+          · **不替用户结束记录**（误判会截断一跑数据；真要收尾走【确认断开】）；
+          · **收到帧会自动撤销**这个标记（见 `_track_frames`）—— 这就是误判兜底。
         """
         if self._link_dead is not None:
-            return False                                      # 幂等：只处置一次
+            return False                                      # 幂等
         at_ms = now_ms()
-        self._link_dead = {"why": why, "at_ms": at_ms, "ping": ping or None}
-        self._want_stream = False                             # 不再"想要帧"
-        self._want_on = False                                 # 意愿也撤：自愈不许再开流
+        self._link_dead = {"why": why, "at_ms": at_ms, "ping": ping or None,
+                           "disconnected": False}
         self._probe_armed = None
-        # 判死是终态：自愈、命令记账一并停（改版四十二）
-        self._revive_pending = False
-        self._revive_tries = 0
-        self._revive_at = 0.0
-        self._cmd_inflight = 0
-        mc = self._mc
-        # ① 先停流：让上游把在途请求丢掉、别再占着串口
-        try:
-            if mc is not None and mc.is_connected:
-                mc.stream.toggle(False)
-        except Exception as e:                                # noqa: BLE001
-            self.bus.log("warn", f"判死后停流失败（继续断开）：{type(e).__name__}: {e}",
-                         source="mouse")
-        # ② 记录收尾：链路断了就是这一跑的终点（不收尾会留一段"永远在记录"）
-        rec = getattr(self, "maze_recorder", None)
-        if rec is not None:
-            try:
-                rec.feed_link_down()
-            except Exception:                                 # noqa: BLE001
-                pass
-        # ③ 告诉界面（`kind=link_dead` 与上游的 `link_lost` **分开**：
-        #    前者是"本层已经验过并断开"，后者是"上游自己报的怀疑"）
         self.bus.publish("mouse.error", {
             "kind": "link_dead",
-            "msg": f"链路判死：{why}",
-            "hint": ("已自动断开串口。给电脑鼠与蓝牙模块**断电 3~5 秒**再重连 —— "
-                     "这条链路实测不会自己恢复，等下去没用。"),
+            "msg": f"链路无应答：{why}",
+            "hint": ("串口**仍开着**；若随后又能出帧，这个标记会自动撤销。"
+                     "确认真的断了，再点【确认断开】重新连接。"),
         })
         self.store.mark("mouse", "link.dead", why,
                         f"ping={json.dumps(ping, ensure_ascii=False) if ping else 'none'}")
-        self.bus.log("error", f"链路判死并已断开：{why}", source="mouse")
-        # ④ 断开串口（最后一步：前面几条都要在"连着"的状态下才做得成）
-        try:
-            if mc is not None and mc.is_connected:
-                mc.disconnect()
-        except Exception as e:                                # noqa: BLE001
-            self.bus.log("warn", f"判死后断开失败（请手动断开）：{type(e).__name__}: {e}",
-                         source="mouse")
+        self.bus.log("warn", f"链路连续无应答，标记为已断（串口未断开）：{why}", source="mouse")
         return True
 
     def _probe_should_run(self, now: float) -> Optional[str]:
@@ -1768,46 +1849,55 @@ class MouseAdapter:
             return None                                       # 用户自己停了拉取，没帧是正常的
         if self._probe_next_at and now < self._probe_next_at:
             return None
-        # 想要帧、但已经 `STALL_PROBE_S` 没见过帧数增长了
-        if self._frame_grow_at and (now - self._frame_grow_at) >= self.STALL_PROBE_S:
+        # 想要帧、但已经 `LINK_SUSPECT_S` 没见过帧数增长了（改版四十七：4→8 s，
+        # 必须大于最长命令让路窗 ≈5.5 s，否则每次发车都被当成断链）
+        if self._frame_grow_at and (now - self._frame_grow_at) >= self.LINK_SUSPECT_S:
             return f"无帧 {int(now - self._frame_grow_at)} s"
         return None
 
     def _revive_reason(self, now: float) -> Optional[str]:
-        """该不该**补开拉取**；该 ⇒ 返回原因，不该 ⇒ `None`。纯内存判定。
+        """该不该**重发 RATE PULL**（补拉取）；该 ⇒ 返回原因，不该 ⇒ `None`。纯内存判定。
 
-        ## 这解决的到底是哪个现象
+        ## 改版四十七：判据从 `is_on` 改成**帧到达**
 
-        `stream.resume()` 的三次 `RATE PULL` 重试用尽后是**静默保持停**
-        （上游的原话："重试用尽就静默保持停，需要时由调用方重新 `start()`"）。
-        而本层前端只在**切页**时调 `syncPull()`，没有周期兜底 ⇒ 发完车不切页，
-        帧就**再也回不来**，界面停在最后一帧不动 —— 现场看到的就是
-        "发车开始一小段时间接收不到数据"（其实是不切页就一直收不到）。
+        旧逻辑要求 `st["off"]`（`is_on is False`）才补 —— 但发车时上游
+        `suspend()→RATE OFF→MAZE RUN→resume(RATE PULL×3)` 里，首条 `RATE PULL`
+        常被固件 1 ms 命令窗吃掉：`resume()` 返回后 **`is_on=True`、设备却没在发**。
+        于是 `off=False` ⇒ 永不补 ⇒ **发完车只能手动开**（现场原话）。
 
-        ## 为什么必须等 `REVIVE_GAP_S`
+        现在只问一件事：**最近 `REVIVE_IF_NO_FRAME_S` 内有没有收到新帧**。
+        没收到 ⇒ 不管 `is_on` 说什么，都重发 `RATE PULL`。
 
-        `resume()` 自己正在重试（最多约 6 s）。这期间插一条 `RATE PULL` 进去，
-        两边抢同一个 1 ms 命令窗口 ⇒ 谁都不成，还多花一趟。所以：
-        先确认"拉取器没在跑"且"链路**最近**没被命令占过"（≥2.5 s），再补。
-        `_cmd_exit()` 会在命令刚回来时把 `_revive_at` 归零（`resume()` 已经结束，
-        不必再等），但 `_cmd_exit_at` 的 `CMD_QUIET_S` 仍会压住 1 s。
+        ## 无上限、只拉长间隔
+
+        `resume()` 自己的三次重试用尽后是**静默保持停**（上游原话）。旧逻辑
+        `REVIVE_MAX=2` 补两次就停手 —— 那等于"又交给手动"。现在只退避
+        （`REVIVE_GAP_S` 起，×2 到 `REVIVE_GAP_MAX`），**不放弃**。
+
+        ## 手动最高
+
+        `_pull_mode != "auto"`（用户按了【结束】）⇒ 一次都不补。自动永远不许
+        把人的决定改回来。
         """
         if self._link_dead is not None or self._cmd_inflight > 0:
             return None
-        if not self._want_on or not self._revive_pending:
-            return None
-        if self._revive_tries >= self.REVIVE_MAX:
-            return None
-        if self._revive_at and now < self._revive_at:
+        if self._pull_mode != "auto":
             return None
         if self._cmd_exit_at and (now - self._cmd_exit_at) < self.CMD_QUIET_S:
             return None
         if self._held_seen_at and (now - self._held_seen_at) < self.REVIVE_GAP_S:
             return None
-        st = self._pull_state()
-        if st["held"] or not st["off"]:
+        # 核心：最近还在收帧 ⇒ 拉取在正常工作，别动它。
+        if self._frame_grow_at and (now - self._frame_grow_at) < self.REVIVE_IF_NO_FRAME_S:
             return None
-        return f"想要帧但上游拉取器没在跑（{self._revive_tries}/{self.REVIVE_MAX}）"
+        if self._revive_at and now < self._revive_at:
+            return None
+        st = self._pull_state()
+        if st["held"]:
+            return None
+        gap = int(now - self._frame_grow_at) if self._frame_grow_at else -1
+        return (f"auto 模式下 {gap if gap >= 0 else '?'} s 没收到帧"
+                f"（is_on={st['on']}）")
 
     def _safe_stream_on(self) -> Optional[Dict[str, Any]]:
         """补开拉取（**同步，必须在 executor 里调**）。失败只留日志，绝不抛出。"""
@@ -1848,7 +1938,9 @@ class MouseAdapter:
 
         ## 但有一个本层能消掉的坑
 
-        发车时如果拉取本来就**没在跑**（`auto_stream: false`，拉取按页开门）：
+        发车时如果拉取本来就**没在跑**（写这段时 `auto_stream: false`、拉取按页开门；
+        改版四十七已改默认常开，但"没在跑"仍会发生：人手动停过、或 `resume()` 后首条
+        `RATE PULL` 被 1 ms 命令窗吃掉）：
         `suspend()` 直接返回、`resume()` 成为空操作 ⇒ 发完车**仍然不拉**，
         要等页面切走再切回（前端 `syncPull()` 只在切页/启动调用，没有周期兜底）。
         记录 `20261022_162357` 开头正是这样：帧 0/1 正常，帧 1→2 断了 **949 ms**，
@@ -1942,6 +2034,9 @@ class MouseAdapter:
             "degraded": bool(mc.conn.is_degraded()) if mc.is_connected else None,
             "session_open": mc.session.is_open,
             "stream_on": bool(mc.stream.is_on),
+            # 用户意图（改版四十七）："auto"=持续拉 / "off"=手动停（粘住）。
+            # 前端据此决定要不要自动开流；`stream_on` 才是设备这一刻的实况。
+            "pull_mode": self._pull_mode,
         }
         # ---- 1.2/1.3/1.4 新增的状态位（老上游没有就不给这个键）
         out["connect_in_flight"] = self._connecting.locked()
@@ -3577,23 +3672,20 @@ class MouseAdapter:
             why2 = self._revive_reason(time.monotonic())
             if why2:
                 self._revive_tries += 1
-                self._revive_at = time.monotonic() + self.REVIVE_GAP_S
-                self.bus.log("warn", f"{why2} ⇒ 补开拉取（第 {self._revive_tries} 次）",
-                             source="mouse")
+                # 无上限重试，只拉长**间隔**（改版四十七）。原来补 2 次就静默停手，
+                # 现场就是"发完车只能手动开"。
+                self._revive_backoff = min(
+                    max(self.REVIVE_GAP_S, self._revive_backoff * 2.0),
+                    self.REVIVE_GAP_MAX)
+                self._revive_at = time.monotonic() + self._revive_backoff
+                self.bus.log("warn",
+                             f"{why2} ⇒ 重发 RATE PULL（第 {self._revive_tries} 次，"
+                             f"间隔 {self._revive_backoff:.1f} s）", source="mouse")
                 try:
                     await asyncio.get_running_loop().run_in_executor(
                         None, self._safe_stream_on)
                 except Exception as e:                        # noqa: BLE001
                     self.bus.log("warn", f"补开拉取失败：{type(e).__name__}: {e}", source="mouse")
-                if self._revive_tries >= self.REVIVE_MAX and not self._pull_state()["on"]:
-                    # 补两次还起不来 ⇒ **停手**（再多就是命令风暴），但要说清下一步：
-                    # 静默放弃的话，现场只看到"帧再也没有了"，没有任何线索。
-                    self.bus.log(
-                        "warn",
-                        f"补开拉取 {self.REVIVE_MAX} 次都没成 ⇒ 停手。"
-                        f"请到【实时状态】页把拉取【停止】再【开始】一次；仍不行就"
-                        f"【断开】再【连接】（串口不用拔）。",
-                        source="mouse")
                 if self._link_dead is not None:
                     continue
             # 实测速率 + 逐批明细：**不跟着"有没有订阅者"走**（改版二十七）。
@@ -3673,7 +3765,20 @@ class MouseAdapter:
             # 帧回来了 ⇒ 自愈这件事办成了，计数归零（下一次"没在跑"要重新计数）
             self._revive_tries = 0
             self._revive_at = 0.0
+            self._revive_backoff = 0.0
             self._revive_pending = False
+            # ---- 改版四十七：收到帧 = 链路绝对活着 ⇒ **撤销一切"断链"判断**。
+            # 这是"宽松判死"的兜底：就算之前误判过，只要又开始出帧就当场恢复，
+            # 绝不让人对着一个"显示断开、其实有数据"的界面去断电重连。
+            self._probe_fail_rounds = 0
+            if self._link_dead is not None:
+                self._link_dead = None
+                self.bus.log("info", "收到新帧 ⇒ 撤销链路判死标记（之前是误判）",
+                             source="mouse")
+                self.bus.publish("mouse.error", {
+                    "kind": "link_recovered",
+                    "msg": "重新收到遥测帧，链路正常",
+                    "hint": "判死标记已自动清除，串口未断。"})
 
     async def _maybe_finish_maze_rec(self) -> None:
         """看到自动收尾标记就落盘。失败只记一行日志 —— **绝不让它把采样循环打停**。"""

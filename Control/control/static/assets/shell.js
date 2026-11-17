@@ -51,7 +51,12 @@
     const h = S.health;
     if (kind === 'mouse') {
       if (!h.mouse.available) return { cls: 'bad', txt: '模块缺失' };
-      if (h.mouse.connected) return { cls: 'ok', txt: h.mouse.port || '已连接' };
+      if (h.mouse.connected) {
+        /* 改版四十七：**串口开着 ≠ 链路正常**。按后端统一状态上色，别一概"已连接"。 */
+        if (h.mouse.linkState === 'dead') return { cls: 'bad', txt: '链路无应答' };
+        if (h.mouse.linkState === 'suspect') return { cls: 'warn', txt: '链路疑似' };
+        return { cls: 'ok', txt: h.mouse.port || '已连接' };
+      }
       if (h.mouse.connect_in_flight) return { cls: 'warn', txt: '连接未返回' };
       return { cls: 'warn', txt: '未连接' };
     }

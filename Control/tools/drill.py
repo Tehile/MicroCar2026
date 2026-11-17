@@ -310,11 +310,9 @@ def _mouse_sections(base: str, args, sim) -> None:
         return
     record("S6", "PASS", f"服务端已连上模拟器：{(r.get('data') or {}).get('device')}")
 
-    # ⚠️ 改版三十一：连上**不再自动拉取**（`auto_stream: false`），而下面这几条
-    #    （I16 读参数、I15 看记录样本、I17 看丢帧计数）都**需要链路在跑**：
-    #    停流时上游 `GET ALL` 会 3 s 超时 ⇒ 参数表空，看起来像"固件没参数"。
-    #    所以这里显式开流，并把档设回停等（n=1）—— 与"页面按需拉取"不矛盾，
-    #    这一段本来就是"跟上游更新"的联调段。
+    # ⚠️ 改版四十七：连上**默认常开**（`auto_stream: true`）。下面几条
+    #    （I16 读参数、I15 看记录样本、I17 看丢帧计数）都需要链路在跑，这里仍**显式
+    #    确认一次**（幂等），并把档设回停等（n=1）—— 这一段本来就是"跟上游更新"的联调段。
     api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 1, "t_ms": 100})
     _rs0, _cs0, _ = api(base, "/api/v1/mouse/stream", "POST", {"on": True})
     record("S6b", "PASS" if _cs0 == 200 and (_rs0.get("data") or {}).get("on") else "FAIL",
@@ -951,13 +949,12 @@ def _mouse_sections(base: str, args, sim) -> None:
            f"{(float(tl['value']) / 100.0) if tl.get('value') is not None else None}"
            f"、只读={sl.get('readable') is False}、groups_meta 合计与 count 一致={meta_ok}")
 
-    # ⑦e 按需拉取（改版三十一）—— **六段，正反都有**
-    #     ① 连上后**不该**自动拉（`auto_stream: false`）；
+    # ⑦e 拉取总闸（改版四十七）—— **正反都有**
+    #     ① 人工停（不带 auto）要真停；
     #     ② 关着的时候改 N 要能改、且如实说"还没生效"（`effective=false`）；
     #     ③ 再开流必须**按新档开**（`applied_n`，不是先按 1 开再改）；
-    #     ④ 人工停（不带 auto）照停 —— 那是排障手段；
-    #     ⑤ 记录中"自动停"要被**扣留**（否则切个页面就把这一跑的遥测砍了）；
-    #     ⑥ 没有记录、车也不跑时，自动停要真停（不许一律扣留）。
+    #     ④ 自动停（带 auto）**一律忽略** —— 默认常开，页面无权关流；
+    #     ⑤ 人工停之后，自动停**不许**把它改回 auto（手动最高）。
     def _stream(on=None, auto=None):
         body = {}
         if on is not None:
@@ -973,12 +970,7 @@ def _mouse_sections(base: str, args, sim) -> None:
             return False
         return bool((( _h.get("data") or {}).get("mouse") or {}).get("stream_on"))
 
-    _rs, _cs, _ = api(base, "/api/v1/session")
-    sess_now = ((_rs.get("data") or {}).get("session")) if _cs == 200 else None
-    if sess_now:
-        # 有会话开着就别在这里收（那是别人的状态）；⑤⑥ 两段记为判不了
-        pass
-    d_off, c_off = _stream(False)
+    d_off, c_off = _stream(False)                 # 人工停
     first_off = (c_off == 200 and d_off.get("on") is False and not _stream_on())
     d_n, c_n, _ = api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 3, "t_ms": 100})
     n_off = d_n.get("data") or {}
@@ -990,43 +982,32 @@ def _mouse_sections(base: str, args, sim) -> None:
     caps_on, _c_caps, _ = api(base, "/api/v1/caps")
     kind_on = ((caps_on.get("data") or {}).get("mouse") or {}).get("pull") or {}
     pace_ok = (kind_on.get("kind") == "pace" and kind_on.get("n") == 3)
-    d_manual, c_manual = _stream(False)
+    d_manual, c_manual = _stream(False)           # 人工停
     manual_ok = (c_manual == 200 and d_manual.get("on") is False
                  and not d_manual.get("kept") and not _stream_on())
-    # ⑤ 记录中自动停 ⇒ 扣留
-    rec_kept = None
-    d_k: dict = {}
-    if not sess_now:
-        _, cs_o, _ = api(base, "/api/v1/session/open", "POST", {})
-        if cs_o == 200:
-            _stream(True)                       # 开记录本身会兜底开流，这里显式再开一次
-            d_k, c_k = _stream(False, auto=True)
-            rec_kept = (c_k == 200 and d_k.get("kept") is True
-                        and d_k.get("reason") == "recording" and _stream_on())
-            api(base, "/api/v1/session/close", "POST", {})
-    # ⑥ 无条件自动停（此时没有会话）
-    if sess_now:
-        idle_ok = None
-    else:
-        _stream(True)
-        d_i, c_i = _stream(False, auto=True)
-        idle_ok = (c_i == 200 and d_i.get("on") is False
-                   and not d_i.get("kept") and not _stream_on())
+    # ⑤ 自动停 ⇒ **一律忽略**（默认常开，改版四十七；与"记不记录"无关）
+    _stream(True)
+    d_k, c_k = _stream(False, auto=True)
+    auto_kept = (c_k == 200 and d_k.get("kept") is True
+                 and d_k.get("reason") == "always_on" and _stream_on())
+    # ⑥ 人工停后，自动停**不许**把模式改回 auto（手动最高）
+    _stream(False)                                # 人工停
+    d_i, c_i = _stream(False, auto=True)          # 自动停
+    sticky = (c_i == 200 and not _stream_on() and d_i.get("kept") is True)
     # 收尾：别把环境留在批式/开流状态
     _stream(False)
     api(base, "/api/v1/mouse/stream/batch", "POST", {"n": 1, "t_ms": 100})
 
-    i43_ok = first_off and n_ok and on_ok and pace_ok and manual_ok and idle_ok is not False
-    if rec_kept is not None:
-        i43_ok = i43_ok and rec_kept
+    i43_ok = bool(first_off and n_ok and on_ok and pace_ok and manual_ok
+                  and auto_kept and sticky)
     record("I43", "PASS" if i43_ok else "FAIL",
-           f"按需拉取：停流={first_off}、关流改 n=3（effective=False）={n_ok}、"
+           f"默认常开：人工停={first_off}、关流改 n=3（effective=False）={n_ok}、"
            f"带档开流 applied_n={d_on.get('applied_n')} on={d_on.get('on')}={on_ok}、"
            f"caps.pull={kind_on.get('kind')}/n={kind_on.get('n')}={pace_ok}；"
-           f"人工停={manual_ok}；"
-           f"记录中自动停被扣留={rec_kept}（reason={d_k.get('reason')}）；"
-           f"空闲时自动停真停={idle_ok}"
-           + ("" if i43_ok else " ⇒ **要么没按 N 开流，要么把'自动停'当成了'人工停'**"))
+           f"人工停={manual_ok}；自动停被忽略（reason={d_k.get('reason')}）={auto_kept}；"
+           f"人工停粘住（自动停不改回 auto）={sticky}"
+           + ("" if i43_ok else
+              " ⇒ 要么没按 N 开流，要么让'自动停'把流关了/把人工停改回来了"))
 
     # ---- I44：`record/start` 自己会把拉取开起来（改版三十三）
     # 为什么单列一条：记录器**只在收到帧时才写文件**，所以"界面说已开始记录、跑完一条
@@ -2096,7 +2077,11 @@ def main(argv=None) -> int:
         ad._revive_at = 0.0
         ad._revive_tries = 0
         ad._revive_pending = False
+        ad._revive_backoff = 0.0
         ad._want_on = False
+        # 改版四十七：拉取总闸与宽松判死
+        ad._pull_mode = "auto"
+        ad._probe_fail_rounds = 0
         ad._mc = _FakeMC()
         ad.bus = _FakeBus()
         ad.store = _FakeStore()
@@ -2143,70 +2128,81 @@ def main(argv=None) -> int:
     except Exception as e:                                    # noqa: BLE001
         record("I56", "FAIL", f"帧率口径单测没跑起来：{type(e).__name__}: {e}")
 
-    # ---- I57 上游报 link_lost / 超时判死 ⇒ 停流 + 收尾 + 标死 + 断开（且幂等）
+    # ---- I57 宽松判死：**只标记、不断串口、不收尾、不动 auto**（改版四十七）
+    # 旧行为 PING×2 不通就 disconnect + 收尾，把活链路判死；现场"显示断开、收发正常"。
     try:
         ad = _mk()
         mc = ad._mc
         mc.stream.is_on = True
         ad._want_stream = True
+        ad._pull_mode = "auto"
         first = ad._declare_dead("测试判死")
         dead = ad.link_health()
         pubs = [p for p in ad.bus.pub
                 if p[0] == "mouse.error" and (p[1] or {}).get("kind") == "link_dead"]
         i57_ok = bool(first
-                      and mc.stream.toggles == [False]       # ① 停流（一次，且是 False）
-                      and ad.maze_recorder.down == 1         # ② 记录收尾
-                      and mc.disconnects == 1                # ③ 串口断开
-                      and dead.get("link_dead")              # ④ 界面能读到"已判死"
-                      and dead.get("want_stream") is False   #    不再"想要帧"
+                      and mc.stream.toggles == []            # ① **不停流**
+                      and ad.maze_recorder.down == 0         # ② **不收尾**（误判会截断一跑）
+                      and mc.disconnects == 0                # ③ **不断串口**
+                      and dead.get("link_dead")              # ④ 界面能读到"无应答"
+                      and dead.get("mode") == "auto"         #    不动人的决定
                       and len(pubs) == 1)                    # ⑤ 前端收得到
-        # 幂等：再判一次**什么都不做**（否则会重复发 WS、重复断串口）
         again = ad._declare_dead("再来一次")
-        idem = (again is False and mc.disconnects == 1 and ad.maze_recorder.down == 1
+        idem = (again is False and mc.disconnects == 0 and ad.maze_recorder.down == 0
                 and len(ad.bus.pub) == 1)
-        i57_ok = bool(i57_ok and idem)
+        # ⑥ 收到帧 ⇒ 自动撤销（误判兜底）—— 这是"更宽松"的关键
+        mc.telemetry.n = 3
+        ad._track_frames(mc)
+        recovered = ad.link_health().get("link_dead") is None
+        i57_ok = bool(i57_ok and idem and recovered)
         record("I57", "PASS" if i57_ok else "FAIL",
-               f"停流={mc.stream.toggles}、记录收尾 {ad.maze_recorder.down} 次、"
-               f"断开 {mc.disconnects} 次、link_dead={bool(dead.get('link_dead'))}、"
-               f"want_stream={dead.get('want_stream')}、WS 通知 {len(pubs)} 条；幂等={idem}"
+               f"停流={mc.stream.toggles}（应空）、记录收尾 {ad.maze_recorder.down} 次（应 0）、"
+               f"断开 {mc.disconnects} 次（应 0）、link_dead={bool(dead.get('link_dead'))}、"
+               f"mode={dead.get('mode')}、WS {len(pubs)} 条；幂等={idem}；出帧即撤销={recovered}"
                + ("" if i57_ok else
-                  " ⇒ 链路死了却不停流 ⇒ 采样循环会把**同一帧**每 100 ms 再推一遍"
-                  "（界面上的数字看着在变，设备早已没答话）"))
+                  " ⇒ 判死又自动断串口/收尾 ⇒ 误判一次就截断一跑数据、把活链路弄断"))
     except Exception as e:                                    # noqa: BLE001
         record("I57", "FAIL", f"判死单测没跑起来：{type(e).__name__}: {e}")
 
-    # ---- I58 复核时机：无帧才查、复位宽限、被点名优先、PING 不通才判死
+    # ---- I58 复核时机：无帧才查、复位宽限、被点名优先、**连续多轮**才判死
     try:
         ad = _mk()
+        mc = ad._mc
+        mc.stream.is_on = True
         now = time.monotonic()
         ad._want_stream = True
-        ad._frame_grow_at = now - 5.0
+        ad._frame_grow_at = now - 9.0            # ≥ LINK_SUSPECT_S(8) 才算"该查"
         r_stall = ad._probe_should_run(now)                    # 该查
         ad._reset_at = now - 1.0                               # 刚复位 1 s ⇒ 宽限内
         r_grace = ad._probe_should_run(now)
         ad._reset_at = now - 5.0                               # 宽限已过 ⇒ 该查
         r_after = ad._probe_should_run(now)
-        # 被点名（命令超时 / 上游 link_lost）时**无视 want_stream**：
-        # 否则用户一停流，"上游说断链"就再没人管。
+        # 被点名（命令超时 / 上游 link_lost）时**无视 want_stream**
         ad._want_stream = False
         ad._probe_armed = (now, "upstream:link_lost")
         r_armed = ad._probe_should_run(now)
-        # PING 不通 ⇒ 真的判死
+        # PING 不通 ⇒ **连续 3 轮**才判死（宽松）。一轮只标黄。
         ad._probe_armed = None
         ad._reset_at = 0.0
         ad._probe_last = 0.0
+        ad._frame_grow_at = now - 9.0
         ad.verify_link = lambda tries=None: {"ok": False, "tries": 2,
                                              "status": "TIMEOUT", "ms": 2}
         ad._probe_once("测试超时")
+        yellow = (ad.link_health().get("link_dead") is None
+                  and ad.link_health().get("state") == "suspect")
+        ad._probe_once("测试超时")
+        ad._probe_once("测试超时")
         dead_after = ad.link_health().get("link_dead") is not None
-        i58_ok = bool(r_stall and not r_grace and r_after and r_armed and dead_after)
+        i58_ok = bool(r_stall and not r_grace and r_after and r_armed and yellow and dead_after)
         record("I58", "PASS" if i58_ok else "FAIL",
-               f"无帧 5 s⇒{r_stall!r}；复位后 1 s⇒{r_grace!r}（应为 None）；"
+               f"无帧 9 s⇒{r_stall!r}；复位后 1 s⇒{r_grace!r}（应为 None）；"
                f"复位后 5 s⇒{r_after!r}；被点名（want_stream=False）⇒{r_armed!r}；"
-               f"PING 不通后已判死={dead_after}"
+               f"1 轮=黄={yellow}；3 轮后判死={dead_after}"
                + ("" if i58_ok else
                   " ⇒ 要么复位瞬间就被判成断链（车正常重启却要人断电重连），"
-                  "要么停流之后上游报的 link_lost 无人复核"))
+                  "要么停流之后上游报的 link_lost 无人复核，"
+                  "要么一轮无应答就判死（PING 被命令窗口吃掉即误伤）"))
     except Exception as e:                                    # noqa: BLE001
         record("I58", "FAIL", f"复核时机单测没跑起来：{type(e).__name__}: {e}")
 
@@ -2250,6 +2246,7 @@ def main(argv=None) -> int:
         o = {}
         # ① 本层自己登记的命令在途
         ad = _mk()
+        ad._mc.stream.is_on = True                   # 拉取"在跑" ⇒ 不是 off 分支
         ad._want_stream = True
         ad._want_on = True
         ad._frame_grow_at = time.monotonic() - 9.0            # 早就"该查"了
@@ -2257,14 +2254,16 @@ def main(argv=None) -> int:
         o["inflight"] = ad._probe_should_run(time.monotonic())
         # ② 上游拉着链路（本层没包装的 urgent 命令，如 ESTOP / MOVE / PARAMS SAVE）
         ad2 = _mk()
+        ad2._mc.stream.is_on = True
         ad2._want_stream = True
         ad2._want_on = True
         ad2._frame_grow_at = time.monotonic() - 9.0
         ad2._mc.stream._suspends = 1                          # 让路计数 >0
         o["held"] = ad2._probe_should_run(time.monotonic())
         o["held_stamped"] = ad2._held_seen_at > 0
-        # ③ `_cmd_exit` 必须把"停帧计时"挪到**放手那一刻**（否则命令刚回来就 ≥4 s）
+        # ③ `_cmd_exit` 必须把"停帧计时"挪到**放手那一刻**（否则命令刚回来就 ≥8 s）
         ad3 = _mk()
+        ad3._mc.stream.is_on = True
         ad3._want_stream = True
         ad3._want_on = True
         ad3._frame_grow_at = time.monotonic() - 20.0
@@ -2314,45 +2313,49 @@ def main(argv=None) -> int:
     except Exception as e:                                    # noqa: BLE001
         record("I61", "FAIL", f"误报清理单测没跑起来：{type(e).__name__}: {e}")
 
-    # ---- I62 拉取自愈：想要帧却**没在跑** ⇒ 补一次；人明确停了 ⇒ 绝不补
-    # 为什么必须有：`resume()` 三次重试用尽后是**静默保持停**（上游原话），而前端
-    # 只在切页时调 `syncPull()` ⇒ 发完车不切页，帧再也回不来。
-    # 负向同样重要：不留"人停了它还自己开"的口子 —— 那正是改版四十一拆掉的行为。
+    # ---- I62 拉取自愈（改版四十七）：按**帧**判、无上限、手动最高
+    # ① 发车 resume 后 `is_on=True` 但没帧（首条 RATE PULL 被吃）⇒ **仍要补**
+    #    —— 旧逻辑看 `is_on` 就永远不补，这是"发完车只能手动开"的病根。
+    # ② 手动停（`_pull_mode="off"`）⇒ 一次都不补。
     try:
         ad = _mk()
         mc = ad._mc
         now = time.monotonic()
+        mc.stream.is_on = True             # is_on 骗人：说在跑，其实没帧
+        ad._pull_mode = "auto"
         ad._want_on = True
-        ad._revive_pending = True
+        ad._frame_grow_at = now - 30.0     # 30 s 没帧
         ad._cmd_exit_at = now - 10.0
         ad._held_seen_at = now - 10.0
-        r_need = ad._revive_reason(now)                       # 该补
-        # ① 人明确停了（`_want_on=False`）⇒ 不补，且**一条开流命令都不许发**
-        ad._want_on = False
+        r_need = ad._revive_reason(now)                       # 该补（尽管 is_on=True）
+        # ① 手动停 ⇒ 不补
+        ad._pull_mode = "off"
         r_stop = ad._revive_reason(now)
         no_open = (mc.stream.toggles == [])
-        # ② 命令刚放手 1 s 内 ⇒ 不补（让 resume 自己那三次重试先跑完）
-        ad._want_on = True
+        # ② 命令刚放手 1 s 内 ⇒ 不补
+        ad._pull_mode = "auto"
         ad._cmd_exit_at = now - 0.2
         r_quiet = ad._revive_reason(now)
-        # ③ 补满 REVIVE_MAX 次 ⇒ 停手（补多了就是命令风暴，比慢一点更糟）
+        # ③ **没有上限**：补过很多次也不放弃（只拉长间隔）
         ad._cmd_exit_at = now - 10.0
-        ad._revive_tries = ad.REVIVE_MAX
-        r_max = ad._revive_reason(now)
-        # ④ 帧回来了 ⇒ 意愿与计数一起归零（下一次"没在跑"要重新计数）
-        ad._track_frames(mc)
+        ad._revive_tries = 99
+        ad._revive_at = 0.0
+        r_many = ad._revive_reason(now)
+        # ④ 帧回来了 ⇒ 计数/退避一起归零（下一次"没帧"重新算）
+        ad._track_frames(mc)               # 先建基线
         mc.telemetry.n = 5
         ad._track_frames(mc)
-        reset_ok = (ad._revive_pending is False and ad._revive_tries == 0)
+        reset_ok = (ad._revive_backoff == 0.0 and ad._probe_fail_rounds == 0)
         ok62 = bool(r_need and r_stop is None and no_open and r_quiet is None
-                    and r_max is None and reset_ok)
+                    and r_many and reset_ok)
         record("I62", "PASS" if ok62 else "FAIL",
-               f"想要帧+没在跑⇒{r_need!r}；人停了⇒{r_stop!r}（应 None，开流命令="
-               f"{mc.stream.toggles!r}）；命令刚放手⇒{r_quiet!r}（应 None）；"
-               f"补满 {ad.REVIVE_MAX} 次⇒{r_max!r}（应 None）；帧回来后计数归零={reset_ok}"
+               f"is_on=True 但 30 s 没帧⇒{r_need!r}（应补）；手动停⇒{r_stop!r}"
+               f"（应 None，开流命令={mc.stream.toggles!r}）；命令刚放手⇒{r_quiet!r}"
+               f"（应 None）；补 99 次后仍补={bool(r_many)}；帧回来归零={reset_ok}"
                + ("" if ok62 else
-                  " ⇒ 要么 resumer 失败后再也没人把拉取开回来（发完车一直没数据），"
-                  "要么替人把刚停掉的流又开回来（「我明明停了它又活了」）"))
+                  " ⇒ 要么看 is_on 不补（发完车永远没数据），"
+                  "要么替人把刚停掉的流又开回来，"
+                  "要么补几次就静默放弃"))
     except Exception as e:                                    # noqa: BLE001
         record("I62", "FAIL", f"拉取自愈单测没跑起来：{type(e).__name__}: {e}")
 

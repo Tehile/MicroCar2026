@@ -76,8 +76,9 @@
           /* 右：发车 + 冲刺 + 状态机 */
           '<div class="stack race-side">' +
             '<section class="card launch-card">' +
-              /* 拉取小面板（改版四十一）：这一页改成**半手动**——进页开一次
-                 （`NEED_PULL.race`），之后停车/收车/复位就停，看门狗**不再补**。
+              /* 拉取小面板（改版四十一，四十七改口径）：拉取**默认常开**，这一页
+                 不再有"进页开一次"的特权；面板留在这里是因为发车前要能一眼看到
+                 帧龄/帧率，以及那个人工【结束】的位置（手动停粘住到本会话结束）。
                  面板压成一行塞在卡片顶部：中栏地图吃高度，右栏一滚就看不到发车按钮。 */
               '<div id="rc-pull"></div>' +
               '<div>' +
@@ -148,10 +149,6 @@
 
       /* 拉取小面板（与实时页同一套门控：切 N 必须先停流） */
       this._pp = C.pullPanel(root.querySelector('#rc-pull'));
-      /* 停车判据的**基线**：跳变才有意义，所以挂载时先记一份现值。 */
-      this._wasRun = S.running;
-      this._wasRec = !!S.rec.on;
-      this._pullStopAt = 0;
       /* 收车/复位这条待办（改版四十三）。`null` = 没有在等任何东西。
          `{kind:'stop'|'reset', at, phase:'cmd'|'watch', t0, res}`：
            cmd   = 命令已下发、还没回来（这期间界面必须给反馈，不许静默）；
@@ -457,29 +454,9 @@
 
       /* 拉取小面板（改版四十一）：与实时页同源的数字，只是压成一行。 */
       if (this._pp) this._pp.paint();
-      /* ── 停车 ⇒ 停拉取（本页"半手动"的落法）────────────────────────────
-         三个来路取"或"，**跳变**才触发（不是电平）：
-           ① 记录自动收尾（`S.rec.on` 真→假）—— 后端权威：车停/回 WAIT/断链/超帧数；
-           ② 任务机退出（`S.running` 真→假）。
-         ③ 点【收车】/【复位】在两个 onclick 里直接调（见 `stopPullOnce`）。
-         为什么必须是跳变：取电平的话，只要车没在跑就会一直发"停拉取"，
-         而人刚按了【开始】就会被立刻停掉 —— 这正是"命令挤压"的另一种形态。 */
-      const wasRun = this._wasRun, wasRec = this._wasRec;
-      this._wasRun = S.running;
-      this._wasRec = !!S.rec.on;
-      if ((wasRun && !S.running) || (wasRec && !S.rec.on)) this.stopPullOnce();
-    },
-
-    /* 停拉取**只停一次**（1 s 去抖）。
-       三条来路可能在同一拍里都成立（收车后 `running` 与 `rec.on` 一起变假），
-       不去抖就会连发两三条约等于同一件事的命令，而停等链路上每条都要一次往返。 */
-    stopPullOnce() {
-      const now = Date.now();
-      if (this._pullStopAt && (now - this._pullStopAt) < 1000) return;
-      if (!S.pulling) return;
-      this._pullStopAt = now;
-      C.log('mouse', 'info', '车已停 ⇒ 比赛页停拉取（半手动，发车时后端会自动开回来）');
-      C.setPull(false, null, { quiet: true });
+      /* 改版四十七：**收车/停车/记录收尾都不再关流**（拉取默认常开，只有人按
+         【结束】才停）。这里原先记 `_wasRun`/`_wasRec` 的跳变去停流 —— 两个字段
+         与那三个分支一起删掉了：留着它们只会让下一个人以为"这页还在管拉取"。 */
     },
 
     /* ── 收车/复位：点击即反馈，停流放到确认之后（改版四十三）────────────────
@@ -546,7 +523,6 @@
         const why = (e && (e.detail || e.message)) || '命令未返回结果';
         this._pend = null;
         C.toast('bad', isStop ? '收车失败' : '复位失败', why);
-        this.stopPullOnce();
         this.paint(true);
       };
       if (p && p.then) p.then(done, bad); else done(null);
@@ -558,7 +534,6 @@
       this._pend = null;
       C.toast(ok ? 'ok' : 'warn', title, note || '');
       if (!ok) C.log('mouse', 'warn', title + (note ? ' · ' + note : ''));
-      this.stopPullOnce();
     },
 
     /* 观察窗的每拍检查（由 `paint()` 顶部调；1 s 心跳 + 每次数据变化都会进来）。
